@@ -1,14 +1,14 @@
 {
-	"name": "@mariozechner/pi-coding-agent",
+	"name": "@aryee/aery",
 	"version": "0.67.68",
-	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
+	"description": "Aery \u2014 AI coding agent by Aryee",
 	"type": "module",
 	"piConfig": {
-		"name": "pi",
-		"configDir": ".pi"
+		"name": "aery",
+		"configDir": ".aery"
 	},
 	"bin": {
-		"pi": "dist/cli.js"
+		"aery": "dist/cli.js"
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -89,11 +89,11 @@
 		"tui",
 		"agent"
 	],
-	"author": "Mario Zechner",
+	"author": "Aryee",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/badlogic/pi-mono.git",
+		"url": "git+https://github.com/eminent337/aery.git",
 		"directory": "packages/coding-agent"
 	},
 	"engines": {

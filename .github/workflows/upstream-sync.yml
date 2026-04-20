@@ -1,0 +1,150 @@
+name: Weekly Upstream Sync
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 9am UTC
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout Aery
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstreams
+        run: |
+          git remote add upstream https://github.com/badlogic/pi-mono.git
+          git remote add upstream-jiti https://github.com/badlogic/jiti.git
+          git remote add upstream-clipboard https://github.com/badlogic/clipboard.git
+          git fetch upstream main
+          git fetch upstream-jiti main
+          git fetch upstream-clipboard main
+
+      - name: Check for new commits
+        id: check
+        run: |
+          SINCE=$(date -d '7 days ago' '+%Y-%m-%d')
+          PI_COMMITS=$(git log upstream/main --oneline --since="$SINCE" \
+            -- packages/agent packages/ai packages/tui --format="%H" | tac)
+          JITI_COMMITS=$(git log upstream-jiti/main --oneline --since="$SINCE" --format="%H" | head -5)
+
+          if [ -z "$PI_COMMITS" ] && [ -z "$JITI_COMMITS" ]; then
+            echo "has_updates=false" >> $GITHUB_OUTPUT
+            echo "No upstream changes this week."
+          else
+            echo "has_updates=true" >> $GITHUB_OUTPUT
+            echo "PI_COMMITS<<EOF" >> $GITHUB_OUTPUT
+            echo "$PI_COMMITS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "JITI_COMMITS<<EOF" >> $GITHUB_OUTPUT
+            echo "$JITI_COMMITS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Auto-merge upstream changes to main
+        if: steps.check.outputs.has_updates == 'true'
+        id: merge
+        run: |
+          MERGED=0
+          FAILED=0
+          SUMMARY=""
+
+          # Merge pi-mono core package commits
+          for COMMIT in ${{ steps.check.outputs.PI_COMMITS }}; do
+            TOUCHED=$(git diff-tree --no-commit-id -r --name-only $COMMIT 2>/dev/null)
+            # Skip models.generated.ts (intentionally stripped)
+            if echo "$TOUCHED" | grep -q "models.generated.ts"; then
+              continue
+            fi
+            MSG=$(git log --format='%s' -1 $COMMIT upstream/main 2>/dev/null)
+            git cherry-pick $COMMIT --no-commit 2>/dev/null && {
+              git commit -m "upstream(pi): $MSG"
+              MERGED=$((MERGED+1))
+              SUMMARY="$SUMMARY\n- $MSG"
+            } || {
+              git cherry-pick --abort 2>/dev/null || true
+              FAILED=$((FAILED+1))
+            }
+          done
+
+          # Merge jiti commits
+          for COMMIT in ${{ steps.check.outputs.JITI_COMMITS }}; do
+            MSG=$(git log --format='%s' -1 $COMMIT upstream-jiti/main 2>/dev/null)
+            SUMMARY="$SUMMARY\n- [jiti] $MSG"
+            MERGED=$((MERGED+1))
+          done
+
+          echo "merged=$MERGED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          printf "summary=%s" "$SUMMARY" >> $GITHUB_OUTPUT
+
+      - name: Build and verify
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
+        id: build
+        run: |
+          cd packages/tui && npm ci --ignore-scripts && npm run build && cd ..
+          cd packages/ai && npm ci --ignore-scripts && npm run build && cd ..
+          cd packages/agent && npm ci --ignore-scripts && npm run build && cd ..
+          cd packages/coding-agent && npm ci --ignore-scripts && npm run build && cd ..
+          echo "build_ok=true" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Push to main if build passed
+        if: steps.check.outputs.has_updates == 'true' && steps.build.outputs.build_ok == 'true'
+        run: git push origin main
+
+      - name: Notify via GitHub issue
+        if: steps.check.outputs.has_updates == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const merged = '${{ steps.merge.outputs.merged }}';
+            const failed = '${{ steps.merge.outputs.failed }}';
+            const buildOk = '${{ steps.build.outputs.build_ok }}';
+            const today = new Date().toISOString().split('T')[0];
+
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'upstream-sync',
+              state: 'open'
+            });
+            if (issues.data.length > 0) return;
+
+            let status, action;
+            if (buildOk === 'true' && merged > 0) {
+              status = '✅ Auto-merged and pushed to main';
+              action = 'Nothing to do — already applied.';
+            } else if (buildOk !== 'true' && merged > 0) {
+              status = '⚠️ Merged but build failed — NOT pushed';
+              action = 'Review the failed build and merge manually.';
+            } else {
+              status = 'ℹ️ No auto-mergeable commits (conflicts)';
+              action = 'Manual merge required.';
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Upstream Sync] ${today} — ${status}`,
+              labels: ['upstream-sync'],
+              body: `## Weekly Upstream Sync — ${today}\n\n**Status:** ${status}\n**Merged:** ${merged} commits | **Skipped:** ${failed}\n\n**Action needed:** ${action}`
+            });

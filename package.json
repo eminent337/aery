@@ -1,5 +1,5 @@
 {
-	"name": "pi-monorepo",
+	"name": "aery-monorepo",
 	"private": true,
 	"type": "module",
 	"workspaces": [
@@ -56,5 +56,6 @@
 		"gaxios": {
 			"rimraf": "6.1.2"
 		}
-	}
+	},
+	"author": "Aryee"
 }

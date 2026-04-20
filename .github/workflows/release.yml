@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ steps.version.outputs.version }}';
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: version,
+              name: `Aery ${version}`,
+              body: `## Aery ${version}\n\n### Install\n\`\`\`bash\ngit clone https://github.com/eminent337/aery\ncd aery/packages/coding-agent\nnpm install && npm run build && npm install -g .\n\`\`\`\n\n### Usage\n\`\`\`bash\naery\n\`\`\`\n\nSee [CHANGELOG.md](https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md) for details.`,
+              draft: false,
+              prerelease: false
+            });
+            console.log(`Released ${version}`);
