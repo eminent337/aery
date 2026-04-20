@@ -1,7 +1,7 @@
 {
-	"name": "@mariozechner/pi-tui",
+	"name": "@aryee/aery-tui",
 	"version": "0.67.68",
-	"description": "Terminal User Interface library with differential rendering for efficient text-based applications",
+	"description": "Aery TUI \u2014 terminal UI framework",
 	"type": "module",
 	"main": "dist/index.js",
 	"scripts": {
@@ -24,11 +24,11 @@
 		"typescript",
 		"cli"
 	],
-	"author": "Mario Zechner",
+	"author": "Aryee",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/badlogic/pi-mono.git",
+		"url": "git+https://github.com/eminent337/aery.git",
 		"directory": "packages/tui"
 	},
 	"engines": {

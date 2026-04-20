@@ -1,6 +1,6 @@
 import "@mariozechner/mini-lit/dist/ThemeToggle.js";
-import { Agent, type AgentMessage } from "@mariozechner/pi-agent-core";
-import { getModel } from "@mariozechner/pi-ai";
+import { Agent, type AgentMessage } from "@aryee/aery-core";
+import { getModel } from "@aryee/aery-ai";
 import {
 	type AgentState,
 	ApiKeyPromptDialog,

@@ -1,7 +1,7 @@
 {
-	"name": "@mariozechner/pi-ai",
+	"name": "@aryee/aery-ai",
 	"version": "0.67.68",
-	"description": "Unified LLM API with automatic model discovery and provider configuration",
+	"description": "Aery AI \u2014 unified LLM API with 300+ provider integrations",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -96,11 +96,11 @@
 		"unified",
 		"api"
 	],
-	"author": "Mario Zechner",
+	"author": "Aryee",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/badlogic/pi-mono.git",
+		"url": "git+https://github.com/eminent337/aery.git",
 		"directory": "packages/ai"
 	},
 	"engines": {

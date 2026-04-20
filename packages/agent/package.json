@@ -1,7 +1,7 @@
 {
-	"name": "@mariozechner/pi-agent-core",
+	"name": "@aryee/aery-core",
 	"version": "0.67.68",
-	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
+	"description": "Aery agent core \u2014 agent loop, tool execution, session management",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -17,7 +17,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@mariozechner/pi-ai": "^0.67.68"
+		"@aryee/aery-ai": "^0.67.68"
 	},
 	"keywords": [
 		"ai",
@@ -26,11 +26,11 @@
 		"transport",
 		"state-management"
 	],
-	"author": "Mario Zechner",
+	"author": "Aryee",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/badlogic/pi-mono.git",
+		"url": "git+https://github.com/eminent337/aery.git",
 		"directory": "packages/agent"
 	},
 	"engines": {
