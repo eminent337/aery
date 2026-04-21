@@ -29,13 +29,21 @@ jobs:
         with:
           script: |
             const version = '${{ steps.version.outputs.version }}';
-            await github.rest.repos.createRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag_name: version,
-              name: `Aery ${version}`,
-              body: `## Aery ${version}\n\n### Install\n\`\`\`bash\ngit clone https://github.com/eminent337/aery\ncd aery/packages/coding-agent\nnpm install && npm run build && npm install -g .\n\`\`\`\n\n### Usage\n\`\`\`bash\naery\n\`\`\`\n\nSee [CHANGELOG.md](https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md) for details.`,
-              draft: false,
-              prerelease: false
-            });
-            console.log(`Released ${version}`);
+            try {
+              await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: version,
+                name: `Aery ${version}`,
+                body: `## Aery ${version}\n\n### Install\n\`\`\`bash\nnpm install -g @eminent337/aery\n\`\`\`\n\n### Usage\n\`\`\`bash\naery\n\`\`\``,
+                draft: false,
+                prerelease: false
+              });
+              console.log(`Released ${version}`);
+            } catch (e) {
+              if (e.status === 422) {
+                console.log(`Release ${version} already exists, skipping.`);
+              } else {
+                throw e;
+              }
+            }
