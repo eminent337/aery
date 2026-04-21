@@ -1,6 +1,6 @@
 {
 	"name": "@eminent337/aery",
-	"version": "0.67.68",
+	"version": "1.0.0",
 	"description": "Aery \u2014 AI coding agent by Aryee",
 	"type": "module",
 	"piConfig": {
