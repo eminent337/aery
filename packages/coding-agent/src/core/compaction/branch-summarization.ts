@@ -5,9 +5,9 @@
  * a summary of the branch being left so context isn't lost.
  */
 
-import type { AgentMessage } from "@aryee/aery-core";
-import type { Model } from "@aryee/aery-ai";
-import { completeSimple } from "@aryee/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
+import type { Model } from "@eminent337/aery-ai";
+import { completeSimple } from "@eminent337/aery-ai";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,

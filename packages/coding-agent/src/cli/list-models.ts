@@ -2,8 +2,8 @@
  * List available models with optional fuzzy search
  */
 
-import type { Api, Model } from "@aryee/aery-ai";
-import { fuzzyFilter } from "@aryee/aery-tui";
+import type { Api, Model } from "@eminent337/aery-ai";
+import { fuzzyFilter } from "@eminent337/aery-tui";
 import chalk from "chalk";
 import type { ModelRegistry } from "../core/model-registry.js";
 

@@ -1,5 +1,5 @@
-import type { AssistantMessage } from "@aryee/aery-ai";
-import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@aryee/aery-tui";
+import type { AssistantMessage } from "@eminent337/aery-ai";
+import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@eminent337/aery-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";

@@ -20,8 +20,8 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sandbox-runtime": "^0.0.16",
-		"@aryee/aery-core": "*",
-		"@aryee/aery-ai": "*",
+		"@eminent337/aery-core": "*",
+		"@eminent337/aery-ai": "*",
 		"@sinclair/typebox": "^0.34.0",
 		"@slack/socket-mode": "^2.0.0",
 		"@slack/web-api": "^7.0.0",

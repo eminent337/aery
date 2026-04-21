@@ -1,4 +1,4 @@
-import { type AssistantMessage, fauxAssistantMessage, type Model } from "@aryee/aery-ai";
+import { type AssistantMessage, fauxAssistantMessage, type Model } from "@eminent337/aery-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHarness, type Harness } from "./harness.js";
 

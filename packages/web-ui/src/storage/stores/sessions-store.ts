@@ -1,4 +1,4 @@
-import type { AgentState } from "@aryee/aery-core";
+import type { AgentState } from "@eminent337/aery-core";
 import { Store } from "../store.js";
 import type { SessionData, SessionMetadata, StoreConfig } from "../types.js";
 

@@ -3,7 +3,7 @@
  *
  * Demonstrates ctx.getSystemPrompt() for accessing the effective system prompt.
  */
-import type { ExtensionAPI } from "@aryee/aery";
+import type { ExtensionAPI } from "@eminent337/aery";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("agent_start", (_event, ctx) => {

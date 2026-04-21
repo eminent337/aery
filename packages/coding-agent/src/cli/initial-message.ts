@@ -1,4 +1,4 @@
-import type { ImageContent } from "@aryee/aery-ai";
+import type { ImageContent } from "@eminent337/aery-ai";
 import type { Args } from "./args.js";
 
 export interface InitialMessageInput {

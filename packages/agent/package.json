@@ -1,5 +1,5 @@
 {
-	"name": "@aryee/aery-core",
+	"name": "@eminent337/aery-core",
 	"version": "0.67.68",
 	"description": "Aery agent core \u2014 agent loop, tool execution, session management",
 	"type": "module",
@@ -17,7 +17,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@aryee/aery-ai": "*"
+		"@eminent337/aery-ai": "*"
 	},
 	"keywords": [
 		"ai",

@@ -5,7 +5,7 @@
  * Shows turn progress with themed colors.
  */
 
-import type { ExtensionAPI } from "@aryee/aery";
+import type { ExtensionAPI } from "@eminent337/aery";
 
 export default function (pi: ExtensionAPI) {
 	let turnCount = 0;

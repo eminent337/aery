@@ -5,7 +5,7 @@
  * Requires: npm install in this directory
  */
 
-import type { ExtensionAPI } from "@aryee/aery";
+import type { ExtensionAPI } from "@eminent337/aery";
 import { Type } from "@sinclair/typebox";
 import ms from "ms";
 

@@ -10,18 +10,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createJiti } from "@mariozechner/jiti";
-import * as _bundledPiAgentCore from "@aryee/aery-core";
-import * as _bundledPiAi from "@aryee/aery-ai";
-import * as _bundledPiAiOauth from "@aryee/aery-ai/oauth";
-import type { KeyId } from "@aryee/aery-tui";
-import * as _bundledPiTui from "@aryee/aery-tui";
+import * as _bundledPiAgentCore from "@eminent337/aery-core";
+import * as _bundledPiAi from "@eminent337/aery-ai";
+import * as _bundledPiAiOauth from "@eminent337/aery-ai/oauth";
+import type { KeyId } from "@eminent337/aery-tui";
+import * as _bundledPiTui from "@eminent337/aery-tui";
 // Static imports of packages that extensions may use.
 // These MUST be static so Bun bundles them into the compiled binary.
 // The virtualModules option then makes them available to extensions.
 import * as _bundledTypebox from "@sinclair/typebox";
 import { getAgentDir, isBunBinary } from "../../config.js";
 // NOTE: This import works because loader.ts exports are NOT re-exported from index.ts,
-// avoiding a circular dependency. Extensions can import from @aryee/aery.
+// avoiding a circular dependency. Extensions can import from @eminent337/aery.
 import * as _bundledPiCodingAgent from "../../index.js";
 import { createEventBus, type EventBus } from "../event-bus.js";
 import type { ExecOptions } from "../exec.js";
@@ -42,11 +42,11 @@ import type {
 /** Modules available to extensions via virtualModules (for compiled Bun binary) */
 const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@sinclair/typebox": _bundledTypebox,
-	"@aryee/aery-core": _bundledPiAgentCore,
-	"@aryee/aery-tui": _bundledPiTui,
-	"@aryee/aery-ai": _bundledPiAi,
-	"@aryee/aery-ai/oauth": _bundledPiAiOauth,
-	"@aryee/aery": _bundledPiCodingAgent,
+	"@eminent337/aery-core": _bundledPiAgentCore,
+	"@eminent337/aery-tui": _bundledPiTui,
+	"@eminent337/aery-ai": _bundledPiAi,
+	"@eminent337/aery-ai/oauth": _bundledPiAiOauth,
+	"@eminent337/aery": _bundledPiCodingAgent,
 };
 
 const require = createRequire(import.meta.url);
@@ -75,11 +75,11 @@ function getAliases(): Record<string, string> {
 	};
 
 	_aliases = {
-		"@aryee/aery": packageIndex,
-		"@aryee/aery-core": resolveWorkspaceOrImport("agent/dist/index.js", "@aryee/aery-core"),
-		"@aryee/aery-tui": resolveWorkspaceOrImport("tui/dist/index.js", "@aryee/aery-tui"),
-		"@aryee/aery-ai": resolveWorkspaceOrImport("ai/dist/index.js", "@aryee/aery-ai"),
-		"@aryee/aery-ai/oauth": resolveWorkspaceOrImport("ai/dist/oauth.js", "@aryee/aery-ai/oauth"),
+		"@eminent337/aery": packageIndex,
+		"@eminent337/aery-core": resolveWorkspaceOrImport("agent/dist/index.js", "@eminent337/aery-core"),
+		"@eminent337/aery-tui": resolveWorkspaceOrImport("tui/dist/index.js", "@eminent337/aery-tui"),
+		"@eminent337/aery-ai": resolveWorkspaceOrImport("ai/dist/index.js", "@eminent337/aery-ai"),
+		"@eminent337/aery-ai/oauth": resolveWorkspaceOrImport("ai/dist/oauth.js", "@eminent337/aery-ai/oauth"),
 		"@sinclair/typebox": typeboxRoot,
 	};
 

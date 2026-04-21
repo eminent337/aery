@@ -10,9 +10,9 @@
  * correct for that point in history.
  */
 
-import { StringEnum } from "@aryee/aery-ai";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@aryee/aery";
-import { matchesKey, Text, truncateToWidth } from "@aryee/aery-tui";
+import { StringEnum } from "@eminent337/aery-ai";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@eminent337/aery";
+import { matchesKey, Text, truncateToWidth } from "@eminent337/aery-tui";
 import { Type } from "@sinclair/typebox";
 
 interface Todo {

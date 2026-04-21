@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import * as path from "node:path";
-import { Container } from "@aryee/aery-tui";
+import { Container } from "@eminent337/aery-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { SourceInfo } from "../src/core/source-info.js";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.js";

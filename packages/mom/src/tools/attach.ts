@@ -1,4 +1,4 @@
-import type { AgentTool } from "@aryee/aery-core";
+import type { AgentTool } from "@eminent337/aery-core";
 import { Type } from "@sinclair/typebox";
 import { basename, resolve as resolvePath } from "path";
 

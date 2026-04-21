@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@aryee/aery-core";
+import type { AgentMessage } from "@eminent337/aery-core";
 import type { TemplateResult } from "lit";
 
 // Extract role type from AppMessage union

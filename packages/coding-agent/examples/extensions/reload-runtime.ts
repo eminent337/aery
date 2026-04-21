@@ -5,7 +5,7 @@
  * tool that queues a follow-up command to trigger reload.
  */
 
-import type { ExtensionAPI } from "@aryee/aery";
+import type { ExtensionAPI } from "@eminent337/aery";
 import { Type } from "@sinclair/typebox";
 
 export default function (pi: ExtensionAPI) {

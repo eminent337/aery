@@ -16,7 +16,7 @@
  *   /working-indicator reset     Restore pi's default spinner
  */
 
-import type { ExtensionAPI, ExtensionContext, WorkingIndicatorOptions } from "@aryee/aery";
+import type { ExtensionAPI, ExtensionContext, WorkingIndicatorOptions } from "@eminent337/aery";
 
 type WorkingIndicatorMode = "dot" | "none" | "pulse" | "spinner" | "default";
 

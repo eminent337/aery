@@ -1,6 +1,6 @@
-import type { AgentTool } from "@aryee/aery-core";
-import type { Api, ImageContent, Model, TextContent } from "@aryee/aery-ai";
-import { Text } from "@aryee/aery-tui";
+import type { AgentTool } from "@eminent337/aery-core";
+import type { Api, ImageContent, Model, TextContent } from "@eminent337/aery-ai";
+import { Text } from "@eminent337/aery-tui";
 import { type Static, Type } from "@sinclair/typebox";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile } from "fs/promises";

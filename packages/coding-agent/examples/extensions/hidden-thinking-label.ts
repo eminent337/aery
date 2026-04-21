@@ -18,7 +18,7 @@
  *   /thinking-label          Reset to the default label
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@aryee/aery";
+import type { ExtensionAPI, ExtensionContext } from "@eminent337/aery";
 
 const DEFAULT_LABEL = "Pondering...";
 

@@ -1,4 +1,4 @@
-import { fuzzyMatch } from "@aryee/aery-tui";
+import { fuzzyMatch } from "@eminent337/aery-tui";
 import type { SessionInfo } from "../../../core/session-manager.js";
 
 export type SortMode = "threaded" | "recent" | "relevance";

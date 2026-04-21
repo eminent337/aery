@@ -23,8 +23,8 @@ describe("detectInstallMethod", () => {
 		);
 
 		expect(detectInstallMethod()).toBe("pnpm");
-		expect(getUpdateInstruction("@aryee/aery")).toBe(
-			"Run: pnpm install -g @aryee/aery",
+		expect(getUpdateInstruction("@eminent337/aery")).toBe(
+			"Run: pnpm install -g @eminent337/aery",
 		);
 	});
 });

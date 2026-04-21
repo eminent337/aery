@@ -40,10 +40,10 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Api, Model } from "@aryee/aery-ai";
-import type { ExtensionAPI, ExtensionContext } from "@aryee/aery";
-import { DynamicBorder, getAgentDir } from "@aryee/aery";
-import { Container, Key, type SelectItem, SelectList, Text } from "@aryee/aery-tui";
+import type { Api, Model } from "@eminent337/aery-ai";
+import type { ExtensionAPI, ExtensionContext } from "@eminent337/aery";
+import { DynamicBorder, getAgentDir } from "@eminent337/aery";
+import { Container, Key, type SelectItem, SelectList, Text } from "@eminent337/aery-tui";
 
 // Preset configuration
 interface Preset {

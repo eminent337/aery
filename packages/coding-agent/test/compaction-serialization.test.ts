@@ -1,4 +1,4 @@
-import type { Message } from "@aryee/aery-ai";
+import type { Message } from "@eminent337/aery-ai";
 import { describe, expect, it } from "vitest";
 import { serializeConversation } from "../src/core/compaction/utils.js";
 

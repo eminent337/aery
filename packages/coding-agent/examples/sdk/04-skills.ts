@@ -12,7 +12,7 @@ import {
 	getAgentDir,
 	SessionManager,
 	type Skill,
-} from "@aryee/aery";
+} from "@eminent337/aery";
 
 // Or define custom skills inline
 const customSkill: Skill = {

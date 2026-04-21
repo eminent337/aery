@@ -1,4 +1,4 @@
-import type { Model } from "@aryee/aery-ai";
+import type { Model } from "@eminent337/aery-ai";
 import { describe, expect, test } from "vitest";
 import {
 	defaultModelPerProvider,

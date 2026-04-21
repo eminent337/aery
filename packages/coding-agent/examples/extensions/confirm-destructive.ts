@@ -5,7 +5,7 @@
  * Demonstrates how to cancel session events using the before_* events.
  */
 
-import type { ExtensionAPI, SessionBeforeSwitchEvent, SessionMessageEntry } from "@aryee/aery";
+import type { ExtensionAPI, SessionBeforeSwitchEvent, SessionMessageEntry } from "@eminent337/aery";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_before_switch", async (event: SessionBeforeSwitchEvent, ctx) => {

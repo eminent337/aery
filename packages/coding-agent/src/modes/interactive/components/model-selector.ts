@@ -1,4 +1,4 @@
-import { type Model, modelsAreEqual } from "@aryee/aery-ai";
+import { type Model, modelsAreEqual } from "@eminent337/aery-ai";
 import {
 	Container,
 	type Focusable,
@@ -8,7 +8,7 @@ import {
 	Spacer,
 	Text,
 	type TUI,
-} from "@aryee/aery-tui";
+} from "@eminent337/aery-tui";
 import type { ModelRegistry } from "../../../core/model-registry.js";
 import type { SettingsManager } from "../../../core/settings-manager.js";
 import { theme } from "../theme/theme.js";

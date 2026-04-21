@@ -1,5 +1,5 @@
-import type { AgentMessage, ThinkingLevel } from "@aryee/aery-core";
-import type { Model } from "@aryee/aery-ai";
+import type { AgentMessage, ThinkingLevel } from "@eminent337/aery-core";
+import type { Model } from "@eminent337/aery-ai";
 
 /**
  * Transaction interface for atomic operations across stores.

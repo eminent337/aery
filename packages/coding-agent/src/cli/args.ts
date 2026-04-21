@@ -2,7 +2,7 @@
  * CLI argument parsing and help display
  */
 
-import type { ThinkingLevel } from "@aryee/aery-core";
+import type { ThinkingLevel } from "@eminent337/aery-core";
 import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR } from "../config.js";
 import type { ExtensionFlag } from "../core/extensions/types.js";

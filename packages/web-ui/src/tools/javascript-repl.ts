@@ -1,6 +1,6 @@
 import { i18n } from "@mariozechner/mini-lit";
-import type { AgentTool } from "@aryee/aery-core";
-import type { ToolResultMessage } from "@aryee/aery-ai";
+import type { AgentTool } from "@eminent337/aery-core";
+import type { ToolResultMessage } from "@eminent337/aery-ai";
 import { type Static, Type } from "@sinclair/typebox";
 import { html } from "lit";
 import { createRef, ref } from "lit/directives/ref.js";

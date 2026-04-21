@@ -1,4 +1,4 @@
-import { type Component, truncateToWidth, visibleWidth } from "@aryee/aery-tui";
+import { type Component, truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
 import type { AgentSession } from "../../../core/agent-session.js";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.js";
 import { theme } from "../theme/theme.js";

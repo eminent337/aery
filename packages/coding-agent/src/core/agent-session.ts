@@ -22,9 +22,9 @@ import type {
 	AgentState,
 	AgentTool,
 	ThinkingLevel,
-} from "@aryee/aery-core";
-import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@aryee/aery-ai";
-import { isContextOverflow, modelsAreEqual, resetApiProviders, supportsXhigh } from "@aryee/aery-ai";
+} from "@eminent337/aery-core";
+import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@eminent337/aery-ai";
+import { isContextOverflow, modelsAreEqual, resetApiProviders, supportsXhigh } from "@eminent337/aery-ai";
 import { getDocsPath } from "../config.js";
 import { theme } from "../modes/interactive/theme/theme.js";
 import { stripFrontmatter } from "../utils/frontmatter.js";

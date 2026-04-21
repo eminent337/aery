@@ -1,5 +1,5 @@
-import type { AgentTool } from "@aryee/aery-core";
-import { Box, Container, Spacer, Text } from "@aryee/aery-tui";
+import type { AgentTool } from "@eminent337/aery-core";
+import { Box, Container, Spacer, Text } from "@eminent337/aery-tui";
 import { type Static, Type } from "@sinclair/typebox";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";

@@ -7,7 +7,7 @@ import {
 	type TextContent,
 	type ThinkingBudgets,
 	type Transport,
-} from "@aryee/aery-ai";
+} from "@eminent337/aery-ai";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.js";
 import type {
 	AfterToolCallContext,

@@ -1,4 +1,4 @@
-import { setBedrockProviderModule } from "@aryee/aery-ai";
-import { bedrockProviderModule } from "@aryee/aery-ai/bedrock-provider";
+import { setBedrockProviderModule } from "@eminent337/aery-ai";
+import { bedrockProviderModule } from "@eminent337/aery-ai/bedrock-provider";
 
 setBedrockProviderModule(bedrockProviderModule);

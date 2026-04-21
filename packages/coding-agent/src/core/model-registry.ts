@@ -16,8 +16,8 @@ import {
 	registerApiProvider,
 	resetApiProviders,
 	type SimpleStreamOptions,
-} from "@aryee/aery-ai";
-import { registerOAuthProvider, resetOAuthProviders } from "@aryee/aery-ai/oauth";
+} from "@eminent337/aery-ai";
+import { registerOAuthProvider, resetOAuthProviders } from "@eminent337/aery-ai/oauth";
 import { type Static, Type } from "@sinclair/typebox";
 import AjvModule from "ajv";
 import { existsSync, readFileSync } from "fs";

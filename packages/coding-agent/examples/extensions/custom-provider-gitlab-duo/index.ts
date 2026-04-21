@@ -20,8 +20,8 @@ import {
 	type SimpleStreamOptions,
 	streamSimpleAnthropic,
 	streamSimpleOpenAIResponses,
-} from "@aryee/aery-ai";
-import type { ExtensionAPI } from "@aryee/aery";
+} from "@eminent337/aery-ai";
+import type { ExtensionAPI } from "@eminent337/aery";
 
 // =============================================================================
 // Constants

@@ -11,7 +11,7 @@ import {
 	getAgentDir,
 	type PromptTemplate,
 	SessionManager,
-} from "@aryee/aery";
+} from "@eminent337/aery";
 
 // Define custom templates
 const deployTemplate: PromptTemplate = {

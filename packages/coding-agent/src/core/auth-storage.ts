@@ -11,8 +11,8 @@ import {
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
 	type OAuthProviderId,
-} from "@aryee/aery-ai";
-import { getOAuthApiKey, getOAuthProvider, getOAuthProviders } from "@aryee/aery-ai/oauth";
+} from "@eminent337/aery-ai";
+import { getOAuthApiKey, getOAuthProvider, getOAuthProviders } from "@eminent337/aery-ai/oauth";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";

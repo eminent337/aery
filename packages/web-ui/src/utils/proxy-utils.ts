@@ -1,5 +1,5 @@
-import type { Api, Context, Model, SimpleStreamOptions } from "@aryee/aery-ai";
-import { streamSimple } from "@aryee/aery-ai";
+import type { Api, Context, Model, SimpleStreamOptions } from "@eminent337/aery-ai";
+import { streamSimple } from "@eminent337/aery-ai";
 
 /**
  * Centralized proxy decision logic.

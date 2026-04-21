@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@aryee/aery-core";
+import type { AgentMessage } from "@eminent337/aery-core";
 import {
 	ARTIFACTS_RUNTIME_PROVIDER_DESCRIPTION_RO,
 	ARTIFACTS_RUNTIME_PROVIDER_DESCRIPTION_RW,

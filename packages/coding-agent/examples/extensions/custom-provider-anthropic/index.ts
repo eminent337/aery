@@ -42,8 +42,8 @@ import {
 	type Tool,
 	type ToolCall,
 	type ToolResultMessage,
-} from "@aryee/aery-ai";
-import type { ExtensionAPI } from "@aryee/aery";
+} from "@eminent337/aery-ai";
+import type { ExtensionAPI } from "@eminent337/aery";
 
 // =============================================================================
 // OAuth Implementation (copied from packages/ai/src/utils/oauth/anthropic.ts)

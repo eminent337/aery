@@ -1,4 +1,4 @@
-import { setKeybindings } from "@aryee/aery-tui";
+import { setKeybindings } from "@eminent337/aery-tui";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.js";
 import type { SessionInfo } from "../src/core/session-manager.js";

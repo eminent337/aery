@@ -1,5 +1,5 @@
-import type { AgentMessage, AgentTool } from "@aryee/aery-core";
-import type { ToolResultMessage } from "@aryee/aery-ai";
+import type { AgentMessage, AgentTool } from "@eminent337/aery-core";
+import type { ToolResultMessage } from "@eminent337/aery-ai";
 import { html, LitElement } from "lit";
 import { property, state } from "lit/decorators.js";
 

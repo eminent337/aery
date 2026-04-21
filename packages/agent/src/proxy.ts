@@ -14,7 +14,7 @@ import {
 	type SimpleStreamOptions,
 	type StopReason,
 	type ToolCall,
-} from "@aryee/aery-ai";
+} from "@eminent337/aery-ai";
 
 // Create stream class matching ProxyMessageEventStream
 class ProxyMessageEventStream extends EventStream<AssistantMessageEvent, AssistantMessage> {

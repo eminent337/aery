@@ -9,9 +9,9 @@
  * 2. Use /tools to open the tool selector
  */
 
-import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@aryee/aery";
-import { getSettingsListTheme } from "@aryee/aery";
-import { Container, type SettingItem, SettingsList } from "@aryee/aery-tui";
+import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@eminent337/aery";
+import { getSettingsListTheme } from "@eminent337/aery";
+import { Container, type SettingItem, SettingsList } from "@eminent337/aery-tui";
 
 // State persisted to session
 interface ToolsState {

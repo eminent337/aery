@@ -3,8 +3,8 @@
  * Validates that the faux provider and session factory work correctly.
  */
 
-import type { AgentTool } from "@aryee/aery-core";
-import type { AssistantMessage } from "@aryee/aery-ai";
+import type { AgentTool } from "@eminent337/aery-core";
+import type { AssistantMessage } from "@eminent337/aery-ai";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, createHarnessWithExtensions, type Harness } from "./test-harness.js";

@@ -12,9 +12,9 @@
  * The generated prompt appears as a draft in the editor for review/editing.
  */
 
-import { complete, type Message } from "@aryee/aery-ai";
-import type { ExtensionAPI, SessionEntry } from "@aryee/aery";
-import { BorderedLoader, convertToLlm, serializeConversation } from "@aryee/aery";
+import { complete, type Message } from "@eminent337/aery-ai";
+import type { ExtensionAPI, SessionEntry } from "@eminent337/aery";
+import { BorderedLoader, convertToLlm, serializeConversation } from "@eminent337/aery";
 
 const SYSTEM_PROMPT = `You are a context transfer assistant. Given a conversation history and the user's goal for a new thread, generate a focused prompt that:
 

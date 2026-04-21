@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@aryee/aery-core";
-import type { ImageContent, Message, TextContent } from "@aryee/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
+import type { ImageContent, Message, TextContent } from "@eminent337/aery-ai";
 import { randomUUID } from "crypto";
 import {
 	appendFileSync,

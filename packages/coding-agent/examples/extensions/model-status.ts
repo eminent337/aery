@@ -7,7 +7,7 @@
  * Usage: pi -e ./model-status.ts
  */
 
-import type { ExtensionAPI } from "@aryee/aery";
+import type { ExtensionAPI } from "@eminent337/aery";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("model_select", async (event, ctx) => {

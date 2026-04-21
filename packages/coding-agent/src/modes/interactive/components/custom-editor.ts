@@ -1,4 +1,4 @@
-import { Editor, type EditorOptions, type EditorTheme, type TUI } from "@aryee/aery-tui";
+import { Editor, type EditorOptions, type EditorTheme, type TUI } from "@eminent337/aery-tui";
 import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.js";
 
 /**

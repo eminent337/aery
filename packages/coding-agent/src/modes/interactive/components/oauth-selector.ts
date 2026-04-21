@@ -1,6 +1,6 @@
-import type { OAuthProviderInterface } from "@aryee/aery-ai";
-import { getOAuthProviders } from "@aryee/aery-ai/oauth";
-import { Container, getKeybindings, Spacer, TruncatedText } from "@aryee/aery-tui";
+import type { OAuthProviderInterface } from "@eminent337/aery-ai";
+import { getOAuthProviders } from "@eminent337/aery-ai/oauth";
+import { Container, getKeybindings, Spacer, TruncatedText } from "@eminent337/aery-tui";
 import type { AuthStorage } from "../../../core/auth-storage.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";

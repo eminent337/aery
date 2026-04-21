@@ -3,10 +3,10 @@
 	"compilerOptions": {
 		"noEmit": true,
 		"paths": {
-			"@aryee/aery": ["./src/index.ts"],
-			"@aryee/aery/hooks": ["./src/core/hooks/index.ts"],
-			"@aryee/aery-tui": ["../tui/src/index.ts"],
-			"@aryee/aery-ai": ["../ai/src/index.ts"],
+			"@eminent337/aery": ["./src/index.ts"],
+			"@eminent337/aery/hooks": ["./src/core/hooks/index.ts"],
+			"@eminent337/aery-tui": ["../tui/src/index.ts"],
+			"@eminent337/aery-ai": ["../ai/src/index.ts"],
 			"@sinclair/typebox": ["../../node_modules/@sinclair/typebox"]
 		},
 		"skipLibCheck": true

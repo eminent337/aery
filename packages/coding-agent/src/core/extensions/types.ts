@@ -14,7 +14,7 @@ import type {
 	AgentToolUpdateCallback,
 	ThinkingLevel,
 	ToolExecutionMode,
-} from "@aryee/aery-core";
+} from "@eminent337/aery-core";
 import type {
 	Api,
 	AssistantMessageEvent,
@@ -27,7 +27,7 @@ import type {
 	SimpleStreamOptions,
 	TextContent,
 	ToolResultMessage,
-} from "@aryee/aery-ai";
+} from "@eminent337/aery-ai";
 import type {
 	AutocompleteItem,
 	Component,
@@ -37,7 +37,7 @@ import type {
 	OverlayHandle,
 	OverlayOptions,
 	TUI,
-} from "@aryee/aery-tui";
+} from "@eminent337/aery-tui";
 import type { Static, TSchema } from "@sinclair/typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.js";
 import type { BashResult } from "../bash-executor.js";
@@ -213,12 +213,12 @@ export interface ExtensionUIContext {
 	 * - `keybindings`: KeybindingsManager for app-level keybindings
 	 *
 	 * For full app keybinding support (escape, ctrl+d, model switching, etc.),
-	 * extend `CustomEditor` from `@aryee/aery` and call
+	 * extend `CustomEditor` from `@eminent337/aery` and call
 	 * `super.handleInput(data)` for keys you don't handle.
 	 *
 	 * @example
 	 * ```ts
-	 * import { CustomEditor } from "@aryee/aery";
+	 * import { CustomEditor } from "@eminent337/aery";
 	 *
 	 * class VimEditor extends CustomEditor {
 	 *   private mode: "normal" | "insert" = "insert";

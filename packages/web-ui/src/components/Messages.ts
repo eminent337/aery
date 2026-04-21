@@ -5,7 +5,7 @@ import type {
 	ToolCall,
 	ToolResultMessage as ToolResultMessageType,
 	UserMessage as UserMessageType,
-} from "@aryee/aery-ai";
+} from "@eminent337/aery-ai";
 import { html, LitElement, type TemplateResult } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { renderTool } from "../tools/index.js";
@@ -13,7 +13,7 @@ import type { Attachment } from "../utils/attachment-utils.js";
 import { formatUsage } from "../utils/format.js";
 import { i18n } from "../utils/i18n.js";
 import "./ThinkingBlock.js";
-import type { AgentTool } from "@aryee/aery-core";
+import type { AgentTool } from "@eminent337/aery-core";
 
 export type UserMessageWithAttachments = {
 	role: "user-with-attachments";
@@ -32,7 +32,7 @@ export interface ArtifactMessage {
 	timestamp: string;
 }
 
-declare module "@aryee/aery-core" {
+declare module "@eminent337/aery-core" {
 	interface CustomAgentMessages {
 		"user-with-attachments": UserMessageWithAttachments;
 		artifact: ArtifactMessage;
@@ -296,8 +296,8 @@ export class AbortedMessage extends LitElement {
 // Default Message Transformer
 // ============================================================================
 
-import type { AgentMessage } from "@aryee/aery-core";
-import type { Message } from "@aryee/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
+import type { Message } from "@eminent337/aery-ai";
 
 /**
  * Convert attachments to content blocks for LLM.

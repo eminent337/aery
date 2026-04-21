@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerFauxProvider } from "@aryee/aery-ai";
+import { registerFauxProvider } from "@eminent337/aery-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type CreateAgentSessionRuntimeFactory,

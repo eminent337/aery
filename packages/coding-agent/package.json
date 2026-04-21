@@ -1,6 +1,6 @@
 {
 	"name": "@eminent337/aery",
-	"version": "0.1.11",
+	"version": "0.1.12",
 	"description": "Aery \u2014 AI coding agent by Aryee",
 	"type": "module",
 	"aeryConfig": {
@@ -40,9 +40,9 @@
 	},
 	"dependencies": {
 		"@mariozechner/jiti": "2.6.2",
-		"@aryee/aery-core": "*",
-		"@aryee/aery-ai": "*",
-		"@aryee/aery-tui": "*",
+		"@eminent337/aery-core": "*",
+		"@eminent337/aery-ai": "*",
+		"@eminent337/aery-tui": "*",
 		"@silvia-odwyer/photon-node": "^0.3.4",
 		"@sinclair/typebox": "^0.34.41",
 		"ajv": "^8.17.1",

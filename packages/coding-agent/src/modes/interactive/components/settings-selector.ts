@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@aryee/aery-core";
-import type { Transport } from "@aryee/aery-ai";
+import type { ThinkingLevel } from "@eminent337/aery-core";
+import type { Transport } from "@eminent337/aery-ai";
 import {
 	Container,
 	getCapabilities,
@@ -10,7 +10,7 @@ import {
 	SettingsList,
 	Spacer,
 	Text,
-} from "@aryee/aery-tui";
+} from "@eminent337/aery-tui";
 import { getSelectListTheme, getSettingsListTheme, theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 

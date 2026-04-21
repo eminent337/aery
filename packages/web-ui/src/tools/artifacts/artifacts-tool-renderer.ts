@@ -1,5 +1,5 @@
 import "@mariozechner/mini-lit/dist/CodeBlock.js";
-import type { ToolResultMessage } from "@aryee/aery-ai";
+import type { ToolResultMessage } from "@eminent337/aery-ai";
 import { createRef, ref } from "lit/directives/ref.js";
 import { FileCode2 } from "lucide";
 import "../../components/ConsoleBlock.js";

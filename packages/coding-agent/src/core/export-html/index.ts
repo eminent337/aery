@@ -1,4 +1,4 @@
-import type { AgentState } from "@aryee/aery-core";
+import type { AgentState } from "@eminent337/aery-core";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { basename, join } from "path";
 import { APP_NAME, getExportTemplateDir } from "../../config.js";

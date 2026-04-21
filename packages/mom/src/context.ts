@@ -10,8 +10,8 @@
  * - createMomSettingsManager: Creates a SettingsManager backed by workspace settings.json
  */
 
-import type { UserMessage } from "@aryee/aery-ai";
-import { type SessionManager, type SessionMessageEntry, SettingsManager } from "@aryee/aery";
+import type { UserMessage } from "@eminent337/aery-ai";
+import { type SessionManager, type SessionMessageEntry, SettingsManager } from "@eminent337/aery";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 

@@ -10,7 +10,7 @@ import {
 	streamSimple,
 	type ToolResultMessage,
 	validateToolArguments,
-} from "@aryee/aery-ai";
+} from "@eminent337/aery-ai";
 import type {
 	AgentContext,
 	AgentEvent,

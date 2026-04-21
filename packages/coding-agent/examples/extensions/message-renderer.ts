@@ -7,8 +7,8 @@
  * Usage: /status [message] - sends a status message with custom rendering
  */
 
-import type { ExtensionAPI } from "@aryee/aery";
-import { Box, Text } from "@aryee/aery-tui";
+import type { ExtensionAPI } from "@eminent337/aery";
+import { Box, Text } from "@eminent337/aery-tui";
 
 export default function (pi: ExtensionAPI) {
 	// Register custom renderer for "status-update" messages

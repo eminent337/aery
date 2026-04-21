@@ -5,8 +5,8 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import type { AgentEvent, AgentMessage, ThinkingLevel } from "@aryee/aery-core";
-import type { ImageContent } from "@aryee/aery-ai";
+import type { AgentEvent, AgentMessage, ThinkingLevel } from "@eminent337/aery-core";
+import type { ImageContent } from "@eminent337/aery-ai";
 import type { SessionStats } from "../../core/agent-session.js";
 import type { BashResult } from "../../core/bash-executor.js";
 import type { CompactionResult } from "../../core/compaction/index.js";

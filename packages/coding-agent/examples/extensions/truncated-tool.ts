@@ -15,7 +15,7 @@
  */
 
 import { mkdtemp, writeFile } from "node:fs/promises";
-import type { ExtensionAPI } from "@aryee/aery";
+import type { ExtensionAPI } from "@eminent337/aery";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -23,8 +23,8 @@ import {
 	type TruncationResult,
 	truncateHead,
 	withFileMutationQueue,
-} from "@aryee/aery";
-import { Text } from "@aryee/aery-tui";
+} from "@eminent337/aery";
+import { Text } from "@eminent337/aery-tui";
 import { Type } from "@sinclair/typebox";
 import { execSync } from "child_process";
 import { tmpdir } from "os";

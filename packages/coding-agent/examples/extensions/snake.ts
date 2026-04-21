@@ -2,8 +2,8 @@
  * Snake game extension - play snake with /snake command
  */
 
-import type { ExtensionAPI } from "@aryee/aery";
-import { matchesKey, visibleWidth } from "@aryee/aery-tui";
+import type { ExtensionAPI } from "@eminent337/aery";
+import { matchesKey, visibleWidth } from "@eminent337/aery-tui";
 
 const GAME_WIDTH = 40;
 const GAME_HEIGHT = 15;

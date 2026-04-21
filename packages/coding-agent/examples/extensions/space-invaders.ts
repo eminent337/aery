@@ -3,8 +3,8 @@
  * Uses Kitty keyboard protocol for smooth movement (press/release detection)
  */
 
-import type { ExtensionAPI } from "@aryee/aery";
-import { isKeyRelease, Key, matchesKey, visibleWidth } from "@aryee/aery-tui";
+import type { ExtensionAPI } from "@eminent337/aery";
+import { isKeyRelease, Key, matchesKey, visibleWidth } from "@eminent337/aery-tui";
 
 const GAME_WIDTH = 60;
 const GAME_HEIGHT = 24;

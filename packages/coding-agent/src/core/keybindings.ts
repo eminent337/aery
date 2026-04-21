@@ -5,7 +5,7 @@ import {
 	type KeyId,
 	TUI_KEYBINDINGS,
 	KeybindingsManager as TuiKeybindingsManager,
-} from "@aryee/aery-tui";
+} from "@eminent337/aery-tui";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { getAgentDir } from "../config.js";
@@ -56,7 +56,7 @@ export interface AppKeybindings {
 
 export type AppKeybinding = keyof AppKeybindings;
 
-declare module "@aryee/aery-tui" {
+declare module "@eminent337/aery-tui" {
 	interface Keybindings extends AppKeybindings {}
 }
 

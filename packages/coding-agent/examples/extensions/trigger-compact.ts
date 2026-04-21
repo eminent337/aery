@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@aryee/aery";
+import type { ExtensionAPI, ExtensionContext } from "@eminent337/aery";
 
 const COMPACT_THRESHOLD_TOKENS = 100_000;
 

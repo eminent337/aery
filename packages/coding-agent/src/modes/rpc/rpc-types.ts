@@ -5,8 +5,8 @@
  * Responses and events are emitted as JSON lines on stdout.
  */
 
-import type { AgentMessage, ThinkingLevel } from "@aryee/aery-core";
-import type { ImageContent, Model } from "@aryee/aery-ai";
+import type { AgentMessage, ThinkingLevel } from "@eminent337/aery-core";
+import type { ImageContent, Model } from "@eminent337/aery-ai";
 import type { SessionStats } from "../../core/agent-session.js";
 import type { BashResult } from "../../core/bash-executor.js";
 import type { CompactionResult } from "../../core/compaction/index.js";

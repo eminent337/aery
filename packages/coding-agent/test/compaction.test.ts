@@ -1,6 +1,6 @@
-import type { AgentMessage } from "@aryee/aery-core";
-import type { AssistantMessage, Usage } from "@aryee/aery-ai";
-import { getModel } from "@aryee/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
+import type { AssistantMessage, Usage } from "@eminent337/aery-ai";
+import { getModel } from "@eminent337/aery-ai";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { beforeEach, describe, expect, it } from "vitest";

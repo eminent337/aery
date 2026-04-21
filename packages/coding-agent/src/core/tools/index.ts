@@ -68,7 +68,7 @@ export {
 	type WriteToolOptions,
 } from "./write.js";
 
-import type { AgentTool } from "@aryee/aery-core";
+import type { AgentTool } from "@eminent337/aery-core";
 import type { ToolDefinition } from "../extensions/types.js";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.js";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.js";

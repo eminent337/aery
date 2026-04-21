@@ -1,5 +1,5 @@
-import { Agent, type AgentEvent } from "@aryee/aery-core";
-import { getModel, type ImageContent } from "@aryee/aery-ai";
+import { Agent, type AgentEvent } from "@eminent337/aery-core";
+import { getModel, type ImageContent } from "@eminent337/aery-ai";
 import {
 	AgentSession,
 	AuthStorage,
@@ -11,7 +11,7 @@ import {
 	type ResourceLoader,
 	SessionManager,
 	type Skill,
-} from "@aryee/aery";
+} from "@eminent337/aery";
 import { existsSync, readFileSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { homedir } from "os";

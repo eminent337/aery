@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@aryee/aery-core";
-import { Container, type SelectItem, SelectList, type SelectListLayoutOptions } from "@aryee/aery-tui";
+import type { ThinkingLevel } from "@eminent337/aery-core";
+import { Container, type SelectItem, SelectList, type SelectListLayoutOptions } from "@eminent337/aery-tui";
 import { getSelectListTheme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 

@@ -1,5 +1,5 @@
-import { Agent, type ThinkingLevel } from "@aryee/aery-core";
-import { getModel } from "@aryee/aery-ai";
+import { Agent, type ThinkingLevel } from "@eminent337/aery-core";
+import { getModel } from "@eminent337/aery-ai";
 import { describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.js";
 import { AuthStorage } from "../src/core/auth-storage.js";

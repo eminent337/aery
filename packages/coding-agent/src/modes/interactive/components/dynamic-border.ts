@@ -1,4 +1,4 @@
-import type { Component } from "@aryee/aery-tui";
+import type { Component } from "@eminent337/aery-tui";
 import { theme } from "../theme/theme.js";
 
 /**

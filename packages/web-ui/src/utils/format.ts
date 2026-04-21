@@ -1,5 +1,5 @@
 import { i18n } from "@mariozechner/mini-lit";
-import type { Usage } from "@aryee/aery-ai";
+import type { Usage } from "@eminent337/aery-ai";
 
 export function formatCost(cost: number): string {
 	return `$${cost.toFixed(4)}`;

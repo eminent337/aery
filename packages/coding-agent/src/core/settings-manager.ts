@@ -1,4 +1,4 @@
-import type { Transport } from "@aryee/aery-ai";
+import type { Transport } from "@eminent337/aery-ai";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";

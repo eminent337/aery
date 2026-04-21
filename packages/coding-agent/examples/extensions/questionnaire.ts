@@ -5,8 +5,8 @@
  * Multiple questions: tab bar navigation between questions
  */
 
-import type { ExtensionAPI } from "@aryee/aery";
-import { Editor, type EditorTheme, Key, matchesKey, Text, truncateToWidth } from "@aryee/aery-tui";
+import type { ExtensionAPI } from "@eminent337/aery";
+import { Editor, type EditorTheme, Key, matchesKey, Text, truncateToWidth } from "@eminent337/aery-tui";
 import { Type } from "@sinclair/typebox";
 
 // Types

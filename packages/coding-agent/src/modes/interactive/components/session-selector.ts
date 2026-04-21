@@ -12,7 +12,7 @@ import {
 	Text,
 	truncateToWidth,
 	visibleWidth,
-} from "@aryee/aery-tui";
+} from "@eminent337/aery-tui";
 import { KeybindingsManager } from "../../../core/keybindings.js";
 import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.js";
 import { theme } from "../theme/theme.js";

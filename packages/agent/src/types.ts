@@ -9,7 +9,7 @@ import type {
 	TextContent,
 	Tool,
 	ToolResultMessage,
-} from "@aryee/aery-ai";
+} from "@eminent337/aery-ai";
 import type { Static, TSchema } from "@sinclair/typebox";
 
 /**
@@ -225,7 +225,7 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
  *
  * @example
  * ```typescript
- * declare module "@aryee/aery-core" {
+ * declare module "@eminent337/aery-core" {
  *   interface CustomAgentMessages {
  *     artifact: ArtifactMessage;
  *     notification: NotificationMessage;

@@ -1,4 +1,4 @@
-import type { ToolResultMessage } from "@aryee/aery-ai";
+import type { ToolResultMessage } from "@eminent337/aery-ai";
 import type { TemplateResult } from "lit";
 
 export interface ToolRenderResult {

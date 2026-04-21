@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@aryee/aery";
+import type { ExtensionAPI } from "@eminent337/aery";
 
 export default function widgetPlacementExtension(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {

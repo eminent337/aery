@@ -1,6 +1,6 @@
-import type { AgentTool } from "@aryee/aery-core";
-import { fauxAssistantMessage, fauxToolCall } from "@aryee/aery-ai";
-import type { ExtensionAPI } from "@aryee/aery";
+import type { AgentTool } from "@eminent337/aery-core";
+import { fauxAssistantMessage, fauxToolCall } from "@eminent337/aery-ai";
+import type { ExtensionAPI } from "@eminent337/aery";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "../harness.js";

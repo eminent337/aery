@@ -1,4 +1,4 @@
-import type { AssistantMessage, ImageContent } from "@aryee/aery-ai";
+import type { AssistantMessage, ImageContent } from "@eminent337/aery-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runPrintMode } from "../src/modes/print-mode.js";
 

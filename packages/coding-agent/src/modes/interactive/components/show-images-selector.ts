@@ -1,4 +1,4 @@
-import { Container, type SelectItem, SelectList, type SelectListLayoutOptions } from "@aryee/aery-tui";
+import { Container, type SelectItem, SelectList, type SelectListLayoutOptions } from "@eminent337/aery-tui";
 import { getSelectListTheme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 

@@ -10,7 +10,7 @@
  * extensions system using pi.registerTool().
  */
 
-import { createAgentSession, SessionManager } from "@aryee/aery";
+import { createAgentSession, SessionManager } from "@eminent337/aery";
 
 // Read-only mode (no edit/write)
 await createAgentSession({

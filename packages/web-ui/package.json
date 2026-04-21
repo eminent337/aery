@@ -1,7 +1,7 @@
 {
 	"name": "@mariozechner/pi-web-ui",
 	"version": "0.67.68",
-	"description": "Reusable web UI components for AI chat interfaces powered by @aryee/aery-ai",
+	"description": "Reusable web UI components for AI chat interfaces powered by @eminent337/aery-ai",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
@@ -18,8 +18,8 @@
 	},
 	"dependencies": {
 		"@lmstudio/sdk": "^1.5.0",
-		"@aryee/aery-ai": "*",
-		"@aryee/aery-tui": "*",
+		"@eminent337/aery-ai": "*",
+		"@eminent337/aery-tui": "*",
 		"docx-preview": "^0.3.7",
 		"jszip": "^3.10.1",
 		"lucide": "^0.544.0",

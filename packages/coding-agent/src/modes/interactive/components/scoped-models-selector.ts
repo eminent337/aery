@@ -1,4 +1,4 @@
-import type { Model } from "@aryee/aery-ai";
+import type { Model } from "@eminent337/aery-ai";
 import {
 	Container,
 	type Focusable,
@@ -9,7 +9,7 @@ import {
 	matchesKey,
 	Spacer,
 	Text,
-} from "@aryee/aery-tui";
+} from "@eminent337/aery-tui";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyText } from "./keybinding-hints.js";

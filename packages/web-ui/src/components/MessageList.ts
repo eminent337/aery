@@ -1,8 +1,8 @@
-import type { AgentMessage, AgentTool } from "@aryee/aery-core";
+import type { AgentMessage, AgentTool } from "@eminent337/aery-core";
 import type {
 	AssistantMessage as AssistantMessageType,
 	ToolResultMessage as ToolResultMessageType,
-} from "@aryee/aery-ai";
+} from "@eminent337/aery-ai";
 import { html, LitElement, type TemplateResult } from "lit";
 import { property } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";

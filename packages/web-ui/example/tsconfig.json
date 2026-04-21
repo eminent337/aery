@@ -6,9 +6,9 @@
 		"moduleResolution": "bundler",
 		"paths": {
 			"*": ["./*"],
-			"@aryee/aery-core": ["../../agent/dist/index.d.ts"],
-			"@aryee/aery-ai": ["../../ai/dist/index.d.ts"],
-			"@aryee/aery-tui": ["../../tui/dist/index.d.ts"],
+			"@eminent337/aery-core": ["../../agent/dist/index.d.ts"],
+			"@eminent337/aery-ai": ["../../ai/dist/index.d.ts"],
+			"@eminent337/aery-tui": ["../../tui/dist/index.d.ts"],
 			"@mariozechner/pi-web-ui": ["../dist/index.d.ts"]
 		},
 		"strict": true,

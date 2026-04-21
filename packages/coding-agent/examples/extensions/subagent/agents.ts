@@ -4,7 +4,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getAgentDir, parseFrontmatter } from "@aryee/aery";
+import { getAgentDir, parseFrontmatter } from "@eminent337/aery";
 
 export type AgentScope = "user" | "project" | "both";
 

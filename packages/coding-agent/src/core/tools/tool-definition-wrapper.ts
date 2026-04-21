@@ -1,4 +1,4 @@
-import type { AgentTool } from "@aryee/aery-core";
+import type { AgentTool } from "@eminent337/aery-core";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.js";
 
 /** Wrap a ToolDefinition into an AgentTool for the core runtime. */

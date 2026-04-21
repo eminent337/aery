@@ -1,4 +1,4 @@
-import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@aryee/aery-ai";
+import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@eminent337/aery-ai";
 import { describe, expect, it } from "vitest";
 import { Agent } from "../src/index.js";
 

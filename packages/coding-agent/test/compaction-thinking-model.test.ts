@@ -11,8 +11,8 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent, type ThinkingLevel } from "@aryee/aery-core";
-import { getModel, type Model } from "@aryee/aery-ai";
+import { Agent, type ThinkingLevel } from "@eminent337/aery-core";
+import { getModel, type Model } from "@eminent337/aery-ai";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.js";
 import { ModelRegistry } from "../src/core/model-registry.js";

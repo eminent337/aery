@@ -5,8 +5,8 @@
  * (logo + keybinding hints) with a custom component showing the pi mascot.
  */
 
-import type { ExtensionAPI, Theme } from "@aryee/aery";
-import { VERSION } from "@aryee/aery";
+import type { ExtensionAPI, Theme } from "@eminent337/aery";
+import { VERSION } from "@eminent337/aery";
 
 // --- PI MASCOT ---
 // Based on pi_mascot.ts - the pi agent character

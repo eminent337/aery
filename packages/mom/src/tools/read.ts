@@ -1,5 +1,5 @@
-import type { AgentTool } from "@aryee/aery-core";
-import type { ImageContent, TextContent } from "@aryee/aery-ai";
+import type { AgentTool } from "@eminent337/aery-core";
+import type { ImageContent, TextContent } from "@eminent337/aery-ai";
 import { Type } from "@sinclair/typebox";
 import { extname } from "path";
 import type { Executor } from "../sandbox.js";

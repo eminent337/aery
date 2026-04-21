@@ -4,7 +4,7 @@
  * Usage: pi --extension ./examples/extensions/rainbow-editor.ts
  */
 
-import { CustomEditor, type ExtensionAPI } from "@aryee/aery";
+import { CustomEditor, type ExtensionAPI } from "@eminent337/aery";
 
 // Base colors (coral → yellow → green → teal → blue → purple → pink)
 const COLORS: [number, number, number][] = [
