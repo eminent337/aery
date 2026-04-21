@@ -127,7 +127,7 @@ function getOpenRouterAttributionHeaders(
 		return undefined;
 	}
 	return {
-		"HTTP-Referer": "https://pi.dev",
+		"HTTP-Referer": "https://aery.dev",
 		"X-OpenRouter-Title": "pi",
 		"X-OpenRouter-Categories": "cli-agent",
 	};

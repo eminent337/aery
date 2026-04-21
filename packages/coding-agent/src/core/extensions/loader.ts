@@ -1,7 +1,7 @@
 /**
  * Extension loader - loads TypeScript extension modules using jiti.
  *
- * Uses @mariozechner/jiti fork with virtualModules support for compiled Bun binaries.
+ * Uses @mariozechner/jiti (TypeScript loader) with virtualModules support for compiled Bun binaries.
  */
 
 import * as fs from "node:fs";

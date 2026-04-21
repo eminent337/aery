@@ -3,7 +3,7 @@
 	"version": "0.1.10",
 	"description": "Aery \u2014 AI coding agent by Aryee",
 	"type": "module",
-	"piConfig": {
+	"aeryConfig": {
 		"name": "aery",
 		"configDir": ".aery"
 	},

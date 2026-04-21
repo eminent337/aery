@@ -5,7 +5,7 @@ See [AGENTS.md](../../../AGENTS.md) for additional guidelines.
 ## Setup
 
 ```bash
-git clone https://github.com/badlogic/pi-mono
+git clone https://github.com/eminent337/aery
 cd pi-mono
 npm install
 npm run build
@@ -25,7 +25,7 @@ Configure via `package.json`:
 
 ```json
 {
-  "piConfig": {
+  "aeryConfig": {
     "name": "pi",
     "configDir": ".pi"
   }

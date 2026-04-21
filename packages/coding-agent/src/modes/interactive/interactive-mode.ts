@@ -843,7 +843,7 @@ export class InteractiveMode {
 			return;
 		}
 
-		void fetch(`https://pi.dev/install?version=${encodeURIComponent(version)}`, {
+		void fetch(`https://aery.dev/install?version=${encodeURIComponent(version)}`, {
 			signal: AbortSignal.timeout(5000),
 		})
 			.then(() => undefined)
@@ -3408,7 +3408,7 @@ export class InteractiveMode {
 		const updateInstruction = theme.fg("muted", `New version ${newVersion} is available. `) + action;
 		const changelogUrl = theme.fg(
 			"accent",
-			"https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md",
+			"https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md",
 		);
 		const changelogLine = theme.fg("muted", "Changelog: ") + changelogUrl;
 

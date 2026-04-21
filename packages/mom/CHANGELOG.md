@@ -38,7 +38,7 @@
 
 ### Fixed
 
-- Fixed Mom compaction status handling to follow the unified `compaction_start` and `compaction_end` session events, keeping compaction notifications working after the event rename ([#2617](https://github.com/badlogic/pi-mono/issues/2617))
+- Fixed Mom compaction status handling to follow the unified `compaction_start` and `compaction_end` session events, keeping compaction notifications working after the event rename ([#2617](https://github.com/eminent337/aery/issues/2617))
 
 ## [0.63.0] - 2026-03-27
 
@@ -78,7 +78,7 @@
 
 ### Fixed
 
-- Fixed mom startup crash caused by settings API drift by using `SettingsManager` with workspace-backed storage ([#1444](https://github.com/badlogic/pi-mono/issues/1444))
+- Fixed mom startup crash caused by settings API drift by using `SettingsManager` with workspace-backed storage ([#1444](https://github.com/eminent337/aery/issues/1444))
 
 ## [0.55.3] - 2026-02-27
 
@@ -194,7 +194,7 @@
 
 ### Fixed
 
-- Use coding-agent's SessionManager instead of custom MomSessionManager to fix API mismatch crash ([#595](https://github.com/badlogic/pi-mono/issues/595))
+- Use coding-agent's SessionManager instead of custom MomSessionManager to fix API mismatch crash ([#595](https://github.com/eminent337/aery/issues/595))
 
 ## [0.42.4] - 2026-01-10
 
