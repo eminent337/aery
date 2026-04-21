@@ -17,7 +17,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@aryee/aery-ai": "^0.67.68"
+		"@aryee/aery-ai": "*"
 	},
 	"keywords": [
 		"ai",

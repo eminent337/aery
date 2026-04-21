@@ -33,7 +33,7 @@
 		"node": ">=20.0.0"
 	},
 	"dependencies": {
-		"@aryee/aery-core": "^0.67.68",
+		"@aryee/aery-core": "*",
 		"chalk": "^5.5.0"
 	},
 	"devDependencies": {}

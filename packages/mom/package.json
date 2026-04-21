@@ -20,15 +20,15 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sandbox-runtime": "^0.0.16",
-		"@aryee/aery-core": "^0.67.68",
-		"@aryee/aery-ai": "^0.67.68",
-		"@aryee/aery": "^0.67.68",
+		"@aryee/aery-core": "*",
+		"@aryee/aery-ai": "*",
 		"@sinclair/typebox": "^0.34.0",
 		"@slack/socket-mode": "^2.0.0",
 		"@slack/web-api": "^7.0.0",
 		"chalk": "^5.6.2",
 		"croner": "^9.1.0",
-		"diff": "^8.0.2"
+		"diff": "^8.0.2",
+		"@eminent337/aery": "0.1.10"
 	},
 	"devDependencies": {
 		"@types/diff": "^7.0.2",
