@@ -68,21 +68,33 @@ jobs:
           FAILED=0
           SUMMARY=""
 
-          # Merge pi-mono core package commits (one hash per line)
+          # For each commit, extract the diff, remap pi->aery package names, then apply
           while IFS= read -r COMMIT; do
             [ -z "$COMMIT" ] && continue
             TOUCHED=$(git diff-tree --no-commit-id -r --name-only "$COMMIT" 2>/dev/null)
-            # Skip models.generated.ts (intentionally stripped) and CHANGELOG
+            # Skip generated files and CHANGELOG
             if echo "$TOUCHED" | grep -qE "models\.generated\.ts|CHANGELOG\.md"; then
               continue
             fi
             MSG=$(git log --format='%s' -1 "$COMMIT" 2>/dev/null)
-            if git cherry-pick "$COMMIT" --no-commit 2>/dev/null; then
+
+            # Get the diff and remap package names
+            git diff-tree -p "$COMMIT" 2>/dev/null \
+              | sed \
+                -e 's|@mariozechner/pi-coding-agent|@eminent337/aery|g' \
+                -e 's|@mariozechner/pi-agent-core|@eminent337/aery-core|g' \
+                -e 's|@mariozechner/pi-ai|@eminent337/aery-ai|g' \
+                -e 's|@mariozechner/pi-tui|@eminent337/aery-tui|g' \
+                -e 's|@mariozechner/pi|@eminent337/aery|g' \
+              > /tmp/upstream.patch
+
+            if git apply --check /tmp/upstream.patch 2>/dev/null; then
+              git apply /tmp/upstream.patch
+              git add -A
               git commit -m "upstream(pi): $MSG" || true
               MERGED=$((MERGED+1))
               SUMMARY="$SUMMARY\n- $MSG"
             else
-              git cherry-pick --abort 2>/dev/null || true
               FAILED=$((FAILED+1))
             fi
           done <<< "${{ steps.check.outputs.PI_COMMITS }}"
@@ -91,12 +103,14 @@ jobs:
           while IFS= read -r COMMIT; do
             [ -z "$COMMIT" ] && continue
             MSG=$(git log --format='%s' -1 "$COMMIT" 2>/dev/null)
-            if git cherry-pick "$COMMIT" --no-commit 2>/dev/null; then
+            git diff-tree -p "$COMMIT" 2>/dev/null > /tmp/upstream-jiti.patch
+            if git apply --check /tmp/upstream-jiti.patch 2>/dev/null; then
+              git apply /tmp/upstream-jiti.patch
+              git add -A
               git commit -m "upstream(jiti): $MSG" || true
               MERGED=$((MERGED+1))
               SUMMARY="$SUMMARY\n- [jiti] $MSG"
             else
-              git cherry-pick --abort 2>/dev/null || true
               FAILED=$((FAILED+1))
             fi
           done <<< "${{ steps.check.outputs.JITI_COMMITS }}"
