@@ -5,7 +5,7 @@
  *
  * Test with: npx tsx src/cli-new.ts [args...]
  */
-process.title = "pi";
+process.title = "aery";
 process.env.AERY_CODING_AGENT = "true";
 process.emitWarning = (() => {}) as typeof process.emitWarning;
 

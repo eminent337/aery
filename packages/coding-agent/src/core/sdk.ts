@@ -50,7 +50,7 @@ export interface CreateAgentSessionOptions {
 	/**
 	 * Optional allowlist of tool names.
 	 *
-	 * When omitted, pi enables the default built-in tools (read, bash, edit, write)
+	 * When omitted, aery enables the default built-in tools (read, bash, edit, write)
 	 * and leaves extension/custom tools enabled.
 	 * When provided, only the listed tool names are enabled.
 	 */
@@ -128,7 +128,7 @@ function getOpenRouterAttributionHeaders(
 	}
 	return {
 		"HTTP-Referer": "https://aery.dev",
-		"X-OpenRouter-Title": "pi",
+		"X-OpenRouter-Title": "aery",
 		"X-OpenRouter-Categories": "cli-agent",
 	};
 }
