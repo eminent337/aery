@@ -26,8 +26,8 @@ Configure via `package.json`:
 ```json
 {
   "aeryConfig": {
-    "name": "pi",
-    "configDir": ".pi"
+    "name": "aery",
+    "configDir": ".aery"
   }
 }
 ```
@@ -48,7 +48,7 @@ Never use `__dirname` directly for package assets.
 
 ## Debug Command
 
-`/debug` (hidden) writes to `~/.pi/agent/pi-debug.log`:
+`/debug` (hidden) writes to `~/.aery/agent/aery-debug.log`:
 - Rendered TUI lines with ANSI codes
 - Last messages sent to the LLM
 

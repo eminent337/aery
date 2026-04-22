@@ -31,13 +31,13 @@ pi list    # show installed packages from settings
 pi update  # update all non-pinned packages
 ```
 
-By default, `install` and `remove` write to global settings (`~/.pi/agent/settings.json`). Use `-l` to write to project settings (`.pi/settings.json`) instead. Project settings can be shared with your team, and pi installs any missing packages automatically on startup.
+By default, `install` and `remove` write to global settings (`~/.aery/agent/settings.json`). Use `-l` to write to project settings (`.aery/settings.json`) instead. Project settings can be shared with your team, and pi installs any missing packages automatically on startup.
 
 To try a package without installing it, use `--extension` or `-e`. This installs to a temporary directory for the current run only:
 
 ```bash
-pi -e npm:@foo/bar
-pi -e git:github.com/user/repo
+aery -e npm:@foo/bar
+aery -e git:github.com/user/repo
 ```
 
 ## Package Sources
@@ -53,7 +53,7 @@ npm:pkg
 
 - Versioned specs are pinned and skipped by `pi update`.
 - Global installs use `npm install -g`.
-- Project installs go under `.pi/npm/`.
+- Project installs go under `.aery/npm/`.
 - Set `npmCommand` in `settings.json` to pin npm package lookup and install operations to a specific wrapper command such as `mise` or `asdf`.
 
 Example:
@@ -79,7 +79,7 @@ ssh://git@github.com/user/repo@v1
 - SSH URLs use your configured SSH keys automatically (respects `~/.ssh/config`).
 - For non-interactive runs (for example CI), you can set `GIT_TERMINAL_PROMPT=0` to disable credential prompts and set `GIT_SSH_COMMAND` (for example `ssh -o BatchMode=yes -o ConnectTimeout=5`) to fail fast.
 - Refs pin the package and skip `pi update`.
-- Cloned to `~/.pi/agent/git/<host>/<path>` (global) or `.pi/git/<host>/<path>` (project).
+- Cloned to `~/.aery/agent/git/<host>/<path>` (global) or `.aery/git/<host>/<path>` (project).
 - Runs `npm install` after clone or pull if `package.json` exists.
 
 **SSH examples:**
@@ -111,7 +111,7 @@ Add a `pi` manifest to `package.json` or use conventional directories. Include t
 {
   "name": "my-package",
   "keywords": ["pi-package"],
-  "pi": {
+  "aery": {
     "extensions": ["./extensions"],
     "skills": ["./skills"],
     "prompts": ["./prompts"],
@@ -130,7 +130,7 @@ The [package gallery](https://aery.dev/packages) displays packages tagged with `
 {
   "name": "my-package",
   "keywords": ["pi-package"],
-  "pi": {
+  "aery": {
     "extensions": ["./extensions"],
     "video": "https://example.com/demo.mp4",
     "image": "https://example.com/screenshot.png"
@@ -170,7 +170,7 @@ Example:
     "shitty-extensions": "^1.0.1"
   },
   "bundledDependencies": ["shitty-extensions"],
-  "pi": {
+  "aery": {
     "extensions": ["extensions", "node_modules/shitty-extensions/extensions"],
     "skills": ["skills", "node_modules/shitty-extensions/skills"]
   }
@@ -207,7 +207,7 @@ Filter what a package loads using the object form in settings:
 
 ## Enable and Disable Resources
 
-Use `pi config` to enable or disable extensions, skills, prompt templates, and themes from installed packages and local directories. Works for both global (`~/.pi/agent`) and project (`.pi/`) scopes.
+Use `pi config` to enable or disable extensions, skills, prompt templates, and themes from installed packages and local directories. Works for both global (`~/.aery/agent`) and project (`.aery/`) scopes.
 
 ## Scope and Deduplication
 
