@@ -858,10 +858,29 @@ export class InteractiveMode {
 			try {
 				const { execFile } = await import("node:child_process");
 				const { promisify } = await import("node:util");
+				const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
+				const { join } = await import("node:path");
+				const { homedir } = await import("node:os");
 				const exec = promisify(execFile);
 				await exec("aery", ["install", "https://github.com/eminent337/aery-extensions"], {
 					timeout: 30000,
 				});
+				// Wire core extensions into settings.json
+				const repoPath = join(homedir(), ".aery", "agent", "git", "github.com", "eminent337", "aery-extensions");
+				const settingsPath = join(homedir(), ".aery", "agent", "settings.json");
+				const CORE = ["auto-compact","damage-control","provider-profiles","model-failover","web-search","web-fetch","commands","hooks","circuit-breaker","auto-router","memory-include","aery-header","aery-footer"];
+				if (existsSync(settingsPath)) {
+					const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+					const existing = new Set(settings.extensions || []);
+					for (const ext of CORE) {
+						const p = join(repoPath, "core", ext + ".ts");
+						if (existsSync(p) && !existing.has(p)) {
+							settings.extensions = settings.extensions || [];
+							settings.extensions.push(p);
+						}
+					}
+					writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+				}
 			} catch {
 				// Silent fail — user can install manually
 			}
