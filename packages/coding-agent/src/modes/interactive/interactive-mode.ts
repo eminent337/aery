@@ -868,7 +868,7 @@ export class InteractiveMode {
 				// Wire core extensions into settings.json
 				const repoPath = join(homedir(), ".aery", "agent", "git", "github.com", "eminent337", "aery-extensions");
 				const settingsPath = join(homedir(), ".aery", "agent", "settings.json");
-				const CORE = ["auto-compact","damage-control","provider-profiles","model-failover","web-search","web-fetch","commands","hooks","circuit-breaker","auto-router","memory-include","aery-header","aery-footer"];
+				const CORE = ["auto-compact","damage-control","provider-profiles","model-failover","web-search","web-fetch","commands","hooks","circuit-breaker","auto-router","memory-include","aery-header","aery-footer","multi-agent","agent-chain","agent-teams"];
 				if (existsSync(settingsPath)) {
 					const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 					const existing = new Set(settings.extensions || []);
