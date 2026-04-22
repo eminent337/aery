@@ -879,7 +879,7 @@ export class InteractiveMode {
 							settings.extensions.push(p);
 						}
 					}
-					writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+					writeFileSync(settingsPath, JSON.stringify({ ...settings, quietStartup: true }, null, 2));
 				}
 			} catch {
 				// Silent fail — user can install manually
