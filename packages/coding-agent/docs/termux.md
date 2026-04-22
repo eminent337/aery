@@ -17,7 +17,7 @@ pkg update && pkg upgrade
 pkg install nodejs termux-api git
 
 # Install pi
-npm install -g @mariozechner/aery
+npm install -g @eminent337/aery
 
 # Create config directory
 mkdir -p ~/.pi/agent

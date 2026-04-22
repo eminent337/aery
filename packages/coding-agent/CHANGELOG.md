@@ -10,9 +10,9 @@
 
 ### Initial Release
 - First public release of Aery
-- Built on pi-mono 0.67.68 core
+- Built on aery 0.67.68 (upstream base)
 - 27 extensions: auto-router, model failover, agent teams, loop scheduler, session memory, health scoring, damage control, circuit breaker, and more
 - Aery theme (sky blue accents)
 - Multi-provider support: NVIDIA, OpenRouter, Anthropic, OpenAI, Gemini, and more
 - Automatic model failover on rate limits (402/429)
-- Weekly upstream sync from pi-mono
+- Weekly upstream sync from upstream

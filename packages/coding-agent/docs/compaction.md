@@ -2,14 +2,14 @@
 
 LLMs have limited context windows. When conversations grow too long, pi uses compaction to summarize older content while preserving recent work. This page covers both auto-compaction and branch summarization.
 
-**Source files** ([pi-mono](https://github.com/eminent337/aery)):
+**Source files** ([aery](https://github.com/eminent337/aery)):
 - [`packages/coding-agent/src/core/compaction/compaction.ts`](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) - Auto-compaction logic
 - [`packages/coding-agent/src/core/compaction/branch-summarization.ts`](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts) - Branch summarization
 - [`packages/coding-agent/src/core/compaction/utils.ts`](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/compaction/utils.ts) - Shared utilities (file tracking, serialization)
 - [`packages/coding-agent/src/core/session-manager.ts`](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/session-manager.ts) - Entry types (`CompactionEntry`, `BranchSummaryEntry`)
 - [`packages/coding-agent/src/core/extensions/types.ts`](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/extensions/types.ts) - Extension event types
 
-For TypeScript definitions in your project, inspect `node_modules/@mariozechner/aery/dist/`.
+For TypeScript definitions in your project, inspect `node_modules/@eminent337/aery/dist/`.
 
 ## Overview
 
@@ -309,7 +309,7 @@ pi.on("session_before_compact", async (event, ctx) => {
 To generate a summary with your own model, convert messages to text using `serializeConversation`:
 
 ```typescript
-import { convertToLlm, serializeConversation } from "@mariozechner/aery";
+import { convertToLlm, serializeConversation } from "@eminent337/aery";
 
 pi.on("session_before_compact", async (event, ctx) => {
   const { preparation } = event;
