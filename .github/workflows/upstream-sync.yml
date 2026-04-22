@@ -42,9 +42,10 @@ jobs:
         id: check
         run: |
           SINCE=$(date -d '7 days ago' '+%Y-%m-%d')
-          PI_COMMITS=$(git log upstream/main --oneline --since="$SINCE" \
-            -- packages/agent packages/ai packages/tui --format="%H" | tac)
-          JITI_COMMITS=$(git log upstream-jiti/main --oneline --since="$SINCE" --format="%H" | head -5)
+          # Use %H alone (no --oneline) to get only hashes, oldest first
+          PI_COMMITS=$(git log upstream/main --format="%H" --since="$SINCE" \
+            -- packages/agent packages/ai packages/tui | tac)
+          JITI_COMMITS=$(git log upstream-jiti/main --format="%H" --since="$SINCE" | head -5)
 
           if [ -z "$PI_COMMITS" ] && [ -z "$JITI_COMMITS" ]; then
             echo "has_updates=false" >> $GITHUB_OUTPUT
@@ -67,30 +68,38 @@ jobs:
           FAILED=0
           SUMMARY=""
 
-          # Merge pi-mono core package commits
-          for COMMIT in ${{ steps.check.outputs.PI_COMMITS }}; do
-            TOUCHED=$(git diff-tree --no-commit-id -r --name-only $COMMIT 2>/dev/null)
-            # Skip models.generated.ts (intentionally stripped)
-            if echo "$TOUCHED" | grep -q "models.generated.ts"; then
+          # Merge pi-mono core package commits (one hash per line)
+          while IFS= read -r COMMIT; do
+            [ -z "$COMMIT" ] && continue
+            TOUCHED=$(git diff-tree --no-commit-id -r --name-only "$COMMIT" 2>/dev/null)
+            # Skip models.generated.ts (intentionally stripped) and CHANGELOG
+            if echo "$TOUCHED" | grep -qE "models\.generated\.ts|CHANGELOG\.md"; then
               continue
             fi
-            MSG=$(git log --format='%s' -1 $COMMIT upstream/main 2>/dev/null)
-            git cherry-pick $COMMIT --no-commit 2>/dev/null && {
-              git commit -m "upstream(pi): $MSG"
+            MSG=$(git log --format='%s' -1 "$COMMIT" 2>/dev/null)
+            if git cherry-pick "$COMMIT" --no-commit 2>/dev/null; then
+              git commit -m "upstream(pi): $MSG" || true
               MERGED=$((MERGED+1))
               SUMMARY="$SUMMARY\n- $MSG"
-            } || {
+            else
               git cherry-pick --abort 2>/dev/null || true
               FAILED=$((FAILED+1))
-            }
-          done
+            fi
+          done <<< "${{ steps.check.outputs.PI_COMMITS }}"
 
           # Merge jiti commits
-          for COMMIT in ${{ steps.check.outputs.JITI_COMMITS }}; do
-            MSG=$(git log --format='%s' -1 $COMMIT upstream-jiti/main 2>/dev/null)
-            SUMMARY="$SUMMARY\n- [jiti] $MSG"
-            MERGED=$((MERGED+1))
-          done
+          while IFS= read -r COMMIT; do
+            [ -z "$COMMIT" ] && continue
+            MSG=$(git log --format='%s' -1 "$COMMIT" 2>/dev/null)
+            if git cherry-pick "$COMMIT" --no-commit 2>/dev/null; then
+              git commit -m "upstream(jiti): $MSG" || true
+              MERGED=$((MERGED+1))
+              SUMMARY="$SUMMARY\n- [jiti] $MSG"
+            else
+              git cherry-pick --abort 2>/dev/null || true
+              FAILED=$((FAILED+1))
+            fi
+          done <<< "${{ steps.check.outputs.JITI_COMMITS }}"
 
           echo "merged=$MERGED" >> $GITHUB_OUTPUT
           echo "failed=$FAILED" >> $GITHUB_OUTPUT
