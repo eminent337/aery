@@ -139,24 +139,16 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const merged = '${{ steps.merge.outputs.merged }}';
-            const failed = '${{ steps.merge.outputs.failed }}';
+            const merged = parseInt('${{ steps.merge.outputs.merged }}' || '0');
+            const failed = parseInt('${{ steps.merge.outputs.failed }}' || '0');
             const buildOk = '${{ steps.build.outputs.build_ok }}';
             const today = new Date().toISOString().split('T')[0];
-
-            const issues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: 'upstream-sync',
-              state: 'open'
-            });
-            if (issues.data.length > 0) return;
 
             let status, action;
             if (buildOk === 'true' && merged > 0) {
               status = '✅ Auto-merged and pushed to main';
               action = 'Nothing to do — already applied.';
-            } else if (buildOk !== 'true' && merged > 0) {
+            } else if (merged > 0 && buildOk !== 'true') {
               status = '⚠️ Merged but build failed — NOT pushed';
               action = 'Review the failed build and merge manually.';
             } else {
@@ -169,5 +161,5 @@ jobs:
               repo: context.repo.repo,
               title: `[Upstream Sync] ${today} — ${status}`,
               labels: ['upstream-sync'],
-              body: `## Weekly Upstream Sync — ${today}\n\n**Status:** ${status}\n**Merged:** ${merged} commits | **Skipped:** ${failed}\n\n**Action needed:** ${action}`
+              body: `## Weekly Upstream Sync — ${today}\n\n**Status:** ${status}\n**Merged:** ${merged} commits | **Skipped (conflicts):** ${failed}\n\n**Action needed:** ${action}`
             });
