@@ -19,6 +19,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: |
+          cd packages/tui && npm run build && cd ../..
+          cd packages/ai && npm run build && cd ../..
+          cd packages/agent && npm run build && cd ../..
+          cd packages/coding-agent && npm run build && cd ../..
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd packages/coding-agent
+          npm publish --access public --ignore-scripts --tag latest
 
       - name: Get version from tag
         id: version

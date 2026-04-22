@@ -130,8 +130,38 @@ jobs:
           echo "build_ok=true" >> $GITHUB_OUTPUT
         continue-on-error: true
 
-      - name: Push to main if build passed
+      - name: Bump version and publish to npm
         if: steps.check.outputs.has_updates == 'true' && steps.build.outputs.build_ok == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # Read current version and bump patch
+          CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+
+          # Update package.json
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('packages/coding-agent/package.json'));
+            pkg.version = '$NEW_VERSION';
+            fs.writeFileSync('packages/coding-agent/package.json', JSON.stringify(pkg, null, '\t') + '\n');
+          "
+
+          git add packages/coding-agent/package.json
+          git commit -m "chore: bump version to $NEW_VERSION after upstream sync"
+          git push origin main
+
+          # Tag and push
+          git tag "v$NEW_VERSION"
+          git push origin "v$NEW_VERSION"
+
+          # Publish to npm
+          cd packages/coding-agent
+          npm publish --access public --ignore-scripts --tag latest
+
+      - name: Push to main if build passed
+        if: steps.check.outputs.has_updates == 'true' && steps.build.outputs.build_ok == 'true' && steps.merge.outputs.merged != '0'
         run: git push origin main
 
       - name: Notify via GitHub issue
