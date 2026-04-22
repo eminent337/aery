@@ -31,7 +31,7 @@ jobs:
 
       - name: Fetch upstreams
         run: |
-          git remote add upstream https://github.com/eminent337/aery.git
+          git remote add upstream https://github.com/badlogic/pi-mono.git
           git remote add upstream-jiti https://github.com/badlogic/jiti.git
           git remote add upstream-clipboard https://github.com/badlogic/clipboard.git
           git fetch upstream main
