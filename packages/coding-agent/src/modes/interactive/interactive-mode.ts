@@ -821,6 +821,8 @@ export class InteractiveMode {
 			// Fresh install - record the version, send telemetry, don't show changelog
 			this.settingsManager.setLastChangelogVersion(VERSION);
 			this.reportInstallTelemetry(VERSION);
+			// Auto-install core extension pack on fresh install
+			this.installCorePackIfNeeded();
 			return undefined;
 		}
 
@@ -848,6 +850,22 @@ export class InteractiveMode {
 		})
 			.then(() => undefined)
 			.catch(() => undefined);
+	}
+
+	private installCorePackIfNeeded(): void {
+		// Fire-and-forget: install core extension pack on fresh install
+		void (async () => {
+			try {
+				const { execFile } = await import("node:child_process");
+				const { promisify } = await import("node:util");
+				const exec = promisify(execFile);
+				await exec("aery", ["install", "https://github.com/eminent337/aery-extensions"], {
+					timeout: 30000,
+				});
+			} catch {
+				// Silent fail — user can install manually
+			}
+		})();
 	}
 
 	private getMarkdownThemeWithSettings(): MarkdownTheme {
