@@ -4,6 +4,11 @@
 
 > AI coding agent for the terminal. Built by Aryee.
 
+[![npm version](https://img.shields.io/npm/v/@eminent337/aery?color=7eb8d4&label=version)](https://www.npmjs.com/package/@eminent337/aery)
+[![npm downloads](https://img.shields.io/npm/dm/@eminent337/aery?color=7eb8d4&label=downloads)](https://www.npmjs.com/package/@eminent337/aery)
+[![license](https://img.shields.io/npm/l/@eminent337/aery?color=7eb8d4)](https://github.com/eminent337/aery/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/eminent337/aery?color=7eb8d4)](https://github.com/eminent337/aery)
+
 Aery is a powerful, extensible AI coding agent that lives in your terminal. It reads your codebase, edits files, runs commands, and manages git workflows through natural language — with automatic model failover across 300+ providers.
 
 ## Install
