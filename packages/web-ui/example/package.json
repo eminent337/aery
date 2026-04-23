@@ -1,5 +1,5 @@
 {
-  "name": "pi-web-ui-example",
+  "name": "aery-web-ui-example",
   "version": "0.67.68",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
   "dependencies": {
     "@mariozechner/mini-lit": "^0.2.0",
     "@eminent337/aery-ai": "file:../../ai",
-    "@mariozechner/pi-web-ui": "file:../",
+    "@eminent337/aery-web-ui": "file:../",
     "@tailwindcss/vite": "^4.1.17",
     "lit": "^3.3.1",
     "lucide": "^0.544.0"

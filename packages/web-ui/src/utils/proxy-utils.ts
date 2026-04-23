@@ -55,7 +55,7 @@ export function shouldUseProxyForProvider(provider: string, apiKey: string): boo
  *
  * @param model - The model to potentially proxy
  * @param apiKey - API key for the provider
- * @param proxyUrl - CORS proxy URL (e.g., "https://proxy.mariozechner.at/proxy")
+ * @param proxyUrl - CORS proxy URL (e.g., "https://your-proxy-domain.com/proxy")
  * @returns Model with modified baseUrl if proxy is needed, otherwise original model
  */
 export function applyProxyIfNeeded<T extends Api>(model: Model<T>, apiKey: string, proxyUrl?: string): Model<T> {

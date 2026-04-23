@@ -1,5 +1,5 @@
 {
-	"name": "@mariozechner/pi",
+	"name": "@eminent337/aery-pods",
 	"version": "0.67.68",
 	"description": "CLI tool for managing vLLM deployments on GPU pods",
 	"type": "module",

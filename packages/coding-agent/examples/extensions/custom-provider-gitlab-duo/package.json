@@ -1,5 +1,5 @@
 {
-  "name": "pi-extension-custom-provider-gitlab-duo",
+  "name": "aery-extension-custom-provider-gitlab-duo",
   "private": true,
   "version": "0.67.68",
   "type": "module",

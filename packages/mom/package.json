@@ -1,5 +1,5 @@
 {
-	"name": "@mariozechner/pi-mom",
+	"name": "@eminent337/aery-mom",
 	"version": "0.67.68",
 	"description": "Slack bot that delegates messages to the pi coding agent",
 	"type": "module",

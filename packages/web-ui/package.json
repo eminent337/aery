@@ -1,5 +1,5 @@
 {
-	"name": "@mariozechner/pi-web-ui",
+	"name": "@eminent337/aery-web-ui",
 	"version": "0.67.68",
 	"description": "Reusable web UI components for AI chat interfaces powered by @eminent337/aery-ai",
 	"type": "module",

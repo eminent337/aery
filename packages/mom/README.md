@@ -1,6 +1,6 @@
 # mom (Master Of Mischief)
 
-A Slack bot powered by an LLM that can execute bash commands, read/write files, and interact with your development environment. Mom is **self-managing**. She installs her own tools, programs [CLI tools (aka "skills")](https://mariozechner.at/posts/2025-11-02-what-if-you-dont-need-mcp/) she can use to help with your workflows and tasks, configures credentials, and maintains her workspace autonomously.
+A Slack bot powered by an LLM that can execute bash commands, read/write files, and interact with your development environment. Mom is **self-managing**. She installs her own tools, programs [CLI tools (aka "skills")](https://eminent337.github.io) she can use to help with your workflows and tasks, configures credentials, and maintains her workspace autonomously.
 
 ## Features
 
@@ -10,7 +10,7 @@ A Slack bot powered by an LLM that can execute bash commands, read/write files, 
 - **Full Bash Access**: Execute any command, read/write files, automate workflows
 - **Docker Sandbox**: Isolate mom in a container (recommended for all use)
 - **Persistent Workspace**: All conversation history, files, and tools stored in one directory you control
-- **Working Memory & Custom Tools**: Mom remembers context across sessions and creates workflow-specific CLI tools ([aka "skills"](https://mariozechner.at/posts/2025-11-02-what-if-you-dont-need-mcp/)) for your tasks
+- **Working Memory & Custom Tools**: Mom remembers context across sessions and creates workflow-specific CLI tools ([aka "skills"](https://eminent337.github.io)) for your tasks
 - **Thread-Based Details**: Clean main messages with verbose tool details in threads
 
 ## Documentation
@@ -23,7 +23,7 @@ A Slack bot powered by an LLM that can execute bash commands, read/write files, 
 ## Installation
 
 ```bash
-npm install @mariozechner/pi-mom
+npm install @eminent337/aery-mom
 ```
 
 ### Slack App Setup
@@ -108,7 +108,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 2. **OAuth Login via coding agent command** (Recommended for Claude Pro/Max)
 
-- run interactive coding agent session: `npx @mariozechner/pi-coding-agent`
+- run interactive coding agent session: `npx @eminent337/aery`
 - enter `/login` command
   - choose "Anthropic" provider
   - follow instructions in the browser
@@ -237,7 +237,7 @@ description: Read, search, and send Gmail via IMAP/SMTP
 
 When mom responds, she's given the names, descriptions, and file locations of all `SKILL.md` files in `/workspace/skills/` and `/workspace/<channel>/skills/`, so she knows what's available to handle your request. When mom decides to use a skill, she reads the `SKILL.md` in full, after which she's able to use the skill by invoking its scripts and programs.
 
-You can find a set of basic skills at [github.com/badlogic/pi-skills](https://github.com/badlogic/pi-skills). Just tell mom to clone this repository into `/workspace/skills/pi-skills` and she'll help you set up the rest.
+You can find a set of basic skills at [github.com/eminent337/aery-extensions](https://github.com/eminent337/aery-extensions). Just tell mom to clone this repository into `~/.aery/agent/git/github.com/eminent337/aery-extensions` and she'll help you set up the rest.
 
 #### Creating a Skill
 
@@ -364,7 +364,7 @@ You can write event files directly to `data/events/` on the host machine. This l
 
 ### Updating Mom
 
-Update mom anytime with `npm install -g @mariozechner/pi-mom`. This only updates the Node.js app on your host. Anything mom installed inside the Docker container remains unchanged.
+Update mom anytime with `npm install -g @eminent337/aery-mom`. This only updates the Node.js app on your host. Anything mom installed inside the Docker container remains unchanged.
 
 ## Message History
 
