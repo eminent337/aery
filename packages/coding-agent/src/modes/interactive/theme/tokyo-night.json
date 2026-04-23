@@ -1,0 +1,81 @@
+{
+	"$schema": "./theme-schema.json",
+	"name": "tokyo-night",
+	"vars": {
+		"tokyoBlue": "#7aa2f7",
+		"tokyoCyan": "#7dcfff",
+		"tokyoGreen": "#9ece6a",
+		"tokyoRed": "#f7768e",
+		"tokyoOrange": "#ff9e64",
+		"tokyoPurple": "#bb9af7",
+		"tokyoGray": "#565f89",
+		"tokyoDimGray": "#3b4261",
+		"tokyoDarkGray": "#24283b",
+		"tokyoBg": "#1a1b26",
+		"tokyoBgDark": "#16161e"
+	},
+	"colors": {
+		"accent": "tokyoBlue",
+		"border": "tokyoDimGray",
+		"borderAccent": "tokyoCyan",
+		"borderMuted": "tokyoDarkGray",
+		"success": "tokyoGreen",
+		"error": "tokyoRed",
+		"warning": "tokyoOrange",
+		"muted": "tokyoGray",
+		"dim": "tokyoDimGray",
+		"text": "#c0caf5",
+		"thinkingText": "tokyoDimGray",
+
+		"selectedBg": "#2a2f4a",
+		"userMessageBg": "tokyoBg",
+		"userMessageText": "",
+		"customMessageBg": "#1f2335",
+		"customMessageText": "",
+		"customMessageLabel": "tokyoBlue",
+		"toolPendingBg": "#1a1f2e",
+		"toolSuccessBg": "#1a2b1a",
+		"toolErrorBg": "#2b1a1a",
+		"toolTitle": "tokyoCyan",
+		"toolOutput": "tokyoGray",
+
+		"mdHeading": "tokyoCyan",
+		"mdLink": "tokyoBlue",
+		"mdLinkUrl": "tokyoDimGray",
+		"mdCode": "tokyoBlue",
+		"mdCodeBlock": "tokyoGreen",
+		"mdCodeBlockBorder": "tokyoDimGray",
+		"mdQuote": "tokyoGray",
+		"mdQuoteBorder": "tokyoDimGray",
+		"mdHr": "tokyoDimGray",
+		"mdListBullet": "tokyoBlue",
+
+		"toolDiffAdded": "tokyoGreen",
+		"toolDiffRemoved": "tokyoRed",
+		"toolDiffContext": "tokyoGray",
+
+		"syntaxComment": "#565f89",
+		"syntaxKeyword": "#bb9af7",
+		"syntaxFunction": "#7aa2f7",
+		"syntaxVariable": "#7dcfff",
+		"syntaxString": "#9ece6a",
+		"syntaxNumber": "#ff9e64",
+		"syntaxType": "#2ac3de",
+		"syntaxOperator": "#89ddff",
+		"syntaxPunctuation": "#c0caf5",
+
+		"thinkingOff": "tokyoDarkGray",
+		"thinkingMinimal": "#3b4261",
+		"thinkingLow": "#565f89",
+		"thinkingMedium": "tokyoBlue",
+		"thinkingHigh": "tokyoPurple",
+		"thinkingXhigh": "#c0a3ff",
+
+		"bashMode": "tokyoGreen"
+	},
+	"export": {
+		"pageBg": "#1a1b26",
+		"cardBg": "#24283b",
+		"infoBg": "#2a2f4a"
+	}
+}

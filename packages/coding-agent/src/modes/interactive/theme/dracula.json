@@ -1,0 +1,81 @@
+{
+	"$schema": "./theme-schema.json",
+	"name": "dracula",
+	"vars": {
+		"draculaPurple": "#bd93f9",
+		"draculaCyan": "#8be9fd",
+		"draculaGreen": "#50fa7b",
+		"draculaRed": "#ff5555",
+		"draculaOrange": "#ffb86c",
+		"draculaPink": "#ff79c6",
+		"draculaGray": "#6272a4",
+		"draculaDimGray": "#44475a",
+		"draculaDarkGray": "#282a36",
+		"draculaBg": "#21222c",
+		"draculaBgDark": "#191a21"
+	},
+	"colors": {
+		"accent": "draculaPurple",
+		"border": "draculaDimGray",
+		"borderAccent": "draculaCyan",
+		"borderMuted": "draculaDarkGray",
+		"success": "draculaGreen",
+		"error": "draculaRed",
+		"warning": "draculaOrange",
+		"muted": "draculaGray",
+		"dim": "draculaDimGray",
+		"text": "#f8f8f2",
+		"thinkingText": "draculaDimGray",
+
+		"selectedBg": "#44475a",
+		"userMessageBg": "draculaBg",
+		"userMessageText": "",
+		"customMessageBg": "draculaDarkGray",
+		"customMessageText": "",
+		"customMessageLabel": "draculaPurple",
+		"toolPendingBg": "#1a1b26",
+		"toolSuccessBg": "#1a2b1a",
+		"toolErrorBg": "#2b1a1a",
+		"toolTitle": "draculaCyan",
+		"toolOutput": "draculaGray",
+
+		"mdHeading": "draculaCyan",
+		"mdLink": "draculaPurple",
+		"mdLinkUrl": "draculaDimGray",
+		"mdCode": "draculaPurple",
+		"mdCodeBlock": "draculaGreen",
+		"mdCodeBlockBorder": "draculaDimGray",
+		"mdQuote": "draculaGray",
+		"mdQuoteBorder": "draculaDimGray",
+		"mdHr": "draculaDimGray",
+		"mdListBullet": "draculaPurple",
+
+		"toolDiffAdded": "draculaGreen",
+		"toolDiffRemoved": "draculaRed",
+		"toolDiffContext": "draculaGray",
+
+		"syntaxComment": "#6272a4",
+		"syntaxKeyword": "#ff79c6",
+		"syntaxFunction": "#50fa7b",
+		"syntaxVariable": "#8be9fd",
+		"syntaxString": "#f1fa8c",
+		"syntaxNumber": "#bd93f9",
+		"syntaxType": "#8be9fd",
+		"syntaxOperator": "#ff79c6",
+		"syntaxPunctuation": "#f8f8f2",
+
+		"thinkingOff": "draculaDarkGray",
+		"thinkingMinimal": "draculaDimGray",
+		"thinkingLow": "draculaGray",
+		"thinkingMedium": "draculaPurple",
+		"thinkingHigh": "draculaPink",
+		"thinkingXhigh": "#ffa3d4",
+
+		"bashMode": "draculaGreen"
+	},
+	"export": {
+		"pageBg": "#21222c",
+		"cardBg": "#282a36",
+		"infoBg": "#44475a"
+	}
+}

@@ -1,0 +1,81 @@
+{
+	"$schema": "./theme-schema.json",
+	"name": "catppuccin-mocha",
+	"vars": {
+		"catBlue": "#89b4fa",
+		"catSky": "#89dceb",
+		"catGreen": "#a6e3a1",
+		"catRed": "#f38ba8",
+		"catPeach": "#fab387",
+		"catMauve": "#cba6f7",
+		"catOverlay": "#6c7086",
+		"catSurface": "#45475a",
+		"catBase": "#1e1e2e",
+		"catMantle": "#181825",
+		"catCrust": "#11111b"
+	},
+	"colors": {
+		"accent": "catBlue",
+		"border": "catSurface",
+		"borderAccent": "catSky",
+		"borderMuted": "catMantle",
+		"success": "catGreen",
+		"error": "catRed",
+		"warning": "catPeach",
+		"muted": "catOverlay",
+		"dim": "catSurface",
+		"text": "#cdd6f4",
+		"thinkingText": "catSurface",
+
+		"selectedBg": "#313244",
+		"userMessageBg": "catBase",
+		"userMessageText": "",
+		"customMessageBg": "catMantle",
+		"customMessageText": "",
+		"customMessageLabel": "catBlue",
+		"toolPendingBg": "#1a1a2e",
+		"toolSuccessBg": "#1a2b1a",
+		"toolErrorBg": "#2b1a1a",
+		"toolTitle": "catSky",
+		"toolOutput": "catOverlay",
+
+		"mdHeading": "catSky",
+		"mdLink": "catBlue",
+		"mdLinkUrl": "catSurface",
+		"mdCode": "catBlue",
+		"mdCodeBlock": "catGreen",
+		"mdCodeBlockBorder": "catSurface",
+		"mdQuote": "catOverlay",
+		"mdQuoteBorder": "catSurface",
+		"mdHr": "catSurface",
+		"mdListBullet": "catBlue",
+
+		"toolDiffAdded": "catGreen",
+		"toolDiffRemoved": "catRed",
+		"toolDiffContext": "catOverlay",
+
+		"syntaxComment": "#6c7086",
+		"syntaxKeyword": "#cba6f7",
+		"syntaxFunction": "#89b4fa",
+		"syntaxVariable": "#89dceb",
+		"syntaxString": "#a6e3a1",
+		"syntaxNumber": "#fab387",
+		"syntaxType": "#f5c2e7",
+		"syntaxOperator": "#94e2d5",
+		"syntaxPunctuation": "#cdd6f4",
+
+		"thinkingOff": "catMantle",
+		"thinkingMinimal": "catSurface",
+		"thinkingLow": "catOverlay",
+		"thinkingMedium": "catBlue",
+		"thinkingHigh": "catMauve",
+		"thinkingXhigh": "#d4a3ff",
+
+		"bashMode": "catGreen"
+	},
+	"export": {
+		"pageBg": "#1e1e2e",
+		"cardBg": "#313244",
+		"infoBg": "#45475a"
+	}
+}

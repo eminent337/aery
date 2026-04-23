@@ -1,0 +1,81 @@
+{
+	"$schema": "./theme-schema.json",
+	"name": "nord",
+	"vars": {
+		"nordBlue": "#81a1c1",
+		"nordCyan": "#88c0d0",
+		"nordGreen": "#a3be8c",
+		"nordRed": "#bf616a",
+		"nordOrange": "#d08770",
+		"nordPurple": "#b48ead",
+		"nordGray": "#616e88",
+		"nordDimGray": "#4c566a",
+		"nordDarkGray": "#3b4252",
+		"nordBg": "#2e3440",
+		"nordBgDark": "#242933"
+	},
+	"colors": {
+		"accent": "nordBlue",
+		"border": "nordDimGray",
+		"borderAccent": "nordCyan",
+		"borderMuted": "nordDarkGray",
+		"success": "nordGreen",
+		"error": "nordRed",
+		"warning": "nordOrange",
+		"muted": "nordGray",
+		"dim": "nordDimGray",
+		"text": "#eceff4",
+		"thinkingText": "nordDimGray",
+
+		"selectedBg": "#434c5e",
+		"userMessageBg": "nordBg",
+		"userMessageText": "",
+		"customMessageBg": "nordDarkGray",
+		"customMessageText": "",
+		"customMessageLabel": "nordBlue",
+		"toolPendingBg": "#2a303c",
+		"toolSuccessBg": "#2a3b2a",
+		"toolErrorBg": "#3b2a2a",
+		"toolTitle": "nordCyan",
+		"toolOutput": "nordGray",
+
+		"mdHeading": "nordCyan",
+		"mdLink": "nordBlue",
+		"mdLinkUrl": "nordDimGray",
+		"mdCode": "nordBlue",
+		"mdCodeBlock": "nordGreen",
+		"mdCodeBlockBorder": "nordDimGray",
+		"mdQuote": "nordGray",
+		"mdQuoteBorder": "nordDimGray",
+		"mdHr": "nordDimGray",
+		"mdListBullet": "nordBlue",
+
+		"toolDiffAdded": "nordGreen",
+		"toolDiffRemoved": "nordRed",
+		"toolDiffContext": "nordGray",
+
+		"syntaxComment": "#616e88",
+		"syntaxKeyword": "#81a1c1",
+		"syntaxFunction": "#88c0d0",
+		"syntaxVariable": "#8fbcbb",
+		"syntaxString": "#a3be8c",
+		"syntaxNumber": "#b48ead",
+		"syntaxType": "#5e81ac",
+		"syntaxOperator": "#81a1c1",
+		"syntaxPunctuation": "#eceff4",
+
+		"thinkingOff": "nordDarkGray",
+		"thinkingMinimal": "nordDimGray",
+		"thinkingLow": "nordGray",
+		"thinkingMedium": "nordBlue",
+		"thinkingHigh": "nordPurple",
+		"thinkingXhigh": "#c4a3d4",
+
+		"bashMode": "nordGreen"
+	},
+	"export": {
+		"pageBg": "#2e3440",
+		"cardBg": "#3b4252",
+		"infoBg": "#434c5e"
+	}
+}
