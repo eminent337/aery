@@ -1,3 +1,5 @@
+> 🌐 **[eminent337.github.io](https://eminent337.github.io)** — Landing page
+
 # Aery
 
 > AI coding agent for the terminal. Built by Aryee.
