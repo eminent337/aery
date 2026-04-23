@@ -85,7 +85,14 @@ jobs:
                 -e 's|@mariozechner/pi-agent-core|@eminent337/aery-core|g' \
                 -e 's|@mariozechner/pi-ai|@eminent337/aery-ai|g' \
                 -e 's|@mariozechner/pi-tui|@eminent337/aery-tui|g' \
-                -e 's|@mariozechner/pi|@eminent337/aery|g' \
+                -e 's|@mariozechner/pi-mom|@eminent337/aery-mom|g' \
+                -e 's|@mariozechner/pi-web-ui|@eminent337/aery-web-ui|g' \
+                -e 's|@mariozechner/pi-agent-old|@eminent337/aery-agent-old|g' \
+                -e 's|@mariozechner/pi|@eminent337/aery-pods|g' \
+                -e 's|badlogic/pi-mono|eminent337/aery|g' \
+                -e 's|pi\.dev|eminent337.github.io|g' \
+                -e 's|\.pi\.md|.aery.md|g' \
+                -e 's|pi-extension-|aery-extension-|g' \
               > /tmp/upstream.patch
 
             if git apply --check /tmp/upstream.patch 2>/dev/null; then
