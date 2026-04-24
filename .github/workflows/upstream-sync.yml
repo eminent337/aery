@@ -156,7 +156,7 @@ jobs:
           git tag "v$NEW_VERSION" || true
           git push origin "v$NEW_VERSION" || true
 
-          npm publish packages/coding-agent --access public --ignore-scripts --tag latest
+          npm publish ./packages/coding-agent --access public --ignore-scripts --tag latest
 
       - name: Push to main if build passed
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
