@@ -135,6 +135,7 @@ jobs:
           HUSKY: '0'
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
+          npm install --no-save husky 2>/dev/null || true
 
           # Bump coding-agent version
           CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
