@@ -155,7 +155,22 @@ jobs:
             fs.writeFileSync('packages/coding-agent/package.json', JSON.stringify(pkg, null, '\t') + '\n');
           "
 
-          git add packages/coding-agent/package.json
+          # Publish aery-ai if it changed (OAuth and AI provider code lives here)
+          if git diff HEAD~1 --name-only 2>/dev/null | grep -q "packages/ai/"; then
+            AI_CURRENT=$(node -p "require('./packages/ai/package.json').version")
+            IFS='.' read -r MA MI PA <<< "$AI_CURRENT"
+            AI_NEW="$MA.$MI.$((PA + 1))"
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('packages/ai/package.json'));
+              pkg.version = '$AI_NEW';
+              fs.writeFileSync('packages/ai/package.json', JSON.stringify(pkg, null, '\t') + '\n');
+            "
+            cd packages/ai && npm publish --access public --ignore-scripts --tag latest && cd ../..
+            echo "Published @eminent337/aery-ai@$AI_NEW"
+          fi
+
+          git add packages/
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync"
           git push origin main
 
