@@ -132,10 +132,11 @@ jobs:
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
         id: build
         run: |
-          cd packages/tui && npm ci --ignore-scripts && npm run build && cd ..
-          cd packages/ai && npm ci --ignore-scripts && npm run build && cd ..
-          cd packages/agent && npm ci --ignore-scripts && npm run build && cd ..
-          cd packages/coding-agent && npm ci --ignore-scripts && npm run build && cd ..
+          ROOT=$(pwd)
+          (cd $ROOT/packages/tui && npm ci --ignore-scripts && npm run build)
+          (cd $ROOT/packages/ai && npm ci --ignore-scripts && npm run build)
+          (cd $ROOT/packages/agent && npm ci --ignore-scripts && npm run build)
+          (cd $ROOT/packages/coding-agent && npm ci --ignore-scripts && npm run build)
           echo "build_ok=true" >> $GITHUB_OUTPUT
         continue-on-error: true
 
