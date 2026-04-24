@@ -417,11 +417,11 @@ export class TUI extends Container {
 
 	start(): void {
 		this.stopped = false;
+		process.stdout.write("\x1b[?1049h"); // Enter alternate screen
 		this.terminal.start(
 			(data) => this.handleInput(data),
 			() => this.requestRender(),
 		);
-		this.terminal.write("\x1b[?1049h"); // Enter alternate screen
 		this.terminal.hideCursor();
 		this.queryCellSize();
 		this.requestRender();
@@ -467,7 +467,7 @@ export class TUI extends Container {
 		}
 
 		this.terminal.showCursor();
-		this.terminal.write("\x1b[?1049l"); // Exit alternate screen
+		process.stdout.write("\x1b[?1049l"); // Exit alternate screen
 		this.terminal.stop();
 	}
 
