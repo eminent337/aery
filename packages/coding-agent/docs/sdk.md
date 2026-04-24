@@ -2,7 +2,9 @@
 
 # SDK
 
-The SDK provides programmatic access to pi's agent capabilities. Use it to embed pi in other applications, build custom interfaces, or integrate with automated workflows.
+The SDK provides programmatic access to the agent's capabilities. Use it to embed the agent in other applications, build custom interfaces, or integrate with automated workflows.
+
+> This SDK is based on [pi-mono](https://github.com/badlogic/pi-mono). Similar SDKs exist in [opencode](https://github.com/sst/opencode) and [openclaude](https://github.com/Gitlawb/openclaude). Concepts are transferable across these projects.
 
 **Example use cases:**
 - Build a custom UI (web, desktop, mobile)

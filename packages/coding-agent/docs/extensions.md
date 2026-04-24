@@ -2,7 +2,9 @@
 
 # Extensions
 
-Extensions are TypeScript modules that extend pi's behavior. They can subscribe to lifecycle events, register custom tools callable by the LLM, add commands, and more.
+Extensions are TypeScript modules that extend the agent's behavior. They can subscribe to lifecycle events, register custom tools callable by the LLM, add commands, and more.
+
+> This extension system is shared across the open-source AI coding agent ecosystem. Extensions written for [pi](https://github.com/badlogic/pi-mono) are compatible with [Aery](https://github.com/eminent337/aery). For more extension examples, see [openclaude](https://github.com/Gitlawb/openclaude) and [opencode](https://github.com/sst/opencode) which use similar plugin architectures.
 
 > **Placement for /reload:** Put extensions in `~/.aery/agent/extensions/` (global) or `.aery/extensions/` (project-local) for auto-discovery. Use `aery -e ./path.ts` only for quick tests. Extensions in auto-discovered locations can be hot-reloaded with `/reload`.
 
