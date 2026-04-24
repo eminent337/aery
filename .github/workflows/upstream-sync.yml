@@ -132,6 +132,7 @@ jobs:
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          HUSKY: '0'
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
 
@@ -154,7 +155,7 @@ jobs:
           git tag "v$NEW_VERSION" || true
           git push origin "v$NEW_VERSION" || true
 
-          HUSKY=0 npm publish --access public --ignore-scripts --tag latest --prefix packages/coding-agent
+          npm publish --access public --ignore-scripts --tag latest --prefix packages/coding-agent
 
       - name: Push to main if build passed
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
