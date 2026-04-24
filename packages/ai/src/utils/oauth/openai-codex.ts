@@ -173,7 +173,7 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenResult> {
 }
 
 async function createAuthorizationFlow(
-	originator: string = "aery",
+	originator: string = "codex_cli_rs",
 ): Promise<{ verifier: string; state: string; url: string }> {
 	const { verifier, challenge } = await generatePKCE();
 	const state = createState();
@@ -188,6 +188,7 @@ async function createAuthorizationFlow(
 	url.searchParams.set("state", state);
 	url.searchParams.set("id_token_add_organizations", "true");
 	url.searchParams.set("codex_cli_simplified_flow", "true");
+	url.searchParams.set("originator", originator);
 
 	return { verifier, state, url: url.toString() };
 }
