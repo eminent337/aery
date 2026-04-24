@@ -1,6 +1,6 @@
 {
 	"name": "@eminent337/aery",
-	"version": "0.1.38",
+	"version": "0.1.39",
 	"description": "Aery \u2014 AI coding agent by Aryee",
 	"type": "module",
 	"aeryConfig": {
@@ -39,6 +39,9 @@
 		"prepublishOnly": "npm run clean && ../../node_modules/.bin/tsgo -p tsconfig.build.json && ../../node_modules/.bin/shx chmod +x dist/cli.js && npm run copy-assets"
 	},
 	"dependencies": {
+		"@eminent337/aery-ai": "0.67.68",
+		"@eminent337/aery-core": "0.67.68",
+		"@eminent337/aery-tui": "0.67.68",
 		"@mariozechner/jiti": "2.6.2",
 		"@silvia-odwyer/photon-node": "^0.3.4",
 		"@sinclair/typebox": "^0.34.41",
@@ -46,6 +49,7 @@
 		"chalk": "^5.5.0",
 		"cli-highlight": "^2.1.11",
 		"diff": "^8.0.2",
+		"duck-duck-scrape": "^2.2.7",
 		"extract-zip": "^2.0.1",
 		"file-type": "^21.1.1",
 		"glob": "^13.0.1",
@@ -57,10 +61,7 @@
 		"strip-ansi": "^7.1.0",
 		"undici": "^7.19.1",
 		"uuid": "^11.1.0",
-		"yaml": "^2.8.2",
-		"@eminent337/aery-core": "0.67.68",
-		"@eminent337/aery-ai": "0.67.68",
-		"@eminent337/aery-tui": "0.67.68"
+		"yaml": "^2.8.2"
 	},
 	"overrides": {
 		"rimraf": "6.1.2",
