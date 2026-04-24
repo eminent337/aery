@@ -1,4 +1,4 @@
-> pi can create skills. Ask it to build one for your use case.
+> aery can create skills. Ask it to build one for your use case.
 
 # Skills
 

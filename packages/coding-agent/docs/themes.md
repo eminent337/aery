@@ -1,4 +1,4 @@
-> pi can create themes. Ask it to build one for your setup.
+> aery can create themes. Ask it to build one for your setup.
 
 # Themes
 

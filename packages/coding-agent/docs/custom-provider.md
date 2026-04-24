@@ -211,7 +211,7 @@ models: [{
   compat: {
     supportsDeveloperRole: false,      // use "system" instead of "developer"
     supportsReasoningEffort: true,
-    reasoningEffortMap: {              // map pi-ai levels to provider values
+    reasoningEffortMap: {              // map aery-ai levels to provider values
       minimal: "default",
       low: "default",
       medium: "default",

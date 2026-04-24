@@ -1,4 +1,4 @@
-> pi can help you use the SDK. Ask it to build an integration for your use case.
+> aery can help you use the SDK. Ask it to build an integration for your use case.
 
 # SDK
 
