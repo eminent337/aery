@@ -144,46 +144,43 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          # Read current version and bump patch
-          CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+          ROOT=$(pwd)
 
-          # Update package.json
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('packages/coding-agent/package.json'));
-            pkg.version = '$NEW_VERSION';
-            fs.writeFileSync('packages/coding-agent/package.json', JSON.stringify(pkg, null, '\t') + '\n');
-          "
-
-          # Publish aery-ai if it changed (OAuth and AI provider code lives here)
+          # Publish aery-ai if it changed
           if git diff HEAD~1 --name-only 2>/dev/null | grep -q "packages/ai/"; then
-            AI_CURRENT=$(node -p "require('./packages/ai/package.json').version")
+            AI_CURRENT=$(node -p "require('$ROOT/packages/ai/package.json').version")
             IFS='.' read -r MA MI PA <<< "$AI_CURRENT"
             AI_NEW="$MA.$MI.$((PA + 1))"
             node -e "
               const fs = require('fs');
-              const pkg = JSON.parse(fs.readFileSync('packages/ai/package.json'));
+              const pkg = JSON.parse(fs.readFileSync('$ROOT/packages/ai/package.json'));
               pkg.version = '$AI_NEW';
-              fs.writeFileSync('packages/ai/package.json', JSON.stringify(pkg, null, '\t') + '\n');
+              fs.writeFileSync('$ROOT/packages/ai/package.json', JSON.stringify(pkg, null, '\t') + '\n');
             "
-            cd packages/ai && npm publish --access public --ignore-scripts --tag latest && cd ../..
+            (cd $ROOT/packages/ai && npm publish --access public --ignore-scripts --tag latest)
             echo "Published @eminent337/aery-ai@$AI_NEW"
           fi
 
-          git add packages/
+          # Bump coding-agent version
+          CURRENT=$(node -p "require('$ROOT/packages/coding-agent/package.json').version")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('$ROOT/packages/coding-agent/package.json'));
+            pkg.version = '$NEW_VERSION';
+            fs.writeFileSync('$ROOT/packages/coding-agent/package.json', JSON.stringify(pkg, null, '\t') + '\n');
+          "
+
+          git add $ROOT/packages/
           git pull --rebase origin main || true
-          git commit -m "chore: bump version to $NEW_VERSION after upstream sync"
+          git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
           git push origin main
 
-          # Tag and push
           git tag "v$NEW_VERSION"
           git push origin "v$NEW_VERSION"
 
-          # Publish to npm
-          cd packages/coding-agent
-          npm publish --access public --ignore-scripts --tag latest
+          (cd $ROOT/packages/coding-agent && npm publish --access public --ignore-scripts --tag latest)
 
       - name: Push to main if build passed
         if: steps.check.outputs.has_updates == 'true' && steps.build.outputs.build_ok == 'true' && steps.merge.outputs.merged != '0'
