@@ -552,9 +552,9 @@ const { session } = await createAgentSession({
 });
 ```
 
-Use `defineTool()` for standalone definitions and arrays like `customTools: [myTool]`. Inline `aery.registerTool({ ... })` already infers parameter types correctly.
+Use `defineTool()` for standalone definitions and arrays like `customTools: [myTool]`. Inline `pi.registerTool({ ... })` already infers parameter types correctly.
 
-Custom tools passed via `customTools` are combined with extension-registered tools. Extensions loaded by the ResourceLoader can also register tools via `aery.registerTool()`.
+Custom tools passed via `customTools` are combined with extension-registered tools. Extensions loaded by the ResourceLoader can also register tools via `pi.registerTool()`.
 
 > See [examples/sdk/05-tools.ts](../examples/sdk/05-tools.ts)
 
@@ -569,7 +569,7 @@ const loader = new DefaultResourceLoader({
   additionalExtensionPaths: ["/path/to/my-extension.ts"],
   extensionFactories: [
     (pi) => {
-      aery.on("agent_start", () => {
+      pi.on("agent_start", () => {
         console.log("[Inline Extension] Agent starting");
       });
     },

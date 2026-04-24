@@ -2,13 +2,13 @@
 
 # Pi Packages
 
-Aery packages bundle extensions, skills, prompt templates, and themes so you can share them through npm or git. A package can declare resources in `package.json` under the `aery` key, or use conventional directories.
+pi packages bundle extensions, skills, prompt templates, and themes so you can share them through npm or git. A package can declare resources in `package.json` under the `aery` key, or use conventional directories.
 
 ## Table of Contents
 
 - [Install and Manage](#install-and-manage)
 - [Package Sources](#package-sources)
-- [Creating an Aery Package](#creating-a-pi-package)
+- [Creating an pi Package](#creating-a-pi-package)
 - [Package Structure](#package-structure)
 - [Dependencies](#dependencies)
 - [Package Filtering](#package-filtering)
@@ -17,7 +17,7 @@ Aery packages bundle extensions, skills, prompt templates, and themes so you can
 
 ## Install and Manage
 
-> **Security:** Aery packages run with full system access. Extensions execute arbitrary code, and skills can instruct the model to perform any action including running executables. Review source code before installing third-party packages.
+> **Security:** pi packages run with full system access. Extensions execute arbitrary code, and skills can instruct the model to perform any action including running executables. Review source code before installing third-party packages.
 
 ```bash
 aery install npm:@foo/bar@1.0.0
@@ -103,7 +103,7 @@ aery install git:git@github.com:user/repo@v1.0.0
 
 Local paths point to files or directories on disk and are added to settings without copying. Relative paths are resolved against the settings file they appear in. If the path is a file, it loads as a single extension. If it is a directory, pi loads resources using package rules.
 
-## Creating an Aery Package
+## Creating an pi Package
 
 Add a `pi` manifest to `package.json` or use conventional directories. Include the `pi-package` keyword for discoverability.
 

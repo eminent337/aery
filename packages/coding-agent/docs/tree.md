@@ -216,7 +216,7 @@ interface SessionTreeEvent {
 
 ```typescript
 export default function(pi: HookAPI) {
-  aery.on("session_before_tree", async (event, ctx) => {
+  pi.on("session_before_tree", async (event, ctx) => {
     if (!event.preparation.userWantsSummary) return;
     if (event.preparation.entriesToSummarize.length === 0) return;
     

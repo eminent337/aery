@@ -726,7 +726,7 @@ Each command has:
 - `name`: Command name (invoke with `/name`)
 - `description`: Human-readable description (optional for extension commands)
 - `source`: What kind of command:
-  - `"extension"`: Registered via `aery.registerCommand()` in an extension
+  - `"extension"`: Registered via `pi.registerCommand()` in an extension
   - `"prompt"`: Loaded from a prompt template `.md` file
   - `"skill"`: Loaded from a skill directory (name is prefixed with `skill:`)
 - `location`: Where it was loaded from (optional, not present for extensions):

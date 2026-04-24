@@ -229,4 +229,4 @@ cd /path/to/brave-search && npm install
 ## Skill Repositories
 
 - [Anthropic Skills](https://github.com/anthropics/skills) - Document processing (docx, pdf, pptx, xlsx), web development
-- [Aery Extensions](https://github.com/eminent337/aery-extensions) - Web search, browser automation, Google APIs, transcription
+- [pi Extensions](https://github.com/eminent337/aery-extensions) - Web search, browser automation, Google APIs, transcription

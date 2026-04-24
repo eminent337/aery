@@ -1,17 +1,17 @@
-> Aery can create extensions. Ask it to build one for your use case.
+> The agent can create extensions. Ask it to build one for your use case.
 
 # Extensions
 
-Extensions are TypeScript modules that extend Aery's behavior. They can subscribe to lifecycle events, register custom tools callable by the LLM, add commands, and more.
+Extensions are TypeScript modules that extend pi's behavior. They can subscribe to lifecycle events, register custom tools callable by the LLM, add commands, and more.
 
 > **Placement for /reload:** Put extensions in `~/.aery/agent/extensions/` (global) or `.aery/extensions/` (project-local) for auto-discovery. Use `aery -e ./path.ts` only for quick tests. Extensions in auto-discovered locations can be hot-reloaded with `/reload`.
 
 **Key capabilities:**
-- **Custom tools** - Register tools the LLM can call via `aery.registerTool()`
+- **Custom tools** - Register tools the LLM can call via `pi.registerTool()`
 - **Event interception** - Block or modify tool calls, inject context, customize compaction
 - **User interaction** - Prompt users via `ctx.ui` (select, confirm, input, notify)
 - **Custom UI components** - Full TUI components with keyboard input via `ctx.ui.custom()` for complex interactions
-- **Custom commands** - Register commands like `/mycommand` via `aery.registerCommand()`
+- **Custom commands** - Register commands like `/mycommand` via `pi.registerCommand()`
 - **Session persistence** - Store state that survives restarts via `aery.appendEntry()`
 - **Custom rendering** - Control how tool calls/results and messages appear in TUI
 
@@ -61,11 +61,11 @@ import { Type } from "@sinclair/typebox";
 
 export default function (aery: ExtensionAPI) {
   // React to events
-  aery.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     ctx.ui.notify("Extension loaded!", "info");
   });
 
-  aery.on("tool_call", async (event, ctx) => {
+  pi.on("tool_call", async (event, ctx) => {
     if (event.toolName === "bash" && event.input.command?.includes("rm -rf")) {
       const ok = await ctx.ui.confirm("Dangerous!", "Allow rm -rf?");
       if (!ok) return { block: true, reason: "Blocked by user" };
@@ -73,7 +73,7 @@ export default function (aery: ExtensionAPI) {
   });
 
   // Register a custom tool
-  aery.registerTool({
+  pi.registerTool({
     name: "greet",
     label: "Greet",
     description: "Greet someone by name",
@@ -89,7 +89,7 @@ export default function (aery: ExtensionAPI) {
   });
 
   // Register a command
-  aery.registerCommand("hello", {
+  pi.registerCommand("hello", {
     description: "Say hello",
     handler: async (args, ctx) => {
       ctx.ui.notify(`Hello ${args || "world"}!`, "info");
@@ -132,7 +132,7 @@ Additional paths via `settings.json`:
 }
 ```
 
-To share extensions via npm or git as Aery packages, see [packages.md](packages.md).
+To share extensions via npm or git as pi packages, see [packages.md](packages.md).
 
 ## Available Imports
 
@@ -145,7 +145,7 @@ To share extensions via npm or git as Aery packages, see [packages.md](packages.
 
 npm dependencies work too. Add a `package.json` next to your extension (or in a parent directory), run `npm install`, and imports from `node_modules/` are resolved automatically.
 
-For distributed Aery packages installed with `aery install` (npm or git), runtime deps must be in `dependencies`. Package installation uses production installs (`npm install --omit=dev`), so `devDependencies` are not available at runtime.
+For distributed pi packages installed with `aery install` (npm or git), runtime deps must be in `dependencies`. Package installation uses production installs (`npm install --omit=dev`), so `devDependencies` are not available at runtime.
 
 Node.js built-ins (`node:fs`, `node:path`, etc.) are also available.
 
@@ -158,7 +158,7 @@ import type { ExtensionAPI } from "@eminent337/aery";
 
 export default function (aery: ExtensionAPI) {
   // Subscribe to events
-  aery.on("event_name", async (event, ctx) => {
+  pi.on("event_name", async (event, ctx) => {
     // ctx.ui for user interaction
     const ok = await ctx.ui.confirm("Title", "Are you sure?");
     ctx.ui.notify("Done!", "success");
@@ -167,8 +167,8 @@ export default function (aery: ExtensionAPI) {
   });
 
   // Register tools, commands, shortcuts, flags
-  aery.registerTool({ ... });
-  aery.registerCommand("name", { ... });
+  pi.registerTool({ ... });
+  pi.registerCommand("name", { ... });
   aery.registerShortcut("ctrl+x", { ... });
   aery.registerFlag("my-flag", { ... });
 }
@@ -176,7 +176,7 @@ export default function (aery: ExtensionAPI) {
 
 Extensions are loaded via [jiti](https://github.com/unjs/jiti), so TypeScript works without compilation.
 
-If the factory returns a `Promise`, Aery awaits it before continuing startup. That means async initialization completes before `session_start`, before `resources_discover`, and before provider registrations queued via `aery.registerProvider()` are flushed.
+If the factory returns a `Promise`, pi awaits it before continuing startup. That means async initialization completes before `session_start`, before `resources_discover`, and before provider registrations queued via `pi.registerProvider()` are flushed.
 
 ### Async factory functions
 
@@ -196,7 +196,7 @@ export default async function (aery: ExtensionAPI) {
     }>;
   };
 
-  aery.registerProvider("local-openai", {
+  pi.registerProvider("local-openai", {
     baseUrl: "http://localhost:1234/v1",
     apiKey: "LOCAL_OPENAI_API_KEY",
     api: "openai-completions",
@@ -267,7 +267,7 @@ Run `npm install` in the extension directory, then imports from `node_modules/` 
 ### Lifecycle Overview
 
 ```
-Aery starts
+pi starts
   │
   ├─► session_start { reason: "startup" }
   └─► resources_discover { reason: "startup" }
@@ -337,7 +337,7 @@ Fired after `session_start` so extensions can contribute additional skill, promp
 The startup path uses `reason: "startup"`. Reload uses `reason: "reload"`.
 
 ```typescript
-aery.on("resources_discover", async (event, _ctx) => {
+pi.on("resources_discover", async (event, _ctx) => {
   // event.cwd - current working directory
   // event.reason - "startup" | "reload"
   return {
@@ -357,7 +357,7 @@ See [session.md](session.md) for session storage internals and the SessionManage
 Fired when a session is started, loaded, or reloaded.
 
 ```typescript
-aery.on("session_start", async (event, ctx) => {
+pi.on("session_start", async (event, ctx) => {
   // event.reason - "startup" | "reload" | "new" | "resume" | "fork"
   // event.previousSessionFile - present for "new", "resume", and "fork"
   ctx.ui.notify(`Session: ${ctx.sessionManager.getSessionFile() ?? "ephemeral"}`, "info");
@@ -369,7 +369,7 @@ aery.on("session_start", async (event, ctx) => {
 Fired before starting a new session (`/new`) or switching sessions (`/resume`).
 
 ```typescript
-aery.on("session_before_switch", async (event, ctx) => {
+pi.on("session_before_switch", async (event, ctx) => {
   // event.reason - "new" or "resume"
   // event.targetSessionFile - session we're switching to (only for "resume")
 
@@ -380,7 +380,7 @@ aery.on("session_before_switch", async (event, ctx) => {
 });
 ```
 
-After a successful switch or new-session action, Aery emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "new" | "resume"` and `previousSessionFile`.
+After a successful switch or new-session action, pi emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "new" | "resume"` and `previousSessionFile`.
 Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `session_start`.
 
 #### session_before_fork
@@ -388,7 +388,7 @@ Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `
 Fired when forking via `/fork` or cloning via `/clone`.
 
 ```typescript
-aery.on("session_before_fork", async (event, ctx) => {
+pi.on("session_before_fork", async (event, ctx) => {
   // event.entryId - ID of the selected entry
   // event.position - "before" for /fork, "at" for /clone
   return { cancel: true }; // Cancel fork/clone
@@ -397,7 +397,7 @@ aery.on("session_before_fork", async (event, ctx) => {
 });
 ```
 
-After a successful fork or clone, Aery emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "fork"` and `previousSessionFile`.
+After a successful fork or clone, pi emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "fork"` and `previousSessionFile`.
 Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `session_start`.
 
 #### session_before_compact / session_compact
@@ -405,7 +405,7 @@ Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `
 Fired on compaction. See [compaction.md](compaction.md) for details.
 
 ```typescript
-aery.on("session_before_compact", async (event, ctx) => {
+pi.on("session_before_compact", async (event, ctx) => {
   const { preparation, branchEntries, customInstructions, signal } = event;
 
   // Cancel:
@@ -421,7 +421,7 @@ aery.on("session_before_compact", async (event, ctx) => {
   };
 });
 
-aery.on("session_compact", async (event, ctx) => {
+pi.on("session_compact", async (event, ctx) => {
   // event.compactionEntry - the saved compaction
   // event.fromExtension - whether extension provided it
 });
@@ -432,14 +432,14 @@ aery.on("session_compact", async (event, ctx) => {
 Fired on `/tree` navigation. See [tree.md](tree.md) for tree navigation concepts.
 
 ```typescript
-aery.on("session_before_tree", async (event, ctx) => {
+pi.on("session_before_tree", async (event, ctx) => {
   const { preparation, signal } = event;
   return { cancel: true };
   // OR provide custom summary:
   return { summary: { summary: "...", details: {} } };
 });
 
-aery.on("session_tree", async (event, ctx) => {
+pi.on("session_tree", async (event, ctx) => {
   // event.newLeafId, oldLeafId, summaryEntry, fromExtension
 });
 ```
@@ -449,7 +449,7 @@ aery.on("session_tree", async (event, ctx) => {
 Fired on exit (Ctrl+C, Ctrl+D, SIGHUP, SIGTERM).
 
 ```typescript
-aery.on("session_shutdown", async (_event, ctx) => {
+pi.on("session_shutdown", async (_event, ctx) => {
   // Cleanup, save state, etc.
 });
 ```
@@ -461,7 +461,7 @@ aery.on("session_shutdown", async (_event, ctx) => {
 Fired after user submits prompt, before agent loop. Can inject a message and/or modify the system prompt.
 
 ```typescript
-aery.on("before_agent_start", async (event, ctx) => {
+pi.on("before_agent_start", async (event, ctx) => {
   // event.prompt - user's prompt text
   // event.images - attached images (if any)
   // event.systemPrompt - current system prompt
@@ -484,9 +484,9 @@ aery.on("before_agent_start", async (event, ctx) => {
 Fired once per user prompt.
 
 ```typescript
-aery.on("agent_start", async (_event, ctx) => {});
+pi.on("agent_start", async (_event, ctx) => {});
 
-aery.on("agent_end", async (event, ctx) => {
+pi.on("agent_end", async (event, ctx) => {
   // event.messages - messages from this prompt
 });
 ```
@@ -496,11 +496,11 @@ aery.on("agent_end", async (event, ctx) => {
 Fired for each turn (one LLM response + tool calls).
 
 ```typescript
-aery.on("turn_start", async (event, ctx) => {
+pi.on("turn_start", async (event, ctx) => {
   // event.turnIndex, event.timestamp
 });
 
-aery.on("turn_end", async (event, ctx) => {
+pi.on("turn_end", async (event, ctx) => {
   // event.turnIndex, event.message, event.toolResults
 });
 ```
@@ -513,16 +513,16 @@ Fired for message lifecycle updates.
 - `message_update` fires for assistant streaming updates.
 
 ```typescript
-aery.on("message_start", async (event, ctx) => {
+pi.on("message_start", async (event, ctx) => {
   // event.message
 });
 
-aery.on("message_update", async (event, ctx) => {
+pi.on("message_update", async (event, ctx) => {
   // event.message
   // event.assistantMessageEvent (token-by-token stream event)
 });
 
-aery.on("message_end", async (event, ctx) => {
+pi.on("message_end", async (event, ctx) => {
   // event.message
 });
 ```
@@ -537,15 +537,15 @@ In parallel tool mode:
 - `tool_execution_end` is emitted in assistant source order, matching final tool result message order
 
 ```typescript
-aery.on("tool_execution_start", async (event, ctx) => {
+pi.on("tool_execution_start", async (event, ctx) => {
   // event.toolCallId, event.toolName, event.args
 });
 
-aery.on("tool_execution_update", async (event, ctx) => {
+pi.on("tool_execution_update", async (event, ctx) => {
   // event.toolCallId, event.toolName, event.args, event.partialResult
 });
 
-aery.on("tool_execution_end", async (event, ctx) => {
+pi.on("tool_execution_end", async (event, ctx) => {
   // event.toolCallId, event.toolName, event.result, event.isError
 });
 ```
@@ -555,7 +555,7 @@ aery.on("tool_execution_end", async (event, ctx) => {
 Fired before each LLM call. Modify messages non-destructively. See [session.md](session.md) for message types.
 
 ```typescript
-aery.on("context", async (event, ctx) => {
+pi.on("context", async (event, ctx) => {
   // event.messages - deep copy, safe to modify
   const filtered = event.messages.filter(m => !shouldPrune(m));
   return { messages: filtered };
@@ -567,7 +567,7 @@ aery.on("context", async (event, ctx) => {
 Fired after the provider-specific payload is built, right before the request is sent. Handlers run in extension load order. Returning `undefined` keeps the payload unchanged. Returning any other value replaces the payload for later handlers and for the actual request.
 
 ```typescript
-aery.on("before_provider_request", (event, ctx) => {
+pi.on("before_provider_request", (event, ctx) => {
   console.log(JSON.stringify(event.payload, null, 2));
 
   // Optional: replace payload
@@ -582,7 +582,7 @@ This is mainly useful for debugging provider serialization and cache behavior.
 Fired after an HTTP response is received and before its stream body is consumed. Handlers run in extension load order.
 
 ```typescript
-aery.on("after_provider_response", (event, ctx) => {
+pi.on("after_provider_response", (event, ctx) => {
   // event.status - HTTP status code
   // event.headers - normalized response headers
   if (event.status === 429) {
@@ -600,7 +600,7 @@ Header availability depends on provider and transport. Providers that abstract H
 Fired when the model changes via `/model` command, model cycling (`Ctrl+P`), or session restore.
 
 ```typescript
-aery.on("model_select", async (event, ctx) => {
+pi.on("model_select", async (event, ctx) => {
   // event.model - newly selected model
   // event.previousModel - previous model (undefined if first selection)
   // event.source - "set" | "cycle" | "restore"
@@ -622,7 +622,7 @@ Use this to update UI elements (status bars, footers) or perform model-specific 
 
 Fired after `tool_execution_start`, before the tool executes. **Can block.** Use `isToolCallEventType` to narrow and get typed inputs.
 
-Before `tool_call` runs, Aery waits for previously emitted Agent events to finish draining through `AgentSession`. This means `ctx.sessionManager` is up to date through the current assistant tool-calling message.
+Before `tool_call` runs, pi waits for previously emitted Agent events to finish draining through `AgentSession`. This means `ctx.sessionManager` is up to date through the current assistant tool-calling message.
 
 In the default parallel tool execution mode, sibling tool calls from the same assistant message are preflighted sequentially, then executed concurrently. `tool_call` is not guaranteed to see sibling tool results from that same assistant message in `ctx.sessionManager`.
 
@@ -637,7 +637,7 @@ Behavior guarantees:
 ```typescript
 import { isToolCallEventType } from "@eminent337/aery";
 
-aery.on("tool_call", async (event, ctx) => {
+pi.on("tool_call", async (event, ctx) => {
   // event.toolName - "bash", "read", "write", "edit", etc.
   // event.toolCallId
   // event.input - tool parameters (mutable)
@@ -674,7 +674,7 @@ Use `isToolCallEventType` with explicit type parameters:
 import { isToolCallEventType } from "@eminent337/aery";
 import type { MyToolInput } from "my-extension";
 
-aery.on("tool_call", (event) => {
+pi.on("tool_call", (event) => {
   if (isToolCallEventType<"my_tool", MyToolInput>("my_tool", event)) {
     event.input.action;  // typed
   }
@@ -695,7 +695,7 @@ Use `ctx.signal` for nested async work inside the handler. This lets Esc cancel 
 ```typescript
 import { isBashToolResult } from "@eminent337/aery";
 
-aery.on("tool_result", async (event, ctx) => {
+pi.on("tool_result", async (event, ctx) => {
   // event.toolName, event.toolCallId, event.input
   // event.content, event.details, event.isError
 
@@ -723,7 +723,7 @@ Fired when user executes `!` or `!!` commands. **Can intercept.**
 ```typescript
 import { createLocalBashOperations } from "@eminent337/aery";
 
-aery.on("user_bash", (event, ctx) => {
+pi.on("user_bash", (event, ctx) => {
   // event.command - the bash command
   // event.excludeFromContext - true if !! prefix
   // event.cwd - working directory
@@ -731,7 +731,7 @@ aery.on("user_bash", (event, ctx) => {
   // Option 1: Provide custom operations (e.g., SSH)
   return { operations: remoteBashOps };
 
-  // Option 2: Wrap Aery's built-in local bash backend
+  // Option 2: Wrap pi's built-in local bash backend
   const local = createLocalBashOperations();
   return {
     operations: {
@@ -760,7 +760,7 @@ Fired when user input is received, after extension commands are checked but befo
 5. Agent processing begins (`before_agent_start`, etc.)
 
 ```typescript
-aery.on("input", async (event, ctx) => {
+pi.on("input", async (event, ctx) => {
   // event.text - raw input (before skill/template expansion)
   // event.images - attached images, if any
   // event.source - "interactive" (typed), "rpc" (API), or "extension" (via sendUserMessage)
@@ -836,10 +836,10 @@ Use this for abort-aware nested work started by extension handlers, for example:
 - file or process helpers that accept `AbortSignal`
 
 `ctx.signal` is typically defined during active turn events such as `tool_call`, `tool_result`, `message_update`, and `turn_end`.
-It is usually `undefined` in idle or non-turn contexts such as session events, extension commands, and shortcuts fired while Aery is idle.
+It is usually `undefined` in idle or non-turn contexts such as session events, extension commands, and shortcuts fired while pi is idle.
 
 ```typescript
-aery.on("tool_result", async (event, ctx) => {
+pi.on("tool_result", async (event, ctx) => {
   const response = await fetch("https://example.com/api", {
     method: "POST",
     body: JSON.stringify(event),
@@ -857,7 +857,7 @@ Control flow helpers.
 
 ### ctx.shutdown()
 
-Request a graceful shutdown of Aery.
+Request a graceful shutdown of pi.
 
 - **Interactive mode:** Deferred until the agent becomes idle (after processing all queued steering and follow-up messages).
 - **RPC mode:** Deferred until the next idle state (after completing the current command response, when waiting for the next command).
@@ -866,7 +866,7 @@ Request a graceful shutdown of Aery.
 Emits `session_shutdown` event to all extensions before exiting. Available in all contexts (event handlers, tools, commands, shortcuts).
 
 ```typescript
-aery.on("tool_call", (event, ctx) => {
+pi.on("tool_call", (event, ctx) => {
   if (isFatal(event.input)) {
     ctx.shutdown();
   }
@@ -905,7 +905,7 @@ ctx.compact({
 Returns the current effective system prompt. This includes any modifications made by `before_agent_start` handlers for the current turn.
 
 ```typescript
-aery.on("before_agent_start", (event, ctx) => {
+pi.on("before_agent_start", (event, ctx) => {
   const prompt = ctx.getSystemPrompt();
   console.log(`System prompt length: ${prompt.length}`);
 });
@@ -920,7 +920,7 @@ Command handlers receive `ExtensionCommandContext`, which extends `ExtensionCont
 Wait for the agent to finish streaming:
 
 ```typescript
-aery.registerCommand("my-cmd", {
+pi.registerCommand("my-cmd", {
   handler: async (args, ctx) => {
     await ctx.waitForIdle();
     // Agent is now idle, safe to modify session
@@ -1004,7 +1004,7 @@ To discover available sessions, use the static `SessionManager.list()` or `Sessi
 ```typescript
 import { SessionManager } from "@eminent337/aery";
 
-aery.registerCommand("switch", {
+pi.registerCommand("switch", {
   description: "Switch to another session",
   handler: async (args, ctx) => {
     const sessions = await SessionManager.list(ctx.cwd);
@@ -1025,7 +1025,7 @@ aery.registerCommand("switch", {
 Run the same reload flow as `/reload`.
 
 ```typescript
-aery.registerCommand("reload-runtime", {
+pi.registerCommand("reload-runtime", {
   description: "Reload extensions, skills, prompts, and themes",
   handler: async (_args, ctx) => {
     await ctx.reload();
@@ -1053,7 +1053,7 @@ import type { ExtensionAPI } from "@eminent337/aery";
 import { Type } from "@sinclair/typebox";
 
 export default function (aery: ExtensionAPI) {
-  aery.registerCommand("reload-runtime", {
+  pi.registerCommand("reload-runtime", {
     description: "Reload extensions, skills, prompts, and themes",
     handler: async (_args, ctx) => {
       await ctx.reload();
@@ -1061,13 +1061,13 @@ export default function (aery: ExtensionAPI) {
     },
   });
 
-  aery.registerTool({
+  pi.registerTool({
     name: "reload_runtime",
     label: "Reload Runtime",
     description: "Reload extensions, skills, prompts, and themes",
     parameters: Type.Object({}),
     async execute() {
-      aery.sendUserMessage("/reload-runtime", { deliverAs: "followUp" });
+      pi.sendUserMessage("/reload-runtime", { deliverAs: "followUp" });
       return {
         content: [{ type: "text", text: "Queued /reload-runtime as a follow-up command." }],
       };
@@ -1078,15 +1078,15 @@ export default function (aery: ExtensionAPI) {
 
 ## ExtensionAPI Methods
 
-### aery.on(event, handler)
+### pi.on(event, handler)
 
 Subscribe to events. See [Events](#events) for event types and return values.
 
-### aery.registerTool(definition)
+### pi.registerTool(definition)
 
 Register a custom tool callable by the LLM. See [Custom Tools](#custom-tools) for full details.
 
-`aery.registerTool()` works both during extension load and after startup. You can call it inside `session_start`, command handlers, or other event handlers. New tools are refreshed immediately in the same session, so they appear in `aery.getAllTools()` and are callable by the LLM without `/reload`.
+`pi.registerTool()` works both during extension load and after startup. You can call it inside `session_start`, command handlers, or other event handlers. New tools are refreshed immediately in the same session, so they appear in `aery.getAllTools()` and are callable by the LLM without `/reload`.
 
 Use `aery.setActiveTools()` to enable or disable tools (including dynamically added tools) at runtime.
 
@@ -1098,7 +1098,7 @@ See [dynamic-tools.ts](../examples/extensions/dynamic-tools.ts) for a full examp
 import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@eminent337/aery-ai";
 
-aery.registerTool({
+pi.registerTool({
   name: "my_tool",
   label: "My Tool",
   description: "What this tool does",
@@ -1154,23 +1154,23 @@ aery.sendMessage({
   - `"nextTurn"` - Queued for next user prompt. Does not interrupt or trigger anything.
 - `triggerTurn: true` - If agent is idle, trigger an LLM response immediately. Only applies to `"steer"` and `"followUp"` modes (ignored for `"nextTurn"`).
 
-### aery.sendUserMessage(content, options?)
+### pi.sendUserMessage(content, options?)
 
 Send a user message to the agent. Unlike `sendMessage()` which sends custom messages, this sends an actual user message that appears as if typed by the user. Always triggers a turn.
 
 ```typescript
 // Simple text message
-aery.sendUserMessage("What is 2+2?");
+pi.sendUserMessage("What is 2+2?");
 
 // With content array (text + images)
-aery.sendUserMessage([
+pi.sendUserMessage([
   { type: "text", text: "Describe this image:" },
   { type: "image", source: { type: "base64", mediaType: "image/png", data: "..." } },
 ]);
 
 // During streaming - must specify delivery mode
-aery.sendUserMessage("Focus on error handling", { deliverAs: "steer" });
-aery.sendUserMessage("And then summarize", { deliverAs: "followUp" });
+pi.sendUserMessage("Focus on error handling", { deliverAs: "steer" });
+pi.sendUserMessage("And then summarize", { deliverAs: "followUp" });
 ```
 
 **Options:**
@@ -1190,7 +1190,7 @@ Persist extension state (does NOT participate in LLM context).
 aery.appendEntry("my-state", { count: 42 });
 
 // Restore on reload
-aery.on("session_start", async (_event, ctx) => {
+pi.on("session_start", async (_event, ctx) => {
   for (const entry of ctx.sessionManager.getEntries()) {
     if (entry.type === "custom" && entry.customType === "my-state") {
       // Reconstruct from entry.data
@@ -1235,14 +1235,14 @@ const label = ctx.sessionManager.getLabel(entryId);
 
 Labels persist in the session and survive restarts. Use them to mark important points (turns, checkpoints) in the conversation tree.
 
-### aery.registerCommand(name, options)
+### pi.registerCommand(name, options)
 
 Register a command.
 
-If multiple extensions register the same command name, Aery keeps them all and assigns numeric invocation suffixes in load order, for example `/review:1` and `/review:2`.
+If multiple extensions register the same command name, pi keeps them all and assigns numeric invocation suffixes in load order, for example `/review:1` and `/review:2`.
 
 ```typescript
-aery.registerCommand("stats", {
+pi.registerCommand("stats", {
   description: "Show session statistics",
   handler: async (args, ctx) => {
     const count = ctx.sessionManager.getEntries().length;
@@ -1256,7 +1256,7 @@ Optional: add argument auto-completion for `/command ...`:
 ```typescript
 import type { AutocompleteItem } from "@eminent337/aery-tui";
 
-aery.registerCommand("deploy", {
+pi.registerCommand("deploy", {
   description: "Deploy to an environment",
   getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
     const envs = ["dev", "staging", "prod"];
@@ -1404,17 +1404,17 @@ aery.events.on("my:event", (data) => { ... });
 aery.events.emit("my:event", { ... });
 ```
 
-### aery.registerProvider(name, config)
+### pi.registerProvider(name, config)
 
 Register or override a model provider dynamically. Useful for proxies, custom endpoints, or team-wide model configurations.
 
 Calls made during the extension factory function are queued and applied once the runner initialises. Calls made after that — for example from a command handler following a user setup flow — take effect immediately without requiring a `/reload`.
 
-If you need to discover models from a remote endpoint, prefer an async extension factory over deferring the fetch to `session_start`. Aery waits for the factory before startup continues, so the registered models are available immediately, including to `aery --list-models`.
+If you need to discover models from a remote endpoint, prefer an async extension factory over deferring the fetch to `session_start`. pi waits for the factory before startup continues, so the registered models are available immediately, including to `aery --list-models`.
 
 ```typescript
 // Register a new provider with custom models
-aery.registerProvider("my-proxy", {
+pi.registerProvider("my-proxy", {
   baseUrl: "https://proxy.example.com",
   apiKey: "PROXY_API_KEY",  // env var name or literal
   api: "anthropic-messages",
@@ -1432,12 +1432,12 @@ aery.registerProvider("my-proxy", {
 });
 
 // Override baseUrl for an existing provider (keeps all models)
-aery.registerProvider("anthropic", {
+pi.registerProvider("anthropic", {
   baseUrl: "https://proxy.example.com"
 });
 
 // Register provider with OAuth support for /login
-aery.registerProvider("corporate-ai", {
+pi.registerProvider("corporate-ai", {
   baseUrl: "https://ai.corp.com",
   api: "openai-responses",
   models: [...],
@@ -1479,7 +1479,7 @@ Remove a previously registered provider and its models. Built-in models that wer
 Like `registerProvider`, this takes effect immediately when called after the initial load phase, so a `/reload` is not required.
 
 ```typescript
-aery.registerCommand("my-setup-teardown", {
+pi.registerCommand("my-setup-teardown", {
   description: "Remove the custom proxy provider",
   handler: async (_args, _ctx) => {
     aery.unregisterProvider("my-proxy");
@@ -1496,7 +1496,7 @@ export default function (aery: ExtensionAPI) {
   let items: string[] = [];
 
   // Reconstruct state from session
-  aery.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     items = [];
     for (const entry of ctx.sessionManager.getBranch()) {
       if (entry.type === "message" && entry.message.role === "toolResult") {
@@ -1507,7 +1507,7 @@ export default function (aery: ExtensionAPI) {
     }
   });
 
-  aery.registerTool({
+  pi.registerTool({
     name: "my_tool",
     // ...
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -1523,7 +1523,7 @@ export default function (aery: ExtensionAPI) {
 
 ## Custom Tools
 
-Register tools the LLM can call via `aery.registerTool()`. Tools appear in the system prompt and can have custom rendering.
+Register tools the LLM can call via `pi.registerTool()`. Tools appear in the system prompt and can have custom rendering.
 
 Use `promptSnippet` for a short one-line entry in the `Available tools` section in the default system prompt. If omitted, custom tools are left out of that section.
 
@@ -1568,7 +1568,7 @@ import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@eminent337/aery-ai";
 import { Text } from "@eminent337/aery-tui";
 
-aery.registerTool({
+pi.registerTool({
   name: "my_tool",
   label: "My Tool",
   description: "What this tool does (shown to LLM)",
@@ -1631,12 +1631,12 @@ async execute(toolCallId, params) {
 
 **Important:** Use `StringEnum` from `@eminent337/aery-ai` for string enums. `Type.Union`/`Type.Literal` doesn't work with Google's API.
 
-**Argument preparation:** `prepareArguments(args)` is optional. If defined, it runs before schema validation and before `execute()`. Use it to mimic an older accepted input shape when Aery resumes an older session whose stored tool call arguments no longer match the current schema. Return the object you want validated against `parameters`. Keep the public schema strict. Do not add deprecated compatibility fields to `parameters` just to keep old resumed sessions working.
+**Argument preparation:** `prepareArguments(args)` is optional. If defined, it runs before schema validation and before `execute()`. Use it to mimic an older accepted input shape when pi resumes an older session whose stored tool call arguments no longer match the current schema. Return the object you want validated against `parameters`. Keep the public schema strict. Do not add deprecated compatibility fields to `parameters` just to keep old resumed sessions working.
 
 Example: an older session may contain an `edit` tool call with top-level `oldText` and `newText`, while the current schema only accepts `edits: [{ oldText, newText }]`.
 
 ```typescript
-aery.registerTool({
+pi.registerTool({
   name: "edit",
   label: "Edit",
   description: "Edit a single file using exact text replacement",
@@ -1702,13 +1702,13 @@ See [examples/extensions/tool-override.ts](../examples/extensions/tool-override.
 **Your implementation must match the exact result shape**, including the `details` type. The UI and session logic depend on these shapes for rendering and state tracking.
 
 Built-in tool implementations:
-- [read.ts](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/tools/read.ts) - `ReadToolDetails`
-- [bash.ts](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/tools/bash.ts) - `BashToolDetails`
-- [edit.ts](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/tools/edit.ts)
-- [write.ts](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/tools/write.ts)
-- [grep.ts](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/tools/grep.ts) - `GrepToolDetails`
-- [find.ts](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/tools/find.ts) - `FindToolDetails`
-- [ls.ts](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/core/tools/ls.ts) - `LsToolDetails`
+- [read.ts](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/tools/read.ts) - `ReadToolDetails`
+- [bash.ts](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/tools/bash.ts) - `BashToolDetails`
+- [edit.ts](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/tools/edit.ts)
+- [write.ts](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/tools/write.ts)
+- [grep.ts](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/tools/grep.ts) - `GrepToolDetails`
+- [find.ts](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/tools/find.ts) - `FindToolDetails`
+- [ls.ts](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/tools/ls.ts) - `LsToolDetails`
 
 ### Remote Execution
 
@@ -1726,7 +1726,7 @@ const remoteRead = createReadTool(cwd, {
 });
 
 // Register, checking flag at execution time
-aery.registerTool({
+pi.registerTool({
   ...remoteRead,
   async execute(id, params, signal, onUpdate, _ctx) {
     const ssh = getSshConfig();
@@ -1741,7 +1741,7 @@ aery.registerTool({
 
 **Operations interfaces:** `ReadOperations`, `WriteOperations`, `EditOperations`, `BashOperations`, `LsOperations`, `GrepOperations`, `FindOperations`
 
-For `user_bash`, extensions can reuse Aery's local shell backend via `createLocalBashOperations()` instead of reimplementing local process spawning, shell resolution, and process-tree termination.
+For `user_bash`, extensions can reuse pi's local shell backend via `createLocalBashOperations()` instead of reimplementing local process spawning, shell resolution, and process-tree termination.
 
 The bash tool also supports a spawn hook to adjust the command, cwd, or env before execution:
 
@@ -1819,11 +1819,11 @@ One extension can register multiple tools with shared state:
 export default function (aery: ExtensionAPI) {
   let connection = null;
 
-  aery.registerTool({ name: "db_connect", ... });
-  aery.registerTool({ name: "db_query", ... });
-  aery.registerTool({ name: "db_close", ... });
+  pi.registerTool({ name: "db_connect", ... });
+  pi.registerTool({ name: "db_query", ... });
+  pi.registerTool({ name: "db_close", ... });
 
-  aery.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async () => {
     connection?.close();
   });
 }
@@ -1831,14 +1831,14 @@ export default function (aery: ExtensionAPI) {
 
 ### Custom Rendering
 
-Tools can provide `renderCall` and `renderResult` for custom TUI display. See [tui.md](tui.md) for the full component API and [tool-execution.ts](https://github.com/eminent337/aery/blob/main/packages/coding-agent/src/modes/interactive/components/tool-execution.ts) for how tool rows are composed.
+Tools can provide `renderCall` and `renderResult` for custom TUI display. See [tui.md](tui.md) for the full component API and [tool-execution.ts](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/modes/interactive/components/tool-execution.ts) for how tool rows are composed.
 
 By default, tool output is wrapped in a `Box` that handles padding and background. A defined `renderCall` or `renderResult` must return a `Component`. If a slot renderer is not defined, `tool-execution.ts` uses fallback rendering for that slot.
 
 Set `renderShell: "self"` when the tool should render its own shell instead of using the default `Box`. This is useful for tools that need complete control over framing or background behavior, for example large previews that must stay visually stable after the tool settles.
 
 ```typescript
-aery.registerTool({
+pi.registerTool({
   name: "my_tool",
   label: "My Tool",
   description: "Custom shell example",
@@ -2191,7 +2191,7 @@ class VimEditor extends CustomEditor {
 }
 
 export default function (aery: ExtensionAPI) {
-  aery.on("session_start", (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
     ctx.ui.setEditorComponent((_tui, theme, keybindings) =>
       new VimEditor(theme, keybindings)
     );

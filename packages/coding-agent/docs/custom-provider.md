@@ -1,6 +1,6 @@
 # Custom Providers
 
-Extensions can register custom model providers via `aery.registerProvider()`. This enables:
+Extensions can register custom model providers via `pi.registerProvider()`. This enables:
 
 - **Proxies** - Route requests through corporate proxies or API gateways
 - **Custom endpoints** - Use self-hosted or private model deployments
@@ -35,12 +35,12 @@ import type { ExtensionAPI } from "@eminent337/aery";
 
 export default function (aery: ExtensionAPI) {
   // Override baseUrl for existing provider
-  aery.registerProvider("anthropic", {
+  pi.registerProvider("anthropic", {
     baseUrl: "https://proxy.example.com"
   });
 
   // Register new provider with models
-  aery.registerProvider("my-provider", {
+  pi.registerProvider("my-provider", {
     baseUrl: "https://api.example.com",
     apiKey: "MY_API_KEY",
     api: "openai-completions",
@@ -59,7 +59,7 @@ export default function (aery: ExtensionAPI) {
 }
 ```
 
-The extension factory can also be `async`. For dynamic model discovery, fetch and register models in the factory instead of `session_start`. Aery waits for the factory before startup continues, so the provider is available during interactive startup and to `aery --list-models`.
+The extension factory can also be `async`. For dynamic model discovery, fetch and register models in the factory instead of `session_start`. pi waits for the factory before startup continues, so the provider is available during interactive startup and to `aery --list-models`.
 
 ## Override Existing Provider
 
@@ -67,19 +67,19 @@ The simplest use case: redirect an existing provider through a proxy.
 
 ```typescript
 // All Anthropic requests now go through your proxy
-aery.registerProvider("anthropic", {
+pi.registerProvider("anthropic", {
   baseUrl: "https://proxy.example.com"
 });
 
 // Add custom headers to OpenAI requests
-aery.registerProvider("openai", {
+pi.registerProvider("openai", {
   headers: {
     "X-Custom-Header": "value"
   }
 });
 
 // Both baseUrl and headers
-aery.registerProvider("google", {
+pi.registerProvider("google", {
   baseUrl: "https://ai-gateway.corp.com/google",
   headers: {
     "X-Corp-Auth": "CORP_AUTH_TOKEN"  // env var or literal
@@ -109,7 +109,7 @@ export default async function (aery: ExtensionAPI) {
     }>;
   };
 
-  aery.registerProvider("local-openai", {
+  pi.registerProvider("local-openai", {
     baseUrl: "http://localhost:1234/v1",
     apiKey: "LOCAL_OPENAI_API_KEY",
     api: "openai-completions",
@@ -129,7 +129,7 @@ export default async function (aery: ExtensionAPI) {
 This registers the fetched models before startup finishes.
 
 ```typescript
-aery.registerProvider("my-llm", {
+pi.registerProvider("my-llm", {
   baseUrl: "https://api.my-llm.com/v1",
   apiKey: "MY_LLM_API_KEY",  // env var name or literal value
   api: "openai-completions",  // which streaming API to use
@@ -156,11 +156,11 @@ When `models` is provided, it **replaces** all existing models for that provider
 
 ## Unregister Provider
 
-Use `aery.unregisterProvider(name)` to remove a provider that was previously registered via `aery.registerProvider(name, ...)`:
+Use `aery.unregisterProvider(name)` to remove a provider that was previously registered via `pi.registerProvider(name, ...)`:
 
 ```typescript
 // Register
-aery.registerProvider("my-llm", {
+pi.registerProvider("my-llm", {
   baseUrl: "https://api.my-llm.com/v1",
   apiKey: "MY_LLM_API_KEY",
   api: "openai-completions",
@@ -238,7 +238,7 @@ Use `cacheControlFormat: "anthropic"` for OpenAI-compatible providers that expos
 If your provider expects `Authorization: Bearer <key>` but doesn't use a standard API, set `authHeader: true`:
 
 ```typescript
-aery.registerProvider("custom-api", {
+pi.registerProvider("custom-api", {
   baseUrl: "https://api.example.com",
   apiKey: "MY_API_KEY",
   authHeader: true,  // adds Authorization: Bearer header
@@ -254,7 +254,7 @@ Add OAuth/SSO authentication that integrates with `/login`:
 ```typescript
 import type { OAuthCredentials, OAuthLoginCallbacks } from "@eminent337/aery-ai";
 
-aery.registerProvider("corporate-ai", {
+pi.registerProvider("corporate-ai", {
   baseUrl: "https://ai.corp.com/v1",
   api: "openai-responses",
   models: [...],
@@ -345,12 +345,12 @@ interface OAuthCredentials {
 For providers with non-standard APIs, implement `streamSimple`. Study the existing provider implementations before writing your own:
 
 **Reference implementations:**
-- [anthropic.ts](https://github.com/eminent337/aery/blob/main/packages/ai/src/providers/anthropic.ts) - Anthropic Messages API
-- [mistral.ts](https://github.com/eminent337/aery/blob/main/packages/ai/src/providers/mistral.ts) - Mistral Conversations API
-- [openai-completions.ts](https://github.com/eminent337/aery/blob/main/packages/ai/src/providers/openai-completions.ts) - OpenAI Chat Completions
-- [openai-responses.ts](https://github.com/eminent337/aery/blob/main/packages/ai/src/providers/openai-responses.ts) - OpenAI Responses API
-- [google.ts](https://github.com/eminent337/aery/blob/main/packages/ai/src/providers/google.ts) - Google Generative AI
-- [amazon-bedrock.ts](https://github.com/eminent337/aery/blob/main/packages/ai/src/providers/amazon-bedrock.ts) - AWS Bedrock
+- [anthropic.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/anthropic.ts) - Anthropic Messages API
+- [mistral.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/mistral.ts) - Mistral Conversations API
+- [openai-completions.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/openai-completions.ts) - OpenAI Chat Completions
+- [openai-responses.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/openai-responses.ts) - OpenAI Responses API
+- [google.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/google.ts) - Google Generative AI
+- [amazon-bedrock.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/amazon-bedrock.ts) - AWS Bedrock
 
 ### Stream Pattern
 
@@ -511,7 +511,7 @@ calculateCost(model, output.usage);
 Register your stream function:
 
 ```typescript
-aery.registerProvider("my-provider", {
+pi.registerProvider("my-provider", {
   baseUrl: "https://api.example.com",
   apiKey: "MY_API_KEY",
   api: "my-custom-api",
