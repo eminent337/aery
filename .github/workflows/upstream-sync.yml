@@ -145,8 +145,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           ROOT=$(pwd)
-          # Write npmrc for auth
-          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > $ROOT/.npmrc
+          npm config set //registry.npmjs.org/:_authToken "${NODE_AUTH_TOKEN}"
 
           # Publish aery-ai if it changed
           if git diff HEAD~1 --name-only 2>/dev/null | grep -q "packages/ai/"; then
@@ -159,7 +158,6 @@ jobs:
               pkg.version = '$AI_NEW';
               fs.writeFileSync('$ROOT/packages/ai/package.json', JSON.stringify(pkg, null, '\t') + '\n');
             "
-            cp $ROOT/.npmrc $ROOT/packages/ai/.npmrc
             (cd $ROOT/packages/ai && npm publish --access public --ignore-scripts --tag latest)
             echo "Published @eminent337/aery-ai@$AI_NEW"
           fi
@@ -175,7 +173,7 @@ jobs:
             fs.writeFileSync('$ROOT/packages/coding-agent/package.json', JSON.stringify(pkg, null, '\t') + '\n');
           "
 
-          git add $ROOT/packages/
+          git add packages/
           git pull --rebase origin main || true
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
           git push origin main
@@ -183,7 +181,6 @@ jobs:
           git tag "v$NEW_VERSION"
           git push origin "v$NEW_VERSION"
 
-          cp $ROOT/.npmrc $ROOT/packages/coding-agent/.npmrc
           (cd $ROOT/packages/coding-agent && npm publish --access public --ignore-scripts --tag latest)
 
       - name: Push to main if build passed
