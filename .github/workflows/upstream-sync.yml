@@ -172,6 +172,7 @@ jobs:
           fi
 
           git add packages/
+          git pull --rebase origin main || true
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync"
           git push origin main
 
