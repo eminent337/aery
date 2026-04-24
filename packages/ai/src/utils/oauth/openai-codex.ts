@@ -26,7 +26,7 @@ const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const REDIRECT_URI = "http://localhost:1455/auth/callback";
-const SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke";
+const SCOPE = "openid profile email offline_access";
 const JWT_CLAIM_PATH = "https://api.openai.com/auth";
 
 type TokenSuccess = { type: "success"; access: string; refresh: string; expires: number };
@@ -173,7 +173,7 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenResult> {
 }
 
 async function createAuthorizationFlow(
-	originator: string = "codex_cli_rs",
+	originator: string = "pi",
 ): Promise<{ verifier: string; state: string; url: string }> {
 	const { verifier, challenge } = await generatePKCE();
 	const state = createState();
