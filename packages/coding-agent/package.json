@@ -1,6 +1,6 @@
 {
 	"name": "@eminent337/aery",
-	"version": "0.1.39",
+	"version": "0.1.40",
 	"description": "Aery \u2014 AI coding agent by Aryee",
 	"type": "module",
 	"aeryConfig": {
@@ -39,7 +39,7 @@
 		"prepublishOnly": "npm run clean && ../../node_modules/.bin/tsgo -p tsconfig.build.json && ../../node_modules/.bin/shx chmod +x dist/cli.js && npm run copy-assets"
 	},
 	"dependencies": {
-		"@eminent337/aery-ai": "0.67.68",
+		"@eminent337/aery-ai": "0.67.69",
 		"@eminent337/aery-core": "0.67.68",
 		"@eminent337/aery-tui": "0.67.68",
 		"@mariozechner/jiti": "2.6.2",
