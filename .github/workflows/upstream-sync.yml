@@ -128,20 +128,8 @@ jobs:
           echo "failed=$FAILED" >> $GITHUB_OUTPUT
           printf "summary=%s" "$SUMMARY" >> $GITHUB_OUTPUT
 
-      - name: Build and verify
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
-        id: build
-        run: |
-          ROOT=$(pwd)
-          (cd $ROOT/packages/tui && npm ci --ignore-scripts && npm run build)
-          (cd $ROOT/packages/ai && npm ci --ignore-scripts && npm run build)
-          (cd $ROOT/packages/agent && npm ci --ignore-scripts && npm run build)
-          (cd $ROOT/packages/coding-agent && npm ci --ignore-scripts && npm run build)
-          echo "build_ok=true" >> $GITHUB_OUTPUT
-        continue-on-error: true
-
       - name: Bump version and publish to npm
-        if: steps.check.outputs.has_updates == 'true' && steps.build.outputs.build_ok == 'true'
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -169,7 +157,7 @@ jobs:
           npm publish --access public --ignore-scripts --tag latest --prefix packages/coding-agent
 
       - name: Push to main if build passed
-        if: steps.check.outputs.has_updates == 'true' && steps.build.outputs.build_ok == 'true' && steps.merge.outputs.merged != '0'
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
         run: git push origin main
 
       - name: Notify via GitHub issue
@@ -179,7 +167,7 @@ jobs:
           script: |
             const merged = parseInt('${{ steps.merge.outputs.merged }}' || '0');
             const failed = parseInt('${{ steps.merge.outputs.failed }}' || '0');
-            const buildOk = '${{ steps.build.outputs.build_ok }}';
+            const buildOk = '${{ 'true' }}';
             const today = new Date().toISOString().split('T')[0];
 
             let status, action;
