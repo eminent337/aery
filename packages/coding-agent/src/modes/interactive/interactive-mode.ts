@@ -4359,7 +4359,7 @@ export class InteractiveMode {
 					if (usesCallbackServer) {
 						// Show input for manual paste, racing with callback
 						dialog
-							.showManualInput("Paste redirect URL below, or complete login in browser:")
+							.showManualInput("Open the URL in your browser, log in, then paste the redirect URL here.\n(WSL/remote users: after login, copy the full URL from the browser address bar and paste it below)")
 							.then((value) => {
 								if (value && manualCodeResolve) {
 									manualCodeResolve(value);
