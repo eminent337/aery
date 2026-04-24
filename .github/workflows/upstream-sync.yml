@@ -147,8 +147,8 @@ jobs:
           ROOT=$(pwd)
           npm config set //registry.npmjs.org/:_authToken "${NODE_AUTH_TOKEN}"
 
-          # Publish aery-ai if it changed
-          if git diff HEAD~1 --name-only 2>/dev/null | grep -q "packages/ai/"; then
+          # Publish aery-ai only if upstream changed packages/ai
+          if git log --oneline upstream/main --since="7 days ago" -- packages/ai 2>/dev/null | grep -q .; then
             AI_CURRENT=$(node -p "require('$ROOT/packages/ai/package.json').version")
             IFS='.' read -r MA MI PA <<< "$AI_CURRENT"
             AI_NEW="$MA.$MI.$((PA + 1))"
@@ -173,7 +173,8 @@ jobs:
             fs.writeFileSync('$ROOT/packages/coding-agent/package.json', JSON.stringify(pkg, null, '\t') + '\n');
           "
 
-          git add packages/
+          cd $ROOT
+          git add packages/coding-agent/package.json packages/ai/package.json 2>/dev/null || git add packages/coding-agent/package.json
           git pull --rebase origin main || true
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
           git push origin main
