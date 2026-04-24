@@ -449,12 +449,15 @@ let BUILTIN_THEMES: Record<string, ThemeJson> | undefined;
 function getBuiltinThemes(): Record<string, ThemeJson> {
 	if (!BUILTIN_THEMES) {
 		const themesDir = getThemesDir();
-		const darkPath = path.join(themesDir, "dark.json");
-		const lightPath = path.join(themesDir, "light.json");
-		BUILTIN_THEMES = {
-			dark: JSON.parse(fs.readFileSync(darkPath, "utf-8")) as ThemeJson,
-			light: JSON.parse(fs.readFileSync(lightPath, "utf-8")) as ThemeJson,
+		const loadThemeFile = (name: string) => {
+			const p = path.join(themesDir, `${name}.json`);
+			return fs.existsSync(p) ? (JSON.parse(fs.readFileSync(p, "utf-8")) as ThemeJson) : null;
 		};
+		BUILTIN_THEMES = {};
+		for (const name of ["dark", "light", "aery", "catppuccin-mocha", "dracula", "nord", "tokyo-night"]) {
+			const theme = loadThemeFile(name);
+			if (theme) BUILTIN_THEMES[name] = theme;
+		}
 	}
 	return BUILTIN_THEMES;
 }
