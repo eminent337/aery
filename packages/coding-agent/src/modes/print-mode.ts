@@ -3,7 +3,7 @@
  *
  * Used for:
  * - `pi -p "prompt"` - text output
- * - `pi --mode json "prompt"` - JSON event stream
+ * - `aery --mode json "prompt"` - JSON event stream
  */
 
 import type { AssistantMessage, ImageContent } from "@eminent337/aery-ai";

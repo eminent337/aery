@@ -61,7 +61,7 @@ function getGroupLabel(metadata: PathMetadata): string {
 	}
 	// Top-level resources
 	if (metadata.source === "auto") {
-		return metadata.scope === "user" ? "User (~/.pi/agent/)" : "Project (.pi/)";
+		return metadata.scope === "user" ? "User (~/.aery/agent/)" : "Project (.aery/)";
 	}
 	return metadata.scope === "user" ? "User settings" : "Project settings";
 }

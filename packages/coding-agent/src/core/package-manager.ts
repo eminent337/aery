@@ -489,8 +489,8 @@ function collectAutoThemeEntries(dir: string): string[] {
 function readPiManifestFile(packageJsonPath: string): PiManifest | null {
 	try {
 		const content = readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content) as { pi?: PiManifest };
-		return pkg.pi ?? null;
+		const pkg = JSON.parse(content) as { pi?: PiManifest; aery?: PiManifest };
+		return pkg.aery ?? pkg.pi ?? null;
 	} catch {
 		return null;
 	}
@@ -1951,8 +1951,8 @@ export class DefaultPackageManager implements PackageManager {
 
 		try {
 			const content = readFileSync(packageJsonPath, "utf-8");
-			const pkg = JSON.parse(content) as { pi?: PiManifest };
-			return pkg.pi ?? null;
+			const pkg = JSON.parse(content) as { pi?: PiManifest; aery?: PiManifest };
+			return pkg.aery ?? pkg.pi ?? null;
 		} catch {
 			return null;
 		}
