@@ -3962,7 +3962,7 @@ export class InteractiveMode {
 				},
 				() => {
 					done();
-					this.showLoginAuthTypeSelector();
+					this.ui.requestRender();
 				},
 				initialSearchInput,
 			);
