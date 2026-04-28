@@ -46,7 +46,7 @@ jobs:
           SINCE=$(date -d '7 days ago' '+%Y-%m-%d')
           # Use %H alone (no --oneline) to get only hashes, oldest first
           PI_COMMITS=$(git log upstream/main --format="%H" --since="$SINCE" \
-            -- packages/agent packages/ai packages/tui | tac)
+            -- packages/agent packages/ai packages/tui packages/coding-agent | tac)
           JITI_COMMITS=$(git log upstream-jiti/main --format="%H" --since="$SINCE" | head -5)
 
           if [ -z "$PI_COMMITS" ] && [ -z "$JITI_COMMITS" ]; then
