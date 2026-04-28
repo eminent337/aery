@@ -95,9 +95,9 @@ jobs:
                 -e 's|pi\.dev|eminent337.github.io|g' \
                 -e 's|\.pi\.md|.aery.md|g' \
                 -e 's|pi-extension-|aery-extension-|g' \
-                -e 's|.pi/agent|.aery/agent|g' \\
-                -e 's|pi-debug.log|aery-debug.log|g' \\
-                -e 's|pi-crash.log|aery-crash.log|g' \\
+                -e 's|.pi/agent|.aery/agent|g' \
+                -e 's|pi-debug.log|aery-debug.log|g' \
+                -e 's|pi-crash.log|aery-crash.log|g' \
               > /tmp/upstream.patch
 
             if git apply --check /tmp/upstream.patch 2>/dev/null; then
