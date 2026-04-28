@@ -1,7 +1,7 @@
 // Main chat interface
 
-export type { Agent, AgentMessage, AgentState, ThinkingLevel } from "@eminent337/aery-core";
 export type { Model } from "@eminent337/aery-ai";
+export type { Agent, AgentMessage, AgentState, ThinkingLevel } from "@eminent337/aery-core";
 export { ChatPanel } from "./ChatPanel.js";
 // Components
 export { AgentInterface } from "./components/AgentInterface.js";

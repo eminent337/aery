@@ -1,0 +1,66 @@
+name: Backfill Upstream (one-shot)
+on:
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/badlogic/pi-mono.git
+          git fetch upstream main
+
+      - name: Apply all missing commits
+        run: |
+          MERGED=0; FAILED=0; SKIPPED=0
+          while IFS= read -r COMMIT; do
+            [ -z "$COMMIT" ] && continue
+            TOUCHED=$(git diff-tree --no-commit-id -r --name-only "$COMMIT" 2>/dev/null)
+            if echo "$TOUCHED" | grep -qE "models\.generated\.ts|CHANGELOG\.md"; then
+              SKIPPED=$((SKIPPED+1)); continue
+            fi
+            MSG=$(git log --format='%s' -1 "$COMMIT" 2>/dev/null)
+            git diff-tree -p "$COMMIT" 2>/dev/null \
+              | sed \
+                -e 's|@mariozechner/pi-coding-agent|@eminent337/aery|g' \
+                -e 's|@mariozechner/pi-agent-core|@eminent337/aery-core|g' \
+                -e 's|@mariozechner/pi-ai|@eminent337/aery-ai|g' \
+                -e 's|@mariozechner/pi-tui|@eminent337/aery-tui|g' \
+                -e 's|@mariozechner/pi-mom|@eminent337/aery-mom|g' \
+                -e 's|@mariozechner/pi-web-ui|@eminent337/aery-web-ui|g' \
+                -e 's|@mariozechner/pi|@eminent337/aery-pods|g' \
+                -e 's|badlogic/pi-mono|eminent337/aery|g' \
+                -e 's|pi\.dev|eminent337.github.io|g' \
+                -e 's|\.pi\.md|.aery.md|g' \
+                -e 's|pi-extension-|aery-extension-|g' \
+                -e 's|\.pi/agent|.aery/agent|g' \
+                -e 's|pi-debug\.log|aery-debug.log|g' \
+                -e 's|pi-crash\.log|aery-crash.log|g' \
+              > /tmp/upstream.patch
+            if git apply --check /tmp/upstream.patch 2>/dev/null; then
+              git apply /tmp/upstream.patch
+              git add -A
+              git commit -m "upstream(pi): $MSG" || true
+              MERGED=$((MERGED+1))
+            else
+              FAILED=$((FAILED+1))
+              echo "SKIP (conflict): $MSG"
+            fi
+          done < <(git log --format="%H" origin/main..upstream/main --reverse -- packages/coding-agent packages/agent packages/ai packages/tui)
+          echo "Done: merged=$MERGED failed=$FAILED skipped=$SKIPPED"
+
+      - name: Push
+        run: git push origin main

@@ -1,8 +1,8 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool } from "@eminent337/aery-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@eminent337/aery-ai";
+import type { AgentTool } from "@eminent337/aery-core";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PromptTemplate } from "../../src/core/prompt-templates.js";

@@ -296,8 +296,8 @@ export class AbortedMessage extends LitElement {
 // Default Message Transformer
 // ============================================================================
 
-import type { AgentMessage } from "@eminent337/aery-core";
 import type { Message } from "@eminent337/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
 
 /**
  * Convert attachments to content blocks for LLM.

@@ -5,9 +5,9 @@
  * and after compaction the session is reloaded.
  */
 
-import type { AgentMessage, ThinkingLevel } from "@eminent337/aery-core";
 import type { AssistantMessage, Model, Usage } from "@eminent337/aery-ai";
 import { completeSimple } from "@eminent337/aery-ai";
+import type { AgentMessage, ThinkingLevel } from "@eminent337/aery-core";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,

@@ -1,7 +1,7 @@
-import { Alert } from "@mariozechner/mini-lit/dist/Alert.js";
 import type { Message } from "@eminent337/aery-ai";
 import type { AgentMessage, MessageRenderer } from "@eminent337/aery-web-ui";
 import { defaultConvertToLlm, registerMessageRenderer } from "@eminent337/aery-web-ui";
+import { Alert } from "@mariozechner/mini-lit/dist/Alert.js";
 import { html } from "lit";
 
 // ============================================================================

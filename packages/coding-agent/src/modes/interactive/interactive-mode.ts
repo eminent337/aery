@@ -7,8 +7,8 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@eminent337/aery-core";
 import type { AssistantMessage, ImageContent, Message, Model, OAuthProviderId } from "@eminent337/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
 import type {
 	AutocompleteItem,
 	EditorComponent,
@@ -895,12 +895,31 @@ export class InteractiveMode {
 				// Wire core extensions into settings.json
 				const repoPath = join(homedir(), ".aery", "agent", "git", "github.com", "eminent337", "aery-extensions");
 				const settingsPath = join(homedir(), ".aery", "agent", "settings.json");
-				const CORE = ["damage-control","provider-profiles","model-failover","web-search","web-fetch","commands","hooks","circuit-breaker","auto-router","memory-include","aery-header","aery-footer","multi-agent","agent-chain","agent-teams","help","default-agents","aery-doctor"];
+				const CORE = [
+					"damage-control",
+					"provider-profiles",
+					"model-failover",
+					"web-search",
+					"web-fetch",
+					"commands",
+					"hooks",
+					"circuit-breaker",
+					"auto-router",
+					"memory-include",
+					"aery-header",
+					"aery-footer",
+					"multi-agent",
+					"agent-chain",
+					"agent-teams",
+					"help",
+					"default-agents",
+					"aery-doctor",
+				];
 				if (existsSync(settingsPath)) {
 					const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 					const existing = new Set(settings.extensions || []);
 					for (const ext of CORE) {
-						const p = join(repoPath, "core", ext + ".ts");
+						const p = join(repoPath, "core", `${ext}.ts`);
 						if (existsSync(p) && !existing.has(p)) {
 							settings.extensions = settings.extensions || [];
 							settings.extensions.push(p);
@@ -4609,7 +4628,9 @@ export class InteractiveMode {
 					if (usesCallbackServer) {
 						// Show input for manual paste, racing with callback
 						dialog
-							.showManualInput("Open the URL in your browser, log in, then paste the redirect URL here.\n(WSL/remote users: after login, copy the full URL from the browser address bar and paste it below)")
+							.showManualInput(
+								"Open the URL in your browser, log in, then paste the redirect URL here.\n(WSL/remote users: after login, copy the full URL from the browser address bar and paste it below)",
+							)
 							.then((value) => {
 								if (value && manualCodeResolve) {
 									manualCodeResolve(value);

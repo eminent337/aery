@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
-import type { AgentTool } from "@eminent337/aery-core";
 import { fauxAssistantMessage, fauxToolCall } from "@eminent337/aery-ai";
+import type { AgentTool } from "@eminent337/aery-core";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { BashOperations } from "../../src/core/tools/bash.js";

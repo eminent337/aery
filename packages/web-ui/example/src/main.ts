@@ -1,6 +1,6 @@
 import "@mariozechner/mini-lit/dist/ThemeToggle.js";
-import { Agent, type AgentMessage } from "@eminent337/aery-core";
 import { getModel } from "@eminent337/aery-ai";
+import { Agent, type AgentMessage } from "@eminent337/aery-core";
 import {
 	type AgentState,
 	ApiKeyPromptDialog,

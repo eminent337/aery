@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import type { ThinkingLevel } from "@eminent337/aery-core";
 import type { Model } from "@eminent337/aery-ai";
+import type { ThinkingLevel } from "@eminent337/aery-core";
 import { getAgentDir } from "../config.js";
 import { AuthStorage } from "./auth-storage.js";
 import type { SessionStartEvent, ToolDefinition } from "./extensions/index.js";

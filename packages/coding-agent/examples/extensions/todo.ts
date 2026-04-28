@@ -10,8 +10,8 @@
  * correct for that point in history.
  */
 
-import { StringEnum } from "@eminent337/aery-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@eminent337/aery";
+import { StringEnum } from "@eminent337/aery-ai";
 import { matchesKey, Text, truncateToWidth } from "@eminent337/aery-tui";
 import { Type } from "@sinclair/typebox";
 

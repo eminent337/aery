@@ -17,8 +17,8 @@
  * separate variables. Only the agent cursor is ever exposed to the agent.
  */
 
-import { StringEnum } from "@eminent337/aery-ai";
 import type { ExtensionAPI, ExtensionContext, Theme, ToolExecutionMode } from "@eminent337/aery";
+import { StringEnum } from "@eminent337/aery-ai";
 import { type Component, matchesKey, Text, truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
 import { Type } from "@sinclair/typebox";
 

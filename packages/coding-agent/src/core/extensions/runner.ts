@@ -2,14 +2,15 @@
  * Extension runner - executes extensions and manages their lifecycle.
  */
 
-import type { AgentMessage } from "@eminent337/aery-core";
 import type { ImageContent, Model } from "@eminent337/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
 import type { KeyId } from "@eminent337/aery-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.js";
 import type { ResourceDiagnostic } from "../diagnostics.js";
 import type { KeybindingsConfig } from "../keybindings.js";
 import type { ModelRegistry } from "../model-registry.js";
 import type { SessionManager } from "../session-manager.js";
+import type { BuildSystemPromptOptions } from "../system-prompt.js";
 import type {
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
@@ -789,6 +790,7 @@ export class ExtensionRunner {
 		prompt: string,
 		images: ImageContent[] | undefined,
 		systemPrompt: string,
+		systemPromptOptions: BuildSystemPromptOptions,
 	): Promise<BeforeAgentStartCombinedResult | undefined> {
 		const ctx = this.createContext();
 		const messages: NonNullable<BeforeAgentStartEventResult["message"]>[] = [];
@@ -806,6 +808,7 @@ export class ExtensionRunner {
 						prompt,
 						images,
 						systemPrompt: currentSystemPrompt,
+						systemPromptOptions,
 					};
 					const handlerResult = await handler(event, ctx);
 

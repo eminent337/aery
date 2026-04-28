@@ -15,16 +15,9 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import type {
-	Agent,
-	AgentEvent,
-	AgentMessage,
-	AgentState,
-	AgentTool,
-	ThinkingLevel,
-} from "@eminent337/aery-core";
 import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@eminent337/aery-ai";
 import { isContextOverflow, modelsAreEqual, resetApiProviders, supportsXhigh } from "@eminent337/aery-ai";
+import type { Agent, AgentEvent, AgentMessage, AgentState, AgentTool, ThinkingLevel } from "@eminent337/aery-core";
 import { getDocsPath } from "../config.js";
 import { theme } from "../modes/interactive/theme/theme.js";
 import { stripFrontmatter } from "../utils/frontmatter.js";
@@ -76,7 +69,7 @@ import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader }
 import type { SettingsManager } from "./settings-manager.js";
 import type { SlashCommandInfo } from "./slash-commands.js";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.js";
-import { buildSystemPrompt } from "./system-prompt.js";
+import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.js";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.js";
 import { createAllToolDefinitions } from "./tools/index.js";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.js";
@@ -300,6 +293,7 @@ export class AgentSession {
 
 	// Base system prompt (without extension appends) - used to apply fresh appends each turn
 	private _baseSystemPrompt = "";
+	private _baseSystemPromptOptions: BuildSystemPromptOptions = { cwd: process.cwd() };
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -906,7 +900,7 @@ export class AgentSession {
 		const loadedSkills = this._resourceLoader.getSkills().skills;
 		const loadedContextFiles = this._resourceLoader.getAgentsFiles().agentsFiles;
 
-		return buildSystemPrompt({
+		this._baseSystemPromptOptions = {
 			cwd: this._cwd,
 			skills: loadedSkills,
 			contextFiles: loadedContextFiles,
@@ -915,7 +909,8 @@ export class AgentSession {
 			selectedTools: validToolNames,
 			toolSnippets,
 			promptGuidelines,
-		});
+		};
+		return buildSystemPrompt(this._baseSystemPromptOptions);
 	}
 
 	// =========================================================================
@@ -1048,6 +1043,7 @@ export class AgentSession {
 				expandedText,
 				currentImages,
 				this._baseSystemPrompt,
+				this._baseSystemPromptOptions,
 			);
 			// Add all custom messages from extensions
 			if (result?.messages) {

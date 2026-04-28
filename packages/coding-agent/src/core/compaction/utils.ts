@@ -2,8 +2,8 @@
  * Shared utilities for compaction and branch summarization.
  */
 
-import type { AgentMessage } from "@eminent337/aery-core";
 import type { Message } from "@eminent337/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
 
 // ============================================================================
 // File Operation Tracking

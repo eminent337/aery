@@ -1,5 +1,5 @@
-import type { AgentTool } from "@eminent337/aery-core";
 import type { ToolResultMessage } from "@eminent337/aery-ai";
+import type { AgentTool } from "@eminent337/aery-core";
 import { type Static, Type } from "@sinclair/typebox";
 import { html } from "lit";
 import { createRef, ref } from "lit/directives/ref.js";

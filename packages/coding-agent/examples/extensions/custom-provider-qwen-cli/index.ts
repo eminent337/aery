@@ -9,8 +9,8 @@
  *   # Then /login qwen-cli, or set QWEN_CLI_API_KEY=...
  */
 
-import type { OAuthCredentials, OAuthLoginCallbacks } from "@eminent337/aery-ai";
 import type { ExtensionAPI } from "@eminent337/aery";
+import type { OAuthCredentials, OAuthLoginCallbacks } from "@eminent337/aery-ai";
 
 // =============================================================================
 // Constants

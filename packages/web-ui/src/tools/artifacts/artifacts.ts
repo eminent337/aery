@@ -1,8 +1,8 @@
 import { icon } from "@mariozechner/mini-lit";
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
-import { Button } from "@mariozechner/mini-lit/dist/Button.js";
-import type { Agent, AgentMessage, AgentTool } from "@eminent337/aery-core";
 import { StringEnum, type ToolCall } from "@eminent337/aery-ai";
+import type { Agent, AgentMessage, AgentTool } from "@eminent337/aery-core";
+import { Button } from "@mariozechner/mini-lit/dist/Button.js";
 import { type Static, Type } from "@sinclair/typebox";
 import { html, LitElement, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
