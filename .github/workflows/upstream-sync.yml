@@ -2,8 +2,7 @@ name: Weekly Upstream Sync
 
 on:
   schedule:
-    - cron: '0 9 * * 1'  # Every Monday at 9am UTC
-    - cron: '0 9 * * 3'  # Every Wednesday at 9am UTC
+    - cron: '0 9 * * *'  # Daily at 9am UTC
   workflow_dispatch:
 
 jobs:
@@ -43,7 +42,7 @@ jobs:
       - name: Check for new commits
         id: check
         run: |
-          SINCE=$(date -d '7 days ago' '+%Y-%m-%d')
+          SINCE=$(date -d '1 day ago' '+%Y-%m-%d')
           # Use %H alone (no --oneline) to get only hashes, oldest first
           PI_COMMITS=$(git log upstream/main --format="%H" --since="$SINCE" \
             -- packages/agent packages/ai packages/tui packages/coding-agent | tac)
