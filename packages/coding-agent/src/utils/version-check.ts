@@ -1,6 +1,6 @@
 import { getAeryUserAgent } from "./aery-user-agent.js";
 
-const LATEST_VERSION_URL = "https://pi.dev/api/latest-version";
+const LATEST_VERSION_URL = "https://registry.npmjs.org/@eminent337/aery/latest";
 const DEFAULT_VERSION_CHECK_TIMEOUT_MS = 10000;
 
 interface ParsedVersion {
@@ -51,7 +51,7 @@ export async function getLatestPiVersion(
 	currentVersion: string,
 	options: { timeoutMs?: number } = {},
 ): Promise<string | undefined> {
-	if (process.env.PI_SKIP_VERSION_CHECK || process.env.PI_OFFLINE) return undefined;
+	if (process.env.AERY_SKIP_VERSION_CHECK || process.env.AERY_OFFLINE) return undefined;
 
 	const response = await fetch(LATEST_VERSION_URL, {
 		headers: {
