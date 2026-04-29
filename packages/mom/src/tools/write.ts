@@ -1,5 +1,5 @@
 import type { AgentTool } from "@eminent337/aery-core";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { Executor } from "../sandbox.js";
 
 const writeSchema = Type.Object({

@@ -1,31 +1,81 @@
 {
-	"extends": "./tsconfig.base.json",
-	"compilerOptions": {
-		"noEmit": true,
-		"paths": {
-			"*": ["./*"],
-			"@eminent337/aery-ai": ["./packages/ai/src/index.ts"],
-			"@eminent337/aery-ai/oauth": ["./packages/ai/src/oauth.ts"],
-			"@eminent337/aery-ai/*": ["./packages/ai/src/*.ts", "./packages/ai/src/providers/*.ts"],
-			"@mariozechner/pi-ai/dist/*": ["./packages/ai/src/*"],
-			"@eminent337/aery-core": ["./packages/agent/src/index.ts"],
-			"@eminent337/aery-core/*": ["./packages/agent/src/*"],
-			"@eminent337/aery": ["./packages/coding-agent/src/index.ts"],
-			"@eminent337/aery/hooks": ["./packages/coding-agent/src/core/hooks/index.ts"],
-			"@eminent337/aery/*": ["./packages/coding-agent/src/*"],
-			"@sinclair/typebox": ["./node_modules/@sinclair/typebox"],
-			"@eminent337/aery-mom": ["./packages/mom/src/index.ts"],
-			"@eminent337/aery-mom/*": ["./packages/mom/src/*"],
-			"@eminent337/aery-pods": ["./packages/pods/src/index.ts"],
-			"@eminent337/aery-pods/*": ["./packages/pods/src/*"],
-			"@eminent337/aery-tui": ["./packages/tui/src/index.ts"],
-			"@eminent337/aery-tui/*": ["./packages/tui/src/*"],
-			"@eminent337/aery-web-ui": ["./packages/web-ui/src/index.ts"],
-			"@eminent337/aery-web-ui/*": ["./packages/web-ui/src/*"],
-			"@eminent337/aery-agent-old": ["./packages/agent-old/src/index.ts"],
-			"@eminent337/aery-agent-old/*": ["./packages/agent-old/src/*"]
-		}
-	},
-	"include": ["packages/*/src/**/*", "packages/*/test/**/*", "packages/coding-agent/examples/**/*"],
-	"exclude": ["packages/web-ui/**/*", "**/dist/**"]
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "*": [
+        "./*"
+      ],
+      "@eminent337/aery-ai": [
+        "./packages/ai/src/index.ts"
+      ],
+      "@eminent337/aery-ai/oauth": [
+        "./packages/ai/src/oauth.ts"
+      ],
+      "@eminent337/aery-ai/*": [
+        "./packages/ai/src/*.ts",
+        "./packages/ai/src/providers/*.ts"
+      ],
+      "@mariozechner/pi-ai/dist/*": [
+        "./packages/ai/src/*"
+      ],
+      "@eminent337/aery-core": [
+        "./packages/agent/src/index.ts"
+      ],
+      "@eminent337/aery-core/*": [
+        "./packages/agent/src/*"
+      ],
+      "@eminent337/aery": [
+        "./packages/coding-agent/src/index.ts"
+      ],
+      "@eminent337/aery/hooks": [
+        "./packages/coding-agent/src/core/hooks/index.ts"
+      ],
+      "@eminent337/aery/*": [
+        "./packages/coding-agent/src/*"
+      ],
+      "@eminent337/aery-mom": [
+        "./packages/mom/src/index.ts"
+      ],
+      "@eminent337/aery-mom/*": [
+        "./packages/mom/src/*"
+      ],
+      "@eminent337/aery-pods": [
+        "./packages/pods/src/index.ts"
+      ],
+      "@eminent337/aery-pods/*": [
+        "./packages/pods/src/*"
+      ],
+      "@eminent337/aery-tui": [
+        "./packages/tui/src/index.ts"
+      ],
+      "@eminent337/aery-tui/*": [
+        "./packages/tui/src/*"
+      ],
+      "@eminent337/aery-web-ui": [
+        "./packages/web-ui/src/index.ts"
+      ],
+      "@eminent337/aery-web-ui/*": [
+        "./packages/web-ui/src/*"
+      ],
+      "@eminent337/aery-agent-old": [
+        "./packages/agent-old/src/index.ts"
+      ],
+      "@eminent337/aery-agent-old/*": [
+        "./packages/agent-old/src/*"
+      ],
+      "typebox": [
+        "./node_modules/typebox/build/index.d.mts"
+      ]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*",
+    "packages/*/test/**/*",
+    "packages/coding-agent/examples/**/*"
+  ],
+  "exclude": [
+    "packages/web-ui/**/*",
+    "**/dist/**"
+  ]
 }

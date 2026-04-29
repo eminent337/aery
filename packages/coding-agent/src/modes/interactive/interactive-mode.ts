@@ -8,9 +8,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AssistantMessage, ImageContent, Message, Model, OAuthProviderId } from "@eminent337/aery-ai";
+import { getProviders } from "@eminent337/aery-ai";
 import type { AgentMessage } from "@eminent337/aery-core";
 import type {
 	AutocompleteItem,
+	AutocompleteProvider,
 	EditorComponent,
 	EditorTheme,
 	Keybinding,
@@ -50,6 +52,8 @@ import {
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.js";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.js";
 import type {
+	AutocompleteProviderFactory,
+	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionRunner,
 	ExtensionUIContext,
@@ -74,6 +78,7 @@ import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipb
 import { parseGitUrl } from "../../utils/git.js";
 import { killTrackedDetachedChildren } from "../../utils/shell.js";
 import { ensureTool } from "../../utils/tools-manager.js";
+import { checkForNewPiVersion } from "../../utils/version-check.js";
 import { ArminComponent } from "./components/armin.js";
 import { AssistantMessageComponent } from "./components/assistant-message.js";
 import { BashExecutionComponent } from "./components/bash-execution.js";
@@ -150,7 +155,7 @@ type CompactionQueuedMessage = {
 };
 
 const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING =
-	"Anthropic subscription auth is active. Third-party usage now draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage.";
+	"Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage.";
 
 function isAnthropicSubscriptionAuthKey(apiKey: string | undefined): boolean {
 	return typeof apiKey === "string" && apiKey.startsWith("sk-ant-oat");
@@ -187,7 +192,17 @@ const API_KEY_PROVIDER_NAMES: Record<string, string> = {
 
 const API_KEY_LOGIN_PROVIDER_BLOCKLIST = new Set(["amazon-bedrock", "llama.cpp", "lmstudio", "ollama"]);
 
-function getApiKeyProviderDisplayName(providerId: string): string {
+export function isApiKeyLoginProvider(
+	providerId: string,
+	oauthProviderIds: ReadonlySet<string>,
+	builtInProviderIds: ReadonlySet<string> = new Set(getProviders()),
+): boolean {
+	if (API_KEY_PROVIDER_NAMES[providerId]) return true;
+	if (builtInProviderIds.has(providerId)) return false;
+	return !oauthProviderIds.has(providerId);
+}
+
+export function getApiKeyProviderDisplayName(providerId: string): string {
 	return API_KEY_PROVIDER_NAMES[providerId] ?? providerId;
 }
 
@@ -217,7 +232,8 @@ export class InteractiveMode {
 	private statusContainer: Container;
 	private defaultEditor: CustomEditor;
 	private editor: EditorComponent;
-	private autocompleteProvider: CombinedAutocompleteProvider | undefined;
+	private autocompleteProvider: AutocompleteProvider | undefined;
+	private autocompleteProviderWrappers: AutocompleteProviderFactory[] = [];
 	private fdPath: string | undefined;
 	private editorContainer: Container;
 	private footer: FooterComponent;
@@ -228,7 +244,8 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private loadingAnimation: Loader | undefined = undefined;
-	private pendingWorkingMessage: string | undefined = undefined;
+	private workingMessage: string | undefined = undefined;
+	private workingVisible = true;
 	private workingIndicatorOptions: LoaderIndicatorOptions | undefined = undefined;
 	private readonly defaultWorkingMessage = "Working...";
 	private readonly defaultHiddenThinkingLabel = "Thinking...";
@@ -250,9 +267,6 @@ export class InteractiveMode {
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
-
-	// Track first user message to avoid leading spacer at top of chat
-	private isFirstUserMessage = true;
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
@@ -334,6 +348,12 @@ export class InteractiveMode {
 		private options: InteractiveModeOptions = {},
 	) {
 		this.runtimeHost = runtimeHost;
+		this.runtimeHost.setBeforeSessionInvalidate(() => {
+			this.resetExtensionUI();
+		});
+		this.runtimeHost.setRebindSession(async () => {
+			await this.rebindCurrentSession();
+		});
 		this.version = VERSION;
 		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
@@ -414,7 +434,7 @@ export class InteractiveMode {
 			}));
 	}
 
-	private setupAutocomplete(fdPath: string | undefined): void {
+	private createBaseAutocompleteProvider(): AutocompleteProvider {
 		// Define commands for autocomplete
 		const slashCommands: SlashCommand[] = BUILTIN_SLASH_COMMANDS.map((command) => ({
 			name: command.name,
@@ -484,15 +504,23 @@ export class InteractiveMode {
 			}
 		}
 
-		// Setup autocomplete
-		this.autocompleteProvider = new CombinedAutocompleteProvider(
+		return new CombinedAutocompleteProvider(
 			[...slashCommands, ...templateCommands, ...extensionCommands, ...skillCommandList],
 			this.sessionManager.getCwd(),
-			fdPath,
+			this.fdPath,
 		);
-		this.defaultEditor.setAutocompleteProvider(this.autocompleteProvider);
+	}
+
+	private setupAutocompleteProvider(): void {
+		let provider = this.createBaseAutocompleteProvider();
+		for (const wrapProvider of this.autocompleteProviderWrappers) {
+			provider = wrapProvider(provider);
+		}
+
+		this.autocompleteProvider = provider;
+		this.defaultEditor.setAutocompleteProvider(provider);
 		if (this.editor !== this.defaultEditor) {
-			this.editor.setAutocompleteProvider?.(this.autocompleteProvider);
+			this.editor.setAutocompleteProvider?.(provider);
 		}
 	}
 
@@ -621,16 +649,10 @@ export class InteractiveMode {
 		this.isInitialized = true;
 
 		// Initialize extensions first so resources are shown before messages
-		await this.bindCurrentSessionExtensions();
+		await this.rebindCurrentSession();
 
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
-
-		// Set terminal title
-		this.updateTerminalTitle();
-
-		// Subscribe to agent events
-		this.subscribeToAgent();
 
 		// Set up theme file watcher
 		onThemeChange(() => {
@@ -669,7 +691,7 @@ export class InteractiveMode {
 		await this.init();
 
 		// Start version check asynchronously
-		this.checkForNewVersion().then((newVersion) => {
+		checkForNewPiVersion(this.version).then((newVersion) => {
 			if (newVersion) {
 				this.showNewVersionNotification(newVersion);
 			}
@@ -737,31 +759,6 @@ export class InteractiveMode {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
 			}
-		}
-	}
-
-	/**
-	 * Check npm registry for a newer version.
-	 */
-	private async checkForNewVersion(): Promise<string | undefined> {
-		if (process.env.PI_SKIP_VERSION_CHECK || process.env.PI_OFFLINE) return undefined;
-
-		try {
-			const response = await fetch("https://registry.npmjs.org/@eminent337/aery/latest", {
-				signal: AbortSignal.timeout(10000),
-			});
-			if (!response.ok) return undefined;
-
-			const data = (await response.json()) as { version?: string };
-			const latestVersion = data.version;
-
-			if (latestVersion && latestVersion !== this.version) {
-				return latestVersion;
-			}
-
-			return undefined;
-		} catch {
-			return undefined;
 		}
 	}
 
@@ -1531,7 +1528,6 @@ export class InteractiveMode {
 					try {
 						const result = await this.runtimeHost.newSession(options);
 						if (!result.cancelled) {
-							await this.handleRuntimeSessionChange();
 							this.renderCurrentSessionState();
 							this.ui.requestRender();
 						}
@@ -1544,7 +1540,6 @@ export class InteractiveMode {
 					try {
 						const result = await this.runtimeHost.fork(entryId, options);
 						if (!result.cancelled) {
-							await this.handleRuntimeSessionChange();
 							this.renderCurrentSessionState();
 							this.editor.setText(result.selectedText ?? "");
 							this.showStatus("Forked to new session");
@@ -1574,9 +1569,8 @@ export class InteractiveMode {
 					void this.flushCompactionQueue({ willRetry: false });
 					return { cancelled: false };
 				},
-				switchSession: async (sessionPath) => {
-					await this.handleResumeSession(sessionPath);
-					return { cancelled: false };
+				switchSession: async (sessionPath, options) => {
+					return this.handleResumeSession(sessionPath, options);
 				},
 				reload: async () => {
 					await this.handleReloadCommand();
@@ -1594,11 +1588,11 @@ export class InteractiveMode {
 		});
 
 		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
-		this.setupAutocomplete(this.fdPath);
+		this.setupAutocompleteProvider();
 
 		const extensionRunner = this.session.extensionRunner;
 		this.setupExtensionShortcuts(extensionRunner);
-		this.showLoadedResources({ force: false });
+		this.showLoadedResources({ force: false, showDiagnosticsWhenQuiet: true });
 		this.showStartupNoticesIfNeeded();
 	}
 
@@ -1619,8 +1613,7 @@ export class InteractiveMode {
 		}
 	}
 
-	private async handleRuntimeSessionChange(): Promise<void> {
-		this.resetExtensionUI();
+	private async rebindCurrentSession(): Promise<void> {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
 		this.applyRuntimeSettings();
@@ -1717,6 +1710,43 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private getWorkingLoaderMessage(): string {
+		return this.workingMessage ?? this.defaultWorkingMessage;
+	}
+
+	private createWorkingLoader(): Loader {
+		return new Loader(
+			this.ui,
+			(spinner) => theme.fg("accent", spinner),
+			(text) => theme.fg("muted", text),
+			this.getWorkingLoaderMessage(),
+			this.workingIndicatorOptions,
+		);
+	}
+
+	private stopWorkingLoader(): void {
+		if (this.loadingAnimation) {
+			this.loadingAnimation.stop();
+			this.loadingAnimation = undefined;
+		}
+		this.statusContainer.clear();
+	}
+
+	private setWorkingVisible(visible: boolean): void {
+		this.workingVisible = visible;
+		if (!visible) {
+			this.stopWorkingLoader();
+			this.ui.requestRender();
+			return;
+		}
+		if (this.session.isStreaming && !this.loadingAnimation) {
+			this.statusContainer.clear();
+			this.loadingAnimation = this.createWorkingLoader();
+			this.statusContainer.addChild(this.loadingAnimation);
+		}
+		this.ui.requestRender();
+	}
+
 	private setWorkingIndicator(options?: LoaderIndicatorOptions): void {
 		this.workingIndicatorOptions = options;
 		this.loadingAnimation?.setIndicator(options);
@@ -1810,10 +1840,13 @@ export class InteractiveMode {
 		this.clearExtensionWidgets();
 		this.footerDataProvider.clearExtensionStatuses();
 		this.footer.invalidate();
+		this.autocompleteProviderWrappers = [];
 		this.setCustomEditorComponent(undefined);
+		this.setupAutocompleteProvider();
 		this.defaultEditor.onExtensionShortcut = undefined;
 		this.updateTerminalTitle();
-		this.pendingWorkingMessage = undefined;
+		this.workingMessage = undefined;
+		this.workingVisible = true;
 		this.setWorkingIndicator();
 		if (this.loadingAnimation) {
 			this.loadingAnimation.setMessage(`${this.defaultWorkingMessage} (${keyText("app.interrupt")} to interrupt)`);
@@ -1964,19 +1997,12 @@ export class InteractiveMode {
 			onTerminalInput: (handler) => this.addExtensionTerminalInputListener(handler),
 			setStatus: (key, text) => this.setExtensionStatus(key, text),
 			setWorkingMessage: (message) => {
+				this.workingMessage = message;
 				if (this.loadingAnimation) {
-					if (message) {
-						this.loadingAnimation.setMessage(message);
-					} else {
-						this.loadingAnimation.setMessage(
-							`${this.defaultWorkingMessage} (${keyText("app.interrupt")} to interrupt)`,
-						);
-					}
-				} else {
-					// Queue message for when loadingAnimation is created (handles agent_start race)
-					this.pendingWorkingMessage = message;
+					this.loadingAnimation.setMessage(message ?? this.defaultWorkingMessage);
 				}
 			},
+			setWorkingVisible: (visible) => this.setWorkingVisible(visible),
 			setWorkingIndicator: (options) => this.setWorkingIndicator(options),
 			setHiddenThinkingLabel: (label) => this.setHiddenThinkingLabel(label),
 			setWidget: (key, content, options) => this.setExtensionWidget(key, content, options),
@@ -1988,6 +2014,10 @@ export class InteractiveMode {
 			setEditorText: (text) => this.editor.setText(text),
 			getEditorText: () => this.editor.getExpandedText?.() ?? this.editor.getText(),
 			editor: (title, prefill) => this.showExtensionEditor(title, prefill),
+			addAutocompleteProvider: (factory) => {
+				this.autocompleteProviderWrappers.push(factory);
+				this.setupAutocompleteProvider();
+			},
 			setEditorComponent: (factory) => this.setCustomEditorComponent(factory),
 			get theme() {
 				return theme;
@@ -2373,7 +2403,7 @@ export class InteractiveMode {
 		// Set up handlers on defaultEditor - they use this.editor for text access
 		// so they work correctly regardless of which editor is active
 		this.defaultEditor.onEscape = () => {
-			if (this.loadingAnimation) {
+			if (this.session.isStreaming) {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			} else if (this.session.isBashRunning) {
 				this.session.abortBash();
@@ -2653,6 +2683,9 @@ export class InteractiveMode {
 
 		switch (event.type) {
 			case "agent_start":
+				if (this.settingsManager.getShowTerminalProgress()) {
+					this.ui.terminal.setProgress(true);
+				}
 				// Restore main escape handler if retry handler is still active
 				// (retry success event fires later, but we need main handler now)
 				if (this.retryEscapeHandler) {
@@ -2667,30 +2700,22 @@ export class InteractiveMode {
 					this.retryLoader.stop();
 					this.retryLoader = undefined;
 				}
-				if (this.loadingAnimation) {
-					this.loadingAnimation.stop();
-				}
-				this.statusContainer.clear();
-				this.loadingAnimation = new Loader(
-					this.ui,
-					(spinner) => theme.fg("accent", spinner),
-					(text) => theme.fg("muted", text),
-					this.defaultWorkingMessage,
-					this.workingIndicatorOptions,
-				);
-				this.statusContainer.addChild(this.loadingAnimation);
-				// Apply any pending working message queued before loader existed
-				if (this.pendingWorkingMessage !== undefined) {
-					if (this.pendingWorkingMessage) {
-						this.loadingAnimation.setMessage(this.pendingWorkingMessage);
-					}
-					this.pendingWorkingMessage = undefined;
+				this.stopWorkingLoader();
+				if (this.workingVisible) {
+					this.loadingAnimation = this.createWorkingLoader();
+					this.statusContainer.addChild(this.loadingAnimation);
 				}
 				this.ui.requestRender();
 				break;
 
 			case "queue_update":
 				this.updatePendingMessagesDisplay();
+				this.ui.requestRender();
+				break;
+
+			case "session_info_changed":
+				this.updateTerminalTitle();
+				this.footer.invalidate();
 				this.ui.requestRender();
 				break;
 
@@ -2730,6 +2755,7 @@ export class InteractiveMode {
 									content.arguments,
 									{
 										showImages: this.settingsManager.getShowImages(),
+										imageWidthCells: this.settingsManager.getImageWidthCells(),
 									},
 									this.getRegisteredToolDefinition(content.name),
 									this.ui,
@@ -2798,6 +2824,7 @@ export class InteractiveMode {
 						event.args,
 						{
 							showImages: this.settingsManager.getShowImages(),
+							imageWidthCells: this.settingsManager.getImageWidthCells(),
 						},
 						this.getRegisteredToolDefinition(event.toolName),
 						this.ui,
@@ -2832,6 +2859,9 @@ export class InteractiveMode {
 			}
 
 			case "agent_end":
+				if (this.settingsManager.getShowTerminalProgress()) {
+					this.ui.terminal.setProgress(false);
+				}
 				if (this.loadingAnimation) {
 					this.loadingAnimation.stop();
 					this.loadingAnimation = undefined;
@@ -2850,6 +2880,9 @@ export class InteractiveMode {
 				break;
 
 			case "compaction_start": {
+				if (this.settingsManager.getShowTerminalProgress()) {
+					this.ui.terminal.setProgress(true);
+				}
 				// Keep editor active; submissions are queued during compaction.
 				this.autoCompactionEscapeHandler = this.defaultEditor.onEscape;
 				this.defaultEditor.onEscape = () => {
@@ -2873,6 +2906,9 @@ export class InteractiveMode {
 			}
 
 			case "compaction_end": {
+				if (this.settingsManager.getShowTerminalProgress()) {
+					this.ui.terminal.setProgress(false);
+				}
 				if (this.autoCompactionEscapeHandler) {
 					this.defaultEditor.onEscape = this.autoCompactionEscapeHandler;
 					this.autoCompactionEscapeHandler = undefined;
@@ -3048,7 +3084,7 @@ export class InteractiveMode {
 			case "user": {
 				const textContent = this.getUserMessageText(message);
 				if (textContent) {
-					if (!this.isFirstUserMessage) {
+					if (this.chatContainer.children.length > 0) {
 						this.chatContainer.addChild(new Spacer(1));
 					}
 					const skillBlock = parseSkillBlock(textContent);
@@ -3072,7 +3108,6 @@ export class InteractiveMode {
 						const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings());
 						this.chatContainer.addChild(userComponent);
 					}
-					this.isFirstUserMessage = false;
 					if (options?.populateHistory) {
 						this.editor.addToHistory?.(textContent);
 					}
@@ -3110,7 +3145,6 @@ export class InteractiveMode {
 		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
 		this.pendingTools.clear();
-		this.isFirstUserMessage = true;
 
 		if (options.updateFooter) {
 			this.footer.invalidate();
@@ -3128,7 +3162,10 @@ export class InteractiveMode {
 							content.name,
 							content.id,
 							content.arguments,
-							{ showImages: this.settingsManager.getShowImages() },
+							{
+								showImages: this.settingsManager.getShowImages(),
+								imageWidthCells: this.settingsManager.getImageWidthCells(),
+							},
 							this.getRegisteredToolDefinition(content.name),
 							this.ui,
 							this.sessionManager.getCwd(),
@@ -3223,7 +3260,8 @@ export class InteractiveMode {
 
 	/**
 	 * Gracefully shutdown the agent.
-	 * Emits shutdown event to extensions, then exits.
+	 * Stops the TUI before emitting shutdown events so extension UI cleanup cannot
+	 * repaint the final frame while the process is exiting.
 	 */
 	private isShuttingDown = false;
 
@@ -3231,17 +3269,13 @@ export class InteractiveMode {
 		if (this.isShuttingDown) return;
 		this.isShuttingDown = true;
 		this.unregisterSignalHandlers();
-		await this.runtimeHost.dispose();
-
-		// Wait for any pending renders to complete
-		// requestRender() uses process.nextTick(), so we wait one tick
-		await new Promise((resolve) => process.nextTick(resolve));
 
 		// Drain any in-flight Kitty key release events before stopping.
 		// This prevents escape sequences from leaking to the parent shell over slow SSH.
 		await this.ui.terminal.drainInput(1000);
 
 		this.stop();
+		await this.runtimeHost.dispose();
 		process.exit(0);
 	}
 
@@ -3747,6 +3781,7 @@ export class InteractiveMode {
 				{
 					autoCompact: this.session.autoCompactionEnabled,
 					showImages: this.settingsManager.getShowImages(),
+					imageWidthCells: this.settingsManager.getImageWidthCells(),
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
 					blockImages: this.settingsManager.getBlockImages(),
 					enableSkillCommands: this.settingsManager.getEnableSkillCommands(),
@@ -3767,6 +3802,8 @@ export class InteractiveMode {
 					autocompleteMaxVisible: this.settingsManager.getAutocompleteMaxVisible(),
 					quietStartup: this.settingsManager.getQuietStartup(),
 					clearOnShrink: this.settingsManager.getClearOnShrink(),
+					showTerminalProgress: this.settingsManager.getShowTerminalProgress(),
+					warnings: this.settingsManager.getWarnings(),
 				},
 				{
 					onAutoCompactChange: (enabled) => {
@@ -3781,6 +3818,14 @@ export class InteractiveMode {
 							}
 						}
 					},
+					onImageWidthCellsChange: (width) => {
+						this.settingsManager.setImageWidthCells(width);
+						for (const child of this.chatContainer.children) {
+							if (child instanceof ToolExecutionComponent) {
+								child.setImageWidthCells(width);
+							}
+						}
+					},
 					onAutoResizeImagesChange: (enabled) => {
 						this.settingsManager.setImageAutoResize(enabled);
 					},
@@ -3789,7 +3834,7 @@ export class InteractiveMode {
 					},
 					onEnableSkillCommandsChange: (enabled) => {
 						this.settingsManager.setEnableSkillCommands(enabled);
-						this.setupAutocomplete(this.fdPath);
+						this.setupAutocompleteProvider();
 					},
 					onSteeringModeChange: (mode) => {
 						this.session.setSteeringMode(mode);
@@ -3869,6 +3914,12 @@ export class InteractiveMode {
 						this.settingsManager.setClearOnShrink(enabled);
 						this.ui.setClearOnShrink(enabled);
 					},
+					onShowTerminalProgressChange: (enabled) => {
+						this.settingsManager.setShowTerminalProgress(enabled);
+					},
+					onWarningsChange: (warnings) => {
+						this.settingsManager.setWarnings(warnings);
+					},
 					onCancel: () => {
 						done();
 						this.ui.requestRender();
@@ -3931,6 +3982,9 @@ export class InteractiveMode {
 	private async maybeWarnAboutAnthropicSubscriptionAuth(
 		model: Model<any> | undefined = this.session.model,
 	): Promise<void> {
+		if (this.settingsManager.getWarnings().anthropicExtraUsage === false) {
+			return;
+		}
 		if (this.anthropicSubscriptionWarningShown) {
 			return;
 		}
@@ -4088,7 +4142,6 @@ export class InteractiveMode {
 							return;
 						}
 
-						await this.handleRuntimeSessionChange();
 						this.renderCurrentSessionState();
 						this.editor.setText(result.selectedText ?? "");
 						done();
@@ -4122,7 +4175,6 @@ export class InteractiveMode {
 				return;
 			}
 
-			await this.handleRuntimeSessionChange();
 			this.renderCurrentSessionState();
 			this.editor.setText("");
 			this.showStatus("Cloned to new session");
@@ -4295,37 +4347,44 @@ export class InteractiveMode {
 		});
 	}
 
-	private async handleResumeSession(sessionPath: string): Promise<void> {
+	private async handleResumeSession(
+		sessionPath: string,
+		options?: Parameters<ExtensionCommandContext["switchSession"]>[1],
+	): Promise<{ cancelled: boolean }> {
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
 		this.statusContainer.clear();
 		try {
-			const result = await this.runtimeHost.switchSession(sessionPath);
+			const result = await this.runtimeHost.switchSession(sessionPath, {
+				withSession: options?.withSession,
+			});
 			if (result.cancelled) {
-				return;
+				return result;
 			}
-			await this.handleRuntimeSessionChange();
 			this.renderCurrentSessionState();
 			this.showStatus("Resumed session");
+			return result;
 		} catch (error: unknown) {
 			if (error instanceof MissingSessionCwdError) {
 				const selectedCwd = await this.promptForMissingSessionCwd(error);
 				if (!selectedCwd) {
 					this.showStatus("Resume cancelled");
-					return;
+					return { cancelled: true };
 				}
-				const result = await this.runtimeHost.switchSession(sessionPath, selectedCwd);
+				const result = await this.runtimeHost.switchSession(sessionPath, {
+					cwdOverride: selectedCwd,
+					withSession: options?.withSession,
+				});
 				if (result.cancelled) {
-					return;
+					return result;
 				}
-				await this.handleRuntimeSessionChange();
 				this.renderCurrentSessionState();
 				this.showStatus("Resumed session in current cwd");
-				return;
+				return result;
 			}
-			await this.handleFatalRuntimeError("Failed to resume session", error);
+			return this.handleFatalRuntimeError("Failed to resume session", error);
 		}
 	}
 
@@ -4739,7 +4798,7 @@ export class InteractiveMode {
 			}
 			this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
 			this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
-			this.setupAutocomplete(this.fdPath);
+			this.setupAutocompleteProvider();
 			const runner = this.session.extensionRunner;
 			this.setupExtensionShortcuts(runner);
 			this.rebuildChatFromMessages();
@@ -4828,7 +4887,6 @@ export class InteractiveMode {
 				this.showStatus("Import cancelled");
 				return;
 			}
-			await this.handleRuntimeSessionChange();
 			this.renderCurrentSessionState();
 			this.showStatus(`Session imported from: ${inputPath}`);
 		} catch (error: unknown) {
@@ -4843,7 +4901,6 @@ export class InteractiveMode {
 					this.showStatus("Import cancelled");
 					return;
 				}
-				await this.handleRuntimeSessionChange();
 				this.renderCurrentSessionState();
 				this.showStatus(`Session imported from: ${inputPath}`);
 				return;
@@ -4979,8 +5036,7 @@ export class InteractiveMode {
 			return;
 		}
 
-		this.sessionManager.appendSessionInfo(name);
-		this.updateTerminalTitle();
+		this.session.setSessionName(name);
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("dim", `Session name set: ${name}`), 1, 0));
 		this.ui.requestRender();
@@ -5199,7 +5255,6 @@ export class InteractiveMode {
 			if (result.cancelled) {
 				return;
 			}
-			await this.handleRuntimeSessionChange();
 			this.renderCurrentSessionState();
 			this.chatContainer.addChild(new Spacer(1));
 			this.chatContainer.addChild(new Text(`${theme.fg("accent", "✓ New session started")}`, 1, 1));
@@ -5377,6 +5432,9 @@ export class InteractiveMode {
 
 	stop(): void {
 		this.unregisterSignalHandlers();
+		if (this.settingsManager.getShowTerminalProgress()) {
+			this.ui.terminal.setProgress(false);
+		}
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;

@@ -14,7 +14,7 @@ import {
 	type TextContent,
 } from "@eminent337/aery-ai";
 import { Agent } from "@eminent337/aery-core";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.js";
 import { AuthStorage } from "../src/core/auth-storage.js";

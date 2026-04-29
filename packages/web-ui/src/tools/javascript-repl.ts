@@ -1,10 +1,10 @@
 import type { ToolResultMessage } from "@eminent337/aery-ai";
 import type { AgentTool } from "@eminent337/aery-core";
 import { i18n } from "@mariozechner/mini-lit";
-import { type Static, Type } from "@sinclair/typebox";
 import { html } from "lit";
 import { createRef, ref } from "lit/directives/ref.js";
 import { Code } from "lucide";
+import { type Static, Type } from "typebox";
 import { type SandboxFile, SandboxIframe, type SandboxResult } from "../components/SandboxedIframe.js";
 import type { SandboxRuntimeProvider } from "../components/sandbox/SandboxRuntimeProvider.js";
 import { JAVASCRIPT_REPL_TOOL_DESCRIPTION } from "../prompts/prompts.js";

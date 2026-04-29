@@ -25,10 +25,10 @@ import {
 	withFileMutationQueue,
 } from "@eminent337/aery";
 import { Text } from "@eminent337/aery-tui";
-import { Type } from "@sinclair/typebox";
 import { execSync } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
+import { Type } from "typebox";
 
 const RgParams = Type.Object({
 	pattern: Type.String({ description: "Search pattern (regex)" }),

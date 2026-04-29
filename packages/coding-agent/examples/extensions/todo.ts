@@ -13,7 +13,7 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@eminent337/aery";
 import { StringEnum } from "@eminent337/aery-ai";
 import { matchesKey, Text, truncateToWidth } from "@eminent337/aery-tui";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 
 interface Todo {
 	id: number;

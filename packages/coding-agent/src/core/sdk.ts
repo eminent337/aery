@@ -48,6 +48,14 @@ export interface CreateAgentSessionOptions {
 	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 
 	/**
+	 * Optional default tool suppression mode when no explicit allowlist is provided.
+	 *
+	 * - "all": start with no tools enabled
+	 * - "builtin": disable the default built-in tools (read, bash, edit, write)
+	 *   but keep extension/custom tools enabled
+	 */
+	noTools?: "all" | "builtin";
+	/**
 	 * Optional allowlist of tool names.
 	 *
 	 * When omitted, aery enables the default built-in tools (read, bash, edit, write)
@@ -116,15 +124,20 @@ function getDefaultAgentDir(): string {
 	return getAgentDir();
 }
 
-function getOpenRouterAttributionHeaders(
+function getAttributionHeaders(
 	model: Model<any>,
 	settingsManager: SettingsManager,
 ): Record<string, string> | undefined {
 	if (!isInstallTelemetryEnabled(settingsManager)) {
 		return undefined;
 	}
-	if (model.provider !== "openrouter" && !model.baseUrl.includes("openrouter.ai")) {
-		return undefined;
+
+	if (model.provider === "openrouter" || model.baseUrl.includes("openrouter.ai")) {
+		return {
+			"HTTP-Referer": "https://pi.dev",
+			"X-OpenRouter-Title": "pi",
+			"X-OpenRouter-Categories": "cli-agent",
+		};
 	}
 	return {
 		"HTTP-Referer": "https://aery.dev",
@@ -245,7 +258,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	}
 
 	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write"];
-	const initialActiveToolNames: string[] = options.tools ? [...options.tools] : defaultActiveToolNames;
+	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
+	const initialActiveToolNames: string[] = options.tools
+		? [...options.tools]
+		: options.noTools
+			? []
+			: defaultActiveToolNames;
 
 	let agent: Agent;
 
@@ -301,13 +319,17 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			if (!auth.ok) {
 				throw new Error(auth.error);
 			}
-			const openRouterAttributionHeaders = getOpenRouterAttributionHeaders(model, settingsManager);
+			const providerRetrySettings = settingsManager.getProviderRetrySettings();
+			const attributionHeaders = getAttributionHeaders(model, settingsManager);
 			return streamSimple(model, context, {
 				...options,
 				apiKey: auth.apiKey,
+				timeoutMs: options?.timeoutMs ?? providerRetrySettings.timeoutMs,
+				maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,
+				maxRetryDelayMs: options?.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
 				headers:
-					openRouterAttributionHeaders || auth.headers || options?.headers
-						? { ...openRouterAttributionHeaders, ...auth.headers, ...options?.headers }
+					attributionHeaders || auth.headers || options?.headers
+						? { ...attributionHeaders, ...auth.headers, ...options?.headers }
 						: undefined,
 			});
 		},
@@ -339,7 +361,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		followUpMode: settingsManager.getFollowUpMode(),
 		transport: settingsManager.getTransport(),
 		thinkingBudgets: settingsManager.getThinkingBudgets(),
-		maxRetryDelayMs: settingsManager.getRetrySettings().maxDelayMs,
+		maxRetryDelayMs: settingsManager.getProviderRetrySettings().maxRetryDelayMs,
 	});
 
 	// Restore messages if session has existing data
@@ -366,7 +388,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		customTools: options.customTools,
 		modelRegistry,
 		initialActiveToolNames,
-		allowedToolNames: options.tools,
+		allowedToolNames,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
 	});

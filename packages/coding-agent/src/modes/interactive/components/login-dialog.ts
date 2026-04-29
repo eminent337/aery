@@ -148,6 +148,20 @@ export class LoginDialogComponent extends Container implements Focusable {
 	}
 
 	/**
+	 * Show informational text without prompting for input.
+	 */
+	showInfo(lines: string[]): void {
+		this.contentContainer.clear();
+		this.contentContainer.addChild(new Spacer(1));
+		for (const line of lines) {
+			this.contentContainer.addChild(new Text(line, 1, 0));
+		}
+		this.contentContainer.addChild(new Spacer(1));
+		this.contentContainer.addChild(new Text(`(${keyHint("tui.select.cancel", "to close")})`, 1, 0));
+		this.tui.requestRender();
+	}
+
+	/**
 	 * Show waiting message (for polling flows like GitHub Copilot)
 	 */
 	showWaiting(message: string): void {

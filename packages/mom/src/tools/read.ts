@@ -1,7 +1,7 @@
 import type { ImageContent, TextContent } from "@eminent337/aery-ai";
 import type { AgentTool } from "@eminent337/aery-core";
-import { Type } from "@sinclair/typebox";
 import { extname } from "path";
+import { Type } from "typebox";
 import type { Executor } from "../sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.js";
 

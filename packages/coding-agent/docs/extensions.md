@@ -352,7 +352,7 @@ pi.on("resources_discover", async (event, _ctx) => {
 
 ### Session Events
 
-See [session.md](session.md) for session storage internals and the SessionManager API.
+See [Session Format](session-format.md) for session storage internals and the SessionManager API.
 
 #### session_start
 
@@ -431,7 +431,7 @@ pi.on("session_compact", async (event, ctx) => {
 
 #### session_before_tree / session_tree
 
-Fired on `/tree` navigation. See [tree.md](tree.md) for tree navigation concepts.
+Fired on `/tree` navigation. See [Sessions](sessions.md) for tree navigation concepts.
 
 ```typescript
 pi.on("session_before_tree", async (event, ctx) => {
@@ -448,10 +448,12 @@ pi.on("session_tree", async (event, ctx) => {
 
 #### session_shutdown
 
-Fired on exit (Ctrl+C, Ctrl+D, SIGHUP, SIGTERM).
+Fired before an extension runtime is torn down.
 
 ```typescript
-pi.on("session_shutdown", async (_event, ctx) => {
+pi.on("session_shutdown", async (event, ctx) => {
+  // event.reason - "quit" | "reload" | "new" | "resume" | "fork"
+  // event.targetSessionFile - destination session for session replacement flows
   // Cleanup, save state, etc.
 });
 ```
@@ -547,7 +549,8 @@ Fired for tool execution lifecycle updates.
 In parallel tool mode:
 - `tool_execution_start` is emitted in assistant source order during the preflight phase
 - `tool_execution_update` events may interleave across tools
-- `tool_execution_end` is emitted in assistant source order, matching final tool result message order
+- `tool_execution_end` is emitted in tool completion order after each tool is finalized
+- final `toolResult` message events are still emitted later in assistant source order
 
 ```typescript
 pi.on("tool_execution_start", async (event, ctx) => {
@@ -565,7 +568,7 @@ pi.on("tool_execution_end", async (event, ctx) => {
 
 #### context
 
-Fired before each LLM call. Modify messages non-destructively. See [session.md](session.md) for message types.
+Fired before each LLM call. Modify messages non-destructively. See [Session Format](session-format.md) for message types.
 
 ```typescript
 pi.on("context", async (event, ctx) => {
@@ -578,6 +581,8 @@ pi.on("context", async (event, ctx) => {
 #### before_provider_request
 
 Fired after the provider-specific payload is built, right before the request is sent. Handlers run in extension load order. Returning `undefined` keeps the payload unchanged. Returning any other value replaces the payload for later handlers and for the actual request.
+
+This hook can rewrite provider-level system instructions or remove them entirely. Those payload-level changes are not reflected by `ctx.getSystemPrompt()`, which reports Pi's system prompt string rather than the final serialized provider payload.
 
 ```typescript
 pi.on("before_provider_request", (event, ctx) => {
@@ -697,6 +702,8 @@ pi.on("tool_call", (event) => {
 #### tool_result
 
 Fired after tool execution finishes and before `tool_execution_end` plus the final tool result message events are emitted. **Can modify result.**
+
+In parallel tool mode, `tool_result` and `tool_execution_end` may interleave in tool completion order, while final `toolResult` message events are still emitted later in assistant source order.
 
 `tool_result` handlers chain like middleware:
 - Handlers run in extension load order
@@ -825,7 +832,7 @@ Current working directory.
 
 ### ctx.sessionManager
 
-Read-only access to session state. See [session.md](session.md) for the full SessionManager API and entry types.
+Read-only access to session state. See [Session Format](session-format.md) for the full SessionManager API and entry types.
 
 For `tool_call`, this state is synchronized through the current assistant message before handlers run. In parallel tool execution mode it is still not guaranteed to include sibling tool results from the same assistant message.
 
@@ -915,7 +922,12 @@ ctx.compact({
 
 ### ctx.getSystemPrompt()
 
-Returns the current effective system prompt. This includes any modifications made by `before_agent_start` handlers for the current turn.
+Returns Pi's current system prompt string.
+
+- During `before_agent_start`, this reflects chained system-prompt changes made so far for the current turn.
+- It does not include later `context` message mutations.
+- It does not include `before_provider_request` payload rewrites.
+- If later-loaded extensions run after yours, they can still change what is ultimately sent.
 
 ```typescript
 pi.on("before_agent_start", (event, ctx) => {
@@ -946,14 +958,21 @@ pi.registerCommand("my-cmd", {
 Create a new session:
 
 ```typescript
+const parentSession = ctx.sessionManager.getSessionFile();
+const kickoff = "Continue in the replacement session";
+
 const result = await ctx.newSession({
-  parentSession: ctx.sessionManager.getSessionFile(),
+  parentSession,
   setup: async (sm) => {
     sm.appendMessage({
       role: "user",
       content: [{ type: "text", text: "Context from previous session..." }],
       timestamp: Date.now(),
     });
+  },
+  withSession: async (ctx) => {
+    // Use only the replacement-session ctx here.
+    await ctx.sendUserMessage(kickoff);
   },
 });
 
@@ -962,25 +981,36 @@ if (result.cancelled) {
 }
 ```
 
+Options:
+- `parentSession`: parent session file to record in the new session header
+- `setup`: mutate the new session's `SessionManager` before `withSession` runs
+- `withSession`: run post-switch work against a fresh replacement-session context. Do not use captured old `pi` / command `ctx`; see [Session replacement lifecycle and footguns](#session-replacement-lifecycle-and-footguns).
+
 ### ctx.fork(entryId, options?)
 
 Fork from a specific entry, creating a new session file:
 
 ```typescript
-const result = await ctx.fork("entry-id-123");
-if (!result.cancelled) {
-  // Now in the forked session
+const result = await ctx.fork("entry-id-123", {
+  withSession: async (ctx) => {
+    // Use only the replacement-session ctx here.
+    ctx.ui.notify("Now in the forked session", "info");
+  },
+});
+if (result.cancelled) {
+  // An extension cancelled the fork
 }
 
 const cloneResult = await ctx.fork("entry-id-456", { position: "at" });
-if (!cloneResult.cancelled) {
-  // New session contains the active path through entry-id-456
+if (cloneResult.cancelled) {
+  // An extension cancelled the clone
 }
 ```
 
 Options:
 - `position`: `"before"` (default) forks before the selected user message, restoring that prompt into the editor
 - `position`: `"at"` duplicates the active path through the selected entry without restoring editor text
+- `withSession`: run post-switch work against a fresh replacement-session context. Do not use captured old `pi` / command `ctx`; see [Session replacement lifecycle and footguns](#session-replacement-lifecycle-and-footguns).
 
 ### ctx.navigateTree(targetId, options?)
 
@@ -1001,16 +1031,23 @@ Options:
 - `replaceInstructions`: If true, `customInstructions` replaces the default prompt instead of being appended
 - `label`: Label to attach to the branch summary entry (or target entry if not summarizing)
 
-### ctx.switchSession(sessionPath)
+### ctx.switchSession(sessionPath, options?)
 
 Switch to a different session file:
 
 ```typescript
-const result = await ctx.switchSession("/path/to/session.jsonl");
+const result = await ctx.switchSession("/path/to/session.jsonl", {
+  withSession: async (ctx) => {
+    await ctx.sendUserMessage("Resume work in the replacement session");
+  },
+});
 if (result.cancelled) {
   // An extension cancelled the switch via session_before_switch
 }
 ```
+
+Options:
+- `withSession`: run post-switch work against a fresh replacement-session context. Do not use captured old `pi` / command `ctx`; see [Session replacement lifecycle and footguns](#session-replacement-lifecycle-and-footguns).
 
 To discover available sessions, use the static `SessionManager.list()` or `SessionManager.listAll()` methods:
 
@@ -1027,8 +1064,55 @@ pi.registerCommand("switch", {
       sessions.map(s => s.file),
     );
     if (choice) {
-      await ctx.switchSession(choice);
+      await ctx.switchSession(choice, {
+        withSession: async (ctx) => {
+          ctx.ui.notify("Switched session", "info");
+        },
+      });
     }
+  },
+});
+```
+
+### Session replacement lifecycle and footguns
+
+`withSession` receives a fresh `ReplacedSessionContext`, which extends `ExtensionCommandContext` with async `sendMessage()` and `sendUserMessage()` helpers bound to the replacement session.
+
+Lifecycle and footguns:
+- `withSession` runs only after the old session has emitted `session_shutdown`, the old runtime has been torn down, the replacement session has been rebound, and the new extension instance has already received `session_start`.
+- The callback still executes in the original closure, not inside the new extension instance. That means your old extension instance may already have run its shutdown cleanup before `withSession` starts.
+- Captured old `pi` / old command `ctx` session-bound objects are stale after replacement and will throw if used. Use only the `ctx` passed to `withSession` for session-bound work.
+- Previously extracted raw objects are still your responsibility. For example, if you capture `const sm = ctx.sessionManager` before replacement, `sm` is still the old `SessionManager` object. Do not reuse it after replacement.
+- Code in `withSession` should assume any state invalidated by your `session_shutdown` handler is already gone. Only capture plain data that survives shutdown cleanly, such as strings, ids, and serialized config.
+
+Safe pattern:
+
+```typescript
+pi.registerCommand("handoff", {
+  handler: async (_args, ctx) => {
+    const kickoff = "Continue from the replacement session";
+    await ctx.newSession({
+      withSession: async (ctx) => {
+        await ctx.sendUserMessage(kickoff);
+      },
+    });
+  },
+});
+```
+
+Unsafe pattern:
+
+```typescript
+pi.registerCommand("handoff", {
+  handler: async (_args, ctx) => {
+    const oldSessionManager = ctx.sessionManager;
+    await ctx.newSession({
+      withSession: async (_ctx) => {
+        // stale old objects: do not do this
+        oldSessionManager.getSessionFile();
+        pi.sendUserMessage("wrong");
+      },
+    });
   },
 });
 ```
@@ -1105,6 +1189,8 @@ Use `aery.setActiveTools()` to enable or disable tools (including dynamically ad
 
 Use `promptSnippet` to opt a custom tool into a one-line entry in `Available tools`, and `promptGuidelines` to append tool-specific bullets to the default `Guidelines` section when the tool is active.
 
+**Important:** `promptGuidelines` bullets are appended flat to the `Guidelines` section with no tool name prefix. Each guideline must name the tool it refers to — avoid "Use this tool when..." because the LLM cannot tell which tool "this" means. Write "Use my_tool when..." instead.
+
 See [dynamic-tools.ts](../examples/extensions/dynamic-tools.ts) for a full example.
 
 ```typescript
@@ -1116,7 +1202,7 @@ pi.registerTool({
   label: "My Tool",
   description: "What this tool does",
   promptSnippet: "Summarize or transform text according to action",
-  promptGuidelines: ["Use this tool when the user asks to summarize previously generated text."],
+  promptGuidelines: ["Use my_tool when the user asks to summarize previously generated text."],
   parameters: Type.Object({
     action: StringEnum(["list", "add"] as const),
     text: Type.Optional(Type.String()),
@@ -1542,6 +1628,8 @@ Use `promptSnippet` for a short one-line entry in the `Available tools` section 
 
 Use `promptGuidelines` to add tool-specific bullets to the default system prompt `Guidelines` section. These bullets are included only while the tool is active (for example, after `aery.setActiveTools([...])`).
 
+**Important:** `promptGuidelines` bullets are appended flat to the `Guidelines` section with no tool name prefix or grouping. Each guideline must name the tool it refers to — avoid "Use this tool when..." because the LLM cannot tell which tool "this" means. Write "Use my_tool when..." instead.
+
 Note: Some models are idiots and include the @ prefix in tool path arguments. Built-in tools strip a leading @ before resolving paths. If your custom tool accepts a path, normalize a leading @ as well.
 
 If your custom tool mutates files, use `withFileMutationQueue()` so it participates in the same per-file queue as built-in `edit` and `write`. This matters because tool calls run in parallel by default. Without the queue, two tools can read the same old file contents, compute different updates, and then whichever write lands last overwrites the other.
@@ -1587,7 +1675,7 @@ pi.registerTool({
   description: "What this tool does (shown to LLM)",
   promptSnippet: "List or add items in the project todo list",
   promptGuidelines: [
-    "Use this tool for todo planning instead of direct file edits when the user asks for a task list."
+    "Use my_tool for todo planning instead of direct file edits when the user asks for a task list."
   ],
   parameters: Type.Object({
     action: StringEnum(["list", "add"] as const),  // Use StringEnum for Google compatibility
@@ -1621,6 +1709,9 @@ pi.registerTool({
     return {
       content: [{ type: "text", text: "Done" }],  // Sent to LLM
       details: { data: result },                   // For rendering & state
+      // Optional: stop after this tool batch when every finalized tool result
+      // in the batch also returns terminate: true.
+      terminate: true,
     };
   },
 
@@ -1631,6 +1722,8 @@ pi.registerTool({
 ```
 
 **Signaling errors:** To mark a tool execution as failed (sets `isError: true` on the result and reports it to the LLM), throw an error from `execute`. Returning a value never sets the error flag regardless of what properties you include in the return object.
+
+**Early termination:** Return `terminate: true` from `execute()` to hint that the automatic follow-up LLM call should be skipped after the current tool batch. This only takes effect when every finalized tool result in that batch is terminating. See [examples/extensions/structured-output.ts](../examples/extensions/structured-output.ts) for a minimal example where the agent ends on a final structured-output tool call.
 
 ```typescript
 // Correct: throw to signal an error
@@ -1700,7 +1793,7 @@ Extensions can override built-in tools (`read`, `bash`, `edit`, `write`, `grep`,
 aery -e ./tool-override.ts
 ```
 
-Alternatively, use `--no-tools` to start without any built-in tools:
+Alternatively, use `--no-builtin-tools` to start without any built-in tools while keeping extension tools enabled:
 ```bash
 # No built-in tools, only extension tools
 aery --no-tools -e ./my-extension.ts
@@ -1976,8 +2069,9 @@ Extensions can interact with users via `ctx.ui` methods and customize how messag
 - Async operations with cancel (BorderedLoader)
 - Settings toggles (SettingsList)
 - Status indicators (setStatus)
-- Working message and indicator during streaming (`setWorkingMessage`, `setWorkingIndicator`)
+- Working message, visibility, and indicator during streaming (`setWorkingMessage`, `setWorkingVisible`, `setWorkingIndicator`)
 - Widgets above/below editor (setWidget)
+- Autocomplete providers layered on top of built-in slash/path completion (addAutocompleteProvider)
 - Custom footers (setFooter)
 
 ### Dialogs
@@ -2057,9 +2151,11 @@ See [examples/extensions/timed-confirm.ts](../examples/extensions/timed-confirm.
 ctx.ui.setStatus("my-ext", "Processing...");
 ctx.ui.setStatus("my-ext", undefined);  // Clear
 
-// Working message (shown during streaming)
+// Working loader (shown during streaming)
 ctx.ui.setWorkingMessage("Thinking deeply...");
 ctx.ui.setWorkingMessage();  // Restore default
+ctx.ui.setWorkingVisible(false);  // Hide the built-in working loader row entirely
+ctx.ui.setWorkingVisible(true);   // Show the built-in working loader row
 
 // Working indicator (shown during streaming)
 ctx.ui.setWorkingIndicator({ frames: [ctx.ui.theme.fg("accent", "●")] });  // Static dot
@@ -2099,6 +2195,28 @@ const current = ctx.ui.getEditorText();
 // Paste into editor (triggers paste handling, including collapse for large content)
 ctx.ui.pasteToEditor("pasted content");
 
+// Stack custom autocomplete behavior on top of the built-in provider
+ctx.ui.addAutocompleteProvider((current) => ({
+  async getSuggestions(lines, line, col, options) {
+    const beforeCursor = (lines[line] ?? "").slice(0, col);
+    const match = beforeCursor.match(/(?:^|[ \t])#([^\s#]*)$/);
+    if (!match) {
+      return current.getSuggestions(lines, line, col, options);
+    }
+
+    return {
+      prefix: `#${match[1] ?? ""}`,
+      items: [{ value: "#2983", label: "#2983", description: "Extension API for autocomplete" }],
+    };
+  },
+  applyCompletion(lines, line, col, item, prefix) {
+    return current.applyCompletion(lines, line, col, item, prefix);
+  },
+  shouldTriggerFileCompletion(lines, line, col) {
+    return current.shouldTriggerFileCompletion?.(lines, line, col) ?? true;
+  },
+}));
+
 // Tool output expansion
 const wasExpanded = ctx.ui.getToolsExpanded();
 ctx.ui.setToolsExpanded(true);
@@ -2120,6 +2238,50 @@ ctx.ui.theme.fg("accent", "styled text");  // Access current theme
 ```
 
 Custom working-indicator frames are rendered verbatim. If you want colors, add them to the frame strings yourself, for example with `ctx.ui.theme.fg(...)`.
+
+### Autocomplete Providers
+
+Use `ctx.ui.addAutocompleteProvider()` to stack custom autocomplete logic on top of the built-in slash-command and path provider.
+
+Typical pattern:
+
+- inspect the text before the cursor
+- return your own suggestions when your extension-specific syntax matches
+- otherwise delegate to `current.getSuggestions(...)`
+- delegate `applyCompletion(...)` unless you need custom insertion behavior
+
+```typescript
+pi.on("session_start", (_event, ctx) => {
+  ctx.ui.addAutocompleteProvider((current) => ({
+    async getSuggestions(lines, cursorLine, cursorCol, options) {
+      const line = lines[cursorLine] ?? "";
+      const beforeCursor = line.slice(0, cursorCol);
+      const match = beforeCursor.match(/(?:^|[ \t])#([^\s#]*)$/);
+      if (!match) {
+        return current.getSuggestions(lines, cursorLine, cursorCol, options);
+      }
+
+      return {
+        prefix: `#${match[1] ?? ""}`,
+        items: [
+          { value: "#2983", label: "#2983", description: "Extension API for registering custom @ autocomplete providers" },
+          { value: "#2753", label: "#2753", description: "Reload stale resource settings" },
+        ],
+      };
+    },
+
+    applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+      return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+    },
+
+    shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+      return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
+    },
+  }));
+});
+```
+
+See [github-issue-autocomplete.ts](../examples/extensions/github-issue-autocomplete.ts) for a complete example that preloads the latest open GitHub issues with `gh issue list` and filters them locally for fast `#...` completion. It requires GitHub CLI (`gh`) and a GitHub repository checkout.
 
 ### Custom Components
 
@@ -2313,6 +2475,7 @@ All examples in [examples/extensions/](../examples/extensions/).
 | `questionnaire.ts` | Multi-step wizard tool | `registerTool`, `ui.custom` |
 | `todo.ts` | Stateful tool with persistence | `registerTool`, `appendEntry`, `renderResult`, session events |
 | `dynamic-tools.ts` | Register tools after startup and during commands | `registerTool`, `session_start`, `registerCommand` |
+| `structured-output.ts` | Final structured-output tool with `terminate: true` | `registerTool`, terminating tool results |
 | `truncated-tool.ts` | Output truncation example | `registerTool`, `truncateHead` |
 | `tool-override.ts` | Override built-in read tool | `registerTool` (same name as built-in) |
 | **Commands** |||
@@ -2343,6 +2506,7 @@ All examples in [examples/extensions/](../examples/extensions/).
 | **UI Components** |||
 | `status-line.ts` | Footer status indicator | `setStatus`, session events |
 | `working-indicator.ts` | Customize the streaming working indicator | `setWorkingIndicator`, `registerCommand` |
+| `github-issue-autocomplete.ts` | Add `#1234` issue completions on top of built-in autocomplete by preloading recent open issues from `gh issue list` | `addAutocompleteProvider`, `on("session_start")`, `exec` |
 | `custom-footer.ts` | Replace footer entirely | `registerCommand`, `setFooter` |
 | `custom-header.ts` | Replace startup header | `on("session_start")`, `setHeader` |
 | `modal-editor.ts` | Vim-style modal editor | `setEditorComponent`, `CustomEditor` |

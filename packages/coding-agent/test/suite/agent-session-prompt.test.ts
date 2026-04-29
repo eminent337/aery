@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@eminent337/aery-ai";
 import type { AgentTool } from "@eminent337/aery-core";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PromptTemplate } from "../../src/core/prompt-templates.js";
 import { createSyntheticSourceInfo } from "../../src/core/source-info.js";

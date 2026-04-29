@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@eminent337/aery-ai";
 import { Agent, type AgentEvent, type AgentTool } from "@eminent337/aery-core";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.js";
 import { AuthStorage } from "../src/core/auth-storage.js";

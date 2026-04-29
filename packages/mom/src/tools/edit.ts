@@ -1,6 +1,6 @@
 import type { AgentTool } from "@eminent337/aery-core";
-import { Type } from "@sinclair/typebox";
 import * as Diff from "diff";
+import { Type } from "typebox";
 import type { Executor } from "../sandbox.js";
 
 /**

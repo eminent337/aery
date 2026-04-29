@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { detectInstallMethod, getUpdateInstruction } from "../src/config.js";
+import { detectInstallMethod, getSelfUpdateCommand, getUpdateInstruction } from "../src/config.js";
 
 const execPathDescriptor = Object.getOwnPropertyDescriptor(process, "execPath");
 
@@ -24,5 +24,15 @@ describe("detectInstallMethod", () => {
 
 		expect(detectInstallMethod()).toBe("pnpm");
 		expect(getUpdateInstruction("@eminent337/aery")).toBe("Run: pnpm install -g @eminent337/aery");
+	});
+
+	test("does not self-update unknown wrapper installs", () => {
+		setExecPath("/usr/local/bin/node");
+
+		expect(detectInstallMethod()).toBe("unknown");
+		expect(getSelfUpdateCommand("@eminent337/aery")).toBeUndefined();
+		expect(getUpdateInstruction("@eminent337/aery")).toBe(
+			"Update @eminent337/aery using the package manager, wrapper, or source checkout that provides this installation.",
+		);
 	});
 });

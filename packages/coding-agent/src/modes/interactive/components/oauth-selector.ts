@@ -7,7 +7,7 @@ import {
 	Spacer,
 	TruncatedText,
 } from "@eminent337/aery-tui";
-import type { AuthStorage } from "../../../core/auth-storage.js";
+import type { AuthStatus, AuthStorage } from "../../../core/auth-storage.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 
@@ -48,6 +48,7 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 		providers: AuthSelectorProvider[],
 		onSelect: (providerId: string) => void,
 		onCancel: () => void,
+		_getAuthStatus?: (providerId: string) => AuthStatus,
 	) {
 		super();
 

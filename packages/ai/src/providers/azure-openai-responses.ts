@@ -91,9 +91,12 @@ export const streamAzureOpenAIResponses: StreamFunction<"azure-openai-responses"
 			if (nextParams !== undefined) {
 				params = nextParams as ResponseCreateParamsStreaming;
 			}
-			const { data: openaiStream, response } = await client.responses
-				.create(params, options?.signal ? { signal: options.signal } : undefined)
-				.withResponse();
+			const requestOptions = {
+				...(options?.signal ? { signal: options.signal } : {}),
+				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
+				...(options?.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
+			};
+			const { data: openaiStream, response } = await client.responses.create(params, requestOptions).withResponse();
 			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			stream.push({ type: "start", partial: output });
 
@@ -145,7 +148,26 @@ export const streamSimpleAzureOpenAIResponses: StreamFunction<"azure-openai-resp
 };
 
 function normalizeAzureBaseUrl(baseUrl: string): string {
-	return baseUrl.replace(/\/+$/, "");
+	const trimmed = baseUrl.trim().replace(/\/+$/, "");
+	let url: URL;
+	try {
+		url = new URL(trimmed);
+	} catch {
+		throw new Error(`Invalid Azure OpenAI base URL: ${baseUrl}`);
+	}
+
+	const isAzureHost =
+		url.hostname.endsWith(".openai.azure.com") || url.hostname.endsWith(".cognitiveservices.azure.com");
+	const normalizedPath = url.pathname.replace(/\/+$/, "");
+
+	// Ensure Azure hosts have /openai/v1 as base path so the AzureOpenAI SDK
+	// can append /deployments/<model>/... and ?api-version=v1 correctly.
+	if (isAzureHost && (normalizedPath === "" || normalizedPath === "/" || normalizedPath === "/openai")) {
+		url.pathname = "/openai/v1";
+		url.search = "";
+	}
+
+	return url.toString().replace(/\/+$/, "");
 }
 
 function buildDefaultBaseUrl(resourceName: string): string {
@@ -233,7 +255,7 @@ function buildParams(
 		params.temperature = options?.temperature;
 	}
 
-	if (context.tools) {
+	if (context.tools && context.tools.length > 0) {
 		params.tools = convertResponsesTools(context.tools);
 	}
 

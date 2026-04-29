@@ -1,10 +1,10 @@
 import { createInterface } from "node:readline";
 import type { AgentTool } from "@eminent337/aery-core";
 import { Text } from "@eminent337/aery-tui";
-import { type Static, Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import path from "path";
+import { type Static, Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
 import { ensureTool } from "../../utils/tools-manager.js";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.js";

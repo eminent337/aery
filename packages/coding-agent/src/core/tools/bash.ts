@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@eminent337/aery-core";
 import { Container, Text, truncateToWidth } from "@eminent337/aery-tui";
-import { type Static, Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
+import { type Static, Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
 import { truncateToVisualLines } from "../../modes/interactive/components/visual-truncate.js";
 import { theme } from "../../modes/interactive/theme/theme.js";
@@ -72,11 +72,11 @@ export interface BashOperations {
  * This is useful for extensions that intercept user_bash and still want aery's
  * standard local shell behavior while wrapping or rewriting commands.
  */
-export function createLocalBashOperations(): BashOperations {
+export function createLocalBashOperations(options?: { shellPath?: string }): BashOperations {
 	return {
 		exec: (command, cwd, { onData, signal, timeout, env }) => {
 			return new Promise((resolve, reject) => {
-				const { shell, args } = getShellConfig();
+				const { shell, args } = getShellConfig(options?.shellPath);
 				if (!existsSync(cwd)) {
 					reject(new Error(`Working directory does not exist: ${cwd}\nCannot execute bash commands.`));
 					return;
@@ -154,6 +154,8 @@ export interface BashToolOptions {
 	operations?: BashOperations;
 	/** Command prefix prepended to every command (for example shell setup commands) */
 	commandPrefix?: string;
+	/** Optional explicit shell path from settings */
+	shellPath?: string;
 	/** Hook to adjust command, cwd, or env before execution */
 	spawnHook?: BashSpawnHook;
 }
@@ -272,7 +274,7 @@ export function createBashToolDefinition(
 	cwd: string,
 	options?: BashToolOptions,
 ): ToolDefinition<typeof bashSchema, BashToolDetails | undefined, BashRenderState> {
-	const ops = options?.operations ?? createLocalBashOperations();
+	const ops = options?.operations ?? createLocalBashOperations({ shellPath: options?.shellPath });
 	const commandPrefix = options?.commandPrefix;
 	const spawnHook = options?.spawnHook;
 	return {

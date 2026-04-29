@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.70.6] - 2026-04-28
+
+## [0.70.5] - 2026-04-27
+
+## [0.70.4] - 2026-04-27
+
+## [0.70.3] - 2026-04-27
+
 ### Fixed
 
 - Fixed xterm `modifyOtherKeys` printable input so shifted uppercase letters insert correctly in the editor and shifted letter bindings parse and match consistently ([#3436](https://github.com/eminent337/aery/issues/3436))
