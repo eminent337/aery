@@ -97,6 +97,9 @@ jobs:
                 -e 's|.pi/agent|.aery/agent|g' \
                 -e 's|pi-debug.log|aery-debug.log|g' \
                 -e 's|pi-crash.log|aery-crash.log|g' \
+                -e 's|https://pi.dev/api/latest-version|https://registry.npmjs.org/@eminent337/aery/latest|g' \
+                -e 's|PI_SKIP_VERSION_CHECK|AERY_SKIP_VERSION_CHECK|g' \
+                -e 's|PI_OFFLINE|AERY_OFFLINE|g' \
               > /tmp/upstream.patch
 
             if git apply --check /tmp/upstream.patch 2>/dev/null; then
