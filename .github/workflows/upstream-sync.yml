@@ -138,20 +138,40 @@ jobs:
           HUSKY: '0'
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
-          npm install --no-save husky 2>/dev/null || true
+          npm install --ignore-scripts 2>/dev/null || true
 
-          # Bump coding-agent version
+          # Bump and publish aery-ai
+          AI_CUR=$(node -p "require('./packages/ai/package.json').version")
+          IFS='.' read -r A B C <<< "$AI_CUR"; AI_NEW="$A.$B.$((C+1))"
+          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/ai/package.json'));p.version='$AI_NEW';fs.writeFileSync('./packages/ai/package.json',JSON.stringify(p,null,2));"
+          (cd packages/ai && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
+          npm publish ./packages/ai --access public --ignore-scripts --tag latest || true
+
+          # Bump and publish aery-core
+          CORE_CUR=$(node -p "require('./packages/agent/package.json').version")
+          IFS='.' read -r A B C <<< "$CORE_CUR"; CORE_NEW="$A.$B.$((C+1))"
+          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/agent/package.json'));p.version='$CORE_NEW';fs.writeFileSync('./packages/agent/package.json',JSON.stringify(p,null,2));"
+          (cd packages/agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
+          npm publish ./packages/agent --access public --ignore-scripts --tag latest || true
+
+          # Update aery-ai/aery-core deps in coding-agent and web-ui
+          node -e "const fs=require('fs');for(const f of ['packages/coding-agent/package.json','packages/web-ui/package.json']){const p=JSON.parse(fs.readFileSync(f));if(p.dependencies?.['@eminent337/aery-ai'])p.dependencies['@eminent337/aery-ai']='$AI_NEW';if(p.dependencies?.['@eminent337/aery-core'])p.dependencies['@eminent337/aery-core']='$CORE_NEW';fs.writeFileSync(f,JSON.stringify(p,null,2));}"
+          npm install --ignore-scripts 2>/dev/null || true
+
+          # Build all packages
+          for pkg in tui ai agent coding-agent; do
+            (cd packages/$pkg && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
+          done
+          chmod +x packages/coding-agent/dist/cli.js || true
+          (cd packages/coding-agent && npm run copy-assets 2>/dev/null || true)
+
+          # Bump and publish coding-agent
           CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));
-            pkg.version = '$NEW_VERSION';
-            fs.writeFileSync('./packages/coding-agent/package.json', JSON.stringify(pkg, null, '\t') + '\n');
-          "
+          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$NEW_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,2));"
 
-          git add packages/coding-agent/package.json
+          git add packages/ai/package.json packages/agent/package.json packages/coding-agent/package.json packages/web-ui/package.json
           git pull --rebase origin main || true
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
           git push origin main
