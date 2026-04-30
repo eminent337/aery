@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@lmstudio/sdk": "^1.5.0",
-    "@eminent337/aery-ai": "0.67.76",
+    "@eminent337/aery-ai": "0.67.77",
     "@eminent337/aery-tui": "*",
     "docx-preview": "^0.3.7",
     "jszip": "^3.10.1",

@@ -1,44 +1,44 @@
 {
-	"name": "@eminent337/aery-core",
-	"version": "0.67.69",
-	"description": "Aery agent core \u2014 agent loop, tool execution, session management",
-	"type": "module",
-	"main": "./dist/index.js",
-	"types": "./dist/index.d.ts",
-	"files": [
-		"dist",
-		"README.md"
-	],
-	"scripts": {
-		"clean": "shx rm -rf dist",
-		"build": "tsgo -p tsconfig.build.json",
-		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
-		"test": "vitest --run",
-		"prepublishOnly": "npm run clean && npm run build"
-	},
-	"dependencies": {
-		"@eminent337/aery-ai": "*"
-	},
-	"keywords": [
-		"ai",
-		"agent",
-		"llm",
-		"transport",
-		"state-management"
-	],
-	"author": "Aryee",
-	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/eminent337/aery.git",
-		"directory": "packages/agent"
-	},
-	"engines": {
-		"node": ">=20.0.0"
-	},
-	"devDependencies": {
-		"@types/node": "^24.3.0",
-		"typescript": "^5.7.3",
-		"vitest": "^3.2.4"
-	}
+  "name": "@eminent337/aery-core",
+  "version": "0.67.70",
+  "description": "Aery agent core — agent loop, tool execution, session management",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "shx rm -rf dist",
+    "build": "tsgo -p tsconfig.build.json",
+    "dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
+    "test": "vitest --run",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@eminent337/aery-ai": "*"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "transport",
+    "state-management"
+  ],
+  "author": "Aryee",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eminent337/aery.git",
+    "directory": "packages/agent"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  }
 }
