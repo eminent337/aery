@@ -42,7 +42,12 @@ jobs:
           HUSKY: '0'
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
-          npm install --ignore-scripts 2>/dev/null || true
+          npm install --ignore-scripts 2>&1 | tail -5 || true
+          # If node_modules/.bin/tsgo still missing, try without lockfile
+          if [ ! -f ./node_modules/.bin/tsgo ]; then
+            rm -f package-lock.json packages/*/package-lock.json
+            npm install --ignore-scripts 2>&1 | tail -5 || true
+          fi
 
           CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
