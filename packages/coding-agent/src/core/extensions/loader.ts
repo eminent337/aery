@@ -568,7 +568,7 @@ export async function discoverAndLoadExtensions(
 		}
 	};
 
-	// 1. Project-local extensions: cwd/.pi/extensions/
+	// 1. Project-local extensions: cwd/.aery/extensions/
 	const localExtDir = path.join(cwd, ".aery", "extensions");
 	addPaths(discoverExtensionsInDir(localExtDir));
 
