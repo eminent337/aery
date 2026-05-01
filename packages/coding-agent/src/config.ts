@@ -175,7 +175,7 @@ export function getSelfUpdateCommand(packageName: string): SelfUpdateCommand | u
 export function getSelfUpdateUnavailableInstruction(packageName: string): string {
 	const method = detectInstallMethod();
 	if (method === "bun-binary") {
-		return `Download from: https://github.com/badlogic/pi-mono/releases/latest`;
+		return `Download from: https://github.com/eminent337/aery/releases/latest`;
 	}
 	if (getSelfUpdateCommandForMethod(method, packageName)) {
 		return `This installation is not managed by a global ${method} install. Update it with the package manager, wrapper, or source checkout that provides it.`;
@@ -187,7 +187,7 @@ export function getUpdateInstruction(packageName: string): string {
 	const method = detectInstallMethod();
 	const command = getSelfUpdateCommandForMethod(method, packageName);
 	if (command) {
-		return `Run: ${command.display}`;
+		return `Run: aery update`;
 	}
 	return getSelfUpdateUnavailableInstruction(packageName);
 }
