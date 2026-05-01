@@ -9,6 +9,7 @@ on:
       - 'packages/agent/src/**'
       - 'packages/tui/src/**'
       - 'packages/web-ui/src/**'
+  workflow_dispatch:
 
 jobs:
   publish:
