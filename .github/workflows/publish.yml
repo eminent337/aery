@@ -40,7 +40,9 @@ jobs:
           HUSKY: '0'
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
-          npm install --ignore-scripts --legacy-peer-deps 2>&1 | tail -3
+          # npm workspaces lockfile can be corrupt in CI — reinstall fresh
+          rm -f package-lock.json
+          npm install --ignore-scripts 2>&1 | tail -3
 
           CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
