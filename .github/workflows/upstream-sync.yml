@@ -68,10 +68,21 @@ jobs:
           MERGED=0
           FAILED=0
           SUMMARY=""
+          SKIPPED_MSGS=""
+
+          # Commits to never apply — aery intentionally diverges from upstream here
+          SKIP_COMMITS="
+            fe66edd943691f8eac295fef68ce36930c35fa05
+            0ed0d434397f847c3a4b8b0444e2808d1169b15a
+          "
 
           # For each commit, extract the diff, remap pi->aery package names, then apply
           while IFS= read -r COMMIT; do
             [ -z "$COMMIT" ] && continue
+            # Skip permanently blocked commits
+            if echo "$SKIP_COMMITS" | grep -q "$COMMIT"; then
+              continue
+            fi
             TOUCHED=$(git diff-tree --no-commit-id -r --name-only "$COMMIT" 2>/dev/null)
             # Skip generated files and CHANGELOG
             if echo "$TOUCHED" | grep -qE "models\.generated\.ts|CHANGELOG\.md"; then
@@ -126,7 +137,12 @@ jobs:
                 -e 's|pi-test-prompts|aery-test-prompts|g' \
               > /tmp/upstream.patch
 
-            if git apply --check /tmp/upstream.patch 2>/dev/null; then
+            if git apply --3way /tmp/upstream.patch 2>/dev/null; then
+              git add -A
+              git commit -m "upstream(pi): $MSG" || true
+              MERGED=$((MERGED+1))
+              SUMMARY="$SUMMARY\n- $MSG"
+            elif git apply --check /tmp/upstream.patch 2>/dev/null; then
               git apply /tmp/upstream.patch
               git add -A
               git commit -m "upstream(pi): $MSG" || true
@@ -134,6 +150,7 @@ jobs:
               SUMMARY="$SUMMARY\n- $MSG"
             else
               FAILED=$((FAILED+1))
+              SKIPPED_MSGS="$SKIPPED_MSGS\n- $MSG"
             fi
           done <<< "${{ steps.check.outputs.PI_COMMITS }}"
 
@@ -156,6 +173,7 @@ jobs:
           echo "merged=$MERGED" >> $GITHUB_OUTPUT
           echo "failed=$FAILED" >> $GITHUB_OUTPUT
           printf "summary=%s" "$SUMMARY" >> $GITHUB_OUTPUT
+          printf "skipped=%s" "$SKIPPED_MSGS" >> $GITHUB_OUTPUT
 
       - name: Bump version and publish to npm
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
@@ -238,5 +256,5 @@ jobs:
               repo: context.repo.repo,
               title: `[Upstream Sync] ${today} — ${status}`,
               labels: ['upstream-sync'],
-              body: `## Weekly Upstream Sync — ${today}\n\n**Status:** ${status}\n**Merged:** ${merged} commits | **Skipped (conflicts):** ${failed}\n\n**Action needed:** ${action}`
+              body: `## Weekly Upstream Sync — ${today}\n\n**Status:** ${status}\n**Merged:** ${merged} commits | **Skipped (conflicts):** ${failed}\n\n**Action needed:** ${action}\\n\\n**Skipped commits:**\\n${{ steps.merge.outputs.skipped || 'none' }}`
             });
