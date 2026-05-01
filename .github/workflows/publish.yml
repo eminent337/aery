@@ -29,10 +29,12 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Configure git
+      - name: Setup
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          npm install -g npm@10 --quiet 2>/dev/null || true
+          npm install -g npm@10 2>/dev/null || true
 
       - name: Build and publish
         env:
@@ -40,9 +42,7 @@ jobs:
           HUSKY: '0'
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
-          # npm workspaces lockfile can be corrupt in CI — reinstall fresh
-          rm -f package-lock.json
-          npm install --ignore-scripts 2>&1 | tail -3
+          npm install --ignore-scripts 2>/dev/null || true
 
           CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
