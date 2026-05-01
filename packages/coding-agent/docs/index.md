@@ -1,10 +1,10 @@
 # Pi Documentation
 
-Pi is a minimal terminal coding harness. It is designed to stay small at the core while being extended through TypeScript extensions, skills, prompt templates, themes, and pi packages.
+Aery is a minimal terminal coding harness. It is designed to stay small at the core while being extended through TypeScript extensions, skills, prompt templates, themes, and aery packages.
 
 ## Quick start
 
-Install pi with npm:
+Install aery with npm:
 
 ```bash
 npm install -g @eminent337/aery
@@ -13,10 +13,10 @@ npm install -g @eminent337/aery
 Then run it in a project directory:
 
 ```bash
-pi
+aery
 ```
 
-Authenticate with `/login` for subscription providers, or set an API key such as `ANTHROPIC_API_KEY` before starting pi.
+Authenticate with `/login` for subscription providers, or set an API key such as `ANTHROPIC_API_KEY` before starting aery.
 
 For the full first-run flow, see [Quickstart](quickstart.md).
 
@@ -43,7 +43,7 @@ For the full first-run flow, see [Quickstart](quickstart.md).
 
 ## Programmatic usage
 
-- [SDK](sdk.md) - embed pi in Node.js applications.
+- [SDK](sdk.md) - embed aery in Node.js applications.
 - [RPC mode](rpc.md) - integrate over stdin/stdout JSONL.
 - [JSON event stream mode](json.md) - print mode with structured events.
 - [TUI components](tui.md) - build custom terminal UI for extensions.

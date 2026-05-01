@@ -949,7 +949,7 @@ function buildBaseCodexHeaders(
 	}
 	headers.set("Authorization", `Bearer ${token}`);
 	headers.set("chatgpt-account-id", accountId);
-	headers.set("originator", "pi");
+	headers.set("originator", "aery");
 	const userAgent = _os ? `aery (${_os.platform()} ${_os.release()}; ${_os.arch()})` : "aery (browser)";
 	headers.set("User-Agent", userAgent);
 	return headers;

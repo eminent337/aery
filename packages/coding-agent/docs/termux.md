@@ -23,7 +23,7 @@ npm install -g @eminent337/aery
 mkdir -p ~/.aery/agent
 
 # Run pi
-pi
+aery
 ```
 
 ## Clipboard Support

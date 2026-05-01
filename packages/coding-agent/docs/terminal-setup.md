@@ -20,7 +20,7 @@ Older Claude Code versions may have added this Ghostty mapping:
 keybind = shift+enter=text:\n
 ```
 
-That mapping sends a raw linefeed byte. Inside pi, that is indistinguishable from `Ctrl+J`, so tmux and pi no longer see a real `shift+enter` key event.
+That mapping sends a raw linefeed byte. Inside aery, that is indistinguishable from `Ctrl+J`, so tmux and pi no longer see a real `shift+enter` key event.
 
 If Claude Code 2.x or newer is the only reason you added that mapping, you can remove it, unless you want to use Claude Code in tmux, where it still requires that Ghostty mapping.
 

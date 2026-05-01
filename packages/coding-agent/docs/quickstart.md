@@ -1,6 +1,6 @@
 # Quickstart
 
-This page gets you from install to a useful first pi session.
+This page gets you from install to a useful first aery session.
 
 ## Install
 
@@ -10,11 +10,11 @@ Pi is distributed as an npm package:
 npm install -g @eminent337/aery
 ```
 
-Then start pi in the project directory you want it to work on:
+Then start aery in the project directory you want it to work on:
 
 ```bash
 cd /path/to/project
-pi
+aery
 ```
 
 ## Authenticate
@@ -23,7 +23,7 @@ Pi can use subscription providers through `/login`, or API-key providers through
 
 ### Option 1: subscription login
 
-Start pi and run:
+Start aery and run:
 
 ```text
 /login
@@ -33,11 +33,11 @@ Then select a provider. Built-in subscription logins include Claude Pro/Max, Cha
 
 ### Option 2: API key
 
-Set an API key before launching pi:
+Set an API key before launching aery:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-pi
+aery
 ```
 
 You can also run `/login` and select an API-key provider to store the key in `~/.aery/agent/auth.json`.
@@ -46,13 +46,13 @@ See [Providers](providers.md) for all supported providers, environment variables
 
 ## First session
 
-Once pi starts, type a request and press Enter:
+Once aery starts, type a request and press Enter:
 
 ```text
 Summarize this repository and tell me how to run its checks.
 ```
 
-By default, pi gives the model four tools:
+By default, aery gives the model four tools:
 
 - `read` - read files
 - `write` - create or overwrite files
@@ -61,7 +61,7 @@ By default, pi gives the model four tools:
 
 Additional built-in read-only tools (`grep`, `find`, `ls`) are available through tool options. Pi runs in your current working directory and can modify files there. Use git or another checkpointing workflow if you want easy rollback.
 
-## Give pi project instructions
+## Give aery project instructions
 
 Pi loads context files at startup. Add an `AGENTS.md` file to tell it how to work in a project:
 
@@ -78,7 +78,7 @@ Pi loads:
 - `~/.aery/agent/AGENTS.md` for global instructions
 - `AGENTS.md` or `CLAUDE.md` from parent directories and the current directory
 
-Restart pi, or run `/reload`, after changing context files.
+Restart aery, or run `/reload`, after changing context files.
 
 ## Common things to try
 
@@ -87,8 +87,8 @@ Restart pi, or run `/reload`, after changing context files.
 Type `@` in the editor to fuzzy-search files, or pass files on the command line:
 
 ```bash
-pi @README.md "Summarize this"
-pi @src/app.ts @src/app.test.ts "Review these together"
+aery @README.md "Summarize this"
+aery @src/app.ts @src/app.test.ts "Review these together"
 ```
 
 Images can be pasted with Ctrl+V (Alt+V on Windows) or dragged into supported terminals.
@@ -112,21 +112,21 @@ Use `/model` or Ctrl+L to choose a model. Use Shift+Tab to cycle thinking level.
 Sessions are saved automatically:
 
 ```bash
-pi -c                  # Continue most recent session
-pi -r                  # Browse previous sessions
-pi --session <path|id> # Open a specific session
+aery -c                  # Continue most recent session
+aery -r                  # Browse previous sessions
+aery --session <path|id> # Open a specific session
 ```
 
-Inside pi, use `/resume`, `/new`, `/tree`, `/fork`, and `/clone` to manage sessions.
+Inside aery, use `/resume`, `/new`, `/tree`, `/fork`, and `/clone` to manage sessions.
 
 ### Non-interactive mode
 
 For one-shot prompts:
 
 ```bash
-pi -p "Summarize this codebase"
-cat README.md | pi -p "Summarize this text"
-pi -p @screenshot.png "What's in this image?"
+aery -p "Summarize this codebase"
+cat README.md | aery -p "Summarize this text"
+aery -p @screenshot.png "What's in this image?"
 ```
 
 Use `--mode json` for JSON event output or `--mode rpc` for process integration.

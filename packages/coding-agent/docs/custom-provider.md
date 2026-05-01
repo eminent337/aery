@@ -59,7 +59,7 @@ export default function (aery: ExtensionAPI) {
 }
 ```
 
-The extension factory can also be `async`. For dynamic model discovery, fetch and register models in the factory instead of `session_start`. pi waits for the factory before startup continues, so the provider is available during interactive startup and to `aery --list-models`.
+The extension factory can also be `async`. For dynamic model discovery, fetch and register models in the factory instead of `session_start`. aery waits for the factory before startup continues, so the provider is available during interactive startup and to `aery --list-models`.
 
 ## Override Existing Provider
 

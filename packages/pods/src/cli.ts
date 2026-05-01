@@ -16,7 +16,7 @@ const __dirname = dirname(__filename);
 const packageJson = JSON.parse(readFileSync(join(__dirname, "../package.json"), "utf-8"));
 
 function printHelp() {
-	console.log(`pi v${packageJson.version} - Manage vLLM deployments on GPU pods
+	console.log(`aery v${packageJson.version} - Manage vLLM deployments on GPU pods
 
 Pod Management:
   pi pods setup <name> "<ssh>" --mount "<mount>"    Setup pod with mount command
@@ -50,7 +50,7 @@ Model Management:
 Environment:
   HF_TOKEN         HuggingFace token for model downloads
   PI_API_KEY     API key for vLLM endpoints
-  PI_CONFIG_DIR    Config directory (default: ~/.pi)`);
+  AERY_CONFIG_DIR    Config directory (default: ~/.aery)`);
 }
 
 // Parse command line arguments

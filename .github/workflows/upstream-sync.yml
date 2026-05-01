@@ -100,6 +100,30 @@ jobs:
                 -e 's|https://pi.dev/api/latest-version|https://registry.npmjs.org/@eminent337/aery/latest|g' \
                 -e 's|PI_SKIP_VERSION_CHECK|AERY_SKIP_VERSION_CHECK|g' \
                 -e 's|PI_OFFLINE|AERY_OFFLINE|g' \
+                -e 's|PI_CONFIG_DIR|AERY_CONFIG_DIR|g' \
+                -e 's|PI_AGENT_DIR|AERY_AGENT_DIR|g' \
+                -e 's|\.pi/extensions|.aery/extensions|g' \
+                -e 's|\.pi/skills|.aery/skills|g' \
+                -e 's|\.pi/prompts|.aery/prompts|g' \
+                -e 's|\.pi/themes|.aery/themes|g' \
+                -e 's|\.pi/sessions|.aery/sessions|g' \
+                -e 's|\.pi/settings|.aery/settings|g' \
+                -e 's|\.pi/git|.aery/git|g' \
+                -e 's|\.pi/npm|.aery/npm|g' \
+                -e 's|\.pi/agents|.aery/agents|g' \
+                -e 's|\.pi/hooks|.aery/hooks|g' \
+                -e 's|\.pi/tools|.aery/tools|g' \
+                -e 's|\.pi/commands|.aery/commands|g' \
+                -e 's|\.pi/presets|.aery/presets|g' \
+                -e 's|\.pi/sandbox|.aery/sandbox|g' \
+                -e 's|\.pi/config|.aery/config|g' \
+                -e 's|~/\.pi\b|~/.aery|g' \
+                -e 's|"X-OpenRouter-Title": "pi"|"X-OpenRouter-Title": "aery"|g' \
+                -e 's|originator: string = "pi"|originator: string = "aery"|g' \
+                -e 's|command: "pi"|command: "aery"|g' \
+                -e 's|pi-test-auth|aery-test-auth|g' \
+                -e 's|pi-test-model|aery-test-model|g' \
+                -e 's|pi-test-prompts|aery-test-prompts|g' \
               > /tmp/upstream.patch
 
             if git apply --check /tmp/upstream.patch 2>/dev/null; then

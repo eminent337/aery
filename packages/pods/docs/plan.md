@@ -23,7 +23,7 @@ pi stop qwen72b                      # Stop model
 pi logs qwen72b                      # View model logs
 ```
 
-For known models, pi automatically configures appropriate vLLM arguments from model documentation based on the hardware of the pod. For unknown models or custom configurations, pass vLLM args after `--vllm`.
+For known models, aery automatically configures appropriate vLLM arguments from model documentation based on the hardware of the pod. For unknown models or custom configurations, pass vLLM args after `--vllm`.
 
 ## Pod management
 
@@ -88,7 +88,7 @@ All model commands (`pi start`, `pi stop`, etc.) target the active pod, unless `
 Pi uses direct SSH commands to manage vLLM instances on pods. No remote manager component is needed - everything is controlled from the local pi CLI.
 
 ### Architecture
-The pi CLI maintains all state locally in `~/.pi/pods.json`:
+The pi CLI maintains all state locally in `~/.aery/pods.json`:
 ```json
 {
   "pods": {
@@ -112,7 +112,7 @@ The pi CLI maintains all state locally in `~/.pi/pods.json`:
 }
 ```
 
-The location of the pi config dir can also be specified via the `PI_CONFIG_DIR` env var, e.g. for testing.
+The location of the aery config dir can also be specified via the `AERY_CONFIG_DIR` env var, e.g. for testing.
 
 Pods are assumed to be fully managed by pi - no other processes compete for ports or GPUs.
 

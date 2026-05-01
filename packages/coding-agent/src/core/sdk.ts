@@ -134,8 +134,8 @@ function getAttributionHeaders(
 
 	if (model.provider === "openrouter" || model.baseUrl.includes("openrouter.ai")) {
 		return {
-			"HTTP-Referer": "https://pi.dev",
-			"X-OpenRouter-Title": "pi",
+			"HTTP-Referer": "https://eminent337.github.io",
+			"X-OpenRouter-Title": "aery",
 			"X-OpenRouter-Categories": "cli-agent",
 		};
 	}
