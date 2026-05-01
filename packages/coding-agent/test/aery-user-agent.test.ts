@@ -6,7 +6,7 @@ describe("getAeryUserAgent", () => {
 		const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;
 		const userAgent = getAeryUserAgent("1.2.3");
 
-		expect(userAgent).toBe(`pi/1.2.3 (${process.platform}; ${runtime}; ${process.arch})`);
+		expect(userAgent).toBe(`aery/1.2.3 (${process.platform}; ${runtime}; ${process.arch})`);
 		expect(userAgent).toMatch(/^pi\/[^\s()]+ \([^;()]+;\s*[^;()]+;\s*[^()]+\)$/);
 	});
 });

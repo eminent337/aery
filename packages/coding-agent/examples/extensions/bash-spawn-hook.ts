@@ -4,7 +4,7 @@
  * Adjusts command, cwd, and env before execution.
  *
  * Usage:
- *   pi -e ./bash-spawn-hook.ts
+ *   aery -e ./bash-spawn-hook.ts
  */
 
 import type { ExtensionAPI } from "@eminent337/aery";

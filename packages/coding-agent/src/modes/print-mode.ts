@@ -2,7 +2,7 @@
  * Print mode (single-shot): Send prompts, output result, exit.
  *
  * Used for:
- * - `pi -p "prompt"` - text output
+ * - `aery -p "prompt"` - text output
  * - `aery --mode json "prompt"` - JSON event stream
  */
 

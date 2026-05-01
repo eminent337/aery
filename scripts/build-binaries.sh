@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build pi binaries for all platforms locally.
+# Build aery binaries for all platforms locally.
 # Mirrors .github/workflows/build-binaries.yml
 #
 # Usage:
@@ -12,11 +12,11 @@
 #
 # Output:
 #   packages/coding-agent/binaries/
-#     pi-darwin-arm64.tar.gz
-#     pi-darwin-x64.tar.gz
-#     pi-linux-x64.tar.gz
-#     pi-linux-arm64.tar.gz
-#     pi-windows-x64.zip
+#     aery-darwin-arm64.tar.gz
+#     aery-darwin-x64.tar.gz
+#     aery-linux-x64.tar.gz
+#     aery-linux-arm64.tar.gz
+#     aery-windows-x64.zip
 
 set -euo pipefail
 

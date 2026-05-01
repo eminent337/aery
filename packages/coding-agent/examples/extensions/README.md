@@ -6,7 +6,7 @@ Example extensions for pi-coding-agent.
 
 ```bash
 # Load an extension with --extension flag
-pi --extension examples/extensions/permission-gate.ts
+aery --extension examples/extensions/permission-gate.ts
 
 # Or copy to extensions directory for auto-discovery
 cp permission-gate.ts ~/.aery/agent/extensions/
@@ -97,7 +97,7 @@ cp permission-gate.ts ~/.aery/agent/extensions/
 
 | Extension | Description |
 |-----------|-------------|
-| `mac-system-theme.ts` | Syncs pi theme with macOS dark/light mode |
+| `mac-system-theme.ts` | Syncs aery theme with macOS dark/light mode |
 
 ### Resources
 

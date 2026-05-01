@@ -185,7 +185,7 @@ When multiple sources specify a session directory, `--session-dir` CLI flag take
 
 These settings define where to load extensions, skills, prompts, and themes from.
 
-Paths in `~/.aery/agent/settings.json` resolve relative to `~/.aery/agent`. Paths in `.aery/settings.json` resolve relative to `.pi`. Absolute paths and `~` are supported.
+Paths in `~/.aery/agent/settings.json` resolve relative to `~/.aery/agent`. Paths in `.aery/settings.json` resolve relative to `.aery`. Absolute paths and `~` are supported.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
@@ -204,7 +204,7 @@ String form loads all resources from a package:
 
 ```json
 {
-  "packages": ["pi-skills", "@org/my-extension"]
+  "packages": ["aery-skills", "@org/my-extension"]
 }
 ```
 
@@ -214,7 +214,7 @@ Object form filters which resources to load:
 {
   "packages": [
     {
-      "source": "pi-skills",
+      "source": "aery-skills",
       "skills": ["brave-search", "transcribe"],
       "extensions": []
     }
@@ -245,7 +245,7 @@ See [packages.md](packages.md) for package management details.
   "warnings": {
     "anthropicExtraUsage": true
   },
-  "packages": ["pi-skills"]
+  "packages": ["aery-skills"]
 }
 ```
 

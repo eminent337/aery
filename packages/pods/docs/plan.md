@@ -8,19 +8,19 @@ Pods are treated as ephemeral - spin up when needed, tear down when done. To avo
 
 ### Pods
 ```bash
-pi pods setup dc1 "ssh root@1.2.3.4" --mount "mount -t nfs..."  # Setup pod (requires HF_TOKEN, PI_API_KEY env vars)
-pi pods                              # List all pods (* = active)
-pi pods active dc2                   # Switch active pod
-pi pods remove dc1                   # Remove pod
+aery pods setup dc1 "ssh root@1.2.3.4" --mount "mount -t nfs..."  # Setup pod (requires HF_TOKEN, PI_API_KEY env vars)
+aery pods                              # List all pods (* = active)
+aery pods active dc2                   # Switch active pod
+aery pods remove dc1                   # Remove pod
 ```
 
 ### Models
 ```bash
-pi start Qwen/Qwen2.5-72B-Instruct --name qwen72b          # Known model - pi handles vLLM args
-pi start some/unknown-model --name mymodel --vllm --tensor-parallel-size 4 --max-model-len 32768  # Custom vLLM args
-pi list                              # List running models with ports
-pi stop qwen72b                      # Stop model
-pi logs qwen72b                      # View model logs
+aery start Qwen/Qwen2.5-72B-Instruct --name qwen72b          # Known model - pi handles vLLM args
+aery start some/unknown-model --name mymodel --vllm --tensor-parallel-size 4 --max-model-len 32768  # Custom vLLM args
+aery list                              # List running models with ports
+aery stop qwen72b                      # Stop model
+aery logs qwen72b                      # View model logs
 ```
 
 For known models, aery automatically configures appropriate vLLM arguments from model documentation based on the hardware of the pod. For unknown models or custom configurations, pass vLLM args after `--vllm`.
@@ -39,7 +39,7 @@ Key capabilities:
 When a user creates a fresh pod on a provider, they register it with pi using the SSH command from the provider:
 
 ```bash
-pi pods setup dc1 "ssh root@1.2.3.4" --mount "mount -t nfs..."
+aery pods setup dc1 "ssh root@1.2.3.4" --mount "mount -t nfs..."
 ```
 
 This copies and executes `pod_setup.sh` which:
@@ -76,12 +76,12 @@ Without `--mount`, models download to pod-local storage and are lost on terminat
 Users can register multiple pods and switch between them:
 
 ```bash
-pi pods                    # List all pods (* = active)
-pi pods active dc2         # Switch active pod
-pi pods remove dc1         # Remove pod from local config but doesn't destroy pod remotely.
+aery pods                    # List all pods (* = active)
+aery pods active dc2         # Switch active pod
+aery pods remove dc1         # Remove pod from local config but doesn't destroy pod remotely.
 ```
 
-All model commands (`pi start`, `pi stop`, etc.) target the active pod, unless `--pod <podname>` is given, which overrides the active pod for that command.
+All model commands (`aery start`, `aery stop`, etc.) target the active pod, unless `--pod <podname>` is given, which overrides the active pod for that command.
 
 ## Model deployment
 
@@ -117,7 +117,7 @@ The location of the aery config dir can also be specified via the `AERY_CONFIG_D
 Pods are assumed to be fully managed by pi - no other processes compete for ports or GPUs.
 
 ### Starting models
-When user runs `pi start Qwen/Qwen2.5-72B --name qwen`:
+When user runs `aery start Qwen/Qwen2.5-72B --name qwen`:
 1. CLI determines next available port (starting from 8001)
 2. Selects GPU (round-robin based on stored GPU info)
 3. Downloads model if not cached:
@@ -163,4 +163,4 @@ This allows testing basic agent capabilities without external tool configuration
 We want to support these models specifically, with alternative models being marked as "possibly works". This list will be updated with new models regularly. A checked
 box means "supported".
 
-See [models.md](./models.md) for a list of models, their HW reqs, vLLM args and notes, we want to support out of the box with a simple `pi start <model-name> --name <local-name>`
+See [models.md](./models.md) for a list of models, their HW reqs, vLLM args and notes, we want to support out of the box with a simple `aery start <model-name> --name <local-name>`

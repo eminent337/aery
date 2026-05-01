@@ -66,29 +66,29 @@ When closing issues via commit:
 - If the user approves: create a feature branch, pull PR, rebase on main, apply adjustments, commit, merge into main, push, close PR, and leave a comment in the user's tone
 - You never open PRs yourself. We work in feature branches until everything is according to the user's requirements, then merge into main, and push.
 
-## Testing pi Interactive Mode with tmux
+## Testing aery Interactive Mode with tmux
 
-To test pi's TUI in a controlled terminal environment:
+To test aery's TUI in a controlled terminal environment:
 
 ```bash
 # Create tmux session with specific dimensions
-tmux new-session -d -s pi-test -x 80 -y 24
+tmux new-session -d -s aery-test -x 80 -y 24
 
-# Start pi from source
-tmux send-keys -t pi-test "cd /path/to/aery && ./test.sh" Enter
+# Start aery from source
+tmux send-keys -t aery-test "cd /path/to/aery && ./test.sh" Enter
 
 # Wait for startup, then capture output
-sleep 3 && tmux capture-pane -t pi-test -p
+sleep 3 && tmux capture-pane -t aery-test -p
 
 # Send input
-tmux send-keys -t pi-test "your prompt here" Enter
+tmux send-keys -t aery-test "your prompt here" Enter
 
 # Send special keys
-tmux send-keys -t pi-test Escape
-tmux send-keys -t pi-test C-o  # ctrl+o
+tmux send-keys -t aery-test Escape
+tmux send-keys -t aery-test C-o  # ctrl+o
 
 # Cleanup
-tmux kill-session -t pi-test
+tmux kill-session -t aery-test
 ```
 
 ## Changelog

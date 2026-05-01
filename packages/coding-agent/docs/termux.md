@@ -16,13 +16,13 @@ pkg update && pkg upgrade
 # Install dependencies
 pkg install nodejs termux-api git
 
-# Install pi
+# Install aery
 npm install -g @eminent337/aery
 
 # Create config directory
 mkdir -p ~/.aery/agent
 
-# Run pi
+# Run aery
 aery
 ```
 

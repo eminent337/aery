@@ -131,7 +131,7 @@ The agent includes tools for file operations (read, list, bash, glob, rg) to tes
 
 ## Predefined Model Configurations
 
-`pi` includes predefined configurations for popular agentic models, so you do not have to specify `--vllm` arguments manually. `pi` will also check if the model you selected can actually run on your pod with respect to the number of GPUs and available VRAM. Run `pi start` without additional arguments to see a list of predefined models that can run on the active pod.
+`pi` includes predefined configurations for popular agentic models, so you do not have to specify `--vllm` arguments manually. `pi` will also check if the model you selected can actually run on your pod with respect to the number of GPUs and available VRAM. Run `aery start` without additional arguments to see a list of predefined models that can run on the active pod.
 
 ### Qwen Models
 ```bash
@@ -452,7 +452,7 @@ Some models (Llama, Mistral) require HuggingFace access approval. Visit the mode
 ### vLLM Build Issues
 If using `--vllm nightly` fails, try:
 - Use `--vllm release` for stable version
-- Check CUDA compatibility with `pi ssh "nvidia-smi"`
+- Check CUDA compatibility with `aery ssh "nvidia-smi"`
 
 ### Agent Not Finding Messages
 If the agent shows configuration instead of your message, ensure quotes around messages with special characters:

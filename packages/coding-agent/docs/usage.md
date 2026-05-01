@@ -129,7 +129,7 @@ aery [options] [@files...] [messages...]
 aery install <source> [-l]     # Install package, -l for project-local
 aery remove <source> [-l]      # Remove package
 aery uninstall <source> [-l]   # Alias for remove
-aery update [source|self|pi]   # Update aery and packages; skips pinned packages
+aery update [source|self|aery]   # Update aery and packages; skips pinned packages
 aery update --extensions       # Update packages only
 aery update --self             # Update aery only
 aery update --extension <src>  # Update one package
@@ -149,7 +149,7 @@ See [Pi Packages](packages.md) for package sources and security notes.
 | `--mode rpc` | RPC mode over stdin/stdout; see [RPC mode](rpc.md) |
 | `--export <in> [out]` | Export a session to HTML |
 
-In print mode, pi also reads piped stdin and merges it into the initial prompt:
+In print mode, aery also reads piped stdin and merges it into the initial prompt:
 
 ```bash
 cat README.md | aery -p "Summarize this text"

@@ -60,21 +60,21 @@ Clean SSH command execution
 ## Package 4: Pod Commands
 Pod management CLI commands
 
-- [ ] `src/commands/pods-setup.ts` - pi pods setup
+- [ ] `src/commands/pods-setup.ts` - aery pods setup
   - [ ] Parse args (name, ssh, mount)
   - [ ] Check env vars (HF_TOKEN, PI_API_KEY)
   - [ ] Call setup executor
   - [ ] Save pod to config
 
-- [ ] `src/commands/pods-list.ts` - pi pods
+- [ ] `src/commands/pods-list.ts` - aery pods
   - [ ] Load config
   - [ ] Display all pods with active marker
 
-- [ ] `src/commands/pods-active.ts` - pi pods active
+- [ ] `src/commands/pods-active.ts` - aery pods active
   - [ ] Switch active pod
   - [ ] Update config
 
-- [ ] `src/commands/pods-remove.ts` - pi pods remove
+- [ ] `src/commands/pods-remove.ts` - aery pods remove
   - [ ] Remove from config (not remote)
 
 ## Package 5: Model Management
@@ -100,7 +100,7 @@ Model lifecycle management
 ## Package 6: Model Commands
 Model management CLI commands
 
-- [ ] `src/commands/start.ts` - pi start
+- [ ] `src/commands/start.ts` - aery start
   - [ ] Parse model and args
   - [ ] Find next available port
   - [ ] Select GPU (round-robin)
@@ -109,16 +109,16 @@ Model management CLI commands
   - [ ] Wait for health check
   - [ ] Update config on success
 
-- [ ] `src/commands/stop.ts` - pi stop
+- [ ] `src/commands/stop.ts` - aery stop
   - [ ] Find model in config
   - [ ] Kill process via PID
   - [ ] Clean up config
 
-- [ ] `src/commands/list.ts` - pi list
+- [ ] `src/commands/list.ts` - aery list
   - [ ] Show models from config
   - [ ] Optionally verify PIDs
 
-- [ ] `src/commands/logs.ts` - pi logs
+- [ ] `src/commands/logs.ts` - aery logs
   - [ ] Tail log file via SSH
   - [ ] Handle Ctrl+C (stop tailing only)
 

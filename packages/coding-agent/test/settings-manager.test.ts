@@ -36,7 +36,7 @@ describe("SettingsManager", () => {
 				}),
 			);
 
-			// Create SettingsManager (simulates pi starting up)
+			// Create SettingsManager (simulates aery starting up)
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			// Simulate user editing settings.json externally to add enabledModels
@@ -225,7 +225,7 @@ describe("SettingsManager", () => {
 			// Create SettingsManager (reads both global and project settings)
 			const manager = SettingsManager.create(projectDir, agentDir);
 
-			// .pi folder should NOT have been created just from reading
+			// .aery folder should NOT have been created just from reading
 			expect(existsSync(join(projectDir, ".aery"))).toBe(false);
 
 			// Settings should still be loaded from global
@@ -242,7 +242,7 @@ describe("SettingsManager", () => {
 
 			const manager = SettingsManager.create(projectDir, agentDir);
 
-			// .pi folder should NOT exist yet
+			// .aery folder should NOT exist yet
 			expect(existsSync(join(projectDir, ".aery"))).toBe(false);
 
 			// Write a project-specific setting
