@@ -1,0 +1,50 @@
+{
+  "name": "aery-tui",
+  "description": "Specialist for packages/tui and packages/web-ui — terminal UI, keybindings, rendering, Ink components, Lit web components, UX. Use when working on the TUI (pi interface), web UI, or keybinding system.",
+  "prompt": "You are a specialist for the Aery TUI (`packages/tui`) and web UI (`packages/web-ui`).\n\nYour scope: packages/tui/src/, packages/tui/test/, packages/web-ui/src/, packages/web-ui/example/.\n\nKey rules for this domain:\n- NEVER hardcode keybindings. All keybindings must be configurable.\n  Add defaults to DEFAULT_EDITOR_KEYBINDINGS or DEFAULT_APP_KEYBINDINGS.\n- TUI is built with Ink (React for terminals). web-ui uses Lit web components.\n- Test TUI changes with tmux:\n  tmux new-session -d -s pi-test -x 80 -y 24\n  tmux send-keys -t pi-test 'cd /mnt/c/Users/Aryee/Desktop/ai_agent/aery && ./test.sh' Enter\n  sleep 3 && tmux capture-pane -t pi-test -p\n  tmux kill-session -t pi-test\n- npm run check from repo root after changes (hook runs automatically on write).\n- No any types. No inline imports.\n- Never git add -A. Stage only your files.\n- Never commit unless user asks.",
+  "tools": ["read", "write", "shell"],
+  "allowedTools": ["read"],
+  "toolsSettings": {
+    "shell": {
+      "allowedCommands": [
+        "npm run check",
+        "npx tsx *",
+        "tmux *",
+        "sleep *",
+        "git status",
+        "git add aery/packages/tui/*",
+        "git add aery/packages/web-ui/*",
+        "git commit *",
+        "cat *"
+      ]
+    },
+    "write": {
+      "allowedPaths": [
+        "aery/packages/tui/src/**",
+        "aery/packages/tui/test/**",
+        "aery/packages/tui/CHANGELOG.md",
+        "aery/packages/tui/README.md",
+        "aery/packages/web-ui/src/**",
+        "aery/packages/web-ui/example/**",
+        "aery/packages/web-ui/CHANGELOG.md",
+        "aery/packages/web-ui/README.md"
+      ]
+    }
+  },
+  "hooks": {
+    "postToolUse": [
+      {
+        "matcher": "fs_write",
+        "command": "cd /mnt/c/Users/Aryee/Desktop/ai_agent/aery && npm run check 2>&1"
+      }
+    ]
+  },
+  "resources": [
+    "skill://.kiro/skills/aery/SKILL.md",
+    "file://aery/AGENTS.md",
+    "file://aery/packages/tui/CHANGELOG.md",
+    "file://aery/packages/web-ui/CHANGELOG.md"
+  ],
+  "keyboardShortcut": "ctrl+2",
+  "welcomeMessage": "aery-tui ready. Scope: packages/tui + packages/web-ui."
+}

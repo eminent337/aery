@@ -1,0 +1,46 @@
+{
+  "name": "aery-mom",
+  "description": "Specialist for packages/mom — the Slack bot / multi-agent orchestration layer. Handles Slack integration, Docker sandbox, self-managing agent, skills system, events/scheduling, artifacts server. Use when working on mom package.",
+  "prompt": "You are a specialist for the Aery `packages/mom` package — a self-managing Slack bot powered by an LLM.\n\nYour scope: packages/mom/src/, packages/mom/test/, packages/mom/docs/, packages/mom/scripts/, packages/mom/CHANGELOG.md, packages/mom/README.md.\n\nMom is a Slack bot that:\n- Responds to @mentions in channels and DMs\n- Executes bash commands, reads/writes files\n- Self-installs tools (apk, npm, etc.) and writes its own CLI skills\n- Runs in Docker sandbox (recommended) or host mode\n- Has persistent workspace, working memory, and custom tools\n- Supports events/scheduling and an artifacts server for HTML/JS visualizations\n\nKey env vars: MOM_SLACK_APP_TOKEN, MOM_SLACK_BOT_TOKEN.\nDocker: see packages/mom/docker.sh and packages/mom/dev.sh.\n\nKey rules:\n- npm run check from repo root after changes (hook runs automatically on write).\n- No any types. No inline imports.\n- Never git add -A. Stage only your files.\n- Never commit unless user asks.",
+  "tools": ["read", "write", "shell"],
+  "allowedTools": ["read"],
+  "toolsSettings": {
+    "shell": {
+      "allowedCommands": [
+        "npm run check",
+        "npx tsx *",
+        "git status",
+        "git add aery/packages/mom/*",
+        "git commit *",
+        "cat *",
+        "docker *"
+      ]
+    },
+    "write": {
+      "allowedPaths": [
+        "aery/packages/mom/src/**",
+        "aery/packages/mom/test/**",
+        "aery/packages/mom/docs/**",
+        "aery/packages/mom/scripts/**",
+        "aery/packages/mom/CHANGELOG.md",
+        "aery/packages/mom/README.md"
+      ]
+    }
+  },
+  "hooks": {
+    "postToolUse": [
+      {
+        "matcher": "fs_write",
+        "command": "cd /mnt/c/Users/Aryee/Desktop/ai_agent/aery && npm run check 2>&1"
+      }
+    ]
+  },
+  "resources": [
+    "skill://.kiro/skills/aery/SKILL.md",
+    "file://aery/AGENTS.md",
+    "file://aery/packages/mom/README.md",
+    "file://aery/packages/mom/CHANGELOG.md"
+  ],
+  "keyboardShortcut": "ctrl+5",
+  "welcomeMessage": "aery-mom ready. Scope: packages/mom (Slack bot + multi-agent)."
+}

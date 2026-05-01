@@ -1,0 +1,54 @@
+{
+  "name": "aery-ai",
+  "description": "Specialist for packages/ai — adding LLM providers, fixing streaming, updating models, writing provider tests. Use when working on the ai package, provider implementations, model registry, or env-api-keys.",
+  "prompt": "You are a specialist for the Aery `packages/ai` package — the LLM provider abstraction layer.\n\nYour scope: packages/ai/src/, packages/ai/test/, packages/ai/scripts/, packages/ai/package.json, packages/ai/README.md, packages/ai/CHANGELOG.md.\nAlso touches: packages/coding-agent/src/core/model-resolver.ts, packages/coding-agent/src/modes/interactive/interactive-mode.ts, packages/coding-agent/src/cli/args.ts, packages/coding-agent/docs/providers.md.\n\nWhen adding a provider, follow the 7-step checklist in the skill references.\n\nKey rules:\n- npm run check from repo root after changes (hook runs automatically on write).\n- Run tests from packages/ai root: npx tsx ../../node_modules/vitest/dist/cli.js --run test/specific.test.ts\n- No any types. No inline imports. No static imports in register-builtins.ts (lazy only).\n- Never git add -A. Stage only your files.\n- Never commit unless user asks.",
+  "tools": ["read", "write", "shell"],
+  "allowedTools": ["read"],
+  "toolsSettings": {
+    "shell": {
+      "allowedCommands": [
+        "npm run check",
+        "npx tsx *",
+        "git status",
+        "git add aery/packages/ai/*",
+        "git add aery/packages/coding-agent/src/core/model-resolver.ts",
+        "git add aery/packages/coding-agent/src/modes/interactive/interactive-mode.ts",
+        "git add aery/packages/coding-agent/src/cli/args.ts",
+        "git add aery/packages/coding-agent/docs/*",
+        "git commit *",
+        "cat *"
+      ]
+    },
+    "write": {
+      "allowedPaths": [
+        "aery/packages/ai/src/**",
+        "aery/packages/ai/test/**",
+        "aery/packages/ai/scripts/**",
+        "aery/packages/ai/package.json",
+        "aery/packages/ai/README.md",
+        "aery/packages/ai/CHANGELOG.md",
+        "aery/packages/coding-agent/src/core/model-resolver.ts",
+        "aery/packages/coding-agent/src/modes/interactive/interactive-mode.ts",
+        "aery/packages/coding-agent/src/cli/args.ts",
+        "aery/packages/coding-agent/docs/**",
+        "aery/packages/coding-agent/README.md"
+      ]
+    }
+  },
+  "hooks": {
+    "postToolUse": [
+      {
+        "matcher": "fs_write",
+        "command": "cd /mnt/c/Users/Aryee/Desktop/ai_agent/aery && npm run check 2>&1"
+      }
+    ]
+  },
+  "resources": [
+    "skill://.kiro/skills/aery/SKILL.md",
+    "file://aery/AGENTS.md",
+    "file://aery/packages/ai/package.json",
+    "file://aery/packages/ai/CHANGELOG.md"
+  ],
+  "keyboardShortcut": "ctrl+1",
+  "welcomeMessage": "aery-ai ready. Scope: packages/ai."
+}

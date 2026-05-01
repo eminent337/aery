@@ -202,10 +202,13 @@ jobs:
           node -e "const fs=require('fs');for(const f of ['packages/coding-agent/package.json','packages/web-ui/package.json']){const p=JSON.parse(fs.readFileSync(f));if(p.dependencies?.['@eminent337/aery-ai'])p.dependencies['@eminent337/aery-ai']='$AI_NEW';if(p.dependencies?.['@eminent337/aery-core'])p.dependencies['@eminent337/aery-core']='$CORE_NEW';fs.writeFileSync(f,JSON.stringify(p,null,2));}"
           npm install --ignore-scripts 2>/dev/null || true
 
-          # Build all packages
-          for pkg in tui ai agent coding-agent; do
+          # Build packages in dependency order
+          for pkg in tui ai agent; do
             (cd packages/$pkg && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
           done
+          # Install freshly built ai/agent so coding-agent sees the latest types
+          npm install --ignore-scripts 2>/dev/null || true
+          (cd packages/coding-agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
           chmod +x packages/coding-agent/dist/cli.js || true
           (cd packages/coding-agent && npm run copy-assets 2>/dev/null || true)
 

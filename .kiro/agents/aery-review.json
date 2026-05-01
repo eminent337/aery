@@ -1,0 +1,38 @@
+{
+  "name": "aery-review",
+  "description": "Code review agent for Aery. Use when reviewing PRs, auditing code quality, checking for rule violations, or preparing a PR for merge. Read-only — makes no changes.",
+  "prompt": "You are a code reviewer for the Aery monorepo. You do not write code — you review it.\n\nReview checklist:\n1. No `any` types\n2. No inline/dynamic imports (`await import()`, `import().Type`)\n3. No hardcoded keybindings — must use DEFAULT_EDITOR_KEYBINDINGS or DEFAULT_APP_KEYBINDINGS\n4. `npm run check` passes (lint + typecheck + browser smoke)\n5. Tests added/updated for new functionality\n6. CHANGELOG.md updated under [Unreleased] for affected packages\n7. Commit messages include `fixes #N` or `closes #N` where applicable\n8. No `git add -A` in scripts or docs\n9. No emojis in code, commits, or comments\n10. No backward compat code unless explicitly requested\n11. PR meets the quality bar in CONTRIBUTING.md\n\nFor new LLM providers, verify all 7 steps in the provider checklist are complete.\n\nWhen reviewing a PR:\n- Analyze without pulling locally first\n- Report issues grouped by severity: blocking / non-blocking / nit\n- Write review comments to a temp file, post with: gh pr comment <number> --body-file /tmp/review.md\n- Post exactly one comment unless user asks for more\n- Keep comments concise and technical",
+  "tools": ["read", "shell"],
+  "allowedTools": ["read"],
+  "toolsSettings": {
+    "shell": {
+      "allowedCommands": [
+        "git diff *",
+        "git log *",
+        "git show *",
+        "git status",
+        "gh pr view *",
+        "gh pr diff *",
+        "gh pr list *",
+        "gh issue view *",
+        "gh issue list *",
+        "npm run check",
+        "cat *",
+        "echo *"
+      ],
+      "autoAllowReadonly": true
+    }
+  },
+  "resources": [
+    "skill://.kiro/skills/aery/SKILL.md",
+    "file://aery/AGENTS.md",
+    "file://aery/CONTRIBUTING.md",
+    "file://aery/packages/ai/CHANGELOG.md",
+    "file://aery/packages/agent/CHANGELOG.md",
+    "file://aery/packages/tui/CHANGELOG.md",
+    "file://aery/packages/coding-agent/CHANGELOG.md",
+    "file://aery/packages/mom/CHANGELOG.md"
+  ],
+  "keyboardShortcut": "ctrl+3",
+  "welcomeMessage": "aery-review ready. Read-only."
+}

@@ -14,7 +14,6 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Skip if this push was from the upstream sync CI (it publishes itself)
     if: "!contains(github.event.head_commit.message, 'chore: bump version')"
     permissions:
       contents: write
@@ -43,19 +42,30 @@ jobs:
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
           npm install --ignore-scripts 2>/dev/null || true
 
-          # Bump patch version
           CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
 
-          # Build all packages
-          for pkg in ai agent tui coding-agent; do
-            (cd packages/$pkg && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
-          done
+          # Build ai and agent
+          (cd packages/ai && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>&1)
+          (cd packages/agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>&1)
+          (cd packages/tui && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>&1 || true)
+
+          # Link freshly built packages so coding-agent uses local dist, not stale npm versions
+          (cd packages/ai && npm link 2>/dev/null || true)
+          (cd packages/agent && npm link 2>/dev/null || true)
+          (cd packages/coding-agent && npm link @eminent337/aery-ai @eminent337/aery-core 2>/dev/null || true)
+
+          # Build coding-agent
+          (cd packages/coding-agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>&1)
           chmod +x packages/coding-agent/dist/cli.js || true
           (cd packages/coding-agent && npm run copy-assets 2>/dev/null || true)
 
-          # Update version
+          if [ ! -f packages/coding-agent/dist/cli.js ]; then
+            echo "ERROR: dist/cli.js not found — build failed"
+            exit 1
+          fi
+
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$NEW_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,2));"
 
           git add packages/coding-agent/package.json

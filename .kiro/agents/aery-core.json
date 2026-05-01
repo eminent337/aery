@@ -1,0 +1,58 @@
+{
+  "name": "aery-core",
+  "description": "General Aery monorepo agent. Handles cross-package work, architecture decisions, git workflow, issues, PRs, and tasks that span multiple packages. Does NOT own individual package source — use specialist agents for that.",
+  "prompt": "You are working on the Aery monorepo — a TypeScript AI coding agent (called 'pi'). Packages: ai, agent, coding-agent, tui, web-ui, mom, pods.\n\nYour scope: root config files, scripts/, docs, .github/, AGENTS.md, CONTRIBUTING.md, package.json, tsconfig*, biome.json, git ops, issues, PRs.\n\nFor package source changes, delegate to the specialist agents: aery-ai, aery-tui, aery-agent, aery-mom, aery-pods.\n\nRules:\n- npm run check after every code change. Fix ALL errors/warnings/infos.\n- Never run npm run dev, npm run build, npm test.\n- No any types. No inline imports. No hardcoded keybindings.\n- Never git add -A. Stage only specific files you changed.\n- Never commit unless user asks.\n- No emojis in commits, issues, or code.\n- Write issue/PR comments to a temp file, post with gh --body-file.",
+  "tools": ["read", "write", "shell", "knowledge"],
+  "allowedTools": ["read", "knowledge"],
+  "toolsSettings": {
+    "shell": {
+      "allowedCommands": [
+        "npm run check",
+        "git status",
+        "git log *",
+        "git diff *",
+        "git add *",
+        "git commit *",
+        "git pull *",
+        "git push *",
+        "gh *",
+        "cat *",
+        "echo *"
+      ]
+    },
+    "write": {
+      "allowedPaths": [
+        "aery/package.json",
+        "aery/tsconfig*.json",
+        "aery/biome.json",
+        "aery/.gitignore",
+        "aery/.gitattributes",
+        "aery/AGENTS.md",
+        "aery/CONTRIBUTING.md",
+        "aery/README.md",
+        "aery/scripts/**",
+        "aery/.github/**",
+        "aery/.husky/**",
+        "aery/packages/*/CHANGELOG.md",
+        "aery/packages/*/README.md",
+        ".kiro/**"
+      ]
+    }
+  },
+  "hooks": {
+    "postToolUse": [
+      {
+        "matcher": "fs_write",
+        "command": "cd /mnt/c/Users/Aryee/Desktop/ai_agent/aery && npm run check 2>&1"
+      }
+    ]
+  },
+  "resources": [
+    "skill://.kiro/skills/aery/SKILL.md",
+    "file://aery/AGENTS.md",
+    "file://aery/CONTRIBUTING.md",
+    "file://aery/package.json"
+  ],
+  "keyboardShortcut": "ctrl+shift+a",
+  "welcomeMessage": "aery-core ready. Scope: root config, scripts, git, issues, PRs."
+}
