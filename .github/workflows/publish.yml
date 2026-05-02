@@ -49,12 +49,30 @@ jobs:
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
 
-          # Build all packages (same pattern as upstream-sync.yml)
+          # Build in dependency order
           TSGO=$(which tsgo 2>/dev/null || echo "../../node_modules/.bin/tsgo")
-          for pkg in tui ai agent; do
-            (cd packages/$pkg && $TSGO -p tsconfig.build.json 2>/dev/null || true)
-          done
-          npm install --ignore-scripts 2>/dev/null || true
+          (cd packages/ai && $TSGO -p tsconfig.build.json 2>/dev/null || true)
+          (cd packages/agent && $TSGO -p tsconfig.build.json 2>/dev/null || true)
+          (cd packages/tui && $TSGO -p tsconfig.build.json 2>/dev/null || true)
+
+          # Republish aery-ai and aery-core with fresh dist
+          AI_CUR=$(node -p "require('./packages/ai/package.json').version")
+          IFS='.' read -r A B C <<< "$AI_CUR"; AI_NEW="$A.$B.$((C+1))"
+          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/ai/package.json'));p.version='$AI_NEW';fs.writeFileSync('./packages/ai/package.json',JSON.stringify(p,null,2));"
+          npm publish ./packages/ai --access public --ignore-scripts --tag latest || true
+
+          CORE_CUR=$(node -p "require('./packages/agent/package.json').version")
+          IFS='.' read -r A B C <<< "$CORE_CUR"; CORE_NEW="$A.$B.$((C+1))"
+          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/agent/package.json'));p.version='$CORE_NEW';fs.writeFileSync('./packages/agent/package.json',JSON.stringify(p,null,2));"
+          npm publish ./packages/agent --access public --ignore-scripts --tag latest || true
+
+          # Update coding-agent to use new aery-ai/aery-core versions
+          node -e "const fs=require('fs');for(const f of ['packages/coding-agent/package.json']){const p=JSON.parse(fs.readFileSync(f));if(p.dependencies?.['@eminent337/aery-ai'])p.dependencies['@eminent337/aery-ai']='$AI_NEW';if(p.dependencies?.['@eminent337/aery-core'])p.dependencies['@eminent337/aery-core']='$CORE_NEW';fs.writeFileSync(f,JSON.stringify(p,null,2));}"
+
+          # Build coding-agent with fresh aery-ai types via npm link
+          (cd packages/ai && npm link 2>/dev/null || true)
+          (cd packages/agent && npm link 2>/dev/null || true)
+          (cd packages/coding-agent && npm link @eminent337/aery-ai @eminent337/aery-core 2>/dev/null || true)
           (cd packages/coding-agent && $TSGO -p tsconfig.build.json 2>/dev/null || true)
           chmod +x packages/coding-agent/dist/cli.js || true
           (cd packages/coding-agent && npm run copy-assets 2>/dev/null || true)
@@ -66,7 +84,7 @@ jobs:
 
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$NEW_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,2));"
 
-          git add packages/coding-agent/package.json
+          git add packages/ai/package.json packages/agent/package.json packages/coding-agent/package.json
           git pull --rebase origin main || true
           git commit -m "chore: bump version to $NEW_VERSION" || true
           git push origin main
