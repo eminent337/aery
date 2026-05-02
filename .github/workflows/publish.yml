@@ -44,7 +44,7 @@ jobs:
 
           # Ensure tsgo is available
           if [ ! -f ./node_modules/.bin/tsgo ]; then
-            npm install --ignore-scripts "@typescript/native-preview@7.0.0-dev.20260120.1" --no-save 2>/dev/null || true
+            npm install "@typescript/native-preview@7.0.0-dev.20260120.1" --no-save 2>/dev/null || true
           fi
           TSGO="./node_modules/.bin/tsgo"
 
