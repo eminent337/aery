@@ -29,12 +29,15 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Setup
+      - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Build and publish
+      - name: Install build tools
+        run: npm install -g "@typescript/native-preview@7.0.0-dev.20260120.1" 2>/dev/null || true
+
+      - name: Bump version and publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           HUSKY: '0'
@@ -42,27 +45,17 @@ jobs:
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
           npm install --ignore-scripts 2>/dev/null || true
 
-          # Ensure tsgo is available
-          if [ ! -f ./node_modules/.bin/tsgo ]; then
-            npm install "@typescript/native-preview@7.0.0-dev.20260120.1" --no-save 2>/dev/null || true
-          fi
-          TSGO="./node_modules/.bin/tsgo"
-
           CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
 
-          # Build in dependency order
-          (cd packages/ai && $TSGO -p tsconfig.build.json 2>&1)
-          (cd packages/agent && $TSGO -p tsconfig.build.json 2>&1)
-          (cd packages/tui && $TSGO -p tsconfig.build.json 2>&1 || true)
-
-          # Link freshly built packages so coding-agent uses local types
-          (cd packages/ai && npm link 2>/dev/null || true)
-          (cd packages/agent && npm link 2>/dev/null || true)
-          (cd packages/coding-agent && npm link @eminent337/aery-ai @eminent337/aery-core 2>/dev/null || true)
-
-          (cd packages/coding-agent && $TSGO -p tsconfig.build.json 2>&1)
+          # Build all packages (same pattern as upstream-sync.yml)
+          TSGO=$(which tsgo 2>/dev/null || echo "../../node_modules/.bin/tsgo")
+          for pkg in tui ai agent; do
+            (cd packages/$pkg && $TSGO -p tsconfig.build.json 2>/dev/null || true)
+          done
+          npm install --ignore-scripts 2>/dev/null || true
+          (cd packages/coding-agent && $TSGO -p tsconfig.build.json 2>/dev/null || true)
           chmod +x packages/coding-agent/dist/cli.js || true
           (cd packages/coding-agent && npm run copy-assets 2>/dev/null || true)
 
