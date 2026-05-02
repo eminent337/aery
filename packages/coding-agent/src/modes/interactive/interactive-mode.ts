@@ -896,23 +896,9 @@ export class InteractiveMode {
 					"damage-control",
 					"provider-profiles",
 					"model-failover",
-					"web-search",
-					"web-fetch",
-					"commands",
-					"hooks",
-					"circuit-breaker",
-					"auto-router",
-					"memory-include",
 					"aery-header",
 					"aery-footer",
-					"multi-agent",
-					"agent-chain",
-					"agent-teams",
 					"help",
-					"default-agents",
-					"aery-doctor",
-					"aery-team",
-					"subagent",
 				];
 				if (existsSync(settingsPath)) {
 					const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));

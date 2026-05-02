@@ -297,35 +297,6 @@ export async function showDeprecationWarnings(warnings: string[]): Promise<void>
 }
 
 /**
- * Wire aery-team and subagent core extensions for existing users who installed
- * aery-extensions before these were added to the CORE list.
- */
-function migrateWireCoreExtensions(): void {
-	const agentDir = getAgentDir();
-	const settingsPath = join(agentDir, "settings.json");
-	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
-	if (!existsSync(settingsPath) || !existsSync(repoPath)) return;
-	try {
-		const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-		const existing = new Set<string>(settings.extensions || []);
-		const toWire = ["aery-team", "subagent"];
-		let changed = false;
-		for (const ext of toWire) {
-			// subagent lives in a subdirectory
-			const p = ext === "subagent" ? join(repoPath, "core", ext, "index.ts") : join(repoPath, "core", `${ext}.ts`);
-			if (existsSync(p) && !existing.has(p)) {
-				settings.extensions = settings.extensions || [];
-				settings.extensions.push(p);
-				changed = true;
-			}
-		}
-		if (changed) writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-	} catch {
-		// Silent fail — non-critical migration
-	}
-}
-
-/**
  * Run all migrations. Called once on startup.
  *
  * @returns Object with migration results and deprecation warnings
@@ -338,7 +309,6 @@ export function runMigrations(cwd: string): {
 	migrateSessionsFromAgentRoot();
 	migrateToolsToBin();
 	migrateKeybindingsConfigFile();
-	migrateWireCoreExtensions();
 	const deprecationWarnings = migrateExtensionSystem(cwd);
 	return { migratedAuthProviders, deprecationWarnings };
 }
