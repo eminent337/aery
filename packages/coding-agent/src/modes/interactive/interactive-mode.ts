@@ -911,6 +911,8 @@ export class InteractiveMode {
 					"help",
 					"default-agents",
 					"aery-doctor",
+					"aery-team",
+					"subagent",
 				];
 				if (existsSync(settingsPath)) {
 					const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
