@@ -202,13 +202,19 @@ jobs:
           node -e "const fs=require('fs');for(const f of ['packages/coding-agent/package.json','packages/web-ui/package.json']){const p=JSON.parse(fs.readFileSync(f));if(p.dependencies?.['@eminent337/aery-ai'])p.dependencies['@eminent337/aery-ai']='$AI_NEW';if(p.dependencies?.['@eminent337/aery-core'])p.dependencies['@eminent337/aery-core']='$CORE_NEW';fs.writeFileSync(f,JSON.stringify(p,null,2));}"
           npm install --ignore-scripts 2>/dev/null || true
 
+          # Install tsgo globally so builds succeed
+          npm install -g "@typescript/native-preview@7.0.0-dev.20260120.1" 2>/dev/null || true
+          TSGO=$(which tsgo 2>/dev/null || echo "../../node_modules/.bin/tsgo")
+
           # Build packages in dependency order
           for pkg in tui ai agent; do
-            (cd packages/$pkg && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
+            (cd packages/$pkg && $TSGO -p tsconfig.build.json 2>/dev/null || true)
           done
-          # Install freshly built ai/agent so coding-agent sees the latest types
-          npm install --ignore-scripts 2>/dev/null || true
-          (cd packages/coding-agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
+          # Link freshly built packages so coding-agent sees the latest types
+          (cd packages/ai && npm link 2>/dev/null || true)
+          (cd packages/agent && npm link 2>/dev/null || true)
+          (cd packages/coding-agent && npm link @eminent337/aery-ai @eminent337/aery-core 2>/dev/null || true)
+          (cd packages/coding-agent && $TSGO -p tsconfig.build.json 2>/dev/null || true)
           chmod +x packages/coding-agent/dist/cli.js || true
           (cd packages/coding-agent && npm run copy-assets 2>/dev/null || true)
 
