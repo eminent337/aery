@@ -297,6 +297,62 @@ export async function showDeprecationWarnings(warnings: string[]): Promise<void>
 }
 
 /**
+ * Wire any missing core extensions for existing users who already have aery-extensions installed.
+ * Runs on every startup but is idempotent — only adds extensions not already in settings.
+ */
+function wireMissingCoreExtensions(): void {
+	const agentDir = getAgentDir();
+	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
+	const settingsPath = join(agentDir, "settings.json");
+
+	if (!existsSync(repoPath) || !existsSync(settingsPath)) return;
+
+	const CORE: Array<string | [string, string]> = [
+		"damage-control",
+		"provider-profiles",
+		"model-failover",
+		"web-search",
+		"web-fetch",
+		"commands",
+		"hooks",
+		"circuit-breaker",
+		"auto-router",
+		"memory-include",
+		"aery-header",
+		"aery-footer",
+		"multi-agent",
+		"agent-chain",
+		"agent-teams",
+		"help",
+		"default-agents",
+		"aery-doctor",
+		"aery-team",
+		["subagent", "subagent/index"],
+	];
+
+	try {
+		const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+		const existing = new Set<string>(settings.extensions || []);
+		let added = false;
+		for (const ext of CORE) {
+			const [, filePath] = Array.isArray(ext) ? ext : [ext, ext];
+			const p = join(repoPath, "core", `${filePath}.ts`);
+			if (existsSync(p) && !existing.has(p)) {
+				settings.extensions = settings.extensions || [];
+				settings.extensions.push(p);
+				existing.add(p);
+				added = true;
+			}
+		}
+		if (added) {
+			writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+		}
+	} catch {
+		// Silent fail
+	}
+}
+
+/**
  * Run all migrations. Called once on startup.
  *
  * @returns Object with migration results and deprecation warnings
@@ -309,6 +365,7 @@ export function runMigrations(cwd: string): {
 	migrateSessionsFromAgentRoot();
 	migrateToolsToBin();
 	migrateKeybindingsConfigFile();
+	wireMissingCoreExtensions();
 	const deprecationWarnings = migrateExtensionSystem(cwd);
 	return { migratedAuthProviders, deprecationWarnings };
 }
