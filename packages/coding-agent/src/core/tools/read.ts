@@ -26,6 +26,16 @@ export interface ReadToolDetails {
 	truncation?: TruncationResult;
 }
 
+<<<<<<< ours
+=======
+interface CompactReadClassification {
+	kind: "docs" | "resource" | "skill";
+	label: string;
+}
+
+const COMPACT_RESOURCE_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
+
+>>>>>>> theirs
 /**
  * Pluggable operations for the read tool.
  * Override these to delegate file reading to remote systems (for example SSH).
@@ -85,6 +95,72 @@ function getNonVisionImageNote(model: Model<Api> | undefined): string | undefine
 	return "[Current model does not support images. The image will be omitted from this request.]";
 }
 
+<<<<<<< ours
+=======
+function toPosixPath(filePath: string): string {
+	return filePath.split(sep).join("/");
+}
+
+function getPiDocsClassification(absolutePath: string): CompactReadClassification | undefined {
+	const packageRoot = dirname(getReadmePath());
+	const relativePath = relative(resolvePath(packageRoot), resolvePath(absolutePath));
+	if (
+		relativePath === "" ||
+		relativePath === ".." ||
+		relativePath.startsWith(`..${sep}`) ||
+		isAbsolute(relativePath)
+	) {
+		return undefined;
+	}
+
+	const label = toPosixPath(relativePath);
+	if (label === "README.md" || label.startsWith("docs/") || label.startsWith("examples/")) {
+		return { kind: "docs", label };
+	}
+	return undefined;
+}
+
+function getCompactReadClassification(
+	args: { path?: string; file_path?: string } | undefined,
+	cwd: string,
+): CompactReadClassification | undefined {
+	const rawPath = str(args?.file_path ?? args?.path);
+	if (!rawPath) return undefined;
+
+	const absolutePath = resolveReadPath(rawPath, cwd);
+	const fileName = basename(absolutePath);
+	if (fileName === "SKILL.md") {
+		return { kind: "skill", label: basename(dirname(absolutePath)) || fileName };
+	}
+
+	const docsClassification = getPiDocsClassification(absolutePath);
+	if (docsClassification) return docsClassification;
+
+	if (COMPACT_RESOURCE_FILE_NAMES.has(fileName)) {
+		return { kind: "resource", label: fileName };
+	}
+
+	return undefined;
+}
+
+function formatCompactReadCall(classification: CompactReadClassification, theme: Theme): string {
+	if (classification.kind === "skill") {
+		return (
+			theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
+			theme.fg("customMessageText", classification.label) +
+			theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`)
+		);
+	}
+
+	return (
+		theme.fg("toolTitle", theme.bold(`read ${classification.kind}`)) +
+		" " +
+		theme.fg("accent", classification.label) +
+		theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`)
+	);
+}
+
+>>>>>>> theirs
 function formatReadResult(
 	args: { path?: string; file_path?: string; offset?: number; limit?: number } | undefined,
 	result: { content: (TextContent | ImageContent)[]; details?: ReadToolDetails },
@@ -92,6 +168,13 @@ function formatReadResult(
 	theme: typeof import("../../modes/interactive/theme/theme.js").theme,
 	showImages: boolean,
 ): string {
+<<<<<<< ours
+=======
+	if (!options.expanded && !isError && getCompactReadClassification(args, cwd)) {
+		return "";
+	}
+
+>>>>>>> theirs
 	const rawPath = str(args?.file_path ?? args?.path);
 	const output = getTextOutput(result as any, showImages);
 	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
@@ -257,12 +340,23 @@ export function createReadToolDefinition(
 		},
 		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+<<<<<<< ours
 			text.setText(formatReadCall(args, theme));
+=======
+			const classification = !context.expanded ? getCompactReadClassification(args, context.cwd) : undefined;
+			text.setText(classification ? formatCompactReadCall(classification, theme) : formatReadCall(args, theme));
+>>>>>>> theirs
 			return text;
 		},
 		renderResult(result, options, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+<<<<<<< ours
 			text.setText(formatReadResult(context.args, result as any, options, theme, context.showImages));
+=======
+			text.setText(
+				formatReadResult(context.args, result, options, theme, context.showImages, context.cwd, context.isError),
+			);
+>>>>>>> theirs
 			return text;
 		},
 	};
