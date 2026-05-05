@@ -15,6 +15,34 @@ import { SettingsManager } from "./core/settings-manager.js";
 import { shouldUseWindowsShell } from "./utils/child-process.js";
 import { getLatestPiVersion, isNewerPackageVersion } from "./utils/version-check.js";
 
+const REGISTRY_URL = "https://raw.githubusercontent.com/eminent337/aery-extensions/main/registry.json";
+
+interface RegistryPack {
+	description?: string;
+	source?: string;
+	install?: string;
+	coming_soon?: boolean;
+}
+
+interface Registry {
+	packs?: Record<string, RegistryPack>;
+}
+
+async function resolveRegistrySource(name: string): Promise<string | null> {
+	// Only resolve plain names (no slashes, colons, dots, or http)
+	if (/[/:.@]/.test(name) || name.startsWith("http")) return null;
+	try {
+		const res = await fetch(REGISTRY_URL);
+		if (!res.ok) return null;
+		const registry = (await res.json()) as Registry;
+		const pack = registry.packs?.[name];
+		if (!pack || pack.coming_soon) return null;
+		return pack.install ?? (pack.source ? `https://github.com/${pack.source}` : null);
+	} catch {
+		return null;
+	}
+}
+
 export type PackageCommand = "install" | "remove" | "update" | "list";
 
 type UpdateTarget = { type: "all" } | { type: "self" } | { type: "extensions"; source?: string };
@@ -26,6 +54,7 @@ interface PackageCommandOptions {
 	local: boolean;
 	force: boolean;
 	help: boolean;
+	listRegistry: boolean;
 	invalidOption?: string;
 	invalidArgument?: string;
 	missingOptionValue?: string;
@@ -136,6 +165,7 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 	let local = false;
 	let force = false;
 	let help = false;
+	let listRegistry = false;
 	let invalidOption: string | undefined;
 	let invalidArgument: string | undefined;
 	let missingOptionValue: string | undefined;
@@ -149,6 +179,10 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 		const arg = rest[index];
 		if (arg === "-h" || arg === "--help") {
 			help = true;
+			continue;
+		}
+		if (arg === "--list" && command === "install") {
+			listRegistry = true;
 			continue;
 		}
 
@@ -258,6 +292,7 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 		local,
 		force,
 		help,
+		listRegistry,
 		invalidOption,
 		invalidArgument,
 		missingOptionValue,
@@ -393,7 +428,7 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 	}
 
 	const source = options.source;
-	if ((options.command === "install" || options.command === "remove") && !source) {
+	if ((options.command === "install" || options.command === "remove") && !source && !options.listRegistry) {
 		console.error(chalk.red(`Missing ${options.command} source.`));
 		console.error(chalk.dim(`Usage: ${getPackageCommandUsage(options.command)}`));
 		process.exitCode = 1;
@@ -416,10 +451,40 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 
 	try {
 		switch (options.command) {
-			case "install":
-				await packageManager.installAndPersist(source!, { local: options.local });
+			case "install": {
+				if (options.listRegistry) {
+					try {
+						const res = await fetch(REGISTRY_URL);
+						if (!res.ok) throw new Error(`HTTP ${res.status}`);
+						const registry = (await res.json()) as Registry;
+						console.log(chalk.bold("\nAvailable extensions:\n"));
+						for (const [name, pack] of Object.entries(registry.packs ?? {})) {
+							if (pack.coming_soon) continue;
+							console.log(`  ${chalk.cyan(name.padEnd(24))} ${pack.description ?? ""}`);
+						}
+						console.log(chalk.dim(`\nInstall with: ${APP_NAME} install <name>`));
+					} catch (err) {
+						console.error(chalk.red(`Failed to fetch registry: ${err instanceof Error ? err.message : err}`));
+						process.exitCode = 1;
+					}
+					return true;
+				}
+				let installSource = source!;
+				const resolved = await resolveRegistrySource(installSource);
+				if (resolved) {
+					console.log(chalk.dim(`Resolved ${installSource} → ${resolved}`));
+					installSource = resolved;
+				} else if (/^[a-z0-9-]+$/.test(installSource) && !installSource.includes("/")) {
+					console.error(chalk.red(`Unknown extension: ${installSource}`));
+					console.error(chalk.dim(`Run: ${APP_NAME} install --list  to see available extensions`));
+					console.error(chalk.dim(`Or use a full source: git:github.com/user/repo`));
+					process.exitCode = 1;
+					return true;
+				}
+				await packageManager.installAndPersist(installSource, { local: options.local });
 				console.log(chalk.green(`Installed ${source}`));
 				return true;
+			}
 
 			case "remove": {
 				const removed = await packageManager.removeAndPersist(source!, { local: options.local });
