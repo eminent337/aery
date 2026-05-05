@@ -40,7 +40,7 @@ import {
 import { SessionManager } from "./core/session-manager.js";
 import { SettingsManager } from "./core/settings-manager.js";
 import { printTimings, resetTimings, time } from "./core/timings.js";
-import { runMigrations, showDeprecationWarnings } from "./migrations.js";
+import { ensureCoreExtensions, runMigrations, showDeprecationWarnings } from "./migrations.js";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.js";
 import { ExtensionSelectorComponent } from "./modes/interactive/components/extension-selector.js";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.js";
@@ -482,6 +482,10 @@ export async function main(args: string[], options?: MainOptions) {
 	// Run migrations (pass cwd for project-local migrations)
 	const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(process.cwd());
 	time("runMigrations");
+
+	// Ensure aery-extensions is cloned and core extensions are wired (no-op if already done)
+	ensureCoreExtensions();
+	time("ensureCoreExtensions");
 
 	const cwd = process.cwd();
 	const agentDir = getAgentDir();

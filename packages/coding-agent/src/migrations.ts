@@ -3,6 +3,7 @@
  */
 
 import chalk from "chalk";
+import { execSync } from "child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { CONFIG_DIR_NAME, getAgentDir, getBinDir } from "./config.js";
@@ -350,6 +351,33 @@ function wireMissingCoreExtensions(): void {
 	} catch {
 		// Silent fail
 	}
+}
+
+/**
+ * Ensure aery-extensions is cloned and core extensions are wired.
+ * Called at startup — installs aery-extensions if missing, then wires core extensions.
+ * Safe to call multiple times (idempotent).
+ */
+export function ensureCoreExtensions(): void {
+	const agentDir = getAgentDir();
+	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
+
+	// Clone if missing
+	if (!existsSync(repoPath)) {
+		try {
+			mkdirSync(join(agentDir, "git", "github.com", "eminent337"), { recursive: true });
+			execSync(`git clone --depth=1 https://github.com/eminent337/aery-extensions.git "${repoPath}"`, {
+				stdio: "pipe",
+				timeout: 30000,
+			});
+		} catch {
+			// Network unavailable or git missing — skip silently
+			return;
+		}
+	}
+
+	// Wire core extensions into settings
+	wireMissingCoreExtensions();
 }
 
 /**
