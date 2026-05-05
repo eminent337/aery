@@ -139,6 +139,7 @@ jobs:
                 -e 's|readPiManifest\b|readAeryManifest|g' \
                 -e 's|readPiManifestFile\b|readAeryManifestFile|g' \
                 -e 's|piConfig\b|aeryConfig|g' \
+                -e 's|piConfigName\b|aeryConfigName|g' \
                 -e 's|pkg\.pi\b|pkg.aery|g' \
                 -e "s|\"pi\": {|\"aery\": {|g" \
                 -e "s|pkg\[\"pi\"\]|pkg[\"aery\"]|g" \
