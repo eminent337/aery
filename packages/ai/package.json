@@ -1,6 +1,6 @@
 {
   "name": "@eminent337/aery-ai",
-  "version": "0.67.89",
+  "version": "0.67.90",
   "description": "Aery AI — unified LLM API with 300+ provider integrations",
   "type": "module",
   "main": "./dist/index.js",
