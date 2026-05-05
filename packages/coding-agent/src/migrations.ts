@@ -308,37 +308,22 @@ function wireMissingCoreExtensions(): void {
 
 	if (!existsSync(repoPath) || !existsSync(settingsPath)) return;
 
-	const coreDir = join(repoPath, "core");
-	if (!existsSync(coreDir)) return;
+	// Only auto-wire the minimal set — everything else is opt-in via aery install
+	const CORE = ["marketplace", "init-prompt"];
 
 	try {
 		const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 		const existing = new Set<string>(settings.extensions || []);
 		let added = false;
-
-		// Wire all .ts files directly in core/
-		for (const entry of readdirSync(coreDir, { withFileTypes: true })) {
-			if (entry.isFile() && entry.name.endsWith(".ts")) {
-				const p = join(coreDir, entry.name);
-				if (!existing.has(p)) {
-					settings.extensions = settings.extensions || [];
-					settings.extensions.push(p);
-					existing.add(p);
-					added = true;
-				}
-			}
-			// Wire subdirectory index files (e.g. subagent/index.ts)
-			if (entry.isDirectory()) {
-				const indexPath = join(coreDir, entry.name, "index.ts");
-				if (existsSync(indexPath) && !existing.has(indexPath)) {
-					settings.extensions = settings.extensions || [];
-					settings.extensions.push(indexPath);
-					existing.add(indexPath);
-					added = true;
-				}
+		for (const name of CORE) {
+			const p = join(repoPath, "core", `${name}.ts`);
+			if (existsSync(p) && !existing.has(p)) {
+				settings.extensions = settings.extensions || [];
+				settings.extensions.push(p);
+				existing.add(p);
+				added = true;
 			}
 		}
-
 		if (added) {
 			writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 		}
