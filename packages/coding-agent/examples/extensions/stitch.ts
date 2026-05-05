@@ -26,17 +26,17 @@ const execFileAsync = promisify(execFile);
 
 async function callStitchTool(toolName: string, data: unknown): Promise<string> {
 	const apiKey = process.env.STITCH_API_KEY;
-	if (!apiKey) {
-		throw new Error(
-			"STITCH_API_KEY environment variable not set. Get your key from https://stitch.google.com/settings",
-		);
+	const useSystemGcloud = process.env.STITCH_USE_SYSTEM_GCLOUD;
+
+	if (!apiKey && !useSystemGcloud) {
+		throw new Error("Not authenticated. Run /stitch login to set up Stitch authentication.");
 	}
 
 	const { stdout, stderr } = await execFileAsync(
 		"npx",
 		["@_davideast/stitch-mcp", "tool", toolName, "-d", JSON.stringify(data)],
 		{
-			env: { ...process.env, STITCH_API_KEY: apiKey },
+			env: { ...process.env },
 			timeout: 30000,
 		},
 	);
@@ -46,6 +46,16 @@ async function callStitchTool(toolName: string, data: unknown): Promise<string> 
 }
 
 export default function stitchExtension(pi: ExtensionAPI) {
+	// Prompt for login on first use if not authenticated
+	pi.on("session_start", (_event, ctx) => {
+		const isAuthed = process.env.STITCH_API_KEY || process.env.STITCH_USE_SYSTEM_GCLOUD;
+		if (!isAuthed) {
+			ctx.ui.notify(
+				"Stitch extension loaded but not authenticated.\nRun /stitch login to connect to Google Stitch.",
+				"info",
+			);
+		}
+	});
 	pi.registerTool({
 		name: "stitch_build_site",
 		label: "Stitch: Build Site",
@@ -115,15 +125,26 @@ export default function stitchExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("stitch", {
-		description: "Stitch integration — /stitch setup | /stitch projects",
+		description: "Stitch integration — /stitch login | /stitch projects",
 		handler: async (args, ctx) => {
 			const cmd = args.trim();
 
-			if (cmd === "setup") {
-				ctx.ui.notify(
-					"Set STITCH_API_KEY=<your-key> in your environment.\nGet your key from: https://stitch.google.com/settings",
-					"info",
-				);
+			if (cmd === "login") {
+				ctx.ui.notify("Opening Stitch authentication wizard...", "info");
+				try {
+					// Run stitch-mcp init in a visible subprocess
+					await execFileAsync("npx", ["@_davideast/stitch-mcp", "init"], {
+						env: { ...process.env },
+						timeout: 120000,
+						stdio: "inherit",
+					} as Parameters<typeof execFileAsync>[2]);
+					ctx.ui.notify("Stitch authentication complete.", "info");
+				} catch (err) {
+					ctx.ui.notify(
+						`Auth failed: ${err instanceof Error ? err.message : err}\n\nAlternatively, set STITCH_API_KEY=<your-key> from https://stitch.google.com/settings`,
+						"error",
+					);
+				}
 				return;
 			}
 
@@ -138,7 +159,10 @@ export default function stitchExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			ctx.ui.notify("Usage: /stitch setup | /stitch projects", "info");
+			ctx.ui.notify(
+				"Usage:\n  /stitch login     — authenticate with Google Stitch\n  /stitch projects  — list your Stitch projects",
+				"info",
+			);
 		},
 	});
 }
