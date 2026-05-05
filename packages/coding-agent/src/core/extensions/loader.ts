@@ -447,8 +447,11 @@ interface AeryManifest {
 function readAeryManifest(packageJsonPath: string): AeryManifest | null {
 	try {
 		const content = fs.readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content) as { aery?: AeryManifest; pi?: AeryManifest };
-		return pkg.aery ?? pkg.pi ?? null;
+		const pkg = JSON.parse(content);
+		if (pkg.pi && typeof pkg.pi === "object") {
+			return pkg.aery as AeryManifest;
+		}
+		return null;
 	} catch {
 		return null;
 	}
