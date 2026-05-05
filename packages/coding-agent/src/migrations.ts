@@ -3,7 +3,7 @@
  */
 
 import chalk from "chalk";
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { CONFIG_DIR_NAME, getAgentDir, getBinDir } from "./config.js";
@@ -360,8 +360,10 @@ function wireMissingCoreExtensions(): void {
  * Ensure aery-extensions is cloned and core extensions are wired.
  * Called at startup — installs aery-extensions if missing, then wires core extensions.
  * Safe to call multiple times (idempotent).
+ *
+ * @returns "installed" | "updated" | "offline" | "ok"
  */
-export function ensureCoreExtensions(): void {
+export function ensureCoreExtensions(): "installed" | "updated" | "offline" | "ok" {
 	const agentDir = getAgentDir();
 	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
 
@@ -373,14 +375,27 @@ export function ensureCoreExtensions(): void {
 				stdio: "pipe",
 				timeout: 30000,
 			});
+			wireMissingCoreExtensions();
+			return "installed";
 		} catch {
-			// Network unavailable or git missing — skip silently
-			return;
+			// Network unavailable or git missing
+			return "offline";
 		}
 	}
 
-	// Wire core extensions into settings
+	// Repo exists — pull updates in the background (fire and forget)
+	try {
+		spawnSync("git", ["-C", repoPath, "pull", "--ff-only", "--quiet"], {
+			timeout: 10000,
+			stdio: "pipe",
+		});
+	} catch {
+		// Ignore pull failures — offline or git missing
+	}
+
+	// Wire any newly added core extensions
 	wireMissingCoreExtensions();
+	return "ok";
 }
 
 /**

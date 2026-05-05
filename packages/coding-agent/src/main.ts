@@ -484,7 +484,7 @@ export async function main(args: string[], options?: MainOptions) {
 	time("runMigrations");
 
 	// Ensure aery-extensions is cloned and core extensions are wired (no-op if already done)
-	ensureCoreExtensions();
+	const coreExtStatus = ensureCoreExtensions();
 	time("ensureCoreExtensions");
 
 	const cwd = process.cwd();
@@ -657,6 +657,15 @@ export async function main(args: string[], options?: MainOptions) {
 	// Show deprecation warnings in interactive mode
 	if (appMode === "interactive" && deprecationWarnings.length > 0) {
 		await showDeprecationWarnings(deprecationWarnings);
+	}
+
+	// Notify if extensions couldn't be installed due to no network
+	if (appMode === "interactive" && coreExtStatus === "offline") {
+		console.log(
+			chalk.yellow(
+				"Extensions not installed (no network). Run aery again with network access, or run: aery install core",
+			),
+		);
 	}
 
 	const scopedModels = [...session.scopedModels];

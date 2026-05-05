@@ -34,12 +34,19 @@ export interface SelfUpdateCommand {
 	display: string;
 }
 
+/** Returns the path used for install method detection. Exported for testing. */
+export function getInstallPath(): string {
+	// AERY_PACKAGE_DIR overrides __dirname for testing and non-standard installs
+	const dir = process.env.AERY_PACKAGE_DIR ?? __dirname;
+	return `${dir}\0${process.execPath || ""}`;
+}
+
 export function detectInstallMethod(): InstallMethod {
 	if (isBunBinary) {
 		return "bun-binary";
 	}
 
-	const resolvedPath = `${__dirname}\0${process.execPath || ""}`.toLowerCase().replace(/\\/g, "/");
+	const resolvedPath = getInstallPath().toLowerCase().replace(/\\/g, "/");
 
 	if (resolvedPath.includes("/pnpm/") || resolvedPath.includes("/.pnpm/")) {
 		return "pnpm";
