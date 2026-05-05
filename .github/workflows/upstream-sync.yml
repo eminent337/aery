@@ -130,7 +130,9 @@ jobs:
                 -e 's|PI_SPAWN_HOOK|AERY_SPAWN_HOOK|g' \
                 -e 's|PI_NO_LOCAL_LLM|AERY_NO_LOCAL_LLM|g' \
                 -e 's|PI_VERSION|AERY_VERSION|g' \
+                -e 's|PI_CODING_AGENT_SESSION_DIR|AERY_CODING_AGENT_SESSION_DIR|g' \
                 -e 's|PI_CODING_AGENT_DIR|AERY_CODING_AGENT_DIR|g' \
+                -e 's|PI_CODING_AGENT\b|AERY_CODING_AGENT|g' \
                 -e 's|PI_STARTUP_BENCHMARK|AERY_STARTUP_BENCHMARK|g' \
                 -e 's|PI_IMAGE_SAVE_MODE|AERY_IMAGE_SAVE_MODE|g' \
                 -e 's|PI_IMAGE_SAVE_DIR|AERY_IMAGE_SAVE_DIR|g' \
