@@ -309,14 +309,38 @@ function wireMissingCoreExtensions(): void {
 	if (!existsSync(repoPath) || !existsSync(settingsPath)) return;
 
 	// Only auto-wire the minimal set — everything else is opt-in via aery install
-	const CORE = ["marketplace", "init-prompt"];
+	const CORE: Array<string | [string, string]> = [
+		"damage-control",
+		"provider-profiles",
+		"model-failover",
+		"web-search",
+		"web-fetch",
+		"commands",
+		"hooks",
+		"circuit-breaker",
+		"auto-router",
+		"memory-include",
+		"aery-header",
+		"aery-footer",
+		"multi-agent",
+		"agent-chain",
+		"agent-teams",
+		"help",
+		"default-agents",
+		"aery-doctor",
+		"aery-team",
+		["subagent", "subagent/index"],
+		"marketplace",
+		"init-prompt",
+	];
 
 	try {
 		const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 		const existing = new Set<string>(settings.extensions || []);
 		let added = false;
-		for (const name of CORE) {
-			const p = join(repoPath, "core", `${name}.ts`);
+		for (const ext of CORE) {
+			const [, filePath] = Array.isArray(ext) ? ext : [ext, ext];
+			const p = join(repoPath, "core", `${filePath}.ts`);
 			if (existsSync(p) && !existing.has(p)) {
 				settings.extensions = settings.extensions || [];
 				settings.extensions.push(p);
