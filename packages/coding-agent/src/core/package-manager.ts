@@ -772,6 +772,10 @@ export class DefaultPackageManager implements PackageManager {
 		this.progressCallback = callback;
 	}
 
+	shouldUseWindowsShell(command: string): boolean {
+		return shouldUseWindowsShell(command);
+	}
+
 	addSourceToSettings(source: string, options?: { local?: boolean }): boolean {
 		const scope: SourceScope = options?.local ? "project" : "user";
 		const currentSettings =
