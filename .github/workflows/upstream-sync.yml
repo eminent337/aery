@@ -113,6 +113,35 @@ jobs:
                 -e 's|PI_OFFLINE|AERY_OFFLINE|g' \
                 -e 's|PI_CONFIG_DIR|AERY_CONFIG_DIR|g' \
                 -e 's|PI_AGENT_DIR|AERY_AGENT_DIR|g' \
+                -e 's|PI_TELEMETRY|AERY_TELEMETRY|g' \
+                -e 's|PI_PACKAGE_DIR|AERY_PACKAGE_DIR|g' \
+                -e 's|PI_CACHE_RETENTION|AERY_CACHE_RETENTION|g' \
+                -e 's|PI_HARDWARE_CURSOR|AERY_HARDWARE_CURSOR|g' \
+                -e 's|PI_CLEAR_ON_SHRINK|AERY_CLEAR_ON_SHRINK|g' \
+                -e 's|PI_DEBUG_REDRAW|AERY_DEBUG_REDRAW|g' \
+                -e 's|PI_TUI_DEBUG|AERY_TUI_DEBUG|g' \
+                -e 's|PI_TUI_WRITE_LOG|AERY_TUI_WRITE_LOG|g' \
+                -e 's|PI_OAUTH_CALLBACK_HOST|AERY_OAUTH_CALLBACK_HOST|g' \
+                -e 's|PI_AI_ANTIGRAVITY_VERSION|AERY_AI_ANTIGRAVITY_VERSION|g' \
+                -e 's|PI_API_KEY|AERY_API_KEY|g' \
+                -e 's|PI_SHARE_VIEWER_URL|AERY_SHARE_VIEWER_URL|g' \
+                -e 's|PI_TIMING|AERY_TIMING|g' \
+                -e 's|PI_WSL_CLIPBOARD_IMAGE_PATH|AERY_WSL_CLIPBOARD_IMAGE_PATH|g' \
+                -e 's|PI_SPAWN_HOOK|AERY_SPAWN_HOOK|g' \
+                -e 's|PI_NO_LOCAL_LLM|AERY_NO_LOCAL_LLM|g' \
+                -e 's|PI_VERSION|AERY_VERSION|g' \
+                -e 's|PI_CODING_AGENT_DIR|AERY_CODING_AGENT_DIR|g' \
+                -e 's|PI_STARTUP_BENCHMARK|AERY_STARTUP_BENCHMARK|g' \
+                -e 's|PI_IMAGE_SAVE_MODE|AERY_IMAGE_SAVE_MODE|g' \
+                -e 's|PI_IMAGE_SAVE_DIR|AERY_IMAGE_SAVE_DIR|g' \
+                -e 's|interface PiManifest|interface AeryManifest|g' \
+                -e 's|PiManifest\b|AeryManifest|g' \
+                -e 's|readPiManifest\b|readAeryManifest|g' \
+                -e 's|readPiManifestFile\b|readAeryManifestFile|g' \
+                -e 's|piConfig\b|aeryConfig|g' \
+                -e 's|pkg\.pi\b|pkg.aery|g' \
+                -e "s|\"pi\": {|\"aery\": {|g" \
+                -e "s|pkg\[\"pi\"\]|pkg[\"aery\"]|g" \
                 -e 's|\.pi/extensions|.aery/extensions|g' \
                 -e 's|\.pi/skills|.aery/skills|g' \
                 -e 's|\.pi/prompts|.aery/prompts|g' \
@@ -198,8 +227,8 @@ jobs:
           (cd packages/agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
           npm publish ./packages/agent --access public --ignore-scripts --tag latest || true
 
-          # Update aery-ai/aery-core deps in coding-agent and web-ui
-          node -e "const fs=require('fs');for(const f of ['packages/coding-agent/package.json','packages/web-ui/package.json']){const p=JSON.parse(fs.readFileSync(f));if(p.dependencies?.['@eminent337/aery-ai'])p.dependencies['@eminent337/aery-ai']='$AI_NEW';if(p.dependencies?.['@eminent337/aery-core'])p.dependencies['@eminent337/aery-core']='$CORE_NEW';fs.writeFileSync(f,JSON.stringify(p,null,2));}"
+          # Update aery-ai/aery-core deps in coding-agent only (web-ui uses * to always resolve workspace)
+          node -e "const fs=require('fs');for(const f of ['packages/coding-agent/package.json']){const p=JSON.parse(fs.readFileSync(f));if(p.dependencies?.['@eminent337/aery-ai'])p.dependencies['@eminent337/aery-ai']='$AI_NEW';if(p.dependencies?.['@eminent337/aery-core'])p.dependencies['@eminent337/aery-core']='$CORE_NEW';fs.writeFileSync(f,JSON.stringify(p,null,2));}"
           npm install --ignore-scripts 2>/dev/null || true
 
           # Install tsgo globally so builds succeed

@@ -255,7 +255,7 @@ export function getUpdateInstruction(packageName: string): string {
  */
 export function getPackageDir(): string {
 	// Allow override via environment variable (useful for Nix/Guix where store paths tokenize poorly)
-	const envDir = process.env.PI_PACKAGE_DIR;
+	const envDir = process.env.AERY_PACKAGE_DIR;
 	if (envDir) {
 		if (envDir === "~") return homedir();
 		if (envDir.startsWith("~/")) return homedir() + envDir.slice(1);
@@ -365,16 +365,12 @@ interface PackageJson {
 		name?: string;
 		configDir?: string;
 	};
-	piConfig?: {
-		name?: string;
-		configDir?: string;
-	};
 }
 
 const pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8")) as PackageJson;
 
-export const APP_NAME: string = pkg.aeryConfig?.name || pkg.piConfig?.name || "aery";
-export const CONFIG_DIR_NAME: string = pkg.aeryConfig?.configDir || pkg.piConfig?.configDir || ".aery";
+export const APP_NAME: string = pkg.aeryConfig?.name || "aery";
+export const CONFIG_DIR_NAME: string = pkg.aeryConfig?.configDir || ".aery";
 export const VERSION: string = pkg.version ?? "0.0.0";
 
 // e.g., AERY_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
@@ -384,7 +380,7 @@ const DEFAULT_SHARE_VIEWER_URL = "https://aery.dev/session/";
 
 /** Get the share viewer URL for a gist ID */
 export function getShareViewerUrl(gistId: string): string {
-	const baseUrl = process.env.PI_SHARE_VIEWER_URL || DEFAULT_SHARE_VIEWER_URL;
+	const baseUrl = process.env.AERY_SHARE_VIEWER_URL || DEFAULT_SHARE_VIEWER_URL;
 	return `${baseUrl}#${gistId}`;
 }
 

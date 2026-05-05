@@ -49,7 +49,7 @@ Model Management:
 
 Environment:
   HF_TOKEN         HuggingFace token for model downloads
-  PI_API_KEY     API key for vLLM endpoints
+  AERY_API_KEY     API key for vLLM endpoints
   AERY_CONFIG_DIR    Config directory (default: ~/.aery)`);
 }
 
@@ -333,7 +333,7 @@ try {
 					process.exit(1);
 				}
 
-				const apiKey = process.env.PI_API_KEY;
+				const apiKey = process.env.AERY_API_KEY;
 
 				// Pass all args after the model name
 				const agentArgs = args.slice(2);

@@ -154,16 +154,6 @@ type CompactionQueuedMessage = {
 	mode: "steer" | "followUp";
 };
 
-const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN"]);
-
-function isDeadTerminalError(error: unknown): boolean {
-	if (!error || typeof error !== "object" || !("code" in error)) {
-		return false;
-	}
-	const code = (error as NodeJS.ErrnoException).code;
-	return code !== undefined && DEAD_TERMINAL_ERROR_CODES.has(code);
-}
-
 const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING =
 	"Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage.";
 
@@ -773,7 +763,7 @@ export class InteractiveMode {
 	}
 
 	private async checkForPackageUpdates(): Promise<string[]> {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.AERY_OFFLINE) {
 			return [];
 		}
 
@@ -871,7 +861,7 @@ export class InteractiveMode {
 	}
 
 	private reportInstallTelemetry(version: string): void {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.AERY_OFFLINE) {
 			return;
 		}
 
@@ -3292,15 +3282,6 @@ export class InteractiveMode {
 		process.exit(0);
 	}
 
-	private emergencyTerminalExit(): never {
-		this.isShuttingDown = true;
-		this.unregisterSignalHandlers();
-		killTrackedDetachedChildren();
-		// The terminal is gone. Do not run normal shutdown because TUI and
-		// extension cleanup can write restore sequences and re-trigger EIO.
-		process.exit(129);
-	}
-
 	/**
 	 * Check if shutdown was requested and perform shutdown if so.
 	 */
@@ -3319,26 +3300,12 @@ export class InteractiveMode {
 
 		for (const signal of signals) {
 			const handler = () => {
-				if (signal === "SIGHUP") {
-					this.emergencyTerminalExit();
-				}
 				killTrackedDetachedChildren();
 				void this.shutdown();
 			};
-			process.prependListener(signal, handler);
+			process.on(signal, handler);
 			this.signalCleanupHandlers.push(() => process.off(signal, handler));
 		}
-
-		const terminalErrorHandler = (error: Error) => {
-			if (isDeadTerminalError(error)) {
-				this.emergencyTerminalExit();
-			}
-			throw error;
-		};
-		process.stdout.on("error", terminalErrorHandler);
-		process.stderr.on("error", terminalErrorHandler);
-		this.signalCleanupHandlers.push(() => process.stdout.off("error", terminalErrorHandler));
-		this.signalCleanupHandlers.push(() => process.stderr.off("error", terminalErrorHandler));
 	}
 
 	private unregisterSignalHandlers(): void {

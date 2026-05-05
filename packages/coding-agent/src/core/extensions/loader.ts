@@ -437,21 +437,18 @@ export async function loadExtensions(paths: string[], cwd: string, eventBus?: Ev
 	};
 }
 
-interface PiManifest {
+interface AeryManifest {
 	extensions?: string[];
 	themes?: string[];
 	skills?: string[];
 	prompts?: string[];
 }
 
-function readPiManifest(packageJsonPath: string): PiManifest | null {
+function readAeryManifest(packageJsonPath: string): AeryManifest | null {
 	try {
 		const content = fs.readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content);
-		if (pkg.pi && typeof pkg.pi === "object") {
-			return pkg.aery as PiManifest;
-		}
-		return null;
+		const pkg = JSON.parse(content) as { aery?: AeryManifest; pi?: AeryManifest };
+		return pkg.aery ?? pkg.pi ?? null;
 	} catch {
 		return null;
 	}
@@ -474,7 +471,7 @@ function resolveExtensionEntries(dir: string): string[] | null {
 	// Check for package.json with "aery" field first
 	const packageJsonPath = path.join(dir, "package.json");
 	if (fs.existsSync(packageJsonPath)) {
-		const manifest = readPiManifest(packageJsonPath);
+		const manifest = readAeryManifest(packageJsonPath);
 		if (manifest?.extensions?.length) {
 			const entries: string[] = [];
 			for (const extPath of manifest.extensions) {

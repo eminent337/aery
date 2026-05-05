@@ -9,14 +9,14 @@ import {
 import type { Context, Model } from "../src/types.js";
 
 const originalFetch = global.fetch;
-const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+const originalAgentDir = process.env.AERY_CODING_AGENT_DIR;
 
 afterEach(() => {
 	global.fetch = originalFetch;
 	if (originalAgentDir === undefined) {
-		delete process.env.PI_CODING_AGENT_DIR;
+		delete process.env.AERY_CODING_AGENT_DIR;
 	} else {
-		process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+		process.env.AERY_CODING_AGENT_DIR = originalAgentDir;
 	}
 	vi.restoreAllMocks();
 });
@@ -79,7 +79,7 @@ function buildSSEPayload({
 describe("openai-codex streaming", () => {
 	it("streams SSE responses into AssistantMessageEventStream", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		process.env.AERY_CODING_AGENT_DIR = tempDir;
 
 		const payload = Buffer.from(
 			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_test" } }),
@@ -190,7 +190,7 @@ describe("openai-codex streaming", () => {
 
 	it("completes after response.completed even when the SSE body stays open", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		process.env.AERY_CODING_AGENT_DIR = tempDir;
 		const token = mockToken();
 		const encoder = new TextEncoder();
 		const sse = buildSSEPayload({ status: "completed", includeDone: true });
@@ -249,7 +249,7 @@ describe("openai-codex streaming", () => {
 
 	it("maps response.incomplete to stopReason length even when the SSE body stays open", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		process.env.AERY_CODING_AGENT_DIR = tempDir;
 		const token = mockToken();
 		const encoder = new TextEncoder();
 		const sse = buildSSEPayload({ status: "incomplete" });
@@ -308,7 +308,7 @@ describe("openai-codex streaming", () => {
 
 	it("sets session_id/x-client-request-id headers and prompt_cache_key when sessionId is provided", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		process.env.AERY_CODING_AGENT_DIR = tempDir;
 
 		const payload = Buffer.from(
 			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_test" } }),
@@ -408,7 +408,7 @@ describe("openai-codex streaming", () => {
 
 	it("preserves gpt-5.5 xhigh reasoning effort from simple options", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		process.env.AERY_CODING_AGENT_DIR = tempDir;
 		const token = mockToken();
 		const sse = buildSSEPayload({ status: "completed" });
 		const encoder = new TextEncoder();
@@ -463,7 +463,7 @@ describe("openai-codex streaming", () => {
 
 	it.each(["gpt-5.3-codex", "gpt-5.4", "gpt-5.5"])("clamps %s minimal reasoning effort to low", async (modelId) => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		process.env.AERY_CODING_AGENT_DIR = tempDir;
 
 		const payload = Buffer.from(
 			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_test" } }),
@@ -566,7 +566,7 @@ describe("openai-codex streaming", () => {
 		"uses the client-sent %s service tier for %s when Codex echoes default",
 		async (modelId, serviceTier, multiplier) => {
 			const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-			process.env.PI_CODING_AGENT_DIR = tempDir;
+			process.env.AERY_CODING_AGENT_DIR = tempDir;
 			const token = mockToken();
 			const sse = `${[
 				`data: ${JSON.stringify({
@@ -653,7 +653,7 @@ describe("openai-codex streaming", () => {
 
 	it("does not set session_id/x-client-request-id headers when sessionId is not provided", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		process.env.AERY_CODING_AGENT_DIR = tempDir;
 
 		const payload = Buffer.from(
 			JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_test" } }),

@@ -11,7 +11,7 @@ import {
 
 const execPathDescriptor = Object.getOwnPropertyDescriptor(process, "execPath");
 const originalPath = process.env.PATH;
-const originalPiPackageDir = process.env.PI_PACKAGE_DIR;
+const originalPiPackageDir = process.env.AERY_PACKAGE_DIR;
 let tempDir: string | undefined;
 
 function setExecPath(value: string): void {
@@ -31,9 +31,9 @@ afterEach(() => {
 		process.env.PATH = originalPath;
 	}
 	if (originalPiPackageDir === undefined) {
-		delete process.env.PI_PACKAGE_DIR;
+		delete process.env.AERY_PACKAGE_DIR;
 	} else {
-		process.env.PI_PACKAGE_DIR = originalPiPackageDir;
+		process.env.AERY_PACKAGE_DIR = originalPiPackageDir;
 	}
 	if (tempDir) {
 		chmodSync(tempDir, 0o700);
@@ -49,7 +49,7 @@ function createNpmPrefixInstall(template = "pi-prefix-"): { prefix: string; pack
 	const packageDir = join(scopeDir, "pi-coding-agent");
 	mkdirSync(packageDir, { recursive: true });
 	tempDir = prefix;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env.AERY_PACKAGE_DIR = packageDir;
 	setExecPath(join(packageDir, "dist", "cli.js"));
 	return { prefix, packageDir };
 }
@@ -67,7 +67,7 @@ function createBunGlobalInstall(): { packageDir: string } {
 	chmodSync(join(bunBin, process.platform === "win32" ? "bun.cmd" : "bun"), 0o755);
 	tempDir = temp;
 	process.env.PATH = `${bunBin}${delimiter}${originalPath ?? ""}`;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env.AERY_PACKAGE_DIR = packageDir;
 	setExecPath(join(packageDir, "dist", "cli.js"));
 	return { packageDir };
 }
@@ -143,7 +143,7 @@ describe("detectInstallMethod", () => {
 
 	test("does not infer Windows npm custom prefixes from package paths", () => {
 		const packageDir = "C:\\Users\\Admin\\npm prefix\\node_modules\\@mariozechner\\pi-coding-agent";
-		process.env.PI_PACKAGE_DIR = packageDir;
+		process.env.AERY_PACKAGE_DIR = packageDir;
 		setExecPath(`${packageDir}\\dist\\cli.js`);
 
 		expect(detectInstallMethod()).toBe("npm");

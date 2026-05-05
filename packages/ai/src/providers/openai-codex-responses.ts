@@ -32,11 +32,6 @@ import type {
 	StreamOptions,
 	Usage,
 } from "../types.js";
-import {
-	appendAssistantMessageDiagnostic,
-	createAssistantMessageDiagnostic,
-	formatThrownValue,
-} from "../utils/diagnostics.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
@@ -51,7 +46,6 @@ const JWT_CLAIM_PATH = "https://api.openai.com/auth" as const;
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
 const CODEX_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
-const WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE = 1009;
 
 const CODEX_RESPONSE_STATUSES = new Set<CodexResponseStatus>([
 	"completed",
@@ -170,17 +164,9 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 				websocketRequestId,
 			);
 			const bodyJson = JSON.stringify(body);
-<<<<<<< ours
 			const transport = options?.transport || "sse";
-=======
-			const transport = options?.transport || "auto";
-			const websocketDisabledForSession = transport !== "sse" && isWebSocketSseFallbackActive(options?.sessionId);
-			if (websocketDisabledForSession) {
-				recordWebSocketSseFallback(options?.sessionId);
-			}
->>>>>>> theirs
 
-			if (transport !== "sse" && !websocketDisabledForSession) {
+			if (transport !== "sse") {
 				let websocketStarted = false;
 				try {
 					await processWebSocketStream(
@@ -207,29 +193,9 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 					stream.end();
 					return;
 				} catch (error) {
-<<<<<<< ours
 					if (transport === "websocket" || websocketStarted) {
-=======
-					const aborted = options?.signal?.aborted;
-					if (aborted || isCodexNonTransportError(error)) {
 						throw error;
 					}
-					appendAssistantMessageDiagnostic(
-						output,
-						createAssistantMessageDiagnostic("provider_transport_failure", error, {
-							configuredTransport: transport,
-							fallbackTransport: websocketStarted ? undefined : "sse",
-							eventsEmitted: websocketStarted,
-							phase: websocketStarted ? "after_message_stream_start" : "before_message_stream_start",
-							requestBytes: new TextEncoder().encode(bodyJson).byteLength,
-						}),
-					);
-					recordWebSocketFailure(options?.sessionId, error);
-					if (websocketStarted) {
->>>>>>> theirs
-						throw error;
-					}
-					recordWebSocketSseFallback(options?.sessionId);
 				}
 			}
 
@@ -472,34 +438,6 @@ async function processStream(
 	});
 }
 
-class CodexApiError extends Error {
-	readonly code?: string;
-	readonly payload?: Record<string, unknown>;
-
-	constructor(message: string, options?: { code?: string; payload?: Record<string, unknown>; cause?: unknown }) {
-		super(message);
-		this.name = "CodexApiError";
-		this.code = options?.code;
-		this.payload = options?.payload;
-		this.cause = options?.cause;
-	}
-}
-
-class CodexProtocolError extends Error {
-	readonly payload?: unknown;
-
-	constructor(message: string, options?: { payload?: unknown; cause?: unknown }) {
-		super(message);
-		this.name = "CodexProtocolError";
-		this.payload = options?.payload;
-		this.cause = options?.cause;
-	}
-}
-
-function isCodexNonTransportError(error: unknown): boolean {
-	return error instanceof CodexApiError || error instanceof CodexProtocolError;
-}
-
 async function* mapCodexEvents(events: AsyncIterable<Record<string, unknown>>): AsyncGenerator<ResponseStreamEvent> {
 	for await (const event of events) {
 		const type = typeof event.type === "string" ? event.type : undefined;
@@ -508,17 +446,12 @@ async function* mapCodexEvents(events: AsyncIterable<Record<string, unknown>>): 
 		if (type === "error") {
 			const code = (event as { code?: string }).code || "";
 			const message = (event as { message?: string }).message || "";
-			throw new CodexApiError(`Codex error: ${message || code || JSON.stringify(event)}`, {
-				code: code || undefined,
-				payload: event,
-			});
+			throw new Error(`Codex error: ${message || code || JSON.stringify(event)}`);
 		}
 
 		if (type === "response.failed") {
-			const response = (event as { response?: { error?: { code?: string; message?: string } } }).response;
-			const code = response?.error?.code;
-			const message = response?.error?.message;
-			throw new CodexApiError(message || "Codex response failed", { code, payload: event });
+			const msg = (event as { response?: { error?: { message?: string } } }).response?.error?.message;
+			throw new Error(msg || "Codex response failed");
 		}
 
 		if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
@@ -569,13 +502,8 @@ async function* parseSSE(response: Response): AsyncGenerator<Record<string, unkn
 					const data = dataLines.join("\n").trim();
 					if (data && data !== "[DONE]") {
 						try {
-							yield JSON.parse(data) as Record<string, unknown>;
-						} catch (cause) {
-							throw new CodexProtocolError(`Invalid Codex SSE JSON: ${formatThrownValue(cause)}`, {
-								cause,
-								payload: data,
-							});
-						}
+							yield JSON.parse(data);
+						} catch {}
 					}
 				}
 				idx = buffer.indexOf("\n\n");
@@ -612,108 +540,9 @@ interface CachedWebSocketConnection {
 	socket: WebSocketLike;
 	busy: boolean;
 	idleTimer?: ReturnType<typeof setTimeout>;
-<<<<<<< ours
 }
 
 const websocketSessionCache = new Map<string, CachedWebSocketConnection>();
-=======
-	continuation?: CachedWebSocketContinuationState;
-}
-
-export interface OpenAICodexWebSocketDebugStats {
-	requests: number;
-	connectionsCreated: number;
-	connectionsReused: number;
-	cachedContextRequests: number;
-	storeTrueRequests: number;
-	fullContextRequests: number;
-	deltaRequests: number;
-	lastInputItems: number;
-	lastDeltaInputItems?: number;
-	lastPreviousResponseId?: string;
-	websocketFailures: number;
-	sseFallbacks: number;
-	websocketFallbackActive?: boolean;
-	lastWebSocketError?: string;
-}
-
-const websocketSessionCache = new Map<string, CachedWebSocketConnection>();
-const websocketDebugStats = new Map<string, OpenAICodexWebSocketDebugStats>();
-const websocketSseFallbackSessions = new Set<string>();
-
-function getOrCreateWebSocketDebugStats(sessionId: string): OpenAICodexWebSocketDebugStats {
-	let stats = websocketDebugStats.get(sessionId);
-	if (!stats) {
-		stats = {
-			requests: 0,
-			connectionsCreated: 0,
-			connectionsReused: 0,
-			cachedContextRequests: 0,
-			storeTrueRequests: 0,
-			fullContextRequests: 0,
-			deltaRequests: 0,
-			lastInputItems: 0,
-			websocketFailures: 0,
-			sseFallbacks: 0,
-		};
-		websocketDebugStats.set(sessionId, stats);
-	}
-	return stats;
-}
-
-export function getOpenAICodexWebSocketDebugStats(sessionId: string): OpenAICodexWebSocketDebugStats | undefined {
-	const stats = websocketDebugStats.get(sessionId);
-	return stats ? { ...stats } : undefined;
-}
-
-export function resetOpenAICodexWebSocketDebugStats(sessionId?: string): void {
-	if (sessionId) {
-		websocketDebugStats.delete(sessionId);
-		websocketSseFallbackSessions.delete(sessionId);
-		return;
-	}
-	websocketDebugStats.clear();
-	websocketSseFallbackSessions.clear();
-}
-
-export function closeOpenAICodexWebSocketSessions(sessionId?: string): void {
-	const closeEntry = (entry: CachedWebSocketConnection) => {
-		if (entry.idleTimer) clearTimeout(entry.idleTimer);
-		closeWebSocketSilently(entry.socket, 1000, "debug_close");
-	};
-	if (sessionId) {
-		const entry = websocketSessionCache.get(sessionId);
-		if (entry) closeEntry(entry);
-		websocketSessionCache.delete(sessionId);
-		return;
-	}
-	for (const entry of websocketSessionCache.values()) {
-		closeEntry(entry);
-	}
-	websocketSessionCache.clear();
-}
->>>>>>> theirs
-
-function isWebSocketSseFallbackActive(sessionId: string | undefined): boolean {
-	return sessionId ? websocketSseFallbackSessions.has(sessionId) : false;
-}
-
-function recordWebSocketSseFallback(sessionId: string | undefined): void {
-	if (!sessionId) return;
-	const stats = getOrCreateWebSocketDebugStats(sessionId);
-	stats.sseFallbacks++;
-	stats.websocketFallbackActive = isWebSocketSseFallbackActive(sessionId);
-}
-
-function recordWebSocketFailure(sessionId: string | undefined, error: unknown): void {
-	if (!sessionId) return;
-	websocketSseFallbackSessions.add(sessionId);
-
-	const stats = getOrCreateWebSocketDebugStats(sessionId);
-	stats.websocketFailures++;
-	stats.lastWebSocketError = formatThrownValue(error);
-	stats.websocketFallbackActive = true;
-}
 
 type WebSocketConstructor = new (
 	url: string,
@@ -724,20 +553,6 @@ function getWebSocketConstructor(): WebSocketConstructor | null {
 	const ctor = (globalThis as { WebSocket?: unknown }).WebSocket;
 	if (typeof ctor !== "function") return null;
 	return ctor as unknown as WebSocketConstructor;
-}
-
-class WebSocketCloseError extends Error {
-	readonly code?: number;
-	readonly reason?: string;
-	readonly wasClean?: boolean;
-
-	constructor(message: string, options?: { code?: number; reason?: string; wasClean?: boolean }) {
-		super(message);
-		this.name = "WebSocketCloseError";
-		this.code = options?.code;
-		this.reason = options?.reason;
-		this.wasClean = options?.wasClean;
-	}
 }
 
 function getWebSocketReadyState(socket: WebSocketLike): number | undefined {
@@ -907,21 +722,10 @@ async function acquireWebSocket(
 }
 
 function extractWebSocketError(event: unknown): Error {
-	if (event && typeof event === "object") {
-		const message = "message" in event ? (event as { message?: unknown }).message : undefined;
+	if (event && typeof event === "object" && "message" in event) {
+		const message = (event as { message?: unknown }).message;
 		if (typeof message === "string" && message.length > 0) {
 			return new Error(message);
-		}
-
-		const nestedError = "error" in event ? (event as { error?: unknown }).error : undefined;
-		if (nestedError instanceof Error && nestedError.message.length > 0) {
-			return nestedError;
-		}
-		if (nestedError && typeof nestedError === "object" && "message" in nestedError) {
-			const nestedMessage = (nestedError as { message?: unknown }).message;
-			if (typeof nestedMessage === "string" && nestedMessage.length > 0) {
-				return new Error(nestedMessage);
-			}
 		}
 	}
 	return new Error("WebSocket error");
@@ -931,17 +735,9 @@ function extractWebSocketCloseError(event: unknown): Error {
 	if (event && typeof event === "object") {
 		const code = "code" in event ? (event as { code?: unknown }).code : undefined;
 		const reason = "reason" in event ? (event as { reason?: unknown }).reason : undefined;
-		const wasClean = "wasClean" in event ? (event as { wasClean?: unknown }).wasClean : undefined;
 		const codeText = typeof code === "number" ? ` ${code}` : "";
-		let reasonText = typeof reason === "string" && reason.length > 0 ? ` ${reason}` : "";
-		if (!reasonText && code === WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE) {
-			reasonText = " message too big";
-		}
-		return new WebSocketCloseError(`WebSocket closed${codeText}${reasonText}`.trim(), {
-			code: typeof code === "number" ? code : undefined,
-			reason: typeof reason === "string" && reason.length > 0 ? reason : undefined,
-			wasClean: typeof wasClean === "boolean" ? wasClean : undefined,
-		});
+		const reasonText = typeof reason === "string" && reason.length > 0 ? ` ${reason}` : "";
+		return new Error(`WebSocket closed${codeText}${reasonText}`.trim());
 	}
 	return new Error("WebSocket closed");
 }
@@ -979,11 +775,10 @@ async function* parseWebSocket(socket: WebSocketLike, signal?: AbortSignal): Asy
 
 	const onMessage: WebSocketListener = (event) => {
 		void (async () => {
-			let text: string | null = null;
+			if (!event || typeof event !== "object" || !("data" in event)) return;
+			const text = await decodeWebSocketData((event as { data?: unknown }).data);
+			if (!text) return;
 			try {
-				if (!event || typeof event !== "object" || !("data" in event)) return;
-				text = await decodeWebSocketData((event as { data?: unknown }).data);
-				if (!text) return;
 				const parsed = JSON.parse(text) as Record<string, unknown>;
 				const type = typeof parsed.type === "string" ? parsed.type : "";
 				if (type === "response.completed" || type === "response.done" || type === "response.incomplete") {
@@ -992,14 +787,7 @@ async function* parseWebSocket(socket: WebSocketLike, signal?: AbortSignal): Asy
 				}
 				queue.push(parsed);
 				wake();
-			} catch (cause) {
-				failed = new CodexProtocolError(`Invalid Codex WebSocket JSON: ${formatThrownValue(cause)}`, {
-					cause,
-					payload: text,
-				});
-				done = true;
-				wake();
-			}
+			} catch {}
 		})();
 	};
 
@@ -1062,80 +850,6 @@ async function* parseWebSocket(socket: WebSocketLike, signal?: AbortSignal): Asy
 	}
 }
 
-<<<<<<< ours
-=======
-function requestBodyWithoutInput(body: RequestBody): RequestBody {
-	const { input: _input, previous_response_id: _previousResponseId, ...rest } = body;
-	return rest;
-}
-
-function responseInputsEqual(a: ResponseInput | undefined, b: ResponseInput | undefined): boolean {
-	return JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
-}
-
-function requestBodiesMatchExceptInput(a: RequestBody, b: RequestBody): boolean {
-	return JSON.stringify(requestBodyWithoutInput(a)) === JSON.stringify(requestBodyWithoutInput(b));
-}
-
-function getCachedWebSocketInputDelta(
-	body: RequestBody,
-	continuation: CachedWebSocketContinuationState,
-): ResponseInput | undefined {
-	if (!requestBodiesMatchExceptInput(body, continuation.lastRequestBody)) {
-		return undefined;
-	}
-
-	const currentInput = body.input ?? [];
-	const baseline = [...(continuation.lastRequestBody.input ?? []), ...continuation.lastResponseItems];
-	if (currentInput.length < baseline.length) {
-		return undefined;
-	}
-
-	const prefix = currentInput.slice(0, baseline.length);
-	if (!responseInputsEqual(prefix, baseline)) {
-		return undefined;
-	}
-
-	return currentInput.slice(baseline.length);
-}
-
-function buildCachedWebSocketRequestBody(entry: CachedWebSocketConnection, body: RequestBody): RequestBody {
-	const continuation = entry.continuation;
-	if (!continuation) {
-		return body;
-	}
-
-	const delta = getCachedWebSocketInputDelta(body, continuation);
-	if (!delta || !continuation.lastResponseId) {
-		entry.continuation = undefined;
-		return body;
-	}
-
-	return {
-		...body,
-		previous_response_id: continuation.lastResponseId,
-		input: delta,
-	};
-}
-
-async function* startWebSocketOutputOnFirstEvent(
-	events: AsyncIterable<ResponseStreamEvent>,
-	output: AssistantMessage,
-	stream: AssistantMessageEventStream,
-	onStart: () => void,
-): AsyncGenerator<ResponseStreamEvent> {
-	let started = false;
-	for await (const event of events) {
-		if (!started) {
-			started = true;
-			onStart();
-			stream.push({ type: "start", partial: output });
-		}
-		yield event;
-	}
-}
-
->>>>>>> theirs
 async function processWebSocketStream(
 	url: string,
 	body: RequestBody,
@@ -1149,7 +863,6 @@ async function processWebSocketStream(
 	const { socket, release } = await acquireWebSocket(url, headers, options?.sessionId, options?.signal);
 	let keepConnection = true;
 	try {
-<<<<<<< ours
 		socket.send(JSON.stringify({ type: "response.create", ...body }));
 		onStart();
 		stream.push({ type: "start", partial: output });
@@ -1158,25 +871,6 @@ async function processWebSocketStream(
 			resolveServiceTier: resolveCodexServiceTier,
 			applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model),
 		});
-=======
-		socket.send(JSON.stringify({ type: "response.create", ...requestBody }));
-		await processResponsesStream(
-			startWebSocketOutputOnFirstEvent(
-				mapCodexEvents(parseWebSocket(socket, options?.signal)),
-				output,
-				stream,
-				onStart,
-			),
-			output,
-			stream,
-			model,
-			{
-				serviceTier: options?.serviceTier,
-				resolveServiceTier: resolveCodexServiceTier,
-				applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model),
-			},
-		);
->>>>>>> theirs
 		if (options?.signal?.aborted) {
 			keepConnection = false;
 		}
