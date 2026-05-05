@@ -308,43 +308,37 @@ function wireMissingCoreExtensions(): void {
 
 	if (!existsSync(repoPath) || !existsSync(settingsPath)) return;
 
-	const CORE: Array<string | [string, string]> = [
-		"damage-control",
-		"provider-profiles",
-		"model-failover",
-		"web-search",
-		"web-fetch",
-		"commands",
-		"hooks",
-		"circuit-breaker",
-		"auto-router",
-		"memory-include",
-		"aery-header",
-		"aery-footer",
-		"multi-agent",
-		"agent-chain",
-		"agent-teams",
-		"help",
-		"default-agents",
-		"aery-doctor",
-		"aery-team",
-		["subagent", "subagent/index"],
-	];
+	const coreDir = join(repoPath, "core");
+	if (!existsSync(coreDir)) return;
 
 	try {
 		const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 		const existing = new Set<string>(settings.extensions || []);
 		let added = false;
-		for (const ext of CORE) {
-			const [, filePath] = Array.isArray(ext) ? ext : [ext, ext];
-			const p = join(repoPath, "core", `${filePath}.ts`);
-			if (existsSync(p) && !existing.has(p)) {
-				settings.extensions = settings.extensions || [];
-				settings.extensions.push(p);
-				existing.add(p);
-				added = true;
+
+		// Wire all .ts files directly in core/
+		for (const entry of readdirSync(coreDir, { withFileTypes: true })) {
+			if (entry.isFile() && entry.name.endsWith(".ts")) {
+				const p = join(coreDir, entry.name);
+				if (!existing.has(p)) {
+					settings.extensions = settings.extensions || [];
+					settings.extensions.push(p);
+					existing.add(p);
+					added = true;
+				}
+			}
+			// Wire subdirectory index files (e.g. subagent/index.ts)
+			if (entry.isDirectory()) {
+				const indexPath = join(coreDir, entry.name, "index.ts");
+				if (existsSync(indexPath) && !existing.has(indexPath)) {
+					settings.extensions = settings.extensions || [];
+					settings.extensions.push(indexPath);
+					existing.add(indexPath);
+					added = true;
+				}
 			}
 		}
+
 		if (added) {
 			writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 		}
