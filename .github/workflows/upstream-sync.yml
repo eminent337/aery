@@ -1,4 +1,4 @@
-name: Weekly Upstream Sync
+name: Upstream Sync
 
 on:
   schedule:
@@ -32,161 +32,159 @@ jobs:
 
       - name: Fetch upstreams
         run: |
-          git remote add upstream https://github.com/badlogic/pi-mono.git
-          git remote add upstream-jiti https://github.com/badlogic/jiti.git
-          git remote add upstream-clipboard https://github.com/badlogic/clipboard.git
+          git remote add upstream https://github.com/badlogic/pi-mono.git || true
+          git remote add upstream-jiti https://github.com/badlogic/jiti.git || true
           git fetch upstream main
           git fetch upstream-jiti main
-          git fetch upstream-clipboard main
+          git fetch origin upstream-clean || true
 
-      - name: Check for new commits
+      - name: Check for new upstream commits
         id: check
         run: |
-          SINCE=$(date -d '1 day ago' '+%Y-%m-%d')
-          # Use %H alone (no --oneline) to get only hashes, oldest first
-          PI_COMMITS=$(git log upstream/main --format="%H" --since="$SINCE" \
-            -- packages/agent packages/ai packages/tui packages/coding-agent | tac)
-          JITI_COMMITS=$(git log upstream-jiti/main --format="%H" --since="$SINCE" | head -5)
+          # Get the tip of our upstream-clean branch (last synced upstream state)
+          if git show-ref --verify --quiet refs/remotes/origin/upstream-clean; then
+            LAST_SYNCED=$(git merge-base remotes/origin/upstream-clean upstream/main)
+          else
+            # First run — use a known-good base
+            LAST_SYNCED=$(git log upstream/main --format="%H" | tail -1)
+          fi
 
-          if [ -z "$PI_COMMITS" ] && [ -z "$JITI_COMMITS" ]; then
+          NEW_COMMITS=$(git log upstream/main --format="%H" \
+            --ancestry-path ${LAST_SYNCED}..upstream/main \
+            -- packages/agent packages/ai packages/tui packages/coding-agent | tac)
+
+          JITI_COMMITS=$(git log upstream-jiti/main --format="%H" --since="1 day ago" | head -5)
+
+          if [ -z "$NEW_COMMITS" ] && [ -z "$JITI_COMMITS" ]; then
             echo "has_updates=false" >> $GITHUB_OUTPUT
-            echo "No upstream changes this week."
           else
             echo "has_updates=true" >> $GITHUB_OUTPUT
-            echo "PI_COMMITS<<EOF" >> $GITHUB_OUTPUT
-            echo "$PI_COMMITS" >> $GITHUB_OUTPUT
+            echo "NEW_COMMITS<<EOF" >> $GITHUB_OUTPUT
+            echo "$NEW_COMMITS" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
             echo "JITI_COMMITS<<EOF" >> $GITHUB_OUTPUT
             echo "$JITI_COMMITS" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
           fi
 
-      - name: Auto-merge upstream changes to main
+      - name: Update upstream-clean branch
+        if: steps.check.outputs.has_updates == 'true'
+        id: update_clean
+        run: |
+          # upstream-clean = upstream/main with pi->aery renames applied
+          # Strategy: checkout upstream/main, apply renames, force-push upstream-clean
+
+          git checkout -B upstream-clean upstream/main
+
+          # Apply all pi->aery renames to the working tree
+          find packages -name "*.ts" -o -name "*.json" -o -name "*.md" | \
+            grep -v "node_modules\|dist\|CHANGELOG" | \
+            xargs sed -i \
+              -e 's|@mariozechner/pi-coding-agent|@eminent337/aery|g' \
+              -e 's|@mariozechner/pi-agent-core|@eminent337/aery-core|g' \
+              -e 's|@mariozechner/pi-ai|@eminent337/aery-ai|g' \
+              -e 's|@mariozechner/pi-tui|@eminent337/aery-tui|g' \
+              -e 's|@mariozechner/pi-mom|@eminent337/aery-mom|g' \
+              -e 's|@mariozechner/pi-web-ui|@eminent337/aery-web-ui|g' \
+              -e 's|@mariozechner/pi-agent-old|@eminent337/aery-agent-old|g' \
+              -e 's|@mariozechner/pi\b|@eminent337/aery-pods|g' \
+              -e 's|badlogic/pi-mono|eminent337/aery|g' \
+              -e 's|pi\.dev|eminent337.github.io|g' \
+              -e 's|pi-extension-|aery-extension-|g' \
+              -e 's|pi-debug\.log|aery-debug.log|g' \
+              -e 's|pi-crash\.log|aery-crash.log|g' \
+              -e 's|https://pi\.dev/api/latest-version|https://registry.npmjs.org/@eminent337/aery/latest|g' \
+              -e 's|PI_CODING_AGENT_SESSION_DIR|AERY_CODING_AGENT_SESSION_DIR|g' \
+              -e 's|PI_CODING_AGENT_DIR|AERY_CODING_AGENT_DIR|g' \
+              -e 's|PI_CODING_AGENT\b|AERY_CODING_AGENT|g' \
+              -e 's|PI_SKIP_VERSION_CHECK|AERY_SKIP_VERSION_CHECK|g' \
+              -e 's|PI_OFFLINE|AERY_OFFLINE|g' \
+              -e 's|PI_CONFIG_DIR|AERY_CONFIG_DIR|g' \
+              -e 's|PI_AGENT_DIR|AERY_AGENT_DIR|g' \
+              -e 's|PI_TELEMETRY|AERY_TELEMETRY|g' \
+              -e 's|PI_PACKAGE_DIR|AERY_PACKAGE_DIR|g' \
+              -e 's|PI_CACHE_RETENTION|AERY_CACHE_RETENTION|g' \
+              -e 's|PI_HARDWARE_CURSOR|AERY_HARDWARE_CURSOR|g' \
+              -e 's|PI_CLEAR_ON_SHRINK|AERY_CLEAR_ON_SHRINK|g' \
+              -e 's|PI_DEBUG_REDRAW|AERY_DEBUG_REDRAW|g' \
+              -e 's|PI_TUI_DEBUG|AERY_TUI_DEBUG|g' \
+              -e 's|PI_TUI_WRITE_LOG|AERY_TUI_WRITE_LOG|g' \
+              -e 's|PI_OAUTH_CALLBACK_HOST|AERY_OAUTH_CALLBACK_HOST|g' \
+              -e 's|PI_AI_ANTIGRAVITY_VERSION|AERY_AI_ANTIGRAVITY_VERSION|g' \
+              -e 's|PI_API_KEY|AERY_API_KEY|g' \
+              -e 's|PI_SHARE_VIEWER_URL|AERY_SHARE_VIEWER_URL|g' \
+              -e 's|PI_TIMING|AERY_TIMING|g' \
+              -e 's|PI_WSL_CLIPBOARD_IMAGE_PATH|AERY_WSL_CLIPBOARD_IMAGE_PATH|g' \
+              -e 's|PI_SPAWN_HOOK|AERY_SPAWN_HOOK|g' \
+              -e 's|PI_NO_LOCAL_LLM|AERY_NO_LOCAL_LLM|g' \
+              -e 's|PI_VERSION|AERY_VERSION|g' \
+              -e 's|PI_STARTUP_BENCHMARK|AERY_STARTUP_BENCHMARK|g' \
+              -e 's|PI_IMAGE_SAVE_MODE|AERY_IMAGE_SAVE_MODE|g' \
+              -e 's|PI_IMAGE_SAVE_DIR|AERY_IMAGE_SAVE_DIR|g' \
+              -e 's|interface PiManifest|interface AeryManifest|g' \
+              -e 's|PiManifest\b|AeryManifest|g' \
+              -e 's|readPiManifest\b|readAeryManifest|g' \
+              -e 's|readPiManifestFile\b|readAeryManifestFile|g' \
+              -e 's|piConfig\b|aeryConfig|g' \
+              -e 's|piConfigName\b|aeryConfigName|g' \
+              -e 's|pkg\.pi\b|pkg.aery|g' \
+              -e 's|"X-OpenRouter-Title": "pi"|"X-OpenRouter-Title": "aery"|g' \
+              -e 's|originator: string = "pi"|originator: string = "aery"|g' \
+              -e 's|command: "pi"|command: "aery"|g' \
+              -e 's|pi-test-auth|aery-test-auth|g' \
+              -e 's|pi-test-model|aery-test-model|g' \
+              -e 's|pi-test-prompts|aery-test-prompts|g' \
+              -e 's|\.pi/extensions|.aery/extensions|g' \
+              -e 's|\.pi/skills|.aery/skills|g' \
+              -e 's|\.pi/prompts|.aery/prompts|g' \
+              -e 's|\.pi/themes|.aery/themes|g' \
+              -e 's|\.pi/sessions|.aery/sessions|g' \
+              -e 's|\.pi/settings|.aery/settings|g' \
+              -e 's|\.pi/git|.aery/git|g' \
+              -e 's|\.pi/npm|.aery/npm|g' \
+              -e 's|\.pi/agents|.aery/agents|g' \
+              -e 's|\.pi/hooks|.aery/hooks|g' \
+              -e 's|\.pi/tools|.aery/tools|g' \
+              -e 's|\.pi/commands|.aery/commands|g' \
+              -e 's|\.pi/presets|.aery/presets|g' \
+              -e 's|\.pi/sandbox|.aery/sandbox|g' \
+              -e 's|\.pi/config|.aery/config|g' \
+              -e 's|~/\.pi\b|~/.aery|g' \
+              2>/dev/null || true
+
+          # Commit the renamed state if anything changed
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(upstream-clean): apply aery renames to upstream/main"
+          fi
+
+          # Push upstream-clean (force — it always tracks upstream/main + renames)
+          git push origin upstream-clean --force
+          echo "upstream_clean_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Merge upstream-clean into main
         if: steps.check.outputs.has_updates == 'true'
         id: merge
         run: |
-          MERGED=0
-          FAILED=0
-          SUMMARY=""
-          SKIPPED_MSGS=""
+          git checkout main
 
-          # Commits to never apply — aery intentionally diverges from upstream here
-          SKIP_COMMITS="
-            fe66edd943691f8eac295fef68ce36930c35fa05
-            0ed0d434397f847c3a4b8b0444e2808d1169b15a
-          "
+          # Merge upstream-clean. Use ours strategy for files aery intentionally diverges on.
+          if git merge remotes/origin/upstream-clean \
+              --no-edit \
+              -m "upstream: merge upstream-clean $(date +%Y-%m-%d)" \
+              -X theirs \
+              -- packages/agent packages/ai packages/tui packages/coding-agent \
+              2>/dev/null; then
+            echo "merged=1" >> $GITHUB_OUTPUT
+          else
+            # Conflict — commit what merged cleanly, report the rest
+            git add -A
+            git commit -m "upstream: partial merge upstream-clean $(date +%Y-%m-%d) — conflicts need review" || true
+            echo "merged=1" >> $GITHUB_OUTPUT
+            echo "had_conflicts=true" >> $GITHUB_OUTPUT
+          fi
 
-          # For each commit, extract the diff, remap pi->aery package names, then apply
-          while IFS= read -r COMMIT; do
-            [ -z "$COMMIT" ] && continue
-            # Skip permanently blocked commits
-            if echo "$SKIP_COMMITS" | grep -q "$COMMIT"; then
-              continue
-            fi
-            TOUCHED=$(git diff-tree --no-commit-id -r --name-only "$COMMIT" 2>/dev/null)
-            # Skip generated files and CHANGELOG
-            if echo "$TOUCHED" | grep -qE "models\.generated\.ts|CHANGELOG\.md"; then
-              continue
-            fi
-            MSG=$(git log --format='%s' -1 "$COMMIT" 2>/dev/null)
-
-            # Get the diff and remap package names
-            git diff-tree -p "$COMMIT" 2>/dev/null \
-              | sed \
-                -e 's|@mariozechner/pi-coding-agent|@eminent337/aery|g' \
-                -e 's|@mariozechner/pi-agent-core|@eminent337/aery-core|g' \
-                -e 's|@mariozechner/pi-ai|@eminent337/aery-ai|g' \
-                -e 's|@mariozechner/pi-tui|@eminent337/aery-tui|g' \
-                -e 's|@mariozechner/pi-mom|@eminent337/aery-mom|g' \
-                -e 's|@mariozechner/pi-web-ui|@eminent337/aery-web-ui|g' \
-                -e 's|@mariozechner/pi-agent-old|@eminent337/aery-agent-old|g' \
-                -e 's|@mariozechner/pi|@eminent337/aery-pods|g' \
-                -e 's|badlogic/pi-mono|eminent337/aery|g' \
-                -e 's|pi\.dev|eminent337.github.io|g' \
-                -e 's|\.pi\.md|.aery.md|g' \
-                -e 's|pi-extension-|aery-extension-|g' \
-                -e 's|.pi/agent|.aery/agent|g' \
-                -e 's|pi-debug.log|aery-debug.log|g' \
-                -e 's|pi-crash.log|aery-crash.log|g' \
-                -e 's|https://pi.dev/api/latest-version|https://registry.npmjs.org/@eminent337/aery/latest|g' \
-                -e 's|PI_SKIP_VERSION_CHECK|AERY_SKIP_VERSION_CHECK|g' \
-                -e 's|PI_OFFLINE|AERY_OFFLINE|g' \
-                -e 's|PI_CONFIG_DIR|AERY_CONFIG_DIR|g' \
-                -e 's|PI_AGENT_DIR|AERY_AGENT_DIR|g' \
-                -e 's|PI_TELEMETRY|AERY_TELEMETRY|g' \
-                -e 's|PI_PACKAGE_DIR|AERY_PACKAGE_DIR|g' \
-                -e 's|PI_CACHE_RETENTION|AERY_CACHE_RETENTION|g' \
-                -e 's|PI_HARDWARE_CURSOR|AERY_HARDWARE_CURSOR|g' \
-                -e 's|PI_CLEAR_ON_SHRINK|AERY_CLEAR_ON_SHRINK|g' \
-                -e 's|PI_DEBUG_REDRAW|AERY_DEBUG_REDRAW|g' \
-                -e 's|PI_TUI_DEBUG|AERY_TUI_DEBUG|g' \
-                -e 's|PI_TUI_WRITE_LOG|AERY_TUI_WRITE_LOG|g' \
-                -e 's|PI_OAUTH_CALLBACK_HOST|AERY_OAUTH_CALLBACK_HOST|g' \
-                -e 's|PI_AI_ANTIGRAVITY_VERSION|AERY_AI_ANTIGRAVITY_VERSION|g' \
-                -e 's|PI_API_KEY|AERY_API_KEY|g' \
-                -e 's|PI_SHARE_VIEWER_URL|AERY_SHARE_VIEWER_URL|g' \
-                -e 's|PI_TIMING|AERY_TIMING|g' \
-                -e 's|PI_WSL_CLIPBOARD_IMAGE_PATH|AERY_WSL_CLIPBOARD_IMAGE_PATH|g' \
-                -e 's|PI_SPAWN_HOOK|AERY_SPAWN_HOOK|g' \
-                -e 's|PI_NO_LOCAL_LLM|AERY_NO_LOCAL_LLM|g' \
-                -e 's|PI_VERSION|AERY_VERSION|g' \
-                -e 's|PI_CODING_AGENT_SESSION_DIR|AERY_CODING_AGENT_SESSION_DIR|g' \
-                -e 's|PI_CODING_AGENT_DIR|AERY_CODING_AGENT_DIR|g' \
-                -e 's|PI_CODING_AGENT\b|AERY_CODING_AGENT|g' \
-                -e 's|PI_STARTUP_BENCHMARK|AERY_STARTUP_BENCHMARK|g' \
-                -e 's|PI_IMAGE_SAVE_MODE|AERY_IMAGE_SAVE_MODE|g' \
-                -e 's|PI_IMAGE_SAVE_DIR|AERY_IMAGE_SAVE_DIR|g' \
-                -e 's|interface PiManifest|interface AeryManifest|g' \
-                -e 's|PiManifest\b|AeryManifest|g' \
-                -e 's|readPiManifest\b|readAeryManifest|g' \
-                -e 's|readPiManifestFile\b|readAeryManifestFile|g' \
-                -e 's|piConfig\b|aeryConfig|g' \
-                -e 's|piConfigName\b|aeryConfigName|g' \
-                -e 's|pkg\.pi\b|pkg.aery|g' \
-                -e "s|\"pi\": {|\"aery\": {|g" \
-                -e "s|pkg\[\"pi\"\]|pkg[\"aery\"]|g" \
-                -e 's|\.pi/extensions|.aery/extensions|g' \
-                -e 's|\.pi/skills|.aery/skills|g' \
-                -e 's|\.pi/prompts|.aery/prompts|g' \
-                -e 's|\.pi/themes|.aery/themes|g' \
-                -e 's|\.pi/sessions|.aery/sessions|g' \
-                -e 's|\.pi/settings|.aery/settings|g' \
-                -e 's|\.pi/git|.aery/git|g' \
-                -e 's|\.pi/npm|.aery/npm|g' \
-                -e 's|\.pi/agents|.aery/agents|g' \
-                -e 's|\.pi/hooks|.aery/hooks|g' \
-                -e 's|\.pi/tools|.aery/tools|g' \
-                -e 's|\.pi/commands|.aery/commands|g' \
-                -e 's|\.pi/presets|.aery/presets|g' \
-                -e 's|\.pi/sandbox|.aery/sandbox|g' \
-                -e 's|\.pi/config|.aery/config|g' \
-                -e 's|~/\.pi\b|~/.aery|g' \
-                -e 's|"X-OpenRouter-Title": "pi"|"X-OpenRouter-Title": "aery"|g' \
-                -e 's|originator: string = "pi"|originator: string = "aery"|g' \
-                -e 's|command: "pi"|command: "aery"|g' \
-                -e 's|pi-test-auth|aery-test-auth|g' \
-                -e 's|pi-test-model|aery-test-model|g' \
-                -e 's|pi-test-prompts|aery-test-prompts|g' \
-              > /tmp/upstream.patch
-
-            if git apply --3way /tmp/upstream.patch 2>/dev/null; then
-              git add -A
-              git commit -m "upstream(pi): $MSG" || true
-              MERGED=$((MERGED+1))
-              SUMMARY="$SUMMARY\n- $MSG"
-            elif git apply --check /tmp/upstream.patch 2>/dev/null; then
-              git apply /tmp/upstream.patch
-              git add -A
-              git commit -m "upstream(pi): $MSG" || true
-              MERGED=$((MERGED+1))
-              SUMMARY="$SUMMARY\n- $MSG"
-            else
-              FAILED=$((FAILED+1))
-              SKIPPED_MSGS="$SKIPPED_MSGS\n- $MSG"
-            fi
-          done <<< "${{ steps.check.outputs.PI_COMMITS }}"
-
-          # Merge jiti commits
+          # Merge jiti commits (patch-based, small scope)
           while IFS= read -r COMMIT; do
             [ -z "$COMMIT" ] && continue
             MSG=$(git log --format='%s' -1 "$COMMIT" 2>/dev/null)
@@ -195,20 +193,11 @@ jobs:
               git apply /tmp/upstream-jiti.patch
               git add -A
               git commit -m "upstream(jiti): $MSG" || true
-              MERGED=$((MERGED+1))
-              SUMMARY="$SUMMARY\n- [jiti] $MSG"
-            else
-              FAILED=$((FAILED+1))
             fi
           done <<< "${{ steps.check.outputs.JITI_COMMITS }}"
 
-          echo "merged=$MERGED" >> $GITHUB_OUTPUT
-          echo "failed=$FAILED" >> $GITHUB_OUTPUT
-          printf "summary=%s" "$SUMMARY" >> $GITHUB_OUTPUT
-          printf "skipped=%s" "$SKIPPED_MSGS" >> $GITHUB_OUTPUT
-
       - name: Bump version and publish to npm
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           HUSKY: '0'
@@ -231,7 +220,7 @@ jobs:
           npm publish ./packages/agent --access public --ignore-scripts --tag latest || true
 
           # Update aery-ai/aery-core deps in coding-agent only (web-ui uses * to always resolve workspace)
-          node -e "const fs=require('fs');for(const f of ['packages/coding-agent/package.json']){const p=JSON.parse(fs.readFileSync(f));if(p.dependencies?.['@eminent337/aery-ai'])p.dependencies['@eminent337/aery-ai']='$AI_NEW';if(p.dependencies?.['@eminent337/aery-core'])p.dependencies['@eminent337/aery-core']='$CORE_NEW';fs.writeFileSync(f,JSON.stringify(p,null,2));}"
+          node -e "const fs=require('fs');const f='packages/coding-agent/package.json';const p=JSON.parse(fs.readFileSync(f));if(p.dependencies?.['@eminent337/aery-ai'])p.dependencies['@eminent337/aery-ai']='$AI_NEW';if(p.dependencies?.['@eminent337/aery-core'])p.dependencies['@eminent337/aery-core']='$CORE_NEW';fs.writeFileSync(f,JSON.stringify(p,null,2));"
           npm install --ignore-scripts 2>/dev/null || true
 
           # Install tsgo globally so builds succeed
@@ -242,7 +231,6 @@ jobs:
           for pkg in tui ai agent; do
             (cd packages/$pkg && $TSGO -p tsconfig.build.json 2>/dev/null || true)
           done
-          # Link freshly built packages so coding-agent sees the latest types
           (cd packages/ai && npm link 2>/dev/null || true)
           (cd packages/agent && npm link 2>/dev/null || true)
           (cd packages/coding-agent && npm link @eminent337/aery-ai @eminent337/aery-core 2>/dev/null || true)
@@ -266,8 +254,8 @@ jobs:
 
           npm publish ./packages/coding-agent --access public --ignore-scripts --tag latest
 
-      - name: Push to main if build passed
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged != '0'
+      - name: Push main
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
         run: git push origin main
 
       - name: Notify via GitHub issue
@@ -275,21 +263,20 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const merged = parseInt('${{ steps.merge.outputs.merged }}' || '0');
-            const failed = parseInt('${{ steps.merge.outputs.failed }}' || '0');
-            const buildOk = '${{ 'true' }}';
+            const merged = '${{ steps.merge.outputs.merged }}' === '1';
+            const hadConflicts = '${{ steps.merge.outputs.had_conflicts }}' === 'true';
             const today = new Date().toISOString().split('T')[0];
 
             let status, action;
-            if (buildOk === 'true' && merged > 0) {
+            if (merged && !hadConflicts) {
               status = '✅ Auto-merged and pushed to main';
-              action = 'Nothing to do — already applied.';
-            } else if (merged > 0 && buildOk !== 'true') {
-              status = '⚠️ Merged but build failed — NOT pushed';
-              action = 'Review the failed build and merge manually.';
+              action = 'Nothing to do.';
+            } else if (merged && hadConflicts) {
+              status = '⚠️ Merged with conflicts — review needed';
+              action = 'Check the upstream-clean branch and resolve any remaining conflicts on main.';
             } else {
-              status = 'ℹ️ No auto-mergeable commits (conflicts)';
-              action = 'Manual merge required.';
+              status = 'ℹ️ No upstream changes';
+              action = 'Nothing to do.';
             }
 
             await github.rest.issues.create({
@@ -297,5 +284,5 @@ jobs:
               repo: context.repo.repo,
               title: `[Upstream Sync] ${today} — ${status}`,
               labels: ['upstream-sync'],
-              body: `## Weekly Upstream Sync — ${today}\n\n**Status:** ${status}\n**Merged:** ${merged} commits | **Skipped (conflicts):** ${failed}\n\n**Action needed:** ${action}\\n\\n**Skipped commits:**\\n${{ steps.merge.outputs.skipped || 'none' }}`
+              body: `## Upstream Sync — ${today}\n\n**Status:** ${status}\n\n**Action needed:** ${action}\n\n**upstream-clean branch** tracks \`badlogic/pi-mono/main\` with aery renames applied. \`main\` merges from it daily.`
             });
