@@ -12,7 +12,7 @@ import { migrateKeybindingsConfig } from "./core/keybindings.js";
 const MIGRATION_GUIDE_URL =
 	"https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md#extensions-migration";
 const EXTENSIONS_DOC_URL = "https://github.com/eminent337/aery/blob/main/packages/coding-agent/docs/extensions.md";
-const CORE_EXTENSIONS: Array<string | [string, string]> = [
+export const CORE_EXTENSION_PATHS = [
 	"damage-control",
 	"provider-profiles",
 	"model-failover",
@@ -32,10 +32,85 @@ const CORE_EXTENSIONS: Array<string | [string, string]> = [
 	"default-agents",
 	"aery-doctor",
 	"aery-team",
-	["subagent", "subagent/index"],
+	"subagent/index",
 	"marketplace",
 	"init-prompt",
-];
+] as const;
+
+export interface CoreExtensionDiagnostic {
+	repoExists: boolean;
+	missingFiles: string[];
+	missingSettingsEntries: string[];
+}
+
+export interface CoreExtensionWireResult extends CoreExtensionDiagnostic {
+	added: string[];
+}
+
+export interface CoreExtensionEnsureResult extends CoreExtensionWireResult {
+	status: "installed" | "offline" | "ok";
+	repoPath: string;
+	settingsPath: string;
+	error?: string;
+}
+
+export function getCoreExtensionFilePaths(repoPath: string): string[] {
+	return CORE_EXTENSION_PATHS.map((extensionPath) => join(repoPath, "core", `${extensionPath}.ts`));
+}
+
+function readSettingsExtensions(settingsPath: string): string[] {
+	if (!existsSync(settingsPath)) return [];
+	try {
+		const settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as { extensions?: unknown };
+		return Array.isArray(settings.extensions)
+			? settings.extensions.filter((value): value is string => typeof value === "string")
+			: [];
+	} catch {
+		return [];
+	}
+}
+
+export function diagnoseCoreExtensions(repoPath: string, settingsPath: string): CoreExtensionDiagnostic {
+	const expectedPaths = getCoreExtensionFilePaths(repoPath);
+	const repoExists = existsSync(repoPath);
+	const settingsExtensions = new Set(readSettingsExtensions(settingsPath));
+	return {
+		repoExists,
+		missingFiles: repoExists ? expectedPaths.filter((extensionPath) => !existsSync(extensionPath)) : expectedPaths,
+		missingSettingsEntries: expectedPaths.filter(
+			(extensionPath) => existsSync(extensionPath) && !settingsExtensions.has(extensionPath),
+		),
+	};
+}
+
+export function wireCoreExtensions(repoPath: string, settingsPath: string): CoreExtensionWireResult {
+	const diagnostic = diagnoseCoreExtensions(repoPath, settingsPath);
+	if (!diagnostic.repoExists) return { ...diagnostic, added: [] };
+
+	const settings = (existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, "utf-8")) : {}) as {
+		extensions?: unknown;
+	};
+	const existingExtensions = Array.isArray(settings.extensions)
+		? settings.extensions.filter((value): value is string => typeof value === "string")
+		: [];
+	const existing = new Set<string>(existingExtensions);
+	const added: string[] = [];
+	for (const extensionPath of getCoreExtensionFilePaths(repoPath)) {
+		if (!existsSync(extensionPath) || existing.has(extensionPath)) continue;
+		settings.extensions = Array.isArray(settings.extensions) ? settings.extensions : [];
+		settings.extensions.push(extensionPath);
+		existing.add(extensionPath);
+		added.push(extensionPath);
+	}
+
+	if (added.length > 0) {
+		mkdirSync(dirname(settingsPath), { recursive: true });
+		writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+	}
+
+	const nextDiagnostic = diagnoseCoreExtensions(repoPath, settingsPath);
+	return { ...nextDiagnostic, added };
+}
 
 /**
  * Migrate legacy oauth.json and settings.json apiKeys to auth.json.
@@ -333,23 +408,7 @@ function wireMissingCoreExtensions(): void {
 	if (!existsSync(repoPath)) return;
 
 	try {
-		const settings = existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, "utf-8")) : {};
-		const existing = new Set<string>(settings.extensions || []);
-		let added = false;
-		for (const ext of CORE_EXTENSIONS) {
-			const [, filePath] = Array.isArray(ext) ? ext : [ext, ext];
-			const p = join(repoPath, "core", `${filePath}.ts`);
-			if (existsSync(p) && !existing.has(p)) {
-				settings.extensions = settings.extensions || [];
-				settings.extensions.push(p);
-				existing.add(p);
-				added = true;
-			}
-		}
-		if (added) {
-			mkdirSync(dirname(settingsPath), { recursive: true });
-			writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
-		}
+		wireCoreExtensions(repoPath, settingsPath);
 	} catch {
 		// Silent fail
 	}
@@ -360,11 +419,12 @@ function wireMissingCoreExtensions(): void {
  * Called at startup — installs aery-extensions if missing, then wires core extensions.
  * Safe to call multiple times (idempotent).
  *
- * @returns "installed" | "updated" | "offline" | "ok"
+ * @returns core extension bootstrap status and diagnostics
  */
-export function ensureCoreExtensions(): "installed" | "updated" | "offline" | "ok" {
+export function ensureCoreExtensions(): CoreExtensionEnsureResult {
 	const agentDir = getAgentDir();
 	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
+	const settingsPath = join(agentDir, "settings.json");
 
 	// Clone if missing
 	if (!existsSync(repoPath)) {
@@ -374,11 +434,17 @@ export function ensureCoreExtensions(): "installed" | "updated" | "offline" | "o
 				stdio: "pipe",
 				timeout: 30000,
 			});
-			wireMissingCoreExtensions();
-			return "installed";
-		} catch {
+			return { ...wireCoreExtensions(repoPath, settingsPath), status: "installed", repoPath, settingsPath };
+		} catch (error) {
 			// Network unavailable or git missing
-			return "offline";
+			return {
+				...diagnoseCoreExtensions(repoPath, settingsPath),
+				added: [],
+				status: "offline",
+				repoPath,
+				settingsPath,
+				error: error instanceof Error ? error.message : String(error),
+			};
 		}
 	}
 
@@ -393,8 +459,18 @@ export function ensureCoreExtensions(): "installed" | "updated" | "offline" | "o
 	}
 
 	// Wire any newly added core extensions
-	wireMissingCoreExtensions();
-	return "ok";
+	try {
+		return { ...wireCoreExtensions(repoPath, settingsPath), status: "ok", repoPath, settingsPath };
+	} catch (error) {
+		return {
+			...diagnoseCoreExtensions(repoPath, settingsPath),
+			added: [],
+			status: "ok",
+			repoPath,
+			settingsPath,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	}
 }
 
 /**

@@ -3,32 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.js";
-import { runMigrations } from "../src/migrations.js";
-
-const CORE_EXTENSION_PATHS = [
-	"damage-control",
-	"provider-profiles",
-	"model-failover",
-	"web-search",
-	"web-fetch",
-	"commands",
-	"hooks",
-	"circuit-breaker",
-	"auto-router",
-	"memory-include",
-	"aery-header",
-	"aery-footer",
-	"multi-agent",
-	"agent-chain",
-	"agent-teams",
-	"help",
-	"default-agents",
-	"aery-doctor",
-	"aery-team",
-	"subagent/index",
-	"marketplace",
-	"init-prompt",
-];
+import { CORE_EXTENSION_PATHS, diagnoseCoreExtensions, runMigrations, wireCoreExtensions } from "../src/migrations.js";
 
 describe("core extensions migration", () => {
 	const tempDirs: string[] = [];
@@ -70,6 +45,35 @@ describe("core extensions migration", () => {
 		};
 		expect(settings.extensions).toEqual(
 			CORE_EXTENSION_PATHS.map((extensionPath) => path.join(repoPath, "core", `${extensionPath}.ts`)),
+		);
+	});
+
+	it("reports missing settings entries for installed core extension files", () => {
+		const { agentDir, repoPath } = createAgentDirWithCoreExtensions();
+		const settingsPath = path.join(agentDir, "settings.json");
+		fs.writeFileSync(settingsPath, JSON.stringify({ extensions: [] }, null, 2), "utf-8");
+
+		const diagnostic = diagnoseCoreExtensions(repoPath, settingsPath);
+
+		expect(diagnostic.missingSettingsEntries).toEqual(
+			CORE_EXTENSION_PATHS.map((extensionPath) => path.join(repoPath, "core", `${extensionPath}.ts`)),
+		);
+		expect(diagnostic.missingFiles).toEqual([]);
+	});
+
+	it("wires missing entries without duplicating existing core extensions", () => {
+		const { agentDir, repoPath } = createAgentDirWithCoreExtensions();
+		const settingsPath = path.join(agentDir, "settings.json");
+		const existingPath = path.join(repoPath, "core", "marketplace.ts");
+		fs.writeFileSync(settingsPath, JSON.stringify({ extensions: [existingPath] }, null, 2), "utf-8");
+
+		const result = wireCoreExtensions(repoPath, settingsPath);
+		const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as { extensions?: string[] };
+
+		expect(result.added).not.toContain(existingPath);
+		expect(settings.extensions?.filter((extensionPath) => extensionPath === existingPath)).toHaveLength(1);
+		expect(new Set(settings.extensions)).toEqual(
+			new Set(CORE_EXTENSION_PATHS.map((extensionPath) => path.join(repoPath, "core", `${extensionPath}.ts`))),
 		);
 	});
 });
