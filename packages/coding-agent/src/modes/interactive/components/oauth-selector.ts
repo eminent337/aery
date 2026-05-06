@@ -153,11 +153,14 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 		if (credentials?.type === "oauth") {
 			return theme.fg("success", " ✓ subscription configured");
 		}
+
+		const status = this.getAuthStatus(providerId);
+		if (!status.configured && status.label) {
+			return theme.fg("muted", ` • ${status.label}`);
+		}
 		if (credentials?.type === "api_key") {
 			return theme.fg("success", " ✓ configured");
 		}
-
-		const status = this.getAuthStatus(providerId);
 		if (status.source === "environment") {
 			return theme.fg("success", ` ✓ env: ${status.label ?? "environment"}`);
 		}

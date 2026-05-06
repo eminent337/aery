@@ -70,6 +70,29 @@ describe("OAuthSelectorComponent", () => {
 		expect(output).toContain("subscription configured");
 	});
 
+	it("shows incomplete provider auth when a required secondary value is missing", () => {
+		const authStorage = AuthStorage.inMemory({
+			"cloudflare-workers-ai": {
+				type: "api_key",
+				key: "test-cloudflare-token",
+			},
+		});
+		const selector = new OAuthSelectorComponent(
+			"login",
+			authStorage,
+			[{ id: "cloudflare-workers-ai", name: "Cloudflare Workers AI", authType: "api_key" }],
+			() => {},
+			() => {},
+			() => ({ configured: false, label: "missing Cloudflare account ID" }),
+		);
+
+		const output = stripAnsi(selector.render(120).join("\n"));
+
+		expect(output).toContain("Cloudflare Workers AI");
+		expect(output).toContain("missing Cloudflare account ID");
+		expect(output).not.toContain("✓ configured");
+	});
+
 	it("shows environment API key auth as configured", () => {
 		process.env.OPENAI_API_KEY = "test-openai-key";
 		const authStorage = AuthStorage.inMemory();

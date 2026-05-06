@@ -742,6 +742,13 @@ export class ModelRegistry {
 	 */
 	getProviderAuthStatus(provider: string): AuthStatus {
 		const authStatus = this.authStorage.getAuthStatus(provider);
+		if (provider === "cloudflare-workers-ai") {
+			const providerApiKey = this.providerRequestConfigs.get(provider)?.apiKey;
+			if (!this.getCloudflareWorkersAiAccountId() && (authStatus.source || providerApiKey)) {
+				return { configured: false, label: "missing Cloudflare account ID" };
+			}
+		}
+
 		if (authStatus.source) {
 			return authStatus;
 		}

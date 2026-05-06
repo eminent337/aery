@@ -139,6 +139,35 @@ describe("ModelRegistry", () => {
 		});
 	});
 
+	test("reports Cloudflare Workers AI auth as incomplete without an account id", () => {
+		withEnv("CLOUDFLARE_ACCOUNT_ID", undefined, () => {
+			authStorage.set("cloudflare-workers-ai", {
+				type: "api_key",
+				key: "cloudflare-api-token",
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+
+			expect(registry.getProviderAuthStatus("cloudflare-workers-ai")).toEqual({
+				configured: false,
+				label: "missing Cloudflare account ID",
+			});
+		});
+	});
+
+	test("reports Cloudflare Workers AI env auth as incomplete without an account id", () => {
+		withEnv("CLOUDFLARE_ACCOUNT_ID", undefined, () => {
+			withEnv("CLOUDFLARE_API_KEY", "cloudflare-api-token", () => {
+				const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+
+				expect(registry.getProviderAuthStatus("cloudflare-workers-ai")).toEqual({
+					configured: false,
+					label: "missing Cloudflare account ID",
+				});
+			});
+		});
+	});
+
 	test("lists Cloudflare Workers AI as available with an environment account id", () => {
 		withEnv("CLOUDFLARE_ACCOUNT_ID", "env-account-id", () => {
 			authStorage.set("cloudflare-workers-ai", {

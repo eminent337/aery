@@ -4627,7 +4627,9 @@ export class InteractiveMode {
 		};
 
 		try {
-			const apiKey = (await dialog.showPrompt("Enter API key:")).trim();
+			const apiKeyPrompt =
+				providerId === "cloudflare-workers-ai" ? "Enter Cloudflare API token:" : "Enter API key:";
+			const apiKey = (await dialog.showPrompt(apiKeyPrompt)).trim();
 			if (!apiKey) {
 				throw new Error("API key cannot be empty.");
 			}
