@@ -72,10 +72,17 @@ jobs:
         if: steps.check.outputs.has_updates == 'true'
         id: update_clean
         run: |
-          # upstream-clean = upstream/main with pi->aery renames applied
-          # Strategy: checkout upstream/main, apply renames, force-push upstream-clean
+          # upstream-clean tracks upstream package changes with pi->aery renames applied.
+          # Keep Aery-owned workflow files out of this branch because GITHUB_TOKEN
+          # cannot push commits that create or update workflow definitions.
 
-          git checkout -B upstream-clean upstream/main
+          if git show-ref --verify --quiet refs/remotes/origin/upstream-clean; then
+            git checkout -B upstream-clean origin/upstream-clean
+          else
+            git checkout -B upstream-clean upstream/main
+          fi
+
+          git checkout upstream/main -- packages/agent packages/ai packages/tui packages/coding-agent
 
           # Apply all pi->aery renames to the working tree
           find packages -name "*.ts" -o -name "*.json" -o -name "*.md" | \
@@ -170,7 +177,7 @@ jobs:
           git checkout main
 
           # Merge upstream-clean. Use ours strategy for files aery intentionally diverges on.
-          if git merge remotes/origin/upstream-clean \
+          if git merge upstream-clean \
               --no-edit \
               -m "upstream: merge upstream-clean $(date +%Y-%m-%d)" \
               -X theirs \
@@ -199,6 +206,7 @@ jobs:
 
       - name: Bump version and publish to npm
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
+        id: publish_package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           HUSKY: '0'
@@ -254,6 +262,34 @@ jobs:
 
           git tag "v$NEW_VERSION" || true
           git push origin "v$NEW_VERSION" || true
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.publish_package.outputs.new_version != ''
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const version = '${{ steps.publish_package.outputs.new_version }}';
+            const tag = `v${version}`;
+            try {
+              await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: tag,
+                name: `Aery ${tag}`,
+                body: `## Aery ${tag}\n\n### Install\n\`\`\`bash\nnpm install -g @eminent337/aery\n\`\`\`\n\n### Usage\n\`\`\`bash\naery\n\`\`\``,
+                draft: false,
+                prerelease: false,
+                make_latest: 'true'
+              });
+              console.log(`Released ${tag}`);
+            } catch (e) {
+              if (e.status === 422) {
+                console.log(`Release ${tag} already exists, skipping.`);
+              } else {
+                throw e;
+              }
+            }
 
       - name: Push main
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
