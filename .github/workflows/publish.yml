@@ -1,20 +1,24 @@
 name: Publish on Push
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'packages/coding-agent/src/**'
-      - 'packages/ai/src/**'
-      - 'packages/agent/src/**'
-      - 'packages/tui/src/**'
-      - 'packages/web-ui/src/**'
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, 'chore: bump version')"
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        !contains(github.event.workflow_run.head_commit.message, 'chore: bump version')
+      )
+    concurrency:
+      group: publish-main
+      cancel-in-progress: false
     permissions:
       contents: write
 
@@ -22,23 +26,60 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine publish eligibility
+        id: publish_guard
+        uses: actions/github-script@v8
+        with:
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('should_publish', 'true');
+              return;
+            }
+
+            const sha = context.payload.workflow_run.head_sha;
+            const { data: commit } = await github.rest.repos.getCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha,
+            });
+            const sourcePrefixes = [
+              'packages/coding-agent/src/',
+              'packages/ai/src/',
+              'packages/agent/src/',
+              'packages/tui/src/',
+              'packages/web-ui/src/',
+            ];
+            const files = commit.files ?? [];
+            const shouldPublish = files.some((file) =>
+              sourcePrefixes.some((prefix) => file.filename.startsWith(prefix)),
+            );
+            core.setOutput('should_publish', shouldPublish ? 'true' : 'false');
+            if (!shouldPublish) {
+              core.info(`Skipping publish; no source package files changed in ${sha}.`);
+            }
+
       - uses: actions/setup-node@v6
+        if: steps.publish_guard.outputs.should_publish == 'true'
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
 
       - name: Configure git
+        if: steps.publish_guard.outputs.should_publish == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Install build tools
+        if: steps.publish_guard.outputs.should_publish == 'true'
         run: npm install -g "@typescript/native-preview@7.0.0-dev.20260120.1" 2>/dev/null || true
 
       - name: Bump version and publish to npm
+        if: steps.publish_guard.outputs.should_publish == 'true'
         id: publish_package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
