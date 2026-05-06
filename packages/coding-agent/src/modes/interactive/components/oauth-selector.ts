@@ -39,6 +39,7 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 	private selectedIndex: number = 0;
 	private mode: "login" | "logout";
 	private authStorage: AuthStorage;
+	private getAuthStatus: (providerId: string) => AuthStatus;
 	private onSelectCallback: (providerId: string) => void;
 	private onCancelCallback: () => void;
 
@@ -48,12 +49,13 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 		providers: AuthSelectorProvider[],
 		onSelect: (providerId: string) => void,
 		onCancel: () => void,
-		_getAuthStatus?: (providerId: string) => AuthStatus,
+		getAuthStatus?: (providerId: string) => AuthStatus,
 	) {
 		super();
 
 		this.mode = mode;
 		this.authStorage = authStorage;
+		this.getAuthStatus = getAuthStatus ?? ((providerId) => this.authStorage.getAuthStatus(providerId));
 		this.allProviders = providers;
 		this.filteredProviders = providers;
 		this.onSelectCallback = onSelect;
@@ -115,11 +117,7 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 
 			const isSelected = i === this.selectedIndex;
 
-			// Check if user is configured for this provider
-			const credentials = this.authStorage.get(provider.id);
-			const statusIndicator = credentials
-				? theme.fg("success", " ✓ configured")
-				: theme.fg("muted", " • unconfigured");
+			const statusIndicator = this.formatStatusIndicator(provider.id);
 			let line = "";
 			if (isSelected) {
 				const prefix = theme.fg("accent", "→ ");
@@ -148,6 +146,34 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 					: "No matching providers";
 			this.listContainer.addChild(new TruncatedText(theme.fg("muted", `  ${message}`), 1, 0));
 		}
+	}
+
+	private formatStatusIndicator(providerId: string): string {
+		const credentials = this.authStorage.get(providerId);
+		if (credentials?.type === "oauth") {
+			return theme.fg("success", " ✓ subscription configured");
+		}
+		if (credentials?.type === "api_key") {
+			return theme.fg("success", " ✓ configured");
+		}
+
+		const status = this.getAuthStatus(providerId);
+		if (status.source === "environment") {
+			return theme.fg("success", ` ✓ env: ${status.label ?? "environment"}`);
+		}
+		if (status.source === "models_json_key") {
+			return theme.fg("success", " ✓ key in models.json");
+		}
+		if (status.source === "models_json_command") {
+			return theme.fg("success", " ✓ command in models.json");
+		}
+		if (status.source === "runtime") {
+			return theme.fg("success", ` ✓ ${status.label ?? "runtime"}`);
+		}
+		if (status.configured) {
+			return theme.fg("success", ` ✓ ${status.label ?? "configured"}`);
+		}
+		return theme.fg("muted", " • unconfigured");
 	}
 
 	handleInput(keyData: string): void {
