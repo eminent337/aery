@@ -15,6 +15,7 @@ export class LoginDialogComponent extends Container implements Focusable {
 	private abortController = new AbortController();
 	private inputResolver?: (value: string) => void;
 	private inputRejecter?: (error: Error) => void;
+	private activeInputHint?: Text;
 
 	// Focusable implementation - propagate to input for IME cursor positioning
 	private _focused = false;
@@ -107,10 +108,12 @@ export class LoginDialogComponent extends Container implements Focusable {
 	 * Show input for manual code/URL entry (for callback server providers)
 	 */
 	showManualInput(prompt: string): Promise<string> {
+		this.clearActiveInput();
 		this.contentContainer.addChild(new Spacer(1));
 		this.contentContainer.addChild(new Text(theme.fg("dim", prompt), 1, 0));
 		this.contentContainer.addChild(this.input);
-		this.contentContainer.addChild(new Text(`(${keyHint("tui.select.cancel", "to cancel")})`, 1, 0));
+		this.activeInputHint = new Text(`(${keyHint("tui.select.cancel", "to cancel")})`, 1, 0);
+		this.contentContainer.addChild(this.activeInputHint);
 		this.tui.requestRender();
 
 		return new Promise((resolve, reject) => {
@@ -124,19 +127,19 @@ export class LoginDialogComponent extends Container implements Focusable {
 	 * Note: Does NOT clear content, appends to existing (preserves URL from showAuth)
 	 */
 	showPrompt(message: string, placeholder?: string): Promise<string> {
+		this.clearActiveInput();
 		this.contentContainer.addChild(new Spacer(1));
 		this.contentContainer.addChild(new Text(theme.fg("text", message), 1, 0));
 		if (placeholder) {
 			this.contentContainer.addChild(new Text(theme.fg("dim", `e.g., ${placeholder}`), 1, 0));
 		}
 		this.contentContainer.addChild(this.input);
-		this.contentContainer.addChild(
-			new Text(
-				`(${keyHint("tui.select.cancel", "to cancel,")} ${keyHint("tui.select.confirm", "to submit")})`,
-				1,
-				0,
-			),
+		this.activeInputHint = new Text(
+			`(${keyHint("tui.select.cancel", "to cancel,")} ${keyHint("tui.select.confirm", "to submit")})`,
+			1,
+			0,
 		);
+		this.contentContainer.addChild(this.activeInputHint);
 
 		this.input.setValue("");
 		this.tui.requestRender();
@@ -145,6 +148,14 @@ export class LoginDialogComponent extends Container implements Focusable {
 			this.inputResolver = resolve;
 			this.inputRejecter = reject;
 		});
+	}
+
+	private clearActiveInput(): void {
+		this.contentContainer.removeChild(this.input);
+		if (this.activeInputHint) {
+			this.contentContainer.removeChild(this.activeInputHint);
+			this.activeInputHint = undefined;
+		}
 	}
 
 	/**
