@@ -392,7 +392,31 @@ export class ModelRegistry {
 			}
 		}
 
+		combined = this.resolveCloudflareWorkersAiModels(combined);
+
 		this.models = combined;
+	}
+
+	private resolveCloudflareWorkersAiModels(models: Model<Api>[]): Model<Api>[] {
+		const accountId = this.getCloudflareWorkersAiAccountId();
+		if (!accountId) {
+			return models;
+		}
+		return models.map((model) =>
+			model.provider === "cloudflare-workers-ai"
+				? {
+						...model,
+						baseUrl: model.baseUrl.replace(/\{CLOUDFLARE_ACCOUNT_ID\}/g, accountId),
+					}
+				: model,
+			);
+	}
+
+	private getCloudflareWorkersAiAccountId(): string | undefined {
+		const credential = this.authStorage.get("cloudflare-workers-ai");
+		const storedAccountId =
+			credential?.type === "api_key" && typeof credential.accountId === "string" ? credential.accountId.trim() : "";
+		return storedAccountId || process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined;
 	}
 
 	/** Load built-in models and apply provider/model overrides */
@@ -626,6 +650,10 @@ export class ModelRegistry {
 	 * Get API key for a model.
 	 */
 	hasConfiguredAuth(model: Model<Api>): boolean {
+		if (model.provider === "cloudflare-workers-ai" && !this.getCloudflareWorkersAiAccountId()) {
+			return false;
+		}
+
 		return (
 			this.authStorage.hasAuth(model.provider) ||
 			this.providerRequestConfigs.get(model.provider)?.apiKey !== undefined

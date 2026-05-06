@@ -184,6 +184,7 @@ const API_KEY_PROVIDER_NAMES: Record<string, string> = {
 	anthropic: "Anthropic",
 	"azure-openai-responses": "Azure OpenAI Responses",
 	cerebras: "Cerebras",
+	"cloudflare-workers-ai": "Cloudflare Workers AI",
 	fireworks: "Fireworks",
 	google: "Google Gemini",
 	"google-vertex": "Google Vertex AI",
@@ -4631,7 +4632,16 @@ export class InteractiveMode {
 				throw new Error("API key cannot be empty.");
 			}
 
-			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
+			if (providerId === "cloudflare-workers-ai") {
+				const accountId = (await dialog.showPrompt("Enter Cloudflare account ID:")).trim();
+				if (!accountId) {
+					throw new Error("Cloudflare account ID cannot be empty.");
+				}
+				this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey, accountId });
+				this.session.modelRegistry.refresh();
+			} else {
+				this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
+			}
 
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);

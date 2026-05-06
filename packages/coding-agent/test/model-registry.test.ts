@@ -57,6 +57,24 @@ describe("ModelRegistry", () => {
 		return registry.getAll().filter((m) => m.provider === provider);
 	}
 
+	function withEnv<T>(name: string, value: string | undefined, fn: () => T): T {
+		const previous = process.env[name];
+		if (value === undefined) {
+			delete process.env[name];
+		} else {
+			process.env[name] = value;
+		}
+		try {
+			return fn();
+		} finally {
+			if (previous === undefined) {
+				delete process.env[name];
+			} else {
+				process.env[name] = previous;
+			}
+		}
+	}
+
 	function toShPath(value: string): string {
 		return value.replace(/\\/g, "/").replace(/"/g, '\\"');
 	}
@@ -87,6 +105,54 @@ describe("ModelRegistry", () => {
 	const emptyContext: Context = {
 		messages: [],
 	};
+
+	test("resolves Cloudflare Workers AI base URL from stored account id", () => {
+		withEnv("CLOUDFLARE_ACCOUNT_ID", undefined, () => {
+			authStorage.set("cloudflare-workers-ai", {
+				type: "api_key",
+				key: "cloudflare-api-token",
+				accountId: "stored-account-id",
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const model = registry.find("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.6");
+
+			expect(model?.baseUrl).toBe("https://api.cloudflare.com/client/v4/accounts/stored-account-id/ai/v1");
+		});
+	});
+
+	test("does not list Cloudflare Workers AI as available without an account id", () => {
+		withEnv("CLOUDFLARE_ACCOUNT_ID", undefined, () => {
+			authStorage.set("cloudflare-workers-ai", {
+				type: "api_key",
+				key: "cloudflare-api-token",
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const model = registry.find("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.6");
+
+			expect(model).toBeDefined();
+			expect(registry.hasConfiguredAuth(model!)).toBe(false);
+			expect(registry.getAvailable().some((availableModel) => availableModel.provider === "cloudflare-workers-ai")).toBe(
+				false,
+			);
+		});
+	});
+
+	test("lists Cloudflare Workers AI as available with an environment account id", () => {
+		withEnv("CLOUDFLARE_ACCOUNT_ID", "env-account-id", () => {
+			authStorage.set("cloudflare-workers-ai", {
+				type: "api_key",
+				key: "cloudflare-api-token",
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const model = registry.find("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.6");
+
+			expect(model?.baseUrl).toBe("https://api.cloudflare.com/client/v4/accounts/env-account-id/ai/v1");
+			expect(registry.hasConfiguredAuth(model!)).toBe(true);
+		});
+	});
 
 	describe("baseUrl override (no custom models)", () => {
 		test("overriding baseUrl keeps all built-in models", () => {

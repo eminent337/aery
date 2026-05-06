@@ -28,11 +28,19 @@ describe("OAuthSelectorComponent", () => {
 
 	it("keeps built-in API key providers separate from OAuth-only providers", () => {
 		const oauthProviderIds = new Set(["anthropic", "github-copilot", "custom-oauth"]);
-		const builtInProviderIds = new Set(["anthropic", "github-copilot", "amazon-bedrock", "openai"]);
+		const builtInProviderIds = new Set([
+			"anthropic",
+			"github-copilot",
+			"amazon-bedrock",
+			"openai",
+			"cloudflare-workers-ai",
+		]);
 
 		expect(isApiKeyLoginProvider("anthropic", oauthProviderIds, builtInProviderIds)).toBe(true);
 		expect(getApiKeyProviderDisplayName("anthropic")).toBe("Anthropic");
 		expect(isApiKeyLoginProvider("openai", oauthProviderIds, builtInProviderIds)).toBe(true);
+		expect(isApiKeyLoginProvider("cloudflare-workers-ai", oauthProviderIds, builtInProviderIds)).toBe(true);
+		expect(getApiKeyProviderDisplayName("cloudflare-workers-ai")).toBe("Cloudflare Workers AI");
 		expect(isApiKeyLoginProvider("github-copilot", oauthProviderIds, builtInProviderIds)).toBe(false);
 		expect(isApiKeyLoginProvider("amazon-bedrock", oauthProviderIds, builtInProviderIds)).toBe(false);
 		expect(isApiKeyLoginProvider("custom-oauth", oauthProviderIds, builtInProviderIds)).toBe(false);
