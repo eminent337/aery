@@ -16,10 +16,11 @@ describe("auth guidance", () => {
 
 	test("describes Cloudflare Workers AI account id requirement", () => {
 		const requirements = getProviderSetupRequirements("cloudflare-workers-ai");
+		const text = requirements.join("\n");
 
-		expect(requirements).toContain("Cloudflare API token");
-		expect(requirements).toContain("Cloudflare account ID");
-		expect(requirements).toContain("CLOUDFLARE_ACCOUNT_ID");
+		expect(text).toContain("Cloudflare API token");
+		expect(text).toContain("Cloudflare account ID");
+		expect(text).toContain("CLOUDFLARE_ACCOUNT_ID");
 	});
 
 	test("adds Cloudflare-specific setup requirements to missing key guidance", () => {

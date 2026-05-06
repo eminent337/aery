@@ -155,7 +155,7 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 		}
 
 		const status = this.getAuthStatus(providerId);
-		if (!status.configured && status.label) {
+		if (!status.configured && !status.source && status.label) {
 			return theme.fg("muted", ` • ${status.label}`);
 		}
 		if (credentials?.type === "api_key") {
