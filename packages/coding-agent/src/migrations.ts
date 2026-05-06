@@ -87,17 +87,21 @@ export function wireCoreExtensions(repoPath: string, settingsPath: string): Core
 	const diagnostic = diagnoseCoreExtensions(repoPath, settingsPath);
 	if (!diagnostic.repoExists) return { ...diagnostic, added: [] };
 
-	const settings = (existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, "utf-8")) : {}) as {
+	const parsedSettings = (existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, "utf-8")) : {}) as {
 		extensions?: unknown;
 	};
-	const existingExtensions = Array.isArray(settings.extensions)
-		? settings.extensions.filter((value): value is string => typeof value === "string")
+	const existingExtensions = Array.isArray(parsedSettings.extensions)
+		? parsedSettings.extensions.filter((value): value is string => typeof value === "string")
 		: [];
+	const settings: Record<string, unknown> & { extensions?: string[] } = {
+		...parsedSettings,
+		extensions: existingExtensions,
+	};
 	const existing = new Set<string>(existingExtensions);
 	const added: string[] = [];
 	for (const extensionPath of getCoreExtensionFilePaths(repoPath)) {
 		if (!existsSync(extensionPath) || existing.has(extensionPath)) continue;
-		settings.extensions = Array.isArray(settings.extensions) ? settings.extensions : [];
+		settings.extensions = settings.extensions ?? [];
 		settings.extensions.push(extensionPath);
 		existing.add(extensionPath);
 		added.push(extensionPath);
