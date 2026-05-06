@@ -180,6 +180,7 @@ function hasDefaultModelProvider(providerId: string): providerId is keyof typeof
 }
 
 const API_KEY_PROVIDER_NAMES: Record<string, string> = {
+	anthropic: "Anthropic",
 	"azure-openai-responses": "Azure OpenAI Responses",
 	cerebras: "Cerebras",
 	fireworks: "Fireworks",
