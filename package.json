@@ -30,6 +30,7 @@
 		"release:patch": "node scripts/release.mjs patch",
 		"release:minor": "node scripts/release.mjs minor",
 		"release:major": "node scripts/release.mjs major",
+		"release:verify": "node scripts/verify-release.mjs",
 		"prepare": "husky"
 	},
 	"devDependencies": {

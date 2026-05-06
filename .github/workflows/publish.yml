@@ -36,6 +36,15 @@ jobs:
           script: |
             if (context.eventName === 'workflow_dispatch') {
               core.setOutput('should_publish', 'true');
+              await core.summary
+                .addHeading('Publish Eligibility')
+                .addTable([
+                  [{ data: 'Field', header: true }, { data: 'Value', header: true }],
+                  ['Event', context.eventName],
+                  ['Decision', 'publish'],
+                  ['Reason', 'manual workflow dispatch'],
+                ])
+                .write();
               return;
             }
 
@@ -57,6 +66,17 @@ jobs:
               sourcePrefixes.some((prefix) => file.filename.startsWith(prefix)),
             );
             core.setOutput('should_publish', shouldPublish ? 'true' : 'false');
+            await core.summary
+              .addHeading('Publish Eligibility')
+              .addTable([
+                [{ data: 'Field', header: true }, { data: 'Value', header: true }],
+                ['Event', context.eventName],
+                ['Source commit', sha],
+                ['Changed files', String(files.length)],
+                ['Decision', shouldPublish ? 'publish' : 'skip'],
+                ['Reason', shouldPublish ? 'source package files changed' : 'no source package files changed'],
+              ])
+              .write();
             if (!shouldPublish) {
               core.info(`Skipping publish; no source package files changed in ${sha}.`);
             }
@@ -92,6 +112,15 @@ jobs:
           CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+          {
+            echo "## Publish"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Current @eminent337/aery | $CURRENT |"
+            echo "| New @eminent337/aery | $NEW_VERSION |"
+            echo "| Commit | $(git rev-parse HEAD) |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           # Build in dependency order
           TSGO=$(which tsgo 2>/dev/null || echo "../../node_modules/.bin/tsgo")
@@ -102,11 +131,13 @@ jobs:
           # Republish aery-ai and aery-core with fresh dist
           AI_CUR=$(node -p "require('./packages/ai/package.json').version")
           IFS='.' read -r A B C <<< "$AI_CUR"; AI_NEW="$A.$B.$((C+1))"
+          echo "| New @eminent337/aery-ai | $AI_NEW |" >> "$GITHUB_STEP_SUMMARY"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/ai/package.json'));p.version='$AI_NEW';fs.writeFileSync('./packages/ai/package.json',JSON.stringify(p,null,2));"
           npm publish ./packages/ai --access public --ignore-scripts --tag latest || true
 
           CORE_CUR=$(node -p "require('./packages/agent/package.json').version")
           IFS='.' read -r A B C <<< "$CORE_CUR"; CORE_NEW="$A.$B.$((C+1))"
+          echo "| New @eminent337/aery-core | $CORE_NEW |" >> "$GITHUB_STEP_SUMMARY"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/agent/package.json'));p.version='$CORE_NEW';fs.writeFileSync('./packages/agent/package.json',JSON.stringify(p,null,2));"
           npm publish ./packages/agent --access public --ignore-scripts --tag latest || true
 
@@ -134,9 +165,11 @@ jobs:
 
           npm publish ./packages/coding-agent --access public --ignore-scripts --tag latest
           echo "Published @eminent337/aery@$NEW_VERSION"
+          echo "| npm package | @eminent337/aery@$NEW_VERSION |" >> "$GITHUB_STEP_SUMMARY"
 
           git tag "v$NEW_VERSION" || true
           git push origin "v$NEW_VERSION" || true
+          echo "| Git tag | v$NEW_VERSION |" >> "$GITHUB_STEP_SUMMARY"
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
@@ -157,9 +190,26 @@ jobs:
                 prerelease: false,
                 make_latest: 'true'
               });
+              await core.summary
+                .addHeading('GitHub Release')
+                .addTable([
+                  [{ data: 'Field', header: true }, { data: 'Value', header: true }],
+                  ['Tag', tag],
+                  ['Release', `Aery ${tag}`],
+                  ['Status', 'created'],
+                ])
+                .write();
               console.log(`Released ${tag}`);
             } catch (e) {
               if (e.status === 422) {
+                await core.summary
+                  .addHeading('GitHub Release')
+                  .addTable([
+                    [{ data: 'Field', header: true }, { data: 'Value', header: true }],
+                    ['Tag', tag],
+                    ['Status', 'already exists'],
+                  ])
+                  .write();
                 console.log(`Release ${tag} already exists, skipping.`);
               } else {
                 throw e;
