@@ -44,7 +44,6 @@ function createNpmPrefixInstall(template = "aery-prefix-"): { prefix: string; pa
 	mkdirSync(packageDir, { recursive: true });
 	tempDir = prefix;
 	process.env.AERY_PACKAGE_DIR = packageDir;
-	setInstallPath(join(packageDir, "dist", "cli.js"));
 	return { prefix, packageDir };
 }
 
@@ -62,7 +61,6 @@ function createBunGlobalInstall(): { packageDir: string } {
 	tempDir = temp;
 	process.env.PATH = `${bunBin}${delimiter}${originalPath ?? ""}`;
 	process.env.AERY_PACKAGE_DIR = packageDir;
-	setInstallPath(join(packageDir, "dist", "cli.js"));
 	return { packageDir };
 }
 

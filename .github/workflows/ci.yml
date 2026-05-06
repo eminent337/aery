@@ -41,4 +41,3 @@ jobs:
 
       - name: Test
         run: npm run test --prefix packages/coding-agent
-        continue-on-error: true
