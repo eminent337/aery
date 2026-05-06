@@ -249,10 +249,10 @@ jobs:
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
           git push origin main
 
+          npm publish ./packages/coding-agent --access public --ignore-scripts --tag latest
+
           git tag "v$NEW_VERSION" || true
           git push origin "v$NEW_VERSION" || true
-
-          npm publish ./packages/coding-agent --access public --ignore-scripts --tag latest
 
       - name: Push main
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'

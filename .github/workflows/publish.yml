@@ -89,8 +89,8 @@ jobs:
           git commit -m "chore: bump version to $NEW_VERSION" || true
           git push origin main
 
-          git tag "v$NEW_VERSION" || true
-          git push origin "v$NEW_VERSION" || true
-
           npm publish ./packages/coding-agent --access public --ignore-scripts --tag latest
           echo "Published @eminent337/aery@$NEW_VERSION"
+
+          git tag "v$NEW_VERSION" || true
+          git push origin "v$NEW_VERSION" || true
