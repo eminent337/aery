@@ -40,7 +40,12 @@ import {
 import { SessionManager } from "./core/session-manager.js";
 import { SettingsManager } from "./core/settings-manager.js";
 import { printTimings, resetTimings, time } from "./core/timings.js";
-import { ensureCoreExtensions, runMigrations, showDeprecationWarnings } from "./migrations.js";
+import {
+	ensureCoreExtensions,
+	formatCoreExtensionAttentionMessage,
+	runMigrations,
+	showDeprecationWarnings,
+} from "./migrations.js";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.js";
 import { ExtensionSelectorComponent } from "./modes/interactive/components/extension-selector.js";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.js";
@@ -659,23 +664,11 @@ export async function main(args: string[], options?: MainOptions) {
 		await showDeprecationWarnings(deprecationWarnings);
 	}
 
-	// Notify if extensions couldn't be installed due to no network
-	if (appMode === "interactive" && coreExtStatus.status === "offline") {
-		console.log(
-			chalk.yellow(
-				"Extensions not installed (no network). Run aery again with network access, or run: aery install core",
-			),
-		);
-	} else if (
-		appMode === "interactive" &&
-		(coreExtStatus.missingFiles.length > 0 || coreExtStatus.missingSettingsEntries.length > 0 || coreExtStatus.error)
-	) {
-		const issue = coreExtStatus.error
-			? coreExtStatus.error
-			: coreExtStatus.missingFiles.length > 0
-				? `${coreExtStatus.missingFiles.length} core extension file(s) are missing`
-				: `${coreExtStatus.missingSettingsEntries.length} core extension setting(s) are missing`;
-		console.log(chalk.yellow(`Core extensions need attention: ${issue}. Run: aery update --extensions`));
+	if (appMode === "interactive") {
+		const coreExtensionAttentionMessage = formatCoreExtensionAttentionMessage(coreExtStatus);
+		if (coreExtensionAttentionMessage) {
+			console.log(chalk.yellow(coreExtensionAttentionMessage));
+		}
 	}
 
 	const scopedModels = [...session.scopedModels];

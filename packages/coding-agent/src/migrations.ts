@@ -477,6 +477,26 @@ export function ensureCoreExtensions(): CoreExtensionEnsureResult {
 	}
 }
 
+export function formatCoreExtensionAttentionMessage(result: CoreExtensionEnsureResult): string | undefined {
+	if (result.status === "offline") {
+		return "Extensions not installed (no network). Run aery again with network access, or run: aery update --extensions";
+	}
+
+	if (result.error) {
+		return `Core extensions need attention: ${result.error}. Run: aery update --extensions`;
+	}
+
+	if (result.missingFiles.length > 0) {
+		return `Core extensions need attention: ${result.missingFiles.length} core extension file(s) are missing. Run: aery update --extensions`;
+	}
+
+	if (result.missingSettingsEntries.length > 0) {
+		return `Core extensions need attention: ${result.missingSettingsEntries.length} core extension setting(s) are missing. Run: aery update --extensions`;
+	}
+
+	return undefined;
+}
+
 /**
  * Run all migrations. Called once on startup.
  *

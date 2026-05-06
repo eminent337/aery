@@ -3,7 +3,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.js";
-import { CORE_EXTENSION_PATHS, diagnoseCoreExtensions, runMigrations, wireCoreExtensions } from "../src/migrations.js";
+import {
+	CORE_EXTENSION_PATHS,
+	diagnoseCoreExtensions,
+	formatCoreExtensionAttentionMessage,
+	type CoreExtensionEnsureResult,
+	runMigrations,
+	wireCoreExtensions,
+} from "../src/migrations.js";
 
 describe("core extensions migration", () => {
 	const tempDirs: string[] = [];
@@ -75,5 +82,68 @@ describe("core extensions migration", () => {
 		expect(new Set(settings.extensions)).toEqual(
 			new Set(CORE_EXTENSION_PATHS.map((extensionPath) => path.join(repoPath, "core", `${extensionPath}.ts`))),
 		);
+	});
+
+	it("formats offline core extension repair guidance", () => {
+		const result: CoreExtensionEnsureResult = {
+			repoExists: false,
+			missingFiles: ["/tmp/aery-extensions/core/help.ts"],
+			missingSettingsEntries: [],
+			added: [],
+			status: "offline",
+			repoPath: "/tmp/aery-extensions",
+			settingsPath: "/tmp/settings.json",
+			error: "network unavailable",
+		};
+
+		expect(formatCoreExtensionAttentionMessage(result)).toBe(
+			"Extensions not installed (no network). Run aery again with network access, or run: aery update --extensions",
+		);
+	});
+
+	it("formats missing core extension file repair guidance", () => {
+		const result: CoreExtensionEnsureResult = {
+			repoExists: true,
+			missingFiles: ["/tmp/aery-extensions/core/help.ts", "/tmp/aery-extensions/core/hooks.ts"],
+			missingSettingsEntries: [],
+			added: [],
+			status: "ok",
+			repoPath: "/tmp/aery-extensions",
+			settingsPath: "/tmp/settings.json",
+		};
+
+		expect(formatCoreExtensionAttentionMessage(result)).toBe(
+			"Core extensions need attention: 2 core extension file(s) are missing. Run: aery update --extensions",
+		);
+	});
+
+	it("formats missing core extension settings repair guidance", () => {
+		const result: CoreExtensionEnsureResult = {
+			repoExists: true,
+			missingFiles: [],
+			missingSettingsEntries: ["/tmp/aery-extensions/core/help.ts"],
+			added: [],
+			status: "ok",
+			repoPath: "/tmp/aery-extensions",
+			settingsPath: "/tmp/settings.json",
+		};
+
+		expect(formatCoreExtensionAttentionMessage(result)).toBe(
+			"Core extensions need attention: 1 core extension setting(s) are missing. Run: aery update --extensions",
+		);
+	});
+
+	it("returns undefined when core extensions do not need attention", () => {
+		const result: CoreExtensionEnsureResult = {
+			repoExists: true,
+			missingFiles: [],
+			missingSettingsEntries: [],
+			added: [],
+			status: "ok",
+			repoPath: "/tmp/aery-extensions",
+			settingsPath: "/tmp/settings.json",
+		};
+
+		expect(formatCoreExtensionAttentionMessage(result)).toBeUndefined();
 	});
 });

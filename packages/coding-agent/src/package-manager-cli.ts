@@ -308,6 +308,10 @@ function updateTargetIncludesExtensions(target: UpdateTarget): boolean {
 	return target.type === "all" || target.type === "extensions";
 }
 
+export function formatExtensionUpdateSuccessMessage(source?: string): string {
+	return source ? `Updated extension package ${source}` : "Updated installed extensions";
+}
+
 function printSelfUpdateUnavailable(npmCommand?: string[]): void {
 	console.error(`error: ${APP_NAME} cannot self-update this installation.`);
 	console.error(getSelfUpdateUnavailableInstruction(PACKAGE_NAME, npmCommand));
@@ -538,11 +542,7 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 				if (updateTargetIncludesExtensions(target)) {
 					const updateSource = target.type === "extensions" ? target.source : undefined;
 					await packageManager.update(updateSource);
-					if (updateSource) {
-						console.log(chalk.green(`Updated ${updateSource}`));
-					} else {
-						console.log(chalk.green("Updated packages"));
-					}
+					console.log(chalk.green(formatExtensionUpdateSuccessMessage(updateSource)));
 				}
 				if (updateTargetIncludesSelf(target)) {
 					const selfUpdateCommand = getSelfUpdateCommand(PACKAGE_NAME, selfUpdateNpmCommand);
