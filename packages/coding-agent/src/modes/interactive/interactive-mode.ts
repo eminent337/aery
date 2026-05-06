@@ -893,8 +893,8 @@ export class InteractiveMode {
 			try {
 				const { execFile } = await import("node:child_process");
 				const { promisify } = await import("node:util");
-				const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
-				const { join } = await import("node:path");
+				const { existsSync, mkdirSync, readFileSync, writeFileSync } = await import("node:fs");
+				const { dirname, join } = await import("node:path");
 				const { homedir } = await import("node:os");
 				const exec = promisify(execFile);
 				await exec("aery", ["install", "https://github.com/eminent337/aery-extensions"], {
@@ -924,20 +924,21 @@ export class InteractiveMode {
 					"aery-doctor",
 					"aery-team",
 					["subagent", "subagent/index"],
+					"marketplace",
+					"init-prompt",
 				];
-				if (existsSync(settingsPath)) {
-					const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-					const existing = new Set(settings.extensions || []);
-					for (const ext of CORE) {
-						const [_name, filePath] = Array.isArray(ext) ? ext : [ext, ext];
-						const p = join(repoPath, "core", `${filePath}.ts`);
-						if (existsSync(p) && !existing.has(p)) {
-							settings.extensions = settings.extensions || [];
-							settings.extensions.push(p);
-						}
+				const settings = existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, "utf-8")) : {};
+				const existing = new Set(settings.extensions || []);
+				for (const ext of CORE) {
+					const [_name, filePath] = Array.isArray(ext) ? ext : [ext, ext];
+					const p = join(repoPath, "core", `${filePath}.ts`);
+					if (existsSync(p) && !existing.has(p)) {
+						settings.extensions = settings.extensions || [];
+						settings.extensions.push(p);
 					}
-					writeFileSync(settingsPath, JSON.stringify({ ...settings, quietStartup: true }, null, 2));
 				}
+				mkdirSync(dirname(settingsPath), { recursive: true });
+				writeFileSync(settingsPath, `${JSON.stringify({ ...settings, quietStartup: true }, null, 2)}\n`);
 			} catch {
 				// Silent fail — user can install manually
 			}

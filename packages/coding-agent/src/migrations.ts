@@ -12,6 +12,30 @@ import { migrateKeybindingsConfig } from "./core/keybindings.js";
 const MIGRATION_GUIDE_URL =
 	"https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md#extensions-migration";
 const EXTENSIONS_DOC_URL = "https://github.com/eminent337/aery/blob/main/packages/coding-agent/docs/extensions.md";
+const CORE_EXTENSIONS: Array<string | [string, string]> = [
+	"damage-control",
+	"provider-profiles",
+	"model-failover",
+	"web-search",
+	"web-fetch",
+	"commands",
+	"hooks",
+	"circuit-breaker",
+	"auto-router",
+	"memory-include",
+	"aery-header",
+	"aery-footer",
+	"multi-agent",
+	"agent-chain",
+	"agent-teams",
+	"help",
+	"default-agents",
+	"aery-doctor",
+	"aery-team",
+	["subagent", "subagent/index"],
+	"marketplace",
+	"init-prompt",
+];
 
 /**
  * Migrate legacy oauth.json and settings.json apiKeys to auth.json.
@@ -306,39 +330,13 @@ function wireMissingCoreExtensions(): void {
 	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
 	const settingsPath = join(agentDir, "settings.json");
 
-	if (!existsSync(repoPath) || !existsSync(settingsPath)) return;
-
-	// Only auto-wire the minimal set — everything else is opt-in via aery install
-	const CORE: Array<string | [string, string]> = [
-		"damage-control",
-		"provider-profiles",
-		"model-failover",
-		"web-search",
-		"web-fetch",
-		"commands",
-		"hooks",
-		"circuit-breaker",
-		"auto-router",
-		"memory-include",
-		"aery-header",
-		"aery-footer",
-		"multi-agent",
-		"agent-chain",
-		"agent-teams",
-		"help",
-		"default-agents",
-		"aery-doctor",
-		"aery-team",
-		["subagent", "subagent/index"],
-		"marketplace",
-		"init-prompt",
-	];
+	if (!existsSync(repoPath)) return;
 
 	try {
-		const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+		const settings = existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, "utf-8")) : {};
 		const existing = new Set<string>(settings.extensions || []);
 		let added = false;
-		for (const ext of CORE) {
+		for (const ext of CORE_EXTENSIONS) {
 			const [, filePath] = Array.isArray(ext) ? ext : [ext, ext];
 			const p = join(repoPath, "core", `${filePath}.ts`);
 			if (existsSync(p) && !existing.has(p)) {
@@ -349,7 +347,8 @@ function wireMissingCoreExtensions(): void {
 			}
 		}
 		if (added) {
-			writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+			mkdirSync(dirname(settingsPath), { recursive: true });
+			writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
 		}
 	} catch {
 		// Silent fail
