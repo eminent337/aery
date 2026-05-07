@@ -52,6 +52,7 @@ Verification:
 ### Provider Setup and Cloudflare UX
 
 Aery improves provider setup feedback, especially Cloudflare Workers AI, where both an API token and account ID are required. The `/login` flow should save credentials separately and report whether the provider exposes usable local models after authentication.
+OpenAI-compatible provider errors should turn common authentication, billing/quota, rate-limit, and temporary server failures into actionable messages while preserving the raw provider error.
 
 Owned files and hooks:
 - `packages/coding-agent/src/core/provider-setup-check.ts`

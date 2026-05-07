@@ -262,4 +262,93 @@ describe("openai-completions thinking-as-text replay", () => {
 			await once(server, "close");
 		}
 	});
+
+	it("explains OpenRouter billing and quota failures", async () => {
+		const server = http.createServer(async (req, res) => {
+			if (req.method !== "POST" || req.url !== "/chat/completions") {
+				res.writeHead(404).end();
+				return;
+			}
+
+			res.writeHead(402, { "content-type": "application/json" });
+			res.end(
+				JSON.stringify({
+					error: {
+						code: 402,
+						message: "Insufficient credits. Add credits to continue using this model.",
+					},
+				}),
+			);
+		});
+
+		server.listen(0, "127.0.0.1");
+		await once(server, "listening");
+
+		try {
+			const { port } = server.address() as AddressInfo;
+			const events = await collectEvents(
+				streamOpenAICompletions(
+					{
+						...buildModel(`http://127.0.0.1:${port}`),
+						provider: "openrouter",
+					},
+					buildContext(buildAssistant([{ type: "text", text: "previous answer" }])),
+					{ apiKey: "test-key" },
+				),
+			);
+
+			const terminalEvent = events.at(-1);
+			expect(terminalEvent?.type).toBe("error");
+			if (terminalEvent?.type !== "error") return;
+			expect(terminalEvent.error.errorMessage).toContain("OpenRouter quota or billing limit reached");
+			expect(terminalEvent.error.errorMessage).toContain("credits, billing, or plan limits");
+			expect(terminalEvent.error.errorMessage).toContain("Insufficient credits");
+		} finally {
+			server.close();
+			await once(server, "close");
+		}
+	});
+
+	it("explains OpenAI-compatible authentication failures", async () => {
+		const server = http.createServer(async (req, res) => {
+			if (req.method !== "POST" || req.url !== "/chat/completions") {
+				res.writeHead(404).end();
+				return;
+			}
+
+			res.writeHead(401, { "content-type": "application/json" });
+			res.end(
+				JSON.stringify({
+					error: {
+						code: "invalid_api_key",
+						message: "Incorrect API key provided.",
+					},
+				}),
+			);
+		});
+
+		server.listen(0, "127.0.0.1");
+		await once(server, "listening");
+
+		try {
+			const { port } = server.address() as AddressInfo;
+			const events = await collectEvents(
+				streamOpenAICompletions(
+					buildModel(`http://127.0.0.1:${port}`),
+					buildContext(buildAssistant([{ type: "text", text: "previous answer" }])),
+					{ apiKey: "test-key" },
+				),
+			);
+
+			const terminalEvent = events.at(-1);
+			expect(terminalEvent?.type).toBe("error");
+			if (terminalEvent?.type !== "error") return;
+			expect(terminalEvent.error.errorMessage).toContain("repro-provider authentication failed");
+			expect(terminalEvent.error.errorMessage).toContain("check the API key");
+			expect(terminalEvent.error.errorMessage).toContain("Incorrect API key");
+		} finally {
+			server.close();
+			await once(server, "close");
+		}
+	});
 });
