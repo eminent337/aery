@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import type { Model } from "@eminent337/aery-ai";
-import type { ThinkingLevel } from "@eminent337/aery-core";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Model } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.js";
 import { AuthStorage } from "./auth-storage.js";
 import type { SessionStartEvent, ToolDefinition } from "./extensions/index.js";

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getAeryUserAgent } from "../src/utils/aery-user-agent.js";
 
 describe("getAeryUserAgent", () => {
-	it("formats the user agent expected by pi.dev", () => {
+	it("formats the user agent expected by eminent337.github.io", () => {
 		const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;
 		const userAgent = getAeryUserAgent("1.2.3");
 

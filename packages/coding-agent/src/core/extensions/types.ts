@@ -9,6 +9,13 @@
  */
 
 import type {
+	AgentMessage,
+	AgentToolResult,
+	AgentToolUpdateCallback,
+	ThinkingLevel,
+	ToolExecutionMode,
+} from "@earendil-works/pi-agent-core";
+import type {
 	Api,
 	AssistantMessageEvent,
 	AssistantMessageEventStream,
@@ -20,14 +27,7 @@ import type {
 	SimpleStreamOptions,
 	TextContent,
 	ToolResultMessage,
-} from "@eminent337/aery-ai";
-import type {
-	AgentMessage,
-	AgentToolResult,
-	AgentToolUpdateCallback,
-	ThinkingLevel,
-	ToolExecutionMode,
-} from "@eminent337/aery-core";
+} from "@earendil-works/pi-ai";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -38,7 +38,7 @@ import type {
 	OverlayHandle,
 	OverlayOptions,
 	TUI,
-} from "@eminent337/aery-tui";
+} from "@earendil-works/pi-tui";
 import type { Static, TSchema } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.js";
 import type { BashResult } from "../bash-executor.js";
@@ -115,6 +115,7 @@ export interface WorkingIndicatorOptions {
 
 /** Wrap the current autocomplete provider with additional behavior. */
 export type AutocompleteProviderFactory = (current: AutocompleteProvider) => AutocompleteProvider;
+export type EditorFactory = (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent;
 
 /**
  * UI context for extensions to request interactive UI.
@@ -225,12 +226,12 @@ export interface ExtensionUIContext {
 	 * - `keybindings`: KeybindingsManager for app-level keybindings
 	 *
 	 * For full app keybinding support (escape, ctrl+d, model switching, etc.),
-	 * extend `CustomEditor` from `@eminent337/aery` and call
+	 * extend `CustomEditor` from `@earendil-works/pi-coding-agent` and call
 	 * `super.handleInput(data)` for keys you don't handle.
 	 *
 	 * @example
 	 * ```ts
-	 * import { CustomEditor } from "@eminent337/aery";
+	 * import { CustomEditor } from "@earendil-works/pi-coding-agent";
 	 *
 	 * class VimEditor extends CustomEditor {
 	 *   private mode: "normal" | "insert" = "insert";
@@ -249,9 +250,10 @@ export interface ExtensionUIContext {
 	 * );
 	 * ```
 	 */
-	setEditorComponent(
-		factory: ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent) | undefined,
-	): void;
+	setEditorComponent(factory: EditorFactory | undefined): void;
+
+	/** Get the currently configured custom editor factory, or undefined when using the default editor. */
+	getEditorComponent(): EditorFactory | undefined;
 
 	/** Get the current theme for styling. */
 	readonly theme: Theme;
@@ -314,7 +316,7 @@ export interface ExtensionContext {
 	abort(): void;
 	/** Whether there are queued messages waiting */
 	hasPendingMessages(): boolean;
-	/** Gracefully shutdown aery and exit. Available in all contexts. */
+	/** Gracefully shutdown pi and exit. Available in all contexts. */
 	shutdown(): void;
 	/** Get current context usage for the active model. */
 	getContextUsage(): ContextUsage | undefined;
@@ -716,6 +718,13 @@ export interface ModelSelectEvent {
 	source: ModelSelectSource;
 }
 
+/** Fired when a new thinking level is selected */
+export interface ThinkingLevelSelectEvent {
+	type: "thinking_level_select";
+	level: ThinkingLevel;
+	previousLevel: ThinkingLevel;
+}
+
 // ============================================================================
 // User Bash Events
 // ============================================================================
@@ -956,6 +965,7 @@ export type ExtensionEvent =
 	| ToolExecutionUpdateEvent
 	| ToolExecutionEndEvent
 	| ModelSelectEvent
+	| ThinkingLevelSelectEvent
 	| UserBashEvent
 	| InputEvent
 	| ToolCallEvent
@@ -989,6 +999,11 @@ export interface ToolResultEventResult {
 	content?: (TextContent | ImageContent)[];
 	details?: unknown;
 	isError?: boolean;
+}
+
+export interface MessageEndEventResult {
+	/** Replace the finalized message. The replacement must keep the original message role. */
+	message?: AgentMessage;
 }
 
 export interface BeforeAgentStartEventResult {
@@ -1099,11 +1114,12 @@ export interface ExtensionAPI {
 	on(event: "turn_end", handler: ExtensionHandler<TurnEndEvent>): void;
 	on(event: "message_start", handler: ExtensionHandler<MessageStartEvent>): void;
 	on(event: "message_update", handler: ExtensionHandler<MessageUpdateEvent>): void;
-	on(event: "message_end", handler: ExtensionHandler<MessageEndEvent>): void;
+	on(event: "message_end", handler: ExtensionHandler<MessageEndEvent, MessageEndEventResult>): void;
 	on(event: "tool_execution_start", handler: ExtensionHandler<ToolExecutionStartEvent>): void;
 	on(event: "tool_execution_update", handler: ExtensionHandler<ToolExecutionUpdateEvent>): void;
 	on(event: "tool_execution_end", handler: ExtensionHandler<ToolExecutionEndEvent>): void;
 	on(event: "model_select", handler: ExtensionHandler<ModelSelectEvent>): void;
+	on(event: "thinking_level_select", handler: ExtensionHandler<ThinkingLevelSelectEvent>): void;
 	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, ToolCallEventResult>): void;
 	on(event: "tool_result", handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult>): void;
 	on(event: "user_bash", handler: ExtensionHandler<UserBashEvent, UserBashEventResult>): void;
@@ -1236,7 +1252,7 @@ export interface ExtensionAPI {
 	 *
 	 * @example
 	 * // Register a new provider with custom models
-	 * aery.registerProvider("my-proxy", {
+	 * pi.registerProvider("my-proxy", {
 	 *   baseUrl: "https://proxy.example.com",
 	 *   apiKey: "PROXY_API_KEY",
 	 *   api: "anthropic-messages",
@@ -1255,13 +1271,13 @@ export interface ExtensionAPI {
 	 *
 	 * @example
 	 * // Override baseUrl for an existing provider
-	 * aery.registerProvider("anthropic", {
+	 * pi.registerProvider("anthropic", {
 	 *   baseUrl: "https://proxy.example.com"
 	 * });
 	 *
 	 * @example
 	 * // Register provider with OAuth support
-	 * aery.registerProvider("corporate-ai", {
+	 * pi.registerProvider("corporate-ai", {
 	 *   baseUrl: "https://ai.corp.com",
 	 *   api: "openai-responses",
 	 *   models: [...],
@@ -1286,7 +1302,7 @@ export interface ExtensionAPI {
 	 * the initial load phase.
 	 *
 	 * @example
-	 * aery.unregisterProvider("my-proxy");
+	 * pi.unregisterProvider("my-proxy");
 	 */
 	unregisterProvider(name: string): void;
 
@@ -1298,8 +1314,10 @@ export interface ExtensionAPI {
 // Provider Registration Types
 // ============================================================================
 
-/** Configuration for registering a provider via aery.registerProvider(). */
+/** Configuration for registering a provider via pi.registerProvider(). */
 export interface ProviderConfig {
+	/** Display name for the provider in UI. */
+	name?: string;
 	/** Base URL for the API endpoint. Required when defining models. */
 	baseUrl?: string;
 	/** API key or environment variable name. Required when defining models (unless oauth provided). */
@@ -1337,8 +1355,12 @@ export interface ProviderModelConfig {
 	name: string;
 	/** API type override for this model. */
 	api?: Api;
+	/** API endpoint URL override for this model. */
+	baseUrl?: string;
 	/** Whether the model supports extended thinking. */
 	reasoning: boolean;
+	/** Maps pi thinking levels to provider/model-specific values; null marks a level unsupported. */
+	thinkingLevelMap?: Model<Api>["thinkingLevelMap"];
 	/** Supported input types. */
 	input: ("text" | "image")[];
 	/** Cost per token (for tracking, can be 0). */
@@ -1354,7 +1376,7 @@ export interface ProviderModelConfig {
 }
 
 /** Extension factory function type. Supports both sync and async initialization. */
-export type ExtensionFactory = (aery: ExtensionAPI) => void | Promise<void>;
+export type ExtensionFactory = (pi: ExtensionAPI) => void | Promise<void>;
 
 // ============================================================================
 // Loaded Extension Types
@@ -1444,7 +1466,7 @@ export interface ExtensionRuntimeState {
 }
 
 /**
- * Action implementations for aery.* API methods.
+ * Action implementations for pi.* API methods.
  * Provided to runner.initialize(), copied into the shared runtime.
  */
 export interface ExtensionActions {

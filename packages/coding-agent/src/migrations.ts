@@ -3,118 +3,15 @@
  */
 
 import chalk from "chalk";
-import { execSync, spawnSync } from "child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { CONFIG_DIR_NAME, getAgentDir, getBinDir } from "./config.js";
 import { migrateKeybindingsConfig } from "./core/keybindings.js";
 
 const MIGRATION_GUIDE_URL =
-	"https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md#extensions-migration";
-const EXTENSIONS_DOC_URL = "https://github.com/eminent337/aery/blob/main/packages/coding-agent/docs/extensions.md";
-export const CORE_EXTENSION_PATHS = [
-	"damage-control",
-	"provider-profiles",
-	"model-failover",
-	"web-search",
-	"web-fetch",
-	"commands",
-	"hooks",
-	"circuit-breaker",
-	"auto-router",
-	"memory-include",
-	"aery-header",
-	"aery-footer",
-	"multi-agent",
-	"agent-chain",
-	"agent-teams",
-	"help",
-	"default-agents",
-	"aery-doctor",
-	"aery-team",
-	"subagent/index",
-	"marketplace",
-	"init-prompt",
-] as const;
-
-export interface CoreExtensionDiagnostic {
-	repoExists: boolean;
-	missingFiles: string[];
-	missingSettingsEntries: string[];
-}
-
-export interface CoreExtensionWireResult extends CoreExtensionDiagnostic {
-	added: string[];
-}
-
-export interface CoreExtensionEnsureResult extends CoreExtensionWireResult {
-	status: "installed" | "offline" | "ok";
-	repoPath: string;
-	settingsPath: string;
-	error?: string;
-}
-
-export function getCoreExtensionFilePaths(repoPath: string): string[] {
-	return CORE_EXTENSION_PATHS.map((extensionPath) => join(repoPath, "core", `${extensionPath}.ts`));
-}
-
-function readSettingsExtensions(settingsPath: string): string[] {
-	if (!existsSync(settingsPath)) return [];
-	try {
-		const settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as { extensions?: unknown };
-		return Array.isArray(settings.extensions)
-			? settings.extensions.filter((value): value is string => typeof value === "string")
-			: [];
-	} catch {
-		return [];
-	}
-}
-
-export function diagnoseCoreExtensions(repoPath: string, settingsPath: string): CoreExtensionDiagnostic {
-	const expectedPaths = getCoreExtensionFilePaths(repoPath);
-	const repoExists = existsSync(repoPath);
-	const settingsExtensions = new Set(readSettingsExtensions(settingsPath));
-	return {
-		repoExists,
-		missingFiles: repoExists ? expectedPaths.filter((extensionPath) => !existsSync(extensionPath)) : expectedPaths,
-		missingSettingsEntries: expectedPaths.filter(
-			(extensionPath) => existsSync(extensionPath) && !settingsExtensions.has(extensionPath),
-		),
-	};
-}
-
-export function wireCoreExtensions(repoPath: string, settingsPath: string): CoreExtensionWireResult {
-	const diagnostic = diagnoseCoreExtensions(repoPath, settingsPath);
-	if (!diagnostic.repoExists) return { ...diagnostic, added: [] };
-
-	const parsedSettings = (existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, "utf-8")) : {}) as {
-		extensions?: unknown;
-	};
-	const existingExtensions = Array.isArray(parsedSettings.extensions)
-		? parsedSettings.extensions.filter((value): value is string => typeof value === "string")
-		: [];
-	const settings: Record<string, unknown> & { extensions?: string[] } = {
-		...parsedSettings,
-		extensions: existingExtensions,
-	};
-	const existing = new Set<string>(existingExtensions);
-	const added: string[] = [];
-	for (const extensionPath of getCoreExtensionFilePaths(repoPath)) {
-		if (!existsSync(extensionPath) || existing.has(extensionPath)) continue;
-		settings.extensions = settings.extensions ?? [];
-		settings.extensions.push(extensionPath);
-		existing.add(extensionPath);
-		added.push(extensionPath);
-	}
-
-	if (added.length > 0) {
-		mkdirSync(dirname(settingsPath), { recursive: true });
-		writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
-	}
-
-	const nextDiagnostic = diagnoseCoreExtensions(repoPath, settingsPath);
-	return { ...nextDiagnostic, added };
-}
+	"https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md#extensions-migration";
+const EXTENSIONS_DOC_URL =
+	"https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/extensions.md";
 
 /**
  * Migrate legacy oauth.json and settings.json apiKeys to auth.json.
@@ -182,7 +79,7 @@ export function migrateAuthToAuthJson(): string[] {
  * ~/.aery/agent/sessions/<encoded-cwd>/. This migration moves them
  * to the correct location based on the cwd in their session header.
  *
- * See: https://github.com/eminent337/aery/issues/320
+ * See: https://github.com/earendil-works/pi-mono/issues/320
  */
 export function migrateSessionsFromAgentRoot(): void {
 	const agentDir = getAgentDir();
@@ -320,7 +217,7 @@ function migrateToolsToBin(): void {
 
 /**
  * Check for deprecated hooks/ and tools/ directories.
- * Note: tools/ may contain fd/rg binaries extracted by aery, so only warn if it has other files.
+ * Note: tools/ may contain fd/rg binaries extracted by pi, so only warn if it has other files.
  */
 function checkDeprecatedExtensionDirs(baseDir: string, label: string): string[] {
 	const hooksDir = join(baseDir, "hooks");
@@ -401,103 +298,6 @@ export async function showDeprecationWarnings(warnings: string[]): Promise<void>
 }
 
 /**
- * Wire any missing core extensions for existing users who already have aery-extensions installed.
- * Runs on every startup but is idempotent — only adds extensions not already in settings.
- */
-function wireMissingCoreExtensions(): void {
-	const agentDir = getAgentDir();
-	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
-	const settingsPath = join(agentDir, "settings.json");
-
-	if (!existsSync(repoPath)) return;
-
-	try {
-		wireCoreExtensions(repoPath, settingsPath);
-	} catch {
-		// Silent fail
-	}
-}
-
-/**
- * Ensure aery-extensions is cloned and core extensions are wired.
- * Called at startup — installs aery-extensions if missing, then wires core extensions.
- * Safe to call multiple times (idempotent).
- *
- * @returns core extension bootstrap status and diagnostics
- */
-export function ensureCoreExtensions(): CoreExtensionEnsureResult {
-	const agentDir = getAgentDir();
-	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
-	const settingsPath = join(agentDir, "settings.json");
-
-	// Clone if missing
-	if (!existsSync(repoPath)) {
-		try {
-			mkdirSync(join(agentDir, "git", "github.com", "eminent337"), { recursive: true });
-			execSync(`git clone --depth=1 https://github.com/eminent337/aery-extensions.git "${repoPath}"`, {
-				stdio: "pipe",
-				timeout: 30000,
-			});
-			return { ...wireCoreExtensions(repoPath, settingsPath), status: "installed", repoPath, settingsPath };
-		} catch (error) {
-			// Network unavailable or git missing
-			return {
-				...diagnoseCoreExtensions(repoPath, settingsPath),
-				added: [],
-				status: "offline",
-				repoPath,
-				settingsPath,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-	}
-
-	// Repo exists — pull updates in the background (fire and forget)
-	try {
-		spawnSync("git", ["-C", repoPath, "pull", "--ff-only", "--quiet"], {
-			timeout: 10000,
-			stdio: "pipe",
-		});
-	} catch {
-		// Ignore pull failures — offline or git missing
-	}
-
-	// Wire any newly added core extensions
-	try {
-		return { ...wireCoreExtensions(repoPath, settingsPath), status: "ok", repoPath, settingsPath };
-	} catch (error) {
-		return {
-			...diagnoseCoreExtensions(repoPath, settingsPath),
-			added: [],
-			status: "ok",
-			repoPath,
-			settingsPath,
-			error: error instanceof Error ? error.message : String(error),
-		};
-	}
-}
-
-export function formatCoreExtensionAttentionMessage(result: CoreExtensionEnsureResult): string | undefined {
-	if (result.status === "offline") {
-		return "Extensions not installed (no network). Run aery again with network access, or run: aery update --extensions";
-	}
-
-	if (result.error) {
-		return `Core extensions need attention: ${result.error}. Run: aery update --extensions`;
-	}
-
-	if (result.missingFiles.length > 0) {
-		return `Core extensions need attention: ${result.missingFiles.length} core extension file(s) are missing. Run: aery update --extensions`;
-	}
-
-	if (result.missingSettingsEntries.length > 0) {
-		return `Core extensions need attention: ${result.missingSettingsEntries.length} core extension setting(s) are missing. Run: aery update --extensions`;
-	}
-
-	return undefined;
-}
-
-/**
  * Run all migrations. Called once on startup.
  *
  * @returns Object with migration results and deprecation warnings
@@ -510,7 +310,6 @@ export function runMigrations(cwd: string): {
 	migrateSessionsFromAgentRoot();
 	migrateToolsToBin();
 	migrateKeybindingsConfigFile();
-	wireMissingCoreExtensions();
 	const deprecationWarnings = migrateExtensionSystem(cwd);
 	return { migratedAuthProviders, deprecationWarnings };
 }

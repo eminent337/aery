@@ -1,9 +1,9 @@
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@eminent337/aery";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	const logFile = join(process.cwd(), ".aery", "provider-payload.log");
+	const logFile = join(process.cwd(), ".pi", "provider-payload.log");
 
 	pi.on("before_provider_request", (event) => {
 		appendFileSync(logFile, `${JSON.stringify(event.payload, null, 2)}\n\n`, "utf8");

@@ -13,7 +13,6 @@ See these complete provider examples:
 
 - [`examples/extensions/custom-provider-anthropic/`](../examples/extensions/custom-provider-anthropic/)
 - [`examples/extensions/custom-provider-gitlab-duo/`](../examples/extensions/custom-provider-gitlab-duo/)
-- [`examples/extensions/custom-provider-qwen-cli/`](../examples/extensions/custom-provider-qwen-cli/)
 
 ## Table of Contents
 
@@ -31,9 +30,9 @@ See these complete provider examples:
 ## Quick Reference
 
 ```typescript
-import type { ExtensionAPI } from "@eminent337/aery";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-export default function (aery: ExtensionAPI) {
+export default function (pi: ExtensionAPI) {
   // Override baseUrl for existing provider
   pi.registerProvider("anthropic", {
     baseUrl: "https://proxy.example.com"
@@ -41,6 +40,7 @@ export default function (aery: ExtensionAPI) {
 
   // Register new provider with models
   pi.registerProvider("my-provider", {
+    name: "My Provider",
     baseUrl: "https://api.example.com",
     apiKey: "MY_API_KEY",
     api: "openai-completions",
@@ -59,7 +59,7 @@ export default function (aery: ExtensionAPI) {
 }
 ```
 
-The extension factory can also be `async`. For dynamic model discovery, fetch and register models in the factory instead of `session_start`. aery waits for the factory before startup continues, so the provider is available during interactive startup and to `aery --list-models`.
+The extension factory can also be `async`. For dynamic model discovery, fetch and register models in the factory instead of `session_start`. pi waits for the factory before startup continues, so the provider is available during interactive startup and to `pi --list-models`.
 
 ## Override Existing Provider
 
@@ -96,9 +96,9 @@ To add a completely new provider, specify `models` along with the required confi
 If the model list comes from a remote endpoint, use an async extension factory:
 
 ```typescript
-import type { ExtensionAPI } from "@eminent337/aery";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-export default async function (aery: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
   const response = await fetch("http://localhost:1234/v1/models");
   const payload = (await response.json()) as {
     data: Array<{
@@ -156,7 +156,7 @@ When `models` is provided, it **replaces** all existing models for that provider
 
 ## Unregister Provider
 
-Use `aery.unregisterProvider(name)` to remove a provider that was previously registered via `pi.registerProvider(name, ...)`:
+Use `pi.unregisterProvider(name)` to remove a provider that was previously registered via `pi.registerProvider(name, ...)`:
 
 ```typescript
 // Register
@@ -178,7 +178,7 @@ pi.registerProvider("my-llm", {
 });
 
 // Later, remove it
-aery.unregisterProvider("my-llm");
+pi.unregisterProvider("my-llm");
 ```
 
 Unregistering removes that provider's dynamic models, API key fallback, OAuth provider registration, and custom stream handler registrations. Any built-in models or provider behavior that were overridden are restored.
@@ -198,32 +198,32 @@ The `api` field determines which streaming implementation is used:
 | `openai-codex-responses` | OpenAI Codex Responses API |
 | `mistral-conversations` | Mistral SDK Conversations/Chat streaming |
 | `google-generative-ai` | Google Generative AI API |
-| `google-gemini-cli` | Google Cloud Code Assist API |
 | `google-vertex` | Google Vertex AI API |
 | `bedrock-converse-stream` | Amazon Bedrock Converse API |
 
-Most OpenAI-compatible providers work with `openai-completions`. Use `compat` for quirks:
+Most OpenAI-compatible providers work with `openai-completions`. Use model-level `thinkingLevelMap` for model-specific thinking levels, and `compat` for provider quirks:
 
 ```typescript
 models: [{
   id: "custom-model",
   // ...
+  reasoning: true,
+  thinkingLevelMap: {              // map pi levels to provider values; null hides unsupported levels
+    minimal: null,
+    low: null,
+    medium: null,
+    high: "default",
+    xhigh: "max"
+  },
   compat: {
-    supportsDeveloperRole: false,      // use "system" instead of "developer"
+    supportsDeveloperRole: false,   // use "system" instead of "developer"
     supportsReasoningEffort: true,
-    reasoningEffortMap: {              // map aery-ai levels to provider values
-      minimal: "default",
-      low: "default",
-      medium: "default",
-      high: "default",
-      xhigh: "default"
-    },
-      maxTokensField: "max_tokens",      // instead of "max_completion_tokens"
-      requiresToolResultName: true,      // tool results need name field
-      thinkingFormat: "qwen",           // top-level enable_thinking: true
-      cacheControlFormat: "anthropic"   // Anthropic-style cache_control markers
-    }
-  }]
+    maxTokensField: "max_tokens",   // instead of "max_completion_tokens"
+    requiresToolResultName: true,   // tool results need name field
+    thinkingFormat: "qwen",        // top-level enable_thinking: true
+    cacheControlFormat: "anthropic" // Anthropic-style cache_control markers
+  }
+}]
 ```
 
 Use `qwen-chat-template` instead for local Qwen-compatible servers that read `chat_template_kwargs.enable_thinking`.
@@ -252,7 +252,7 @@ pi.registerProvider("custom-api", {
 Add OAuth/SSO authentication that integrates with `/login`:
 
 ```typescript
-import type { OAuthCredentials, OAuthLoginCallbacks } from "@eminent337/aery-ai";
+import type { OAuthCredentials, OAuthLoginCallbacks } from "@earendil-works/pi-ai";
 
 pi.registerProvider("corporate-ai", {
   baseUrl: "https://ai.corp.com/v1",
@@ -345,12 +345,12 @@ interface OAuthCredentials {
 For providers with non-standard APIs, implement `streamSimple`. Study the existing provider implementations before writing your own:
 
 **Reference implementations:**
-- [anthropic.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/anthropic.ts) - Anthropic Messages API
-- [mistral.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/mistral.ts) - Mistral Conversations API
-- [openai-completions.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/openai-completions.ts) - OpenAI Chat Completions
-- [openai-responses.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/openai-responses.ts) - OpenAI Responses API
-- [google.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/google.ts) - Google Generative AI
-- [amazon-bedrock.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/amazon-bedrock.ts) - AWS Bedrock
+- [anthropic.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/anthropic.ts) - Anthropic Messages API
+- [mistral.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/mistral.ts) - Mistral Conversations API
+- [openai-completions.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/openai-completions.ts) - OpenAI Chat Completions
+- [openai-responses.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/openai-responses.ts) - OpenAI Responses API
+- [google.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/google.ts) - Google Generative AI
+- [amazon-bedrock.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/amazon-bedrock.ts) - AWS Bedrock
 
 ### Stream Pattern
 
@@ -365,7 +365,7 @@ import {
   type SimpleStreamOptions,
   calculateCost,
   createAssistantMessageEventStream,
-} from "@eminent337/aery-ai";
+} from "@earendil-works/pi-ai";
 
 function streamMyProvider(
   model: Model<any>,
@@ -522,7 +522,7 @@ pi.registerProvider("my-provider", {
 
 ## Testing Your Implementation
 
-Test your provider against the same test suites used by built-in providers. Copy and adapt these test files from [packages/ai/test/](https://github.com/eminent337/aery/tree/main/packages/ai/test):
+Test your provider against the same test suites used by built-in providers. Copy and adapt these test files from [packages/ai/test/](https://github.com/earendil-works/pi-mono/tree/main/packages/ai/test):
 
 | Test | Purpose |
 |------|---------|
@@ -544,6 +544,9 @@ Run tests with your provider/model pairs to verify compatibility.
 
 ```typescript
 interface ProviderConfig {
+  /** Display name for the provider in UI such as /login. */
+  name?: string;
+
   /** API endpoint URL. Required when defining models. */
   baseUrl?: string;
 
@@ -593,8 +596,14 @@ interface ProviderModelConfig {
   /** API type override for this specific model. */
   api?: Api;
 
+  /** API endpoint URL override for this specific model. */
+  baseUrl?: string;
+
   /** Whether the model supports extended thinking. */
   reasoning: boolean;
+
+  /** Maps pi thinking levels to provider/model-specific values; null marks a level unsupported. */
+  thinkingLevelMap?: Partial<Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh", string | null>>;
 
   /** Supported input types. */
   input: ("text" | "image")[];
@@ -621,7 +630,6 @@ interface ProviderModelConfig {
     supportsStore?: boolean;
     supportsDeveloperRole?: boolean;
     supportsReasoningEffort?: boolean;
-    reasoningEffortMap?: Partial<Record<"minimal" | "low" | "medium" | "high" | "xhigh", string>>;
     supportsUsageInStreaming?: boolean;
     maxTokensField?: "max_completion_tokens" | "max_tokens";
     requiresToolResultName?: boolean;

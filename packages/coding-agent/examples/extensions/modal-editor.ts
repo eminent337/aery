@@ -1,7 +1,7 @@
 /**
  * Modal Editor - vim-like modal editing example
  *
- * Usage: aery --extension ./examples/extensions/modal-editor.ts
+ * Usage: pi --extension ./examples/extensions/modal-editor.ts
  *
  * - Escape: insert → normal mode (in normal mode, aborts agent)
  * - i: normal → insert mode
@@ -9,8 +9,8 @@
  * - ctrl+c, ctrl+d, etc. work in both modes
  */
 
-import { CustomEditor, type ExtensionAPI } from "@eminent337/aery";
-import { matchesKey, truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
+import { CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 // Normal mode key mappings: key -> escape sequence (or null for mode switch)
 const NORMAL_KEYS: Record<string, string | null> = {

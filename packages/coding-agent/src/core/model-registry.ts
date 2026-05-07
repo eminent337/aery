@@ -17,8 +17,8 @@ import {
 	registerApiProvider,
 	resetApiProviders,
 	type SimpleStreamOptions,
-} from "@eminent337/aery-ai";
-import { registerOAuthProvider, resetOAuthProviders } from "@eminent337/aery-ai/oauth";
+} from "@earendil-works/pi-ai";
+import { registerOAuthProvider, resetOAuthProviders } from "@earendil-works/pi-ai/oauth";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { type Static, Type } from "typebox";
@@ -26,6 +26,7 @@ import { Compile } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
 import { getAgentDir } from "../config.js";
 import type { AuthStatus, AuthStorage } from "./auth-storage.js";
+import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "./provider-display-names.js";
 import {
 	clearConfigValueCache,
 	resolveConfigValueOrThrow,
@@ -79,20 +80,21 @@ const VercelGatewayRoutingSchema = Type.Object({
 	order: Type.Optional(Type.Array(Type.String())),
 });
 
-// Schema for OpenAI compatibility settings
-const ReasoningEffortMapSchema = Type.Object({
-	minimal: Type.Optional(Type.String()),
-	low: Type.Optional(Type.String()),
-	medium: Type.Optional(Type.String()),
-	high: Type.Optional(Type.String()),
-	xhigh: Type.Optional(Type.String()),
+// Schema for thinking level support and provider-specific values
+const ThinkingLevelMapValueSchema = Type.Union([Type.String(), Type.Null()]);
+const ThinkingLevelMapSchema = Type.Object({
+	off: Type.Optional(ThinkingLevelMapValueSchema),
+	minimal: Type.Optional(ThinkingLevelMapValueSchema),
+	low: Type.Optional(ThinkingLevelMapValueSchema),
+	medium: Type.Optional(ThinkingLevelMapValueSchema),
+	high: Type.Optional(ThinkingLevelMapValueSchema),
+	xhigh: Type.Optional(ThinkingLevelMapValueSchema),
 });
 
 const OpenAICompletionsCompatSchema = Type.Object({
 	supportsStore: Type.Optional(Type.Boolean()),
 	supportsDeveloperRole: Type.Optional(Type.Boolean()),
 	supportsReasoningEffort: Type.Optional(Type.Boolean()),
-	reasoningEffortMap: Type.Optional(ReasoningEffortMapSchema),
 	supportsUsageInStreaming: Type.Optional(Type.Boolean()),
 	maxTokensField: Type.Optional(Type.Union([Type.Literal("max_completion_tokens"), Type.Literal("max_tokens")])),
 	requiresToolResultName: Type.Optional(Type.Boolean()),
@@ -140,6 +142,7 @@ const ModelDefinitionSchema = Type.Object({
 	api: Type.Optional(Type.String({ minLength: 1 })),
 	baseUrl: Type.Optional(Type.String({ minLength: 1 })),
 	reasoning: Type.Optional(Type.Boolean()),
+	thinkingLevelMap: Type.Optional(ThinkingLevelMapSchema),
 	input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),
 	cost: Type.Optional(
 		Type.Object({
@@ -159,6 +162,7 @@ const ModelDefinitionSchema = Type.Object({
 const ModelOverrideSchema = Type.Object({
 	name: Type.Optional(Type.String({ minLength: 1 })),
 	reasoning: Type.Optional(Type.Boolean()),
+	thinkingLevelMap: Type.Optional(ThinkingLevelMapSchema),
 	input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),
 	cost: Type.Optional(
 		Type.Object({
@@ -177,6 +181,7 @@ const ModelOverrideSchema = Type.Object({
 type ModelOverride = Static<typeof ModelOverrideSchema>;
 
 const ProviderConfigSchema = Type.Object({
+	name: Type.Optional(Type.String({ minLength: 1 })),
 	baseUrl: Type.Optional(Type.String({ minLength: 1 })),
 	apiKey: Type.Optional(Type.String({ minLength: 1 })),
 	api: Type.Optional(Type.String({ minLength: 1 })),
@@ -293,6 +298,9 @@ function applyModelOverride(model: Model<Api>, override: ModelOverride): Model<A
 	// Simple field overrides
 	if (override.name !== undefined) result.name = override.name;
 	if (override.reasoning !== undefined) result.reasoning = override.reasoning;
+	if (override.thinkingLevelMap !== undefined) {
+		result.thinkingLevelMap = { ...model.thinkingLevelMap, ...override.thinkingLevelMap };
+	}
 	if (override.input !== undefined) result.input = override.input as ("text" | "image")[];
 	if (override.contextWindow !== undefined) result.contextWindow = override.contextWindow;
 	if (override.maxTokens !== undefined) result.maxTokens = override.maxTokens;
@@ -392,31 +400,7 @@ export class ModelRegistry {
 			}
 		}
 
-		combined = this.resolveCloudflareWorkersAiModels(combined);
-
 		this.models = combined;
-	}
-
-	private resolveCloudflareWorkersAiModels(models: Model<Api>[]): Model<Api>[] {
-		const accountId = this.getCloudflareWorkersAiAccountId();
-		if (!accountId) {
-			return models;
-		}
-		return models.map((model) =>
-			model.provider === "cloudflare-workers-ai"
-				? {
-						...model,
-						baseUrl: model.baseUrl.replace(/\{CLOUDFLARE_ACCOUNT_ID\}/g, accountId),
-					}
-				: model,
-		);
-	}
-
-	private getCloudflareWorkersAiAccountId(): string | undefined {
-		const credential = this.authStorage.get("cloudflare-workers-ai");
-		const storedAccountId =
-			credential?.type === "api_key" && typeof credential.accountId === "string" ? credential.accountId.trim() : "";
-		return storedAccountId || process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined;
 	}
 
 	/** Load built-in models and apply provider/model overrides */
@@ -610,6 +594,7 @@ export class ModelRegistry {
 					provider: providerName,
 					baseUrl,
 					reasoning: modelDef.reasoning ?? false,
+					thinkingLevelMap: modelDef.thinkingLevelMap,
 					input: (modelDef.input ?? ["text"]) as ("text" | "image")[],
 					cost: modelDef.cost ?? defaultCost,
 					contextWindow: modelDef.contextWindow ?? 128000,
@@ -650,10 +635,6 @@ export class ModelRegistry {
 	 * Get API key for a model.
 	 */
 	hasConfiguredAuth(model: Model<Api>): boolean {
-		if (model.provider === "cloudflare-workers-ai" && !this.getCloudflareWorkersAiAccountId()) {
-			return false;
-		}
-
 		return (
 			this.authStorage.hasAuth(model.provider) ||
 			this.providerRequestConfigs.get(model.provider)?.apiKey !== undefined
@@ -742,13 +723,6 @@ export class ModelRegistry {
 	 */
 	getProviderAuthStatus(provider: string): AuthStatus {
 		const authStatus = this.authStorage.getAuthStatus(provider);
-		if (provider === "cloudflare-workers-ai") {
-			const providerApiKey = this.providerRequestConfigs.get(provider)?.apiKey;
-			if (!this.getCloudflareWorkersAiAccountId() && (authStatus.source || providerApiKey)) {
-				return { configured: false, label: "missing Cloudflare account ID" };
-			}
-		}
-
 		if (authStatus.source) {
 			return authStatus;
 		}
@@ -767,6 +741,22 @@ export class ModelRegistry {
 		}
 
 		return { configured: true, source: "models_json_key" };
+	}
+
+	/**
+	 * Get display name for a provider.
+	 */
+	getProviderDisplayName(provider: string): string {
+		const registeredProvider = this.registeredProviders.get(provider);
+		const oauthProvider = this.authStorage.getOAuthProviders().find((p) => p.id === provider);
+
+		return (
+			registeredProvider?.name ??
+			registeredProvider?.oauth?.name ??
+			oauthProvider?.name ??
+			BUILT_IN_PROVIDER_DISPLAY_NAMES[provider] ??
+			provider
+		);
 	}
 
 	/**
@@ -900,8 +890,9 @@ export class ModelRegistry {
 					name: modelDef.name,
 					api: api as Api,
 					provider: providerName,
-					baseUrl: config.baseUrl!,
+					baseUrl: modelDef.baseUrl ?? config.baseUrl!,
 					reasoning: modelDef.reasoning,
+					thinkingLevelMap: modelDef.thinkingLevelMap,
 					input: modelDef.input as ("text" | "image")[],
 					cost: modelDef.cost,
 					contextWindow: modelDef.contextWindow,
@@ -935,6 +926,7 @@ export class ModelRegistry {
  * Input type for registerProvider API.
  */
 export interface ProviderConfigInput {
+	name?: string;
 	baseUrl?: string;
 	apiKey?: string;
 	api?: Api;
@@ -949,6 +941,7 @@ export interface ProviderConfigInput {
 		api?: Api;
 		baseUrl?: string;
 		reasoning: boolean;
+		thinkingLevelMap?: Model<Api>["thinkingLevelMap"];
 		input: ("text" | "image")[];
 		cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
 		contextWindow: number;

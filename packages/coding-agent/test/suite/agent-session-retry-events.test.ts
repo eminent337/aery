@@ -1,5 +1,5 @@
-import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@eminent337/aery-ai";
-import type { AgentTool } from "@eminent337/aery-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, type Harness } from "./harness.js";

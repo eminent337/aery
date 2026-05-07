@@ -15,7 +15,7 @@
  */
 
 import { mkdtemp, writeFile } from "node:fs/promises";
-import type { ExtensionAPI } from "@eminent337/aery";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -23,8 +23,8 @@ import {
 	type TruncationResult,
 	truncateHead,
 	withFileMutationQueue,
-} from "@eminent337/aery";
-import { Text } from "@eminent337/aery-tui";
+} from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { execSync } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -109,7 +109,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (truncation.truncated) {
 				// Save full output to a temp file so LLM can access it if needed
-				const tempDir = await mkdtemp(join(tmpdir(), "aery-rg-"));
+				const tempDir = await mkdtemp(join(tmpdir(), "pi-rg-"));
 				const tempFile = join(tempDir, "output.txt");
 				await withFileMutationQueue(tempFile, async () => {
 					await writeFile(tempFile, output, "utf8");

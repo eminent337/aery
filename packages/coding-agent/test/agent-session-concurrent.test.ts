@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Agent } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
 	type AssistantMessageEvent,
@@ -12,8 +13,7 @@ import {
 	getModel,
 	type ImageContent,
 	type TextContent,
-} from "@eminent337/aery-ai";
-import { Agent } from "@eminent337/aery-core";
+} from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.js";
@@ -63,7 +63,7 @@ describe("AgentSession concurrent prompt guard", () => {
 	let tempDir: string;
 
 	beforeEach(() => {
-		tempDir = join(tmpdir(), `aery-concurrent-test-${Date.now()}`);
+		tempDir = join(tmpdir(), `pi-concurrent-test-${Date.now()}`);
 		mkdirSync(tempDir, { recursive: true });
 	});
 
@@ -451,7 +451,7 @@ describe("AgentSession concurrent prompt guard", () => {
 					systemPrompt: string,
 					systemPromptOptions: BuildSystemPromptOptions,
 				) => Promise<undefined>;
-				invalidate: () => void;
+				invalidate: (message?: string) => void;
 			};
 		};
 		sessionWithRunner._extensionRunner = {
@@ -595,7 +595,7 @@ describe("AgentSession concurrent prompt guard", () => {
 					systemPrompt: string,
 					systemPromptOptions: BuildSystemPromptOptions,
 				) => Promise<undefined>;
-				invalidate: () => void;
+				invalidate: (message?: string) => void;
 			};
 		};
 		sessionWithRunner._extensionRunner = {

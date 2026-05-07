@@ -1,4 +1,4 @@
-# @eminent337/aery-ai
+# @earendil-works/pi-ai
 
 Unified LLM API with automatic model discovery, provider configuration, token and cost tracking, and simple context persistence and hand-off to other models mid-session.
 
@@ -57,33 +57,33 @@ Unified LLM API with automatic model discovery, provider configuration, token an
 - **Mistral**
 - **Groq**
 - **Cerebras**
+- **Cloudflare AI Gateway**
 - **Cloudflare Workers AI**
 - **xAI**
 - **OpenRouter**
 - **Vercel AI Gateway**
 - **MiniMax**
 - **GitHub Copilot** (requires OAuth, see below)
-- **Google Gemini CLI** (requires OAuth, see below)
-- **Antigravity** (requires OAuth, see below)
 - **Amazon Bedrock**
 - **OpenCode Zen**
 - **OpenCode Go**
 - **Fireworks** (uses Anthropic-compatible API)
 - **Kimi For Coding** (Moonshot AI, uses Anthropic-compatible API)
+- **Xiaomi MiMo** (uses Anthropic-compatible API; defaults to API billing endpoint, with separate Token Plan providers for `cn`/`ams`/`sgp` regions)
 - **Any OpenAI-compatible API**: Ollama, vLLM, LM Studio, etc.
 
 ## Installation
 
 ```bash
-npm install @eminent337/aery-ai
+npm install @earendil-works/pi-ai
 ```
 
-TypeBox exports are re-exported from `@eminent337/aery-ai`: `Type`, `Static`, and `TSchema`.
+TypeBox exports are re-exported from `@earendil-works/pi-ai`: `Type`, `Static`, and `TSchema`.
 
 ## Quick Start
 
 ```typescript
-import { Type, getModel, stream, complete, Context, Tool, StringEnum } from '@eminent337/aery-ai';
+import { Type, getModel, stream, complete, Context, Tool, StringEnum } from '@earendil-works/pi-ai';
 
 // Fully typed with auto-complete support for both providers and models
 const model = getModel('openai', 'gpt-4o-mini');
@@ -209,7 +209,7 @@ Tools enable LLMs to interact with external systems. This library uses TypeBox s
 ### Defining Tools
 
 ```typescript
-import { Type, Tool, StringEnum } from '@eminent337/aery-ai';
+import { Type, Tool, StringEnum } from '@earendil-works/pi-ai';
 
 // Define tool parameters with TypeBox
 const weatherTool: Tool = {
@@ -335,7 +335,7 @@ When using `agentLoop`, tool arguments are automatically validated against your 
 When implementing your own tool execution loop with `stream()` or `complete()`, use `validateToolCall` to validate arguments before passing them to your tools:
 
 ```typescript
-import { stream, validateToolCall, Tool } from '@eminent337/aery-ai';
+import { stream, validateToolCall, Tool } from '@earendil-works/pi-ai';
 
 const tools: Tool[] = [weatherTool, calculatorTool];
 const s = stream(model, { messages, tools });
@@ -383,13 +383,15 @@ All streaming events emitted during assistant message generation:
 | `done` | Stream complete | `reason`: Stop reason ("stop", "length", "toolUse"), `message`: Final assistant message |
 | `error` | Error occurred | `reason`: Error type ("error" or "aborted"), `error`: AssistantMessage with partial content |
 
+Streaming events for different content blocks are not guaranteed to be contiguous. Providers may emit deltas for text, thinking, and tool calls in the same upstream chunk, and pi may surface corresponding events interleaved, for example `text_start`, `text_delta`, `toolcall_start`, `text_delta`, `toolcall_delta`. Consumers must use `contentIndex` to associate each delta/end event with its block and must not assume that a block's `*_start`/`*_delta`/`*_end` sequence is uninterrupted by events for other blocks.
+
 ## Image Input
 
 Models with vision capabilities can process images. You can check if a model supports images via the `input` property. If you pass images to a non-vision model, they are silently ignored.
 
 ```typescript
 import { readFileSync } from 'fs';
-import { getModel, complete } from '@eminent337/aery-ai';
+import { getModel, complete } from '@earendil-works/pi-ai';
 
 const model = getModel('openai', 'gpt-4o-mini');
 
@@ -426,7 +428,7 @@ Many models support thinking/reasoning capabilities where they can show their in
 ### Unified Interface (streamSimple/completeSimple)
 
 ```typescript
-import { getModel, streamSimple, completeSimple } from '@eminent337/aery-ai';
+import { getModel, streamSimple, completeSimple } from '@earendil-works/pi-ai';
 
 // Many models across providers support thinking/reasoning
 const model = getModel('anthropic', 'claude-sonnet-4-20250514');
@@ -446,7 +448,7 @@ if (model.reasoning) {
 const response = await completeSimple(model, {
   messages: [{ role: 'user', content: 'Solve: 2x + 5 = 13' }]
 }, {
-  reasoning: 'medium'  // 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' (xhigh maps to high on non-OpenAI providers)
+  reasoning: 'medium'  // 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 });
 
 // Access thinking and text blocks
@@ -464,7 +466,7 @@ for (const block of response.content) {
 For fine-grained control, use the provider-specific options:
 
 ```typescript
-import { getModel, complete } from '@eminent337/aery-ai';
+import { getModel, complete } from '@earendil-works/pi-ai';
 
 // OpenAI Reasoning (o1, o3, gpt-5)
 const openaiModel = getModel('openai', 'gpt-5-mini');
@@ -553,7 +555,7 @@ if (message.stopReason === 'error' || message.stopReason === 'aborted') {
 The abort signal allows you to cancel in-progress requests. Aborted requests have `stopReason === 'aborted'`:
 
 ```typescript
-import { getModel, stream } from '@eminent337/aery-ai';
+import { getModel, stream } from '@earendil-works/pi-ai';
 
 const model = getModel('openai', 'gpt-4o-mini');
 const controller = new AbortController();
@@ -630,7 +632,6 @@ The library uses a registry of API implementations. Built-in APIs include:
 
 - **`anthropic-messages`**: Anthropic Messages API (`streamAnthropic`, `AnthropicOptions`)
 - **`google-generative-ai`**: Google Generative AI API (`streamGoogle`, `GoogleOptions`)
-- **`google-gemini-cli`**: Google Cloud Code Assist API (`streamGoogleGeminiCli`, `GoogleGeminiCliOptions`)
 - **`google-vertex`**: Google Vertex AI API (`streamGoogleVertex`, `GoogleVertexOptions`)
 - **`mistral-conversations`**: Mistral Conversations API (`streamMistral`, `MistralOptions`)
 - **`openai-completions`**: OpenAI Chat Completions API (`streamOpenAICompletions`, `OpenAICompletionsOptions`)
@@ -652,7 +653,7 @@ import {
   fauxToolCall,
   registerFauxProvider,
   stream,
-} from '@eminent337/aery-ai';
+} from '@earendil-works/pi-ai';
 
 const registration = registerFauxProvider({
   tokensPerSecond: 50 // optional
@@ -737,7 +738,7 @@ A **provider** offers models through a specific API. For example:
 ### Querying Providers and Models
 
 ```typescript
-import { getProviders, getModels, getModel } from '@eminent337/aery-ai';
+import { getProviders, getModels, getModel } from '@earendil-works/pi-ai';
 
 // Get all available providers
 const providers = getProviders();
@@ -763,7 +764,7 @@ console.log(`Using ${model.name} via ${model.api} API`);
 You can create custom models for local inference servers or custom endpoints:
 
 ```typescript
-import { Model, stream } from '@eminent337/aery-ai';
+import { Model, stream } from '@earendil-works/pi-ai';
 
 // Example: Ollama using OpenAI-compatible API
 const ollamaModel: Model<'openai-completions'> = {
@@ -822,6 +823,8 @@ const response = await stream(ollamaModel, context, {
 
 Some OpenAI-compatible servers do not understand the `developer` role used for reasoning-capable models. For those providers, set `compat.supportsDeveloperRole` to `false` so the system prompt is sent as a `system` message instead. If the server also does not support `reasoning_effort`, set `compat.supportsReasoningEffort` to `false` too.
 
+Use model-level `thinkingLevelMap` to describe model-specific thinking controls. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`). Missing keys use provider defaults, string values are sent to the provider, and `null` marks a level unsupported.
+
 This commonly applies to Ollama, vLLM, SGLang, and similar OpenAI-compatible servers. You can set `compat` at the provider level or per model.
 
 ```typescript
@@ -836,6 +839,13 @@ const ollamaReasoningModel: Model<'openai-completions'> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   contextWindow: 131072,
   maxTokens: 32000,
+  thinkingLevelMap: {
+    minimal: null,
+    low: null,
+    medium: null,
+    high: 'high',
+    xhigh: null,
+  },
   compat: {
     supportsDeveloperRole: false,
     supportsReasoningEffort: false,
@@ -882,7 +892,7 @@ If `compat` is not set, the library falls back to URL-based detection. If `compa
 Models are typed by their API, which keeps the model metadata accurate. Provider-specific option types are enforced when you call the provider functions directly. The generic `stream` and `complete` functions accept `StreamOptions` with additional provider fields.
 
 ```typescript
-import { streamAnthropic, type AnthropicOptions } from '@eminent337/aery-ai';
+import { streamAnthropic, type AnthropicOptions } from '@earendil-works/pi-ai';
 
 // TypeScript knows this is an Anthropic model
 const claude = getModel('anthropic', 'claude-sonnet-4-20250514');
@@ -911,7 +921,7 @@ When messages from one provider are sent to a different provider, the library au
 ### Example: Multi-Provider Conversation
 
 ```typescript
-import { getModel, complete, Context } from '@eminent337/aery-ai';
+import { getModel, complete, Context } from '@earendil-works/pi-ai';
 
 // Start with Claude
 const claude = getModel('anthropic', 'claude-sonnet-4-20250514');
@@ -956,7 +966,7 @@ This enables flexible workflows where you can:
 The `Context` object can be easily serialized and deserialized using standard JSON methods, making it simple to persist conversations, implement chat history, or transfer contexts between services:
 
 ```typescript
-import { Context, getModel, complete } from '@eminent337/aery-ai';
+import { Context, getModel, complete } from '@earendil-works/pi-ai';
 
 // Create and use a context
 const context: Context = {
@@ -993,7 +1003,7 @@ const continuation = await complete(newModel, restored);
 The library supports browser environments. You must pass the API key explicitly since environment variables are not available in browsers:
 
 ```typescript
-import { getModel, complete } from '@eminent337/aery-ai';
+import { getModel, complete } from '@earendil-works/pi-ai';
 
 // API key must be passed explicitly in browser
 const model = getModel('anthropic', 'claude-3-5-haiku-20241022');
@@ -1010,7 +1020,7 @@ const response = await complete(model, {
 ### Browser Compatibility Notes
 
 - Amazon Bedrock (`bedrock-converse-stream`) is not supported in browser environments.
-- OAuth login flows are not supported in browser environments. Use the `@eminent337/aery-ai/oauth` entry point in Node.js.
+- OAuth login flows are not supported in browser environments. Use the `@earendil-works/pi-ai/oauth` entry point in Node.js.
 - In browser builds, Bedrock can still appear in model lists. Calls to Bedrock models fail at runtime.
 - Use a server-side proxy or backend service if you need Bedrock or OAuth-based auth from a web app.
 
@@ -1021,7 +1031,7 @@ In Node.js environments, you can set environment variables to avoid passing API 
 | Provider | Environment Variable(s) |
 |----------|------------------------|
 | OpenAI | `OPENAI_API_KEY` |
-| Azure OpenAI | `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_BASE_URL` (e.g. `https://{resource}.openai.azure.com`) or `AZURE_OPENAI_RESOURCE_NAME`. Supports `*.openai.azure.com` and `*.cognitiveservices.azure.com`; root endpoints auto-normalize to `/openai/v1`. Optional: `AZURE_OPENAI_API_VERSION` (default `v1`), `AZURE_OPENAI_DEPLOYMENT_NAME_MAP`. |
+| Azure OpenAI | `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_BASE_URL` (e.g. `https://{resource}.openai.azure.com`) or `AZURE_OPENAI_RESOURCE_NAME`. Supports `*.openai.azure.com` and `*.cognitiveservices.azure.com`; root endpoints auto-normalize to `/openai/v1`. Optional: `AZURE_OPENAI_AAERY_VERSION` (default `v1`), `AZURE_OPENAI_DEPLOYMENT_NAME_MAP`. |
 | Anthropic | `ANTHROPIC_API_KEY` or `ANTHROPIC_OAUTH_TOKEN` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | Google | `GEMINI_API_KEY` |
@@ -1029,6 +1039,7 @@ In Node.js environments, you can set environment variables to avoid passing API 
 | Mistral | `MISTRAL_API_KEY` |
 | Groq | `GROQ_API_KEY` |
 | Cerebras | `CEREBRAS_API_KEY` |
+| Cloudflare AI Gateway | `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_GATEWAY_ID` |
 | Cloudflare Workers AI | `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` |
 | xAI | `XAI_API_KEY` |
 | Fireworks | `FIREWORKS_API_KEY` |
@@ -1038,6 +1049,10 @@ In Node.js environments, you can set environment variables to avoid passing API 
 | MiniMax | `MINIMAX_API_KEY` |
 | OpenCode Zen / OpenCode Go | `OPENCODE_API_KEY` |
 | Kimi For Coding | `KIMI_API_KEY` |
+| Xiaomi MiMo (API billing) | `XIAOMI_API_KEY` |
+| Xiaomi MiMo Token Plan (China) | `XIAOMI_TOKEN_PLAN_CN_API_KEY` |
+| Xiaomi MiMo Token Plan (Amsterdam) | `XIAOMI_TOKEN_PLAN_AMS_API_KEY` |
+| Xiaomi MiMo Token Plan (Singapore) | `XIAOMI_TOKEN_PLAN_SGP_API_KEY` |
 | GitHub Copilot | `COPILOT_GITHUB_TOKEN` or `GH_TOKEN` or `GITHUB_TOKEN` |
 
 When set, the library automatically uses these keys:
@@ -1053,31 +1068,10 @@ const response = await complete(model, context, {
 });
 ```
 
-#### Antigravity Version Override
-
-Set `PI_AI_ANTIGRAVITY_VERSION` to override the Antigravity User-Agent version when Google updates their requirements:
-
-```bash
-export PI_AI_ANTIGRAVITY_VERSION="1.23.0"
-```
-
-#### Cache Retention
-
-Set `PI_CACHE_RETENTION=long` to extend prompt cache retention:
-
-| Provider | Default | With `PI_CACHE_RETENTION=long` |
-|----------|---------|-------------------------------|
-| Anthropic | 5 minutes | 1 hour |
-| OpenAI | in-memory | 24 hours |
-
-This only affects direct API calls to `api.anthropic.com` and `api.openai.com`. Proxies and other providers are unaffected.
-
-> **Note**: Extended cache retention may increase costs for Anthropic (cache writes are charged at a higher rate). OpenAI's 24h retention has no additional cost.
-
 ### Checking Environment Variables
 
 ```typescript
-import { getEnvApiKey } from '@eminent337/aery-ai';
+import { getEnvApiKey } from '@earendil-works/pi-ai';
 
 // Check if an API key is set in environment variables
 const key = getEnvApiKey('openai');  // checks OPENAI_API_KEY
@@ -1090,8 +1084,6 @@ Several providers require OAuth authentication instead of static API keys:
 - **Anthropic** (Claude Pro/Max subscription)
 - **OpenAI Codex** (ChatGPT Plus/Pro subscription, access to GPT-5.x Codex models)
 - **GitHub Copilot** (Copilot subscription)
-- **Google Gemini CLI** (Gemini 2.0/2.5 via Google Cloud Code Assist; free tier or paid subscription)
-- **Antigravity** (Free Gemini 3, Claude, GPT-OSS via Google Cloud)
 
 For paid Cloud Code Assist subscriptions, set `GOOGLE_CLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT_ID` to your project ID.
 
@@ -1118,7 +1110,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 ```
 
 ```typescript
-import { getModel, complete } from '@eminent337/aery-ai';
+import { getModel, complete } from '@earendil-works/pi-ai';
 
 (async () => {
   const model = getModel('google-vertex', 'gemini-2.5-flash');
@@ -1141,16 +1133,16 @@ Official docs: [Application Default Credentials](https://cloud.google.com/docs/a
 The quickest way to authenticate:
 
 ```bash
-npx @eminent337/aery-ai login              # interactive provider selection
-npx @eminent337/aery-ai login anthropic    # login to specific provider
-npx @eminent337/aery-ai list               # list available providers
+npx @earendil-works/pi-ai login              # interactive provider selection
+npx @earendil-works/pi-ai login anthropic    # login to specific provider
+npx @earendil-works/pi-ai list               # list available providers
 ```
 
 Credentials are saved to `auth.json` in the current directory.
 
 ### Programmatic OAuth
 
-The library provides login and token refresh functions via the `@eminent337/aery-ai/oauth` entry point. Credential storage is the caller's responsibility.
+The library provides login and token refresh functions via the `@earendil-works/pi-ai/oauth` entry point. Credential storage is the caller's responsibility.
 
 ```typescript
 import {
@@ -1159,22 +1151,21 @@ import {
   loginOpenAICodex,
   loginGitHubCopilot,
   loginGeminiCli,
-  loginAntigravity,
 
   // Token management
   refreshOAuthToken,   // (provider, credentials) => new credentials
   getOAuthApiKey,      // (provider, credentialsMap) => { newCredentials, apiKey } | null
 
   // Types
-  type OAuthProvider,  // 'anthropic' | 'openai-codex' | 'github-copilot' | 'google-gemini-cli' | 'google-antigravity'
+  type OAuthProvider,
   type OAuthCredentials,
-} from '@eminent337/aery-ai/oauth';
+} from '@earendil-works/pi-ai/oauth';
 ```
 
 ### Login Flow Example
 
 ```typescript
-import { loginGitHubCopilot } from '@eminent337/aery-ai/oauth';
+import { loginGitHubCopilot } from '@earendil-works/pi-ai/oauth';
 import { writeFileSync } from 'fs';
 
 const credentials = await loginGitHubCopilot({
@@ -1198,8 +1189,8 @@ writeFileSync('auth.json', JSON.stringify(auth, null, 2));
 Use `getOAuthApiKey()` to get an API key, automatically refreshing if expired:
 
 ```typescript
-import { getModel, complete } from '@eminent337/aery-ai';
-import { getOAuthApiKey } from '@eminent337/aery-ai/oauth';
+import { getModel, complete } from '@earendil-works/pi-ai';
+import { getOAuthApiKey } from '@earendil-works/pi-ai/oauth';
 import { readFileSync, writeFileSync } from 'fs';
 
 // Load your stored credentials
@@ -1224,11 +1215,9 @@ const response = await complete(model, {
 
 **OpenAI Codex**: Requires a ChatGPT Plus or Pro subscription. Provides access to GPT-5.x Codex models with extended context windows and reasoning capabilities. The library automatically handles session-based prompt caching when `sessionId` is provided in stream options. You can set `transport` in stream options to `"sse"`, `"websocket"`, or `"auto"` for Codex Responses transport selection. When using WebSocket with a `sessionId`, connections are reused per session and expire after 5 minutes of inactivity.
 
-**Azure OpenAI (Responses)**: Uses the Responses API only. Set `AZURE_OPENAI_API_KEY` and either `AZURE_OPENAI_BASE_URL` or `AZURE_OPENAI_RESOURCE_NAME`. `AZURE_OPENAI_BASE_URL` supports both `https://<resource>.openai.azure.com` and `https://<resource>.cognitiveservices.azure.com`; root endpoints are normalized to `.../openai/v1` automatically. Use `AZURE_OPENAI_API_VERSION` (defaults to `v1`) to override the API version if needed. Deployment names are treated as model IDs by default, override with `azureDeploymentName` or `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` using comma-separated `model-id=deployment` pairs (for example `gpt-4o-mini=my-deployment,gpt-4o=prod`). Legacy deployment-based URLs are intentionally unsupported.
+**Azure OpenAI (Responses)**: Uses the Responses API only. Set `AZURE_OPENAI_API_KEY` and either `AZURE_OPENAI_BASE_URL` or `AZURE_OPENAI_RESOURCE_NAME`. `AZURE_OPENAI_BASE_URL` supports both `https://<resource>.openai.azure.com` and `https://<resource>.cognitiveservices.azure.com`; root endpoints are normalized to `.../openai/v1` automatically. Use `AZURE_OPENAI_AAERY_VERSION` (defaults to `v1`) to override the API version if needed. Deployment names are treated as model IDs by default, override with `azureDeploymentName` or `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` using comma-separated `model-id=deployment` pairs (for example `gpt-4o-mini=my-deployment,gpt-4o=prod`). Legacy deployment-based URLs are intentionally unsupported.
 
 **GitHub Copilot**: If you get "The requested model is not supported" error, enable the model manually in VS Code: open Copilot Chat, click the model selector, select the model (warning icon), and click "Enable".
-
-**Google Gemini CLI / Antigravity**: These use Google Cloud OAuth. The `apiKey` returned by `getOAuthApiKey()` is a JSON string containing both the token and project ID, which the library handles automatically.
 
 ## Development
 
@@ -1258,7 +1247,7 @@ Create a new provider file (for example `amazon-bedrock.ts`) that exports:
 - Register the API with `registerApiProvider()`
 - Add a package subpath export in `package.json` for the provider module (`./dist/providers/<provider>.js`)
 - Add lazy loader wrappers in `src/providers/register-builtins.ts`, do not statically import provider implementation modules there
-- Add any root-level `export type` re-exports in `src/index.ts` that should remain available from `@eminent337/aery-ai`
+- Add any root-level `export type` re-exports in `src/index.ts` that should remain available from `@earendil-works/pi-ai`
 - Add credential detection in `env-api-keys.ts` for the new provider
 - Ensure `streamSimple` handles auth lookup via `getEnvApiKey()` or provider-specific auth
 

@@ -7,21 +7,27 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AssistantMessage, ImageContent, Message, Model, OAuthProviderId } from "@eminent337/aery-ai";
-import { getProviders } from "@eminent337/aery-ai";
-import type { AgentMessage } from "@eminent337/aery-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import {
+	type AssistantMessage,
+	getProviders,
+	type ImageContent,
+	type Message,
+	type Model,
+	type OAuthProviderId,
+	type OAuthSelectPrompt,
+} from "@earendil-works/pi-ai";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
 	EditorComponent,
-	EditorTheme,
 	Keybinding,
 	KeyId,
 	MarkdownTheme,
 	OverlayHandle,
 	OverlayOptions,
 	SlashCommand,
-} from "@eminent337/aery-tui";
+} from "@earendil-works/pi-tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -38,21 +44,23 @@ import {
 	TruncatedText,
 	TUI,
 	visibleWidth,
-} from "@eminent337/aery-tui";
+} from "@earendil-works/pi-tui";
 import { spawn, spawnSync } from "child_process";
 import {
 	APP_NAME,
+	APP_TITLE,
 	getAgentDir,
 	getAuthPath,
 	getDebugLogPath,
+	getDocsPath,
 	getShareViewerUrl,
-	getUpdateInstruction,
 	VERSION,
 } from "../../config.js";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.js";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.js";
 import type {
 	AutocompleteProviderFactory,
+	EditorFactory,
 	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionRunner,
@@ -65,6 +73,7 @@ import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.j
 import { createCompactionSummaryMessage } from "../../core/messages.js";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.js";
 import { DefaultPackageManager } from "../../core/package-manager.js";
+import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.js";
 import type { ResourceDiagnostic } from "../../core/resource-loader.js";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.js";
 import { type SessionContext, SessionManager } from "../../core/session-manager.js";
@@ -72,11 +81,11 @@ import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
 import type { SourceInfo } from "../../core/source-info.js";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.js";
 import type { TruncationResult } from "../../core/tools/truncate.js";
-import { wireCoreExtensions } from "../../migrations.js";
 import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.js";
 import { copyToClipboard } from "../../utils/clipboard.js";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.js";
 import { parseGitUrl } from "../../utils/git.js";
+import { getPiUserAgent } from "../../utils/pi-user-agent.js";
 import { killTrackedDetachedChildren } from "../../utils/shell.js";
 import { ensureTool } from "../../utils/tools-manager.js";
 import { checkForNewPiVersion } from "../../utils/version-check.js";
@@ -180,43 +189,22 @@ function hasDefaultModelProvider(providerId: string): providerId is keyof typeof
 	return providerId in defaultModelPerProvider;
 }
 
-const API_KEY_PROVIDER_NAMES: Record<string, string> = {
-	anthropic: "Anthropic",
-	"azure-openai-responses": "Azure OpenAI Responses",
-	cerebras: "Cerebras",
-	"cloudflare-workers-ai": "Cloudflare Workers AI",
-	fireworks: "Fireworks",
-	google: "Google Gemini",
-	"google-vertex": "Google Vertex AI",
-	groq: "Groq",
-	huggingface: "Hugging Face",
-	"kimi-coding": "Kimi For Coding",
-	mistral: "Mistral",
-	minimax: "MiniMax",
-	"minimax-cn": "MiniMax (China)",
-	opencode: "OpenCode Zen",
-	"opencode-go": "OpenCode Go",
-	openai: "OpenAI",
-	openrouter: "OpenRouter",
-	"vercel-ai-gateway": "Vercel AI Gateway",
-	xai: "xAI",
-	zai: "ZAI",
-};
+const BEDROCK_PROVIDER_ID = "amazon-bedrock";
 
-const API_KEY_LOGIN_PROVIDER_BLOCKLIST = new Set(["amazon-bedrock", "llama.cpp", "lmstudio", "ollama"]);
+const BUILT_IN_MODEL_PROVIDERS = new Set<string>(getProviders());
 
 export function isApiKeyLoginProvider(
 	providerId: string,
 	oauthProviderIds: ReadonlySet<string>,
-	builtInProviderIds: ReadonlySet<string> = new Set(getProviders()),
+	builtInProviderIds: ReadonlySet<string> = BUILT_IN_MODEL_PROVIDERS,
 ): boolean {
-	if (API_KEY_PROVIDER_NAMES[providerId]) return true;
-	if (builtInProviderIds.has(providerId)) return false;
+	if (BUILT_IN_PROVIDER_DISPLAY_NAMES[providerId]) {
+		return true;
+	}
+	if (builtInProviderIds.has(providerId)) {
+		return false;
+	}
 	return !oauthProviderIds.has(providerId);
-}
-
-export function getApiKeyProviderDisplayName(providerId: string): string {
-	return API_KEY_PROVIDER_NAMES[providerId] ?? providerId;
 }
 
 /**
@@ -245,6 +233,7 @@ export class InteractiveMode {
 	private statusContainer: Container;
 	private defaultEditor: CustomEditor;
 	private editor: EditorComponent;
+	private editorComponentFactory: EditorFactory | undefined;
 	private autocompleteProvider: AutocompleteProvider | undefined;
 	private autocompleteProviderWrappers: AutocompleteProviderFactory[] = [];
 	private fdPath: string | undefined;
@@ -624,7 +613,7 @@ export class InteractiveMode {
 			);
 			const onboarding = theme.fg(
 				"dim",
-				`Aery can explain its own features and look up its docs. Ask it how to use or extend Aery.`,
+				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
 			);
 			this.builtInHeader = new ExpandableText(
 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
@@ -690,9 +679,9 @@ export class InteractiveMode {
 		const cwdBasename = path.basename(this.sessionManager.getCwd());
 		const sessionName = this.sessionManager.getSessionName();
 		if (sessionName) {
-			this.ui.terminal.setTitle(`⌬ aery - ${sessionName} - ${cwdBasename}`);
+			this.ui.terminal.setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`);
 		} else {
-			this.ui.terminal.setTitle(`⌬ aery - ${cwdBasename}`);
+			this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
 		}
 	}
 
@@ -834,7 +823,7 @@ export class InteractiveMode {
 		}
 
 		if (extendedKeysFormat === "xterm") {
-			return "tmux extended-keys-format is xterm. Aery works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
+			return "tmux extended-keys-format is xterm. Pi works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
 		}
 
 		return undefined;
@@ -858,8 +847,6 @@ export class InteractiveMode {
 			// Fresh install - record the version, send telemetry, don't show changelog
 			this.settingsManager.setLastChangelogVersion(VERSION);
 			this.reportInstallTelemetry(VERSION);
-			// Auto-install core extension pack on fresh install
-			this.installCorePackIfNeeded();
 			return undefined;
 		}
 
@@ -882,36 +869,14 @@ export class InteractiveMode {
 			return;
 		}
 
-		void fetch(`https://aery.dev/install?version=${encodeURIComponent(version)}`, {
+		void fetch(`https://eminent337.github.io/api/report-install?version=${encodeURIComponent(version)}`, {
+			headers: {
+				"User-Agent": getPiUserAgent(version),
+			},
 			signal: AbortSignal.timeout(5000),
 		})
 			.then(() => undefined)
 			.catch(() => undefined);
-	}
-
-	private installCorePackIfNeeded(): void {
-		// Fire-and-forget: install core extension pack on fresh install
-		void (async () => {
-			try {
-				const { execFile } = await import("node:child_process");
-				const { promisify } = await import("node:util");
-				const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
-				const { join } = await import("node:path");
-				const { homedir } = await import("node:os");
-				const exec = promisify(execFile);
-				await exec("aery", ["install", "https://github.com/eminent337/aery-extensions"], {
-					timeout: 30000,
-				});
-				// Wire core extensions into settings.json
-				const repoPath = join(homedir(), ".aery", "agent", "git", "github.com", "eminent337", "aery-extensions");
-				const settingsPath = join(homedir(), ".aery", "agent", "settings.json");
-				wireCoreExtensions(repoPath, settingsPath);
-				const settings = existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, "utf-8")) : {};
-				writeFileSync(settingsPath, `${JSON.stringify({ ...settings, quietStartup: true }, null, 2)}\n`);
-			} catch {
-				// Silent fail — user can install manually
-			}
-		})();
 	}
 
 	private getMarkdownThemeWithSettings(): MarkdownTheme {
@@ -2003,6 +1968,7 @@ export class InteractiveMode {
 				this.setupAutocompleteProvider();
 			},
 			setEditorComponent: (factory) => this.setCustomEditorComponent(factory),
+			getEditorComponent: () => this.editorComponentFactory,
 			get theme() {
 				return theme;
 			},
@@ -2200,9 +2166,9 @@ export class InteractiveMode {
 	 * Set a custom editor component from an extension.
 	 * Pass undefined to restore the default editor.
 	 */
-	private setCustomEditorComponent(
-		factory: ((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent) | undefined,
-	): void {
+	private setCustomEditorComponent(factory: EditorFactory | undefined): void {
+		this.editorComponentFactory = factory;
+
 		// Save text from current editor before switching
 		const currentText = this.editor.getText();
 
@@ -2459,7 +2425,7 @@ export class InteractiveMode {
 			// Write to temp file
 			const tmpDir = os.tmpdir();
 			const ext = extensionForImageMimeType(image.mimeType) ?? "png";
-			const fileName = `aery-clipboard-${crypto.randomUUID()}.${ext}`;
+			const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
 			const filePath = path.join(tmpDir, fileName);
 			fs.writeFileSync(filePath, Buffer.from(image.bytes));
 
@@ -2667,6 +2633,7 @@ export class InteractiveMode {
 
 		switch (event.type) {
 			case "agent_start":
+				this.pendingTools.clear();
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -2701,6 +2668,11 @@ export class InteractiveMode {
 				this.updateTerminalTitle();
 				this.footer.invalidate();
 				this.ui.requestRender();
+				break;
+
+			case "thinking_level_changed":
+				this.footer.invalidate();
+				this.updateEditorBorderColor();
 				break;
 
 			case "message_start":
@@ -3129,6 +3101,7 @@ export class InteractiveMode {
 		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
 		this.pendingTools.clear();
+		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
 
 		if (options.updateFooter) {
 			this.footer.invalidate();
@@ -3170,16 +3143,16 @@ export class InteractiveMode {
 							}
 							component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
 						} else {
-							this.pendingTools.set(content.id, component);
+							renderedPendingTools.set(content.id, component);
 						}
 					}
 				}
 			} else if (message.role === "toolResult") {
 				// Match tool results to pending tool components
-				const component = this.pendingTools.get(message.toolCallId);
+				const component = renderedPendingTools.get(message.toolCallId);
 				if (component) {
 					component.updateResult(message);
-					this.pendingTools.delete(message.toolCallId);
+					renderedPendingTools.delete(message.toolCallId);
 				}
 			} else {
 				// All other messages use standard rendering
@@ -3187,7 +3160,9 @@ export class InteractiveMode {
 			}
 		}
 
-		this.pendingTools.clear();
+		for (const [toolCallId, component] of renderedPendingTools) {
+			this.pendingTools.set(toolCallId, component);
+		}
 		this.ui.requestRender();
 	}
 
@@ -3383,6 +3358,7 @@ export class InteractiveMode {
 		}
 		// If not streaming, Alt+Enter acts like regular Enter (trigger onSubmit)
 		else if (this.editor.onSubmit) {
+			this.editor.setText("");
 			this.editor.onSubmit(text);
 		}
 	}
@@ -3481,7 +3457,7 @@ export class InteractiveMode {
 		}
 
 		const currentText = this.editor.getExpandedText?.() ?? this.editor.getText();
-		const tmpFile = path.join(os.tmpdir(), `aery-editor-${Date.now()}.aery.md`);
+		const tmpFile = path.join(os.tmpdir(), `pi-editor-${Date.now()}.pi.md`);
 
 		try {
 			// Write current content to temp file
@@ -3542,11 +3518,11 @@ export class InteractiveMode {
 	}
 
 	showNewVersionNotification(newVersion: string): void {
-		const action = theme.fg("accent", getUpdateInstruction("@eminent337/aery"));
-		const updateInstruction = theme.fg("muted", `New version ${newVersion} is available. `) + action;
+		const action = theme.fg("accent", `${APP_NAME} update`);
+		const updateInstruction = theme.fg("muted", `New version ${newVersion} is available. Run `) + action;
 		const changelogUrl = theme.fg(
 			"accent",
-			"https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md",
+			"https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md",
 		);
 		const changelogLine = theme.fg("muted", "Changelog: ") + changelogUrl;
 
@@ -4407,12 +4383,12 @@ export class InteractiveMode {
 
 		const modelProviders = new Set(this.session.modelRegistry.getAll().map((model) => model.provider));
 		for (const providerId of modelProviders) {
-			if (oauthProviderIds.has(providerId) || API_KEY_LOGIN_PROVIDER_BLOCKLIST.has(providerId)) {
+			if (!isApiKeyLoginProvider(providerId, oauthProviderIds)) {
 				continue;
 			}
 			options.push({
 				id: providerId,
-				name: getApiKeyProviderDisplayName(providerId),
+				name: this.session.modelRegistry.getProviderDisplayName(providerId),
 				authType: "api_key",
 			});
 		}
@@ -4423,7 +4399,6 @@ export class InteractiveMode {
 
 	private getLogoutProviderOptions(): AuthSelectorProvider[] {
 		const authStorage = this.session.modelRegistry.authStorage;
-		const oauthNameById = new Map(authStorage.getOAuthProviders().map((provider) => [provider.id, provider.name]));
 		const options: AuthSelectorProvider[] = [];
 
 		for (const providerId of authStorage.list()) {
@@ -4433,10 +4408,7 @@ export class InteractiveMode {
 			}
 			options.push({
 				id: providerId,
-				name:
-					credential.type === "oauth"
-						? (oauthNameById.get(providerId) ?? providerId)
-						: getApiKeyProviderDisplayName(providerId),
+				name: this.session.modelRegistry.getProviderDisplayName(providerId),
 				authType: credential.type,
 			});
 		}
@@ -4489,6 +4461,8 @@ export class InteractiveMode {
 
 					if (providerOption.authType === "oauth") {
 						await this.showLoginDialog(providerOption.id, providerOption.name);
+					} else if (providerOption.id === BEDROCK_PROVIDER_ID) {
+						this.showBedrockSetupDialog(providerOption.id, providerOption.name);
 					} else {
 						await this.showApiKeyLoginDialog(providerOption.id, providerOption.name);
 					}
@@ -4497,6 +4471,7 @@ export class InteractiveMode {
 					done();
 					this.showLoginAuthTypeSelector();
 				},
+				(providerId) => this.session.modelRegistry.getProviderAuthStatus(providerId),
 			);
 			return { component: selector, focus: selector };
 		});
@@ -4510,7 +4485,9 @@ export class InteractiveMode {
 
 		const providerOptions = this.getLogoutProviderOptions();
 		if (providerOptions.length === 0) {
-			this.showStatus("No providers logged in. Use /login first.");
+			this.showStatus(
+				"No stored credentials to remove. /logout only removes credentials saved by /login; environment variables and models.json config are unchanged.",
+			);
 			return;
 		}
 
@@ -4534,7 +4511,7 @@ export class InteractiveMode {
 						const message =
 							providerOption.authType === "oauth"
 								? `Logged out of ${providerOption.name}`
-								: `Removed API key for ${providerOption.name}`;
+								: `Removed stored API key for ${providerOption.name}. Environment variables and models.json config are unchanged.`;
 						this.showStatus(message);
 					} catch (error: unknown) {
 						this.showError(`Logout failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -4602,6 +4579,34 @@ export class InteractiveMode {
 		}
 	}
 
+	private showBedrockSetupDialog(providerId: string, providerName: string): void {
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		const dialog = new LoginDialogComponent(
+			this.ui,
+			providerId,
+			() => restoreEditor(),
+			providerName,
+			"Amazon Bedrock setup",
+		);
+		dialog.showInfo([
+			theme.fg("text", "Amazon Bedrock uses AWS credentials instead of a single API key."),
+			theme.fg("text", "Configure an AWS profile, IAM keys, bearer token, or role-based credentials."),
+			theme.fg("muted", "See:"),
+			theme.fg("accent", `  ${path.join(getDocsPath(), "providers.md")}`),
+		]);
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+	}
+
 	private async showApiKeyLoginDialog(providerId: string, providerName: string): Promise<void> {
 		const previousModel = this.session.model;
 
@@ -4627,22 +4632,12 @@ export class InteractiveMode {
 		};
 
 		try {
-			const apiKeyPrompt = providerId === "cloudflare-workers-ai" ? "Enter Cloudflare API token:" : "Enter API key:";
-			const apiKey = (await dialog.showPrompt(apiKeyPrompt)).trim();
+			const apiKey = (await dialog.showPrompt("Enter API key:")).trim();
 			if (!apiKey) {
 				throw new Error("API key cannot be empty.");
 			}
 
-			if (providerId === "cloudflare-workers-ai") {
-				const accountId = (await dialog.showPrompt("Enter Cloudflare account ID:")).trim();
-				if (!accountId) {
-					throw new Error("Cloudflare account ID cannot be empty.");
-				}
-				this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey, accountId });
-				this.session.modelRegistry.refresh();
-			} else {
-				this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
-			}
+			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
 
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);
@@ -4653,6 +4648,34 @@ export class InteractiveMode {
 				this.showError(`Failed to save API key for ${providerName}: ${errorMsg}`);
 			}
 		}
+	}
+
+	private showOAuthLoginSelect(dialog: LoginDialogComponent, prompt: OAuthSelectPrompt): Promise<string | undefined> {
+		return new Promise((resolve) => {
+			const restoreDialog = () => {
+				this.editorContainer.clear();
+				this.editorContainer.addChild(dialog);
+				this.ui.setFocus(dialog);
+				this.ui.requestRender();
+			};
+			const labels = prompt.options.map((option) => option.label);
+			const selector = new ExtensionSelectorComponent(
+				prompt.message,
+				labels,
+				(optionLabel) => {
+					restoreDialog();
+					resolve(prompt.options.find((option) => option.label === optionLabel)?.id);
+				},
+				() => {
+					restoreDialog();
+					resolve(undefined);
+				},
+			);
+			this.editorContainer.clear();
+			this.editorContainer.addChild(selector);
+			this.ui.setFocus(selector);
+			this.ui.requestRender();
+		});
 	}
 
 	private async showLoginDialog(providerId: string, providerName: string): Promise<void> {
@@ -4704,9 +4727,7 @@ export class InteractiveMode {
 					if (usesCallbackServer) {
 						// Show input for manual paste, racing with callback
 						dialog
-							.showManualInput(
-								"Open the URL in your browser, log in, then paste the redirect URL here.\n(WSL/remote users: after login, copy the full URL from the browser address bar and paste it below)",
-							)
+							.showManualInput("Paste redirect URL below, or complete login in browser:")
 							.then((value) => {
 								if (value && manualCodeResolve) {
 									manualCodeResolve(value);
@@ -4733,6 +4754,8 @@ export class InteractiveMode {
 				onProgress: (message: string) => {
 					dialog.showProgress(message);
 				},
+
+				onSelect: (prompt: OAuthSelectPrompt) => this.showOAuthLoginSelect(dialog, prompt),
 
 				onManualCodeInput: () => manualCodePromise,
 

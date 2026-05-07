@@ -5,7 +5,7 @@
  * This is useful for:
  * - Adding logging or auditing to tool calls
  * - Implementing access control or sandboxing
- * - Routing tool calls to remote systems (e.g., aery-ssh-remote)
+ * - Routing tool calls to remote systems (e.g., pi-ssh-remote)
  * - Modifying tool behavior for specific workflows
  *
  * This example overrides the `read` tool to:
@@ -17,11 +17,11 @@
  * is used automatically (syntax highlighting, line numbers, truncation warnings).
  *
  * Usage:
- *   aery -e ./tool-override.ts
+ *   pi -e ./tool-override.ts
  */
 
-import { type ExtensionAPI, getAgentDir, withFileMutationQueue } from "@eminent337/aery";
-import type { TextContent } from "@eminent337/aery-ai";
+import type { TextContent } from "@earendil-works/pi-ai";
+import { type ExtensionAPI, getAgentDir, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { constants, readFileSync } from "fs";
 import { access, appendFile, readFile } from "fs/promises";
 import { join, resolve } from "path";

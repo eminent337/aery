@@ -7,7 +7,7 @@ import {
 	createAssistantMessageEventStream,
 	type Model,
 	type SimpleStreamOptions,
-} from "@eminent337/aery-ai";
+} from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.js";
 import { ModelRegistry } from "../src/core/model-registry.js";
@@ -141,7 +141,7 @@ describe("createAgentSession OpenRouter attribution headers", () => {
 		const headers = await captureHeaders(createModel("openrouter", "https://openrouter.ai/api/v1"));
 
 		expect(headers?.["HTTP-Referer"]).toBe("https://eminent337.github.io");
-		expect(headers?.["X-OpenRouter-Title"]).toBe("aery");
+		expect(headers?.["X-OpenRouter-Title"]).toBe("pi");
 		expect(headers?.["X-OpenRouter-Categories"]).toBe("cli-agent");
 	});
 
@@ -159,7 +159,7 @@ describe("createAgentSession OpenRouter attribution headers", () => {
 		const headers = await captureHeaders(createModel("custom-openrouter", "https://openrouter.ai/api/v1"));
 
 		expect(headers?.["HTTP-Referer"]).toBe("https://eminent337.github.io");
-		expect(headers?.["X-OpenRouter-Title"]).toBe("aery");
+		expect(headers?.["X-OpenRouter-Title"]).toBe("pi");
 		expect(headers?.["X-OpenRouter-Categories"]).toBe("cli-agent");
 	});
 

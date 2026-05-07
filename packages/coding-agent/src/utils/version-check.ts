@@ -1,7 +1,12 @@
-import { getAeryUserAgent } from "./aery-user-agent.js";
+import { getPiUserAgent } from "./pi-user-agent.js";
 
-const LATEST_VERSION_URL = "https://registry.npmjs.org/@eminent337/aery/latest";
+const LATEST_VERSION_URL = "https://eminent337.github.io/api/latest-version";
 const DEFAULT_VERSION_CHECK_TIMEOUT_MS = 10000;
+
+export interface LatestPiRelease {
+	version: string;
+	packageName?: string;
+}
 
 interface ParsedVersion {
 	major: number;
@@ -47,23 +52,35 @@ export function isNewerPackageVersion(candidateVersion: string, currentVersion: 
 	return candidateVersion.trim() !== currentVersion.trim();
 }
 
-export async function getLatestPiVersion(
+export async function getLatestPiRelease(
 	currentVersion: string,
 	options: { timeoutMs?: number } = {},
-): Promise<string | undefined> {
+): Promise<LatestPiRelease | undefined> {
 	if (process.env.AERY_SKIP_VERSION_CHECK || process.env.AERY_OFFLINE) return undefined;
 
 	const response = await fetch(LATEST_VERSION_URL, {
 		headers: {
-			"User-Agent": getAeryUserAgent(currentVersion),
+			"User-Agent": getPiUserAgent(currentVersion),
 			accept: "application/json",
 		},
 		signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_VERSION_CHECK_TIMEOUT_MS),
 	});
 	if (!response.ok) return undefined;
 
-	const data = (await response.json()) as { version?: unknown };
-	return typeof data.version === "string" && data.version.trim() ? data.version.trim() : undefined;
+	const data = (await response.json()) as { packageName?: unknown; version?: unknown };
+	if (typeof data.version !== "string" || !data.version.trim()) {
+		return undefined;
+	}
+	const packageName =
+		typeof data.packageName === "string" && data.packageName.trim() ? data.packageName.trim() : undefined;
+	return { version: data.version.trim(), packageName };
+}
+
+export async function getLatestPiVersion(
+	currentVersion: string,
+	options: { timeoutMs?: number } = {},
+): Promise<string | undefined> {
+	return (await getLatestPiRelease(currentVersion, options))?.version;
 }
 
 export async function checkForNewPiVersion(currentVersion: string): Promise<string | undefined> {

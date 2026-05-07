@@ -1,10 +1,10 @@
 /**
  * Rainbow Editor - highlights "ultrathink" with animated shine effect
  *
- * Usage: aery --extension ./examples/extensions/rainbow-editor.ts
+ * Usage: pi --extension ./examples/extensions/rainbow-editor.ts
  */
 
-import { CustomEditor, type ExtensionAPI } from "@eminent337/aery";
+import { CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // Base colors (coral → yellow → green → teal → blue → purple → pink)
 const COLORS: [number, number, number][] = [

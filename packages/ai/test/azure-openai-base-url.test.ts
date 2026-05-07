@@ -37,14 +37,14 @@ const context: Context = {
 
 const originalAzureOpenAIBaseUrl = process.env.AZURE_OPENAI_BASE_URL;
 const originalAzureOpenAIResourceName = process.env.AZURE_OPENAI_RESOURCE_NAME;
-const originalAzureOpenAIApiVersion = process.env.AZURE_OPENAI_API_VERSION;
+const originalAzureOpenAIApiVersion = process.env.AZURE_OPENAI_AAERY_VERSION;
 const originalAzureOpenAIApiKey = process.env.AZURE_OPENAI_API_KEY;
 
 beforeEach(() => {
 	azureMock.constructorCalls.length = 0;
 	delete process.env.AZURE_OPENAI_BASE_URL;
 	delete process.env.AZURE_OPENAI_RESOURCE_NAME;
-	delete process.env.AZURE_OPENAI_API_VERSION;
+	delete process.env.AZURE_OPENAI_AAERY_VERSION;
 	delete process.env.AZURE_OPENAI_API_KEY;
 });
 
@@ -62,9 +62,9 @@ afterEach(() => {
 	}
 
 	if (originalAzureOpenAIApiVersion === undefined) {
-		delete process.env.AZURE_OPENAI_API_VERSION;
+		delete process.env.AZURE_OPENAI_AAERY_VERSION;
 	} else {
-		process.env.AZURE_OPENAI_API_VERSION = originalAzureOpenAIApiVersion;
+		process.env.AZURE_OPENAI_AAERY_VERSION = originalAzureOpenAIApiVersion;
 	}
 
 	if (originalAzureOpenAIApiKey === undefined) {

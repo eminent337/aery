@@ -15,7 +15,7 @@ Pods handles:
 - OpenAI-compatible API endpoints per model
 - Interactive agent with file system tools for testing
 
-Key env vars: HF_TOKEN (HuggingFace), PI_API_KEY (API auth).
+Key env vars: HF_TOKEN (HuggingFace), AERY_API_KEY (API auth).
 Primary provider: DataCrunch (NFS volumes for shared model storage).
 
 Rules:

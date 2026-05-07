@@ -1,6 +1,6 @@
 import * as os from "node:os";
-import type { ImageContent, TextContent } from "@eminent337/aery-ai";
-import { getCapabilities, getImageDimensions, imageFallback } from "@eminent337/aery-tui";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import { getCapabilities, getImageDimensions, imageFallback } from "@earendil-works/pi-tui";
 import stripAnsi from "strip-ansi";
 import { sanitizeBinaryOutput } from "../../utils/shell.js";
 
@@ -31,7 +31,7 @@ export function getTextOutput(
 	result: { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> } | undefined,
 	showImages: boolean,
 ): string {
-	if (!result || !result.content) return "";
+	if (!result) return "";
 
 	const textBlocks = result.content.filter((c) => c.type === "text");
 	const imageBlocks = result.content.filter((c) => c.type === "image");

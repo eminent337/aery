@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { EditorTheme, MarkdownTheme, SelectListTheme } from "@eminent337/aery-tui";
+import type { EditorTheme, MarkdownTheme, SelectListTheme } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { highlight, supportsLanguage } from "cli-highlight";
 import { type Static, Type } from "typebox";
@@ -450,15 +450,12 @@ let BUILTIN_THEMES: Record<string, ThemeJson> | undefined;
 function getBuiltinThemes(): Record<string, ThemeJson> {
 	if (!BUILTIN_THEMES) {
 		const themesDir = getThemesDir();
-		const loadThemeFile = (name: string) => {
-			const p = path.join(themesDir, `${name}.json`);
-			return fs.existsSync(p) ? (JSON.parse(fs.readFileSync(p, "utf-8")) as ThemeJson) : null;
+		const darkPath = path.join(themesDir, "dark.json");
+		const lightPath = path.join(themesDir, "light.json");
+		BUILTIN_THEMES = {
+			dark: JSON.parse(fs.readFileSync(darkPath, "utf-8")) as ThemeJson,
+			light: JSON.parse(fs.readFileSync(lightPath, "utf-8")) as ThemeJson,
 		};
-		BUILTIN_THEMES = {};
-		for (const name of ["dark", "light", "aery", "catppuccin-mocha", "dracula", "nord", "tokyo-night"]) {
-			const theme = loadThemeFile(name);
-			if (theme) BUILTIN_THEMES[name] = theme;
-		}
 	}
 	return BUILTIN_THEMES;
 }
@@ -660,7 +657,7 @@ function getDefaultTheme(): string {
 // ============================================================================
 
 // Use globalThis to share theme across module loaders (tsx + jiti in dev mode)
-const THEME_KEY = Symbol.for("@eminent337/aery:theme");
+const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 
 // Export theme as a getter that reads from globalThis
 // This ensures all module instances (tsx, jiti) see the same theme
@@ -1133,7 +1130,7 @@ export function getEditorTheme(): EditorTheme {
 	};
 }
 
-export function getSettingsListTheme(): import("@eminent337/aery-tui").SettingsListTheme {
+export function getSettingsListTheme(): import("@earendil-works/pi-tui").SettingsListTheme {
 	return {
 		label: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : text),
 		value: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : theme.fg("muted", text)),

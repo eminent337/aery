@@ -5,7 +5,7 @@
  * Uses the last assistant message to generate a commit message.
  */
 
-import type { ExtensionAPI } from "@eminent337/aery";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
@@ -36,7 +36,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Generate a simple commit message
 		const firstLine = lastAssistantText.split("\n")[0] || "Work in progress";
-		const commitMessage = `[aery] ${firstLine.slice(0, 50)}${firstLine.length > 50 ? "..." : ""}`;
+		const commitMessage = `[pi] ${firstLine.slice(0, 50)}${firstLine.length > 50 ? "..." : ""}`;
 
 		// Stage and commit
 		await pi.exec("git", ["add", "-A"]);

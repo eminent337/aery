@@ -13,17 +13,16 @@
  *   cd packages/coding-agent/examples/extensions/custom-provider && npm install
  *
  *   # With OAuth (run /login custom-anthropic first)
- *   aery -e ./packages/coding-agent/examples/extensions/custom-provider
+ *   pi -e ./packages/coding-agent/examples/extensions/custom-provider
  *
  *   # With API key
- *   CUSTOM_ANTHROPIC_API_KEY=sk-ant-... aery -e ./packages/coding-agent/examples/extensions/custom-provider
+ *   CUSTOM_ANTHROPIC_API_KEY=sk-ant-... pi -e ./packages/coding-agent/examples/extensions/custom-provider
  *
  * Then use /model to select custom-anthropic/claude-sonnet-4-5
  */
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlockParam, MessageCreateParamsStreaming } from "@anthropic-ai/sdk/resources/messages.js";
-import type { ExtensionAPI } from "@eminent337/aery";
 import {
 	type Api,
 	type AssistantMessage,
@@ -43,7 +42,8 @@ import {
 	type Tool,
 	type ToolCall,
 	type ToolResultMessage,
-} from "@eminent337/aery-ai";
+} from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // =============================================================================
 // OAuth Implementation (copied from packages/ai/src/utils/oauth/anthropic.ts)

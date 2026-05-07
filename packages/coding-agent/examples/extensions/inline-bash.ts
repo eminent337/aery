@@ -1,8 +1,8 @@
 /**
  * Inline Bash Extension - expands inline bash commands in user prompts.
  *
- * Start aery with this extension:
- *   aery -e ./examples/extensions/inline-bash.ts
+ * Start pi with this extension:
+ *   pi -e ./examples/extensions/inline-bash.ts
  *
  * Then type prompts with inline bash:
  *   What's in !{pwd}?
@@ -14,7 +14,7 @@
  *
  * Note: Regular !command syntax (whole-line bash) is preserved and works as before.
  */
-import type { ExtensionAPI } from "@eminent337/aery";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	const PATTERN = /!\{([^}]+)\}/g;

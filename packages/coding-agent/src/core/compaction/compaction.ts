@@ -5,9 +5,9 @@
  * and after compaction the session is reloaded.
  */
 
-import type { AssistantMessage, Model, Usage } from "@eminent337/aery-ai";
-import { completeSimple } from "@eminent337/aery-ai";
-import type { AgentMessage, ThinkingLevel } from "@eminent337/aery-core";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, Model, Usage } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,
@@ -45,7 +45,7 @@ function extractFileOperations(
 ): FileOperations {
 	const fileOps = createFileOps();
 
-	// Collect from previous compaction's details (if aery-generated)
+	// Collect from previous compaction's details (if pi-generated)
 	if (prevCompactionIndex >= 0) {
 		const prevCompaction = entries[prevCompactionIndex] as CompactionEntry;
 		if (!prevCompaction.fromHook && prevCompaction.details) {

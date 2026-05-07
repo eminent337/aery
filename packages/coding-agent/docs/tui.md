@@ -1,10 +1,10 @@
-> aery can create TUI components. Ask it to build one for your use case.
+> pi can create TUI components. Ask it to build one for your use case.
 
 # TUI Components
 
 Extensions and custom tools can render custom TUI components for interactive user interfaces. This page covers the component system and available building blocks.
 
-**Source:** [`@eminent337/aery-tui`](https://github.com/eminent337/aery/tree/main/packages/tui)
+**Source:** [`@earendil-works/pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui)
 
 ## Component Interface
 
@@ -33,7 +33,7 @@ The TUI appends a full SGR reset and OSC 8 reset at the end of each rendered lin
 Components that display a text cursor and need IME (Input Method Editor) support should implement the `Focusable` interface:
 
 ```typescript
-import { CURSOR_MARKER, type Component, type Focusable } from "@eminent337/aery-tui";
+import { CURSOR_MARKER, type Component, type Focusable } from "@earendil-works/pi-tui";
 
 class MyInput implements Component, Focusable {
   focused: boolean = false;  // Set by TUI when focus changes
@@ -59,7 +59,7 @@ This enables IME candidate windows to appear at the correct position for CJK inp
 When a container component (dialog, selector, etc.) contains an `Input` or `Editor` child, the container must implement `Focusable` and propagate the focus state to the child. Otherwise, the hardware cursor won't be positioned correctly for IME input.
 
 ```typescript
-import { Container, type Focusable, Input } from "@eminent337/aery-tui";
+import { Container, type Focusable, Input } from "@earendil-works/pi-tui";
 
 class SearchDialog extends Container implements Focusable {
   private searchInput: Input;
@@ -96,11 +96,11 @@ pi.on("session_start", async (_event, ctx) => {
 });
 ```
 
-**In custom tools** via `aery.ui.custom()`:
+**In custom tools** via `pi.ui.custom()`:
 
 ```typescript
 async execute(toolCallId, params, onUpdate, ctx, signal) {
-  const handle = aery.ui.custom(myComponent);
+  const handle = pi.ui.custom(myComponent);
   // ...
   handle.close();
 }
@@ -179,10 +179,10 @@ See [overlay-qa-tests.ts](../examples/extensions/overlay-qa-tests.ts) for compre
 
 ## Built-in Components
 
-Import from `@eminent337/aery-tui`:
+Import from `@earendil-works/pi-tui`:
 
 ```typescript
-import { Text, Box, Container, Spacer, Markdown } from "@eminent337/aery-tui";
+import { Text, Box, Container, Spacer, Markdown } from "@earendil-works/pi-tui";
 ```
 
 ### Text
@@ -264,7 +264,7 @@ const image = new Image(
 Use `matchesKey()` for key detection:
 
 ```typescript
-import { matchesKey, Key } from "@eminent337/aery-tui";
+import { matchesKey, Key } from "@earendil-works/pi-tui";
 
 handleInput(data: string) {
   if (matchesKey(data, Key.up)) {
@@ -290,7 +290,7 @@ handleInput(data: string) {
 **Critical:** Each line from `render()` must not exceed the `width` parameter.
 
 ```typescript
-import { visibleWidth, truncateToWidth } from "@eminent337/aery-tui";
+import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 
 render(width: number): string[] {
   // Truncate long lines
@@ -311,7 +311,7 @@ Example: Interactive selector
 import {
   matchesKey, Key,
   truncateToWidth, visibleWidth
-} from "@eminent337/aery-tui";
+} from "@earendil-works/pi-tui";
 
 class MySelector {
   private items: string[];
@@ -425,8 +425,8 @@ renderResult(result, options, theme, context) {
 **For Markdown**, use `getMarkdownTheme()`:
 
 ```typescript
-import { getMarkdownTheme } from "@eminent337/aery";
-import { Markdown } from "@eminent337/aery-tui";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { Markdown } from "@earendil-works/pi-tui";
 
 renderResult(result, options, theme, context) {
   const mdTheme = getMarkdownTheme();
@@ -445,10 +445,10 @@ interface MyTheme {
 
 ## Debug logging
 
-Set `PI_TUI_WRITE_LOG` to capture the raw ANSI stream written to stdout.
+Set `AERY_TUI_WRITE_LOG` to capture the raw ANSI stream written to stdout.
 
 ```bash
-PI_TUI_WRITE_LOG=/tmp/tui-ansi.log npx tsx packages/tui/test/chat-simple.ts
+AERY_TUI_WRITE_LOG=/tmp/tui-ansi.log npx tsx packages/tui/test/chat-simple.ts
 ```
 
 ## Performance
@@ -587,12 +587,12 @@ These patterns cover the most common UI needs in extensions. **Copy these patter
 
 ### Pattern 1: Selection Dialog (SelectList)
 
-For letting users pick from a list of options. Use `SelectList` from `@eminent337/aery-tui` with `DynamicBorder` for framing.
+For letting users pick from a list of options. Use `SelectList` from `@earendil-works/pi-tui` with `DynamicBorder` for framing.
 
 ```typescript
-import type { ExtensionAPI } from "@eminent337/aery";
-import { DynamicBorder } from "@eminent337/aery";
-import { Container, type SelectItem, SelectList, Text } from "@eminent337/aery-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 
 pi.registerCommand("pick", {
   handler: async (_args, ctx) => {
@@ -650,7 +650,7 @@ pi.registerCommand("pick", {
 For operations that take time and should be cancellable. `BorderedLoader` shows a spinner and handles escape to cancel.
 
 ```typescript
-import { BorderedLoader } from "@eminent337/aery";
+import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 
 pi.registerCommand("fetch", {
   handler: async (_args, ctx) => {
@@ -679,11 +679,11 @@ pi.registerCommand("fetch", {
 
 ### Pattern 3: Settings/Toggles (SettingsList)
 
-For toggling multiple settings. Use `SettingsList` from `@eminent337/aery-tui` with `getSettingsListTheme()`.
+For toggling multiple settings. Use `SettingsList` from `@earendil-works/pi-tui` with `getSettingsListTheme()`.
 
 ```typescript
-import { getSettingsListTheme } from "@eminent337/aery";
-import { Container, type SettingItem, SettingsList, Text } from "@eminent337/aery-tui";
+import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
+import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 
 pi.registerCommand("settings", {
   handler: async (_args, ctx) => {
@@ -737,7 +737,7 @@ ctx.ui.setStatus("my-ext", undefined);
 
 ### Pattern 4b: Working Indicator Customization
 
-Customize the inline working indicator shown while aery is streaming a response.
+Customize the inline working indicator shown while pi is streaming a response.
 
 ```typescript
 // Static indicator
@@ -757,7 +757,7 @@ ctx.ui.setWorkingIndicator({
 // Hide the indicator entirely
 ctx.ui.setWorkingIndicator({ frames: [] });
 
-// Restore aery's default spinner
+// Restore pi's default spinner
 ctx.ui.setWorkingIndicator();
 ```
 
@@ -822,8 +822,8 @@ Token stats available via `ctx.sessionManager.getBranch()` and `ctx.model`.
 Replace the main input editor with a custom implementation. Useful for modal editing (vim), different keybindings (emacs), or specialized input handling.
 
 ```typescript
-import { CustomEditor, type ExtensionAPI } from "@eminent337/aery";
-import { matchesKey, truncateToWidth } from "@eminent337/aery-tui";
+import { CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 
 type Mode = "normal" | "insert";
 
@@ -874,7 +874,7 @@ class VimEditor extends CustomEditor {
   }
 }
 
-export default function (aery: ExtensionAPI) {
+export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     // Factory receives theme and keybindings from the app
     ctx.ui.setEditorComponent((tui, theme, keybindings) =>

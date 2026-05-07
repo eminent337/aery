@@ -30,7 +30,7 @@
  * ```
  *
  * Usage:
- * - `aery --preset plan` - start with plan preset
+ * - `pi --preset plan` - start with plan preset
  * - `/preset` - show selector to switch presets mid-session
  * - `/preset implement` - switch to implement preset directly
  * - `Ctrl+Shift+U` - cycle through presets
@@ -40,10 +40,10 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@eminent337/aery";
-import { DynamicBorder, getAgentDir } from "@eminent337/aery";
-import type { Api, Model } from "@eminent337/aery-ai";
-import { Container, Key, type SelectItem, SelectList, Text } from "@eminent337/aery-tui";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Container, Key, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 
 // Preset configuration
 interface Preset {
@@ -69,7 +69,7 @@ interface PresetsConfig {
  */
 function loadPresets(cwd: string): PresetsConfig {
 	const globalPath = join(getAgentDir(), "presets.json");
-	const projectPath = join(cwd, ".aery", "presets.json");
+	const projectPath = join(cwd, ".pi", "presets.json");
 
 	let globalPresets: PresetsConfig = {};
 	let projectPresets: PresetsConfig = {};
@@ -200,10 +200,7 @@ export default function presetExtension(pi: ExtensionAPI) {
 		const presetNames = Object.keys(presets);
 
 		if (presetNames.length === 0) {
-			ctx.ui.notify(
-				"No presets defined. Add presets to ~/.aery/agent/presets.json or .aery/presets.json",
-				"warning",
-			);
+			ctx.ui.notify("No presets defined. Add presets to ~/.aery/agent/presets.json or .aery/presets.json", "warning");
 			return;
 		}
 
@@ -311,10 +308,7 @@ export default function presetExtension(pi: ExtensionAPI) {
 	async function cyclePreset(ctx: ExtensionContext): Promise<void> {
 		const presetNames = getPresetOrder();
 		if (presetNames.length === 0) {
-			ctx.ui.notify(
-				"No presets defined. Add presets to ~/.aery/agent/presets.json or .aery/presets.json",
-				"warning",
-			);
+			ctx.ui.notify("No presets defined. Add presets to ~/.aery/agent/presets.json or .aery/presets.json", "warning");
 			return;
 		}
 

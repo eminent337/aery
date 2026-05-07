@@ -22,7 +22,7 @@ npm install -g @eminent337/aery-pods
 ```bash
 # Set required environment variables
 export HF_TOKEN=your_huggingface_token      # Get from https://huggingface.co/settings/tokens
-export PI_API_KEY=your_api_key              # Any string you want for API authentication
+export AERY_API_KEY=your_api_key              # Any string you want for API authentication
 
 # Setup a DataCrunch pod with NFS storage (models path auto-extracted)
 aery pods setup dc1 "ssh root@1.2.3.4" \
@@ -39,7 +39,7 @@ aery agent qwen -i
 
 # Use with any OpenAI-compatible client
 export OPENAI_BASE_URL='http://1.2.3.4:8001/v1'
-export OPENAI_API_KEY=$PI_API_KEY
+export OPENAI_API_KEY=$AERY_API_KEY
 ```
 
 ## Prerequisites
@@ -502,7 +502,7 @@ ls -la ~/.aery/sessions/
 ## Environment Variables
 
 - `HF_TOKEN` - HuggingFace token for model downloads
-- `PI_API_KEY` - API key for vLLM endpoints
+- `AERY_API_KEY` - API key for vLLM endpoints
 - `AERY_CONFIG_DIR` - Config directory (default: `~/.aery`)
 - `OPENAI_API_KEY` - Used by `pi-agent` when no `--api-key` provided
 

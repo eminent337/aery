@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, registerFauxProvider } from "@eminent337/aery-ai";
+import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type CreateAgentSessionRuntimeFactory,
@@ -35,7 +35,7 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 	});
 
 	async function createRuntimeHost(extensionFactory: ExtensionFactory) {
-		const tempDir = join(tmpdir(), `aery-runtime-events-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const tempDir = join(tmpdir(), `pi-runtime-events-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		mkdirSync(tempDir, { recursive: true });
 
 		const faux = registerFauxProvider();

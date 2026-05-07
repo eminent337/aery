@@ -4,10 +4,10 @@
  * Demonstrates the `model_select` hook which fires when the model changes
  * via /model command, Ctrl+P cycling, or session restore.
  *
- * Usage: aery -e ./model-status.ts
+ * Usage: pi -e ./model-status.ts
  */
 
-import type { ExtensionAPI } from "@eminent337/aery";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("model_select", async (event, ctx) => {

@@ -13,35 +13,7 @@ import {
 import { DefaultPackageManager } from "./core/package-manager.js";
 import { SettingsManager } from "./core/settings-manager.js";
 import { shouldUseWindowsShell } from "./utils/child-process.js";
-import { getLatestPiVersion, isNewerPackageVersion } from "./utils/version-check.js";
-
-const REGISTRY_URL = "https://raw.githubusercontent.com/eminent337/aery-extensions/main/registry.json";
-
-interface RegistryPack {
-	description?: string;
-	source?: string;
-	install?: string;
-	coming_soon?: boolean;
-}
-
-interface Registry {
-	packs?: Record<string, RegistryPack>;
-}
-
-async function resolveRegistrySource(name: string): Promise<string | null> {
-	// Only resolve plain names (no slashes, colons, dots, or http)
-	if (/[/:.@]/.test(name) || name.startsWith("http")) return null;
-	try {
-		const res = await fetch(REGISTRY_URL);
-		if (!res.ok) return null;
-		const registry = (await res.json()) as Registry;
-		const pack = registry.packs?.[name];
-		if (!pack || pack.coming_soon) return null;
-		return pack.install ?? (pack.source ? `https://github.com/${pack.source}` : null);
-	} catch {
-		return null;
-	}
-}
+import { getLatestPiRelease, isNewerPackageVersion } from "./utils/version-check.js";
 
 export type PackageCommand = "install" | "remove" | "update" | "list";
 
@@ -54,7 +26,6 @@ interface PackageCommandOptions {
 	local: boolean;
 	force: boolean;
 	help: boolean;
-	listRegistry: boolean;
 	invalidOption?: string;
 	invalidArgument?: string;
 	missingOptionValue?: string;
@@ -78,7 +49,7 @@ function getPackageCommandUsage(command: PackageCommand): string {
 		case "remove":
 			return `${APP_NAME} remove <source> [-l]`;
 		case "update":
-			return `${APP_NAME} update [source|self|aery] [--self] [--extensions] [--extension <source>] [--force]`;
+			return `${APP_NAME} update [source|self|pi] [--self] [--extensions] [--extension <source>] [--force]`;
 		case "list":
 			return `${APP_NAME} list`;
 	}
@@ -125,18 +96,18 @@ Examples:
 			console.log(`${chalk.bold("Usage:")}
   ${getPackageCommandUsage("update")}
 
-Update aery and installed packages.
+Update pi and installed packages.
 
 Options:
-  --self                  Update aery only
+  --self                  Update pi only
   --extensions            Update installed packages only
   --extension <source>    Update one package only
-  --force                 Reinstall aery even if the current version is latest
+  --force                 Reinstall pi even if the current version is latest
 
 Short forms:
-  ${APP_NAME} update                Update aery and all extensions
+  ${APP_NAME} update                Update pi and all extensions
   ${APP_NAME} update <source>       Update one package
-  ${APP_NAME} update aery             Update aery only (self works as alias to aery)
+  ${APP_NAME} update pi             Update pi only (self works as alias to pi)
 `);
 			return;
 
@@ -165,7 +136,6 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 	let local = false;
 	let force = false;
 	let help = false;
-	let listRegistry = false;
 	let invalidOption: string | undefined;
 	let invalidArgument: string | undefined;
 	let missingOptionValue: string | undefined;
@@ -179,10 +149,6 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 		const arg = rest[index];
 		if (arg === "-h" || arg === "--help") {
 			help = true;
-			continue;
-		}
-		if (arg === "--list" && command === "install") {
-			listRegistry = true;
 			continue;
 		}
 
@@ -264,7 +230,7 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 			}
 			updateTarget = { type: "extensions", source: extensionFlagSource };
 		} else if (source) {
-			const sourceIsSelf = source === "self" || source === "aery" || source === "pi";
+			const sourceIsSelf = source === "self" || source === "pi";
 			if (sourceIsSelf) {
 				updateTarget = extensionsFlag ? { type: "all" } : { type: "self" };
 			} else {
@@ -292,7 +258,6 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 		local,
 		force,
 		help,
-		listRegistry,
 		invalidOption,
 		invalidArgument,
 		missingOptionValue,
@@ -308,18 +273,14 @@ function updateTargetIncludesExtensions(target: UpdateTarget): boolean {
 	return target.type === "all" || target.type === "extensions";
 }
 
-export function formatExtensionUpdateSuccessMessage(source?: string): string {
-	return source ? `Updated extension package ${source}` : "Updated installed extensions";
-}
-
-function printSelfUpdateUnavailable(npmCommand?: string[]): void {
+function printSelfUpdateUnavailable(npmCommand?: string[], updatePackageName = PACKAGE_NAME): void {
 	console.error(`error: ${APP_NAME} cannot self-update this installation.`);
-	console.error(getSelfUpdateUnavailableInstruction(PACKAGE_NAME, npmCommand));
+	console.error(getSelfUpdateUnavailableInstruction(PACKAGE_NAME, npmCommand, updatePackageName));
 
 	const entrypoint = process.argv[1];
 	if (entrypoint) {
 		console.error("");
-		console.error(`Location of aery executable: ${entrypoint}`);
+		console.error(`Location of pi executable: ${entrypoint}`);
 	}
 }
 
@@ -327,47 +288,53 @@ function printSelfUpdateFallback(command: SelfUpdateCommand): void {
 	console.error(chalk.dim(`If this keeps failing, run this command yourself: ${command.display}`));
 }
 
-async function shouldRunSelfUpdate(force: boolean): Promise<boolean> {
+interface SelfUpdatePlan {
+	packageName: string;
+	shouldRun: boolean;
+}
+
+async function getSelfUpdatePlan(force: boolean): Promise<SelfUpdatePlan> {
 	if (force) {
-		return true;
+		return { packageName: PACKAGE_NAME, shouldRun: true };
 	}
 
-	let latestVersion: string | undefined;
 	try {
-		latestVersion = await getLatestPiVersion(VERSION);
+		const latestRelease = await getLatestPiRelease(VERSION);
+		const packageName = latestRelease?.packageName ?? PACKAGE_NAME;
+		if (!latestRelease || packageName !== PACKAGE_NAME || isNewerPackageVersion(latestRelease.version, VERSION)) {
+			return { packageName, shouldRun: true };
+		}
 	} catch {
-		return true;
-	}
-
-	if (!latestVersion || isNewerPackageVersion(latestVersion, VERSION)) {
-		return true;
+		return { packageName: PACKAGE_NAME, shouldRun: true };
 	}
 
 	console.log(chalk.green(`${APP_NAME} is already up to date (v${VERSION})`));
-	return false;
+	return { packageName: PACKAGE_NAME, shouldRun: false };
 }
 
 async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
 	console.log(chalk.dim(`Updating ${APP_NAME} with ${command.display}...`));
-	await new Promise<void>((resolve, reject) => {
-		// Windows package managers are commonly .cmd shims. Use the shell so Node can execute them.
-		const child = spawn(command.command, command.args, {
-			stdio: "inherit",
-			shell: shouldUseWindowsShell(command.command),
+	for (const step of command.steps ?? [command]) {
+		await new Promise<void>((resolve, reject) => {
+			// Windows package managers are commonly .cmd shims. Use the shell so Node can execute them.
+			const child = spawn(step.command, step.args, {
+				stdio: "inherit",
+				shell: shouldUseWindowsShell(step.command),
+			});
+			child.on("error", (error) => {
+				reject(error);
+			});
+			child.on("close", (code, signal) => {
+				if (code === 0) {
+					resolve();
+				} else if (signal) {
+					reject(new Error(`${step.display} terminated by signal ${signal}`));
+				} else {
+					reject(new Error(`${step.display} exited with code ${code ?? "unknown"}`));
+				}
+			});
 		});
-		child.on("error", (error) => {
-			reject(error);
-		});
-		child.on("close", (code, signal) => {
-			if (code === 0) {
-				resolve();
-			} else if (signal) {
-				reject(new Error(`${command.display} terminated by signal ${signal}`));
-			} else {
-				reject(new Error(`${command.display} exited with code ${code ?? "unknown"}`));
-			}
-		});
-	});
+	}
 }
 
 export async function handleConfigCommand(args: string[]): Promise<boolean> {
@@ -432,7 +399,7 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 	}
 
 	const source = options.source;
-	if ((options.command === "install" || options.command === "remove") && !source && !options.listRegistry) {
+	if ((options.command === "install" || options.command === "remove") && !source) {
 		console.error(chalk.red(`Missing ${options.command} source.`));
 		console.error(chalk.dim(`Usage: ${getPackageCommandUsage(options.command)}`));
 		process.exitCode = 1;
@@ -455,40 +422,10 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 
 	try {
 		switch (options.command) {
-			case "install": {
-				if (options.listRegistry) {
-					try {
-						const res = await fetch(REGISTRY_URL);
-						if (!res.ok) throw new Error(`HTTP ${res.status}`);
-						const registry = (await res.json()) as Registry;
-						console.log(chalk.bold("\nAvailable extensions:\n"));
-						for (const [name, pack] of Object.entries(registry.packs ?? {})) {
-							if (pack.coming_soon) continue;
-							console.log(`  ${chalk.cyan(name.padEnd(24))} ${pack.description ?? ""}`);
-						}
-						console.log(chalk.dim(`\nInstall with: ${APP_NAME} install <name>`));
-					} catch (err) {
-						console.error(chalk.red(`Failed to fetch registry: ${err instanceof Error ? err.message : err}`));
-						process.exitCode = 1;
-					}
-					return true;
-				}
-				let installSource = source!;
-				const resolved = await resolveRegistrySource(installSource);
-				if (resolved) {
-					console.log(chalk.dim(`Resolved ${installSource} → ${resolved}`));
-					installSource = resolved;
-				} else if (/^[a-z0-9-]+$/.test(installSource) && !installSource.includes("/")) {
-					console.error(chalk.red(`Unknown extension: ${installSource}`));
-					console.error(chalk.dim(`Run: ${APP_NAME} install --list  to see available extensions`));
-					console.error(chalk.dim(`Or use a full source: git:github.com/user/repo`));
-					process.exitCode = 1;
-					return true;
-				}
-				await packageManager.installAndPersist(installSource, { local: options.local });
+			case "install":
+				await packageManager.installAndPersist(source!, { local: options.local });
 				console.log(chalk.green(`Installed ${source}`));
 				return true;
-			}
 
 			case "remove": {
 				const removed = await packageManager.removeAndPersist(source!, { local: options.local });
@@ -542,16 +479,25 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 				if (updateTargetIncludesExtensions(target)) {
 					const updateSource = target.type === "extensions" ? target.source : undefined;
 					await packageManager.update(updateSource);
-					console.log(chalk.green(formatExtensionUpdateSuccessMessage(updateSource)));
+					if (updateSource) {
+						console.log(chalk.green(`Updated ${updateSource}`));
+					} else {
+						console.log(chalk.green("Updated packages"));
+					}
 				}
 				if (updateTargetIncludesSelf(target)) {
-					const selfUpdateCommand = getSelfUpdateCommand(PACKAGE_NAME, selfUpdateNpmCommand);
-					if (!selfUpdateCommand) {
-						printSelfUpdateUnavailable(selfUpdateNpmCommand);
-						process.exitCode = 1;
+					const selfUpdatePlan = await getSelfUpdatePlan(options.force);
+					if (!selfUpdatePlan.shouldRun) {
 						return true;
 					}
-					if (!(await shouldRunSelfUpdate(options.force))) {
+					const selfUpdateCommand = getSelfUpdateCommand(
+						PACKAGE_NAME,
+						selfUpdateNpmCommand,
+						selfUpdatePlan.packageName,
+					);
+					if (!selfUpdateCommand) {
+						printSelfUpdateUnavailable(selfUpdateNpmCommand, selfUpdatePlan.packageName);
+						process.exitCode = 1;
 						return true;
 					}
 					try {

@@ -4,7 +4,7 @@
  * Configure API key resolution via AuthStorage and ModelRegistry.
  */
 
-import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@eminent337/aery";
+import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
 
 // Default: AuthStorage uses ~/.aery/agent/auth.json
 // ModelRegistry loads built-in + custom models from ~/.aery/agent/models.json

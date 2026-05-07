@@ -11,12 +11,12 @@
  * - Minimal: Shows only tool call, no output (this extension's collapsed mode)
  *
  * Usage:
- *   aery -e ./minimal-mode.ts
+ *   pi -e ./minimal-mode.ts
  *
  * Then use ctrl+o to toggle between minimal (collapsed) and full (expanded) views.
  */
 
-import type { ExtensionAPI } from "@eminent337/aery";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createBashTool,
 	createEditTool,
@@ -25,8 +25,8 @@ import {
 	createLsTool,
 	createReadTool,
 	createWriteTool,
-} from "@eminent337/aery";
-import { Text } from "@eminent337/aery-tui";
+} from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { homedir } from "os";
 
 /**

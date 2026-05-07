@@ -1,7 +1,7 @@
 /**
  * Subagent Tool - Delegate tasks to specialized agents
  *
- * Spawns a separate `aery` process for each subagent invocation,
+ * Spawns a separate `pi` process for each subagent invocation,
  * giving it an isolated context window.
  *
  * Supports three modes:
@@ -16,11 +16,11 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { type ExtensionAPI, getMarkdownTheme, withFileMutationQueue } from "@eminent337/aery";
-import type { Message } from "@eminent337/aery-ai";
-import { StringEnum } from "@eminent337/aery-ai";
-import type { AgentToolResult } from "@eminent337/aery-core";
-import { Container, Markdown, Spacer, Text } from "@eminent337/aery-tui";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { Message } from "@earendil-works/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai";
+import { type ExtensionAPI, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.js";
 
@@ -208,7 +208,7 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
 }
 
 async function writePromptToTempFile(agentName: string, prompt: string): Promise<{ dir: string; filePath: string }> {
-	const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "aery-subagent-"));
+	const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-subagent-"));
 	const safeName = agentName.replace(/[^\w.-]+/g, "_");
 	const filePath = path.join(tmpDir, `prompt-${safeName}.md`);
 	await withFileMutationQueue(filePath, async () => {

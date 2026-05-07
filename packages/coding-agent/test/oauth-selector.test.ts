@@ -1,10 +1,11 @@
-import { setKeybindings } from "@eminent337/aery-tui";
+import { setKeybindings } from "@earendil-works/pi-tui";
 import stripAnsi from "strip-ansi";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.js";
 import { KeybindingsManager } from "../src/core/keybindings.js";
+import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../src/core/provider-display-names.js";
 import { OAuthSelectorComponent } from "../src/modes/interactive/components/oauth-selector.js";
-import { getApiKeyProviderDisplayName, isApiKeyLoginProvider } from "../src/modes/interactive/interactive-mode.js";
+import { isApiKeyLoginProvider } from "../src/modes/interactive/interactive-mode.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
 
 const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
@@ -28,21 +29,13 @@ describe("OAuthSelectorComponent", () => {
 
 	it("keeps built-in API key providers separate from OAuth-only providers", () => {
 		const oauthProviderIds = new Set(["anthropic", "github-copilot", "custom-oauth"]);
-		const builtInProviderIds = new Set([
-			"anthropic",
-			"github-copilot",
-			"amazon-bedrock",
-			"openai",
-			"cloudflare-workers-ai",
-		]);
+		const builtInProviderIds = new Set(["anthropic", "github-copilot", "amazon-bedrock", "openai"]);
 
 		expect(isApiKeyLoginProvider("anthropic", oauthProviderIds, builtInProviderIds)).toBe(true);
-		expect(getApiKeyProviderDisplayName("anthropic")).toBe("Anthropic");
+		expect(BUILT_IN_PROVIDER_DISPLAY_NAMES.anthropic).toBe("Anthropic");
 		expect(isApiKeyLoginProvider("openai", oauthProviderIds, builtInProviderIds)).toBe(true);
-		expect(isApiKeyLoginProvider("cloudflare-workers-ai", oauthProviderIds, builtInProviderIds)).toBe(true);
-		expect(getApiKeyProviderDisplayName("cloudflare-workers-ai")).toBe("Cloudflare Workers AI");
 		expect(isApiKeyLoginProvider("github-copilot", oauthProviderIds, builtInProviderIds)).toBe(false);
-		expect(isApiKeyLoginProvider("amazon-bedrock", oauthProviderIds, builtInProviderIds)).toBe(false);
+		expect(isApiKeyLoginProvider("amazon-bedrock", oauthProviderIds, builtInProviderIds)).toBe(true);
 		expect(isApiKeyLoginProvider("custom-oauth", oauthProviderIds, builtInProviderIds)).toBe(false);
 		expect(isApiKeyLoginProvider("custom-api", oauthProviderIds, builtInProviderIds)).toBe(true);
 	});
@@ -68,29 +61,6 @@ describe("OAuthSelectorComponent", () => {
 
 		expect(output).toContain("Anthropic");
 		expect(output).toContain("subscription configured");
-	});
-
-	it("shows incomplete provider auth when a required secondary value is missing", () => {
-		const authStorage = AuthStorage.inMemory({
-			"cloudflare-workers-ai": {
-				type: "api_key",
-				key: "test-cloudflare-token",
-			},
-		});
-		const selector = new OAuthSelectorComponent(
-			"login",
-			authStorage,
-			[{ id: "cloudflare-workers-ai", name: "Cloudflare Workers AI", authType: "api_key" }],
-			() => {},
-			() => {},
-			() => ({ configured: false, label: "missing Cloudflare account ID" }),
-		);
-
-		const output = stripAnsi(selector.render(120).join("\n"));
-
-		expect(output).toContain("Cloudflare Workers AI");
-		expect(output).toContain("missing Cloudflare account ID");
-		expect(output).not.toContain("✓ configured");
 	});
 
 	it("shows environment API key auth as configured", () => {

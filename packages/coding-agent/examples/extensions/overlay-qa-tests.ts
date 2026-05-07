@@ -1,7 +1,7 @@
 /**
  * Overlay QA Tests - comprehensive overlay positioning and edge case tests
  *
- * Usage: aery --extension ./examples/extensions/overlay-qa-tests.ts
+ * Usage: pi --extension ./examples/extensions/overlay-qa-tests.ts
  *
  * Commands:
  *   /overlay-animation  - Real-time animation demo (~30 FPS, proves DOOM-like rendering works)
@@ -19,16 +19,16 @@
  *   /overlay-streaming  - Multiple input panels with simulated streaming (Tab to cycle focus)
  */
 
-import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@eminent337/aery";
-import type { Component, OverlayAnchor, OverlayHandle, OverlayOptions, TUI } from "@eminent337/aery-tui";
-import { matchesKey, truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
+import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { Component, OverlayAnchor, OverlayHandle, OverlayOptions, TUI } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { spawn } from "child_process";
 
 // Global handle for toggle demo (in real code, use a more elegant pattern)
 let globalToggleHandle: OverlayHandle | null = null;
 
 export default function (pi: ExtensionAPI) {
-	// Animation demo - proves overlays can handle real-time updates (like aery-doom would need)
+	// Animation demo - proves overlays can handle real-time updates (like pi-doom would need)
 	pi.registerCommand("overlay-animation", {
 		description: "Test real-time animation in overlay (~30 FPS)",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
@@ -473,13 +473,13 @@ class StreamingOverflowComponent extends BaseOverlay {
 			echo ""
 			for i in $(seq 1 100); do
 				# Simulate long file paths with OSC 8 hyperlinks (clickable) - tests width overflow
-				DIR="/Users/nicobailon/Documents/development/aery/packages/coding-agent/src/modes/interactive"
+				DIR="/Users/nicobailon/Documents/development/pi-mono/packages/coding-agent/src/modes/interactive"
 				FILE="\${DIR}/components/very-long-component-name-that-exceeds-width-\${i}.ts"
 				echo -e "\\033]8;;file://\${FILE}\\007▶ read: \${FILE}\\033]8;;\\007"
 
 				# Add some colored status messages with long text
 				if [ $((i % 5)) -eq 0 ]; then
-					echo -e "  \\033[32m✓ Successfully processed \${i} files in /Users/nicobailon/Documents/development/aery\\033[0m"
+					echo -e "  \\033[32m✓ Successfully processed \${i} files in /Users/nicobailon/Documents/development/pi-mono\\033[0m"
 				fi
 				if [ $((i % 7)) -eq 0 ]; then
 					echo -e "  \\033[33m⚠ Warning: potential issue detected at line \${i} in very-long-component-name-that-exceeds-width.ts\\033[0m"
@@ -743,7 +743,7 @@ class SidepanelComponent extends BaseOverlay {
 	}
 }
 
-// Animation demo - proves overlays can handle real-time updates like aery-doom
+// Animation demo - proves overlays can handle real-time updates like pi-doom
 class AnimationDemoComponent extends BaseOverlay {
 	private frame = 0;
 	private interval: ReturnType<typeof setInterval> | null = null;
@@ -819,7 +819,7 @@ class AnimationDemoComponent extends BaseOverlay {
 		lines.push(border("│") + padLine(``) + border("│"));
 		lines.push(border("│") + padLine(th.fg("dim", " This proves overlays can handle")) + border("│"));
 		lines.push(border("│") + padLine(th.fg("dim", " real-time game-like rendering.")) + border("│"));
-		lines.push(border("│") + padLine(th.fg("dim", " (aery-doom uses same approach)")) + border("│"));
+		lines.push(border("│") + padLine(th.fg("dim", " (pi-doom uses same approach)")) + border("│"));
 		lines.push(border("│") + padLine(``) + border("│"));
 		lines.push(border("│") + padLine(th.fg("dim", " Press Esc to close")) + border("│"));
 		lines.push(border(`╰${"─".repeat(innerW)}╯`));

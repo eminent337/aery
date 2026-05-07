@@ -4,11 +4,11 @@
  * Adjusts command, cwd, and env before execution.
  *
  * Usage:
- *   aery -e ./bash-spawn-hook.ts
+ *   pi -e ./bash-spawn-hook.ts
  */
 
-import type { ExtensionAPI } from "@eminent337/aery";
-import { createBashTool } from "@eminent337/aery";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createBashTool } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	const cwd = process.cwd();
@@ -17,7 +17,7 @@ export default function (pi: ExtensionAPI) {
 		spawnHook: ({ command, cwd, env }) => ({
 			command: `source ~/.profile\n${command}`,
 			cwd,
-			env: { ...env, PI_SPAWN_HOOK: "1" },
+			env: { ...env, AERY_SPAWN_HOOK: "1" },
 		}),
 	});
 

@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
-import type { AgentTool } from "@eminent337/aery-core";
-import { Text } from "@eminent337/aery-tui";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { Text } from "@earendil-works/pi-tui";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import path from "path";
@@ -246,7 +246,7 @@ export function createFindToolDefinition(
 								effectivePattern = `**/${pattern}`;
 							}
 						}
-						args.push(effectivePattern, searchPath);
+						args.push("--", effectivePattern, searchPath);
 
 						const child = spawn(fdPath, args, { stdio: ["ignore", "pipe", "pipe"] });
 						const rl = createInterface({ input: child.stdout });

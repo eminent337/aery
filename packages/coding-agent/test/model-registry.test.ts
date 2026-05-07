@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AnthropicMessagesCompat, Api, Context, Model, OpenAICompletionsCompat } from "@eminent337/aery-ai";
-import { getApiProvider } from "@eminent337/aery-ai";
-import { getOAuthProvider } from "@eminent337/aery-ai/oauth";
+import type { AnthropicMessagesCompat, Api, Context, Model, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
+import { getApiProvider } from "@earendil-works/pi-ai";
+import { getOAuthProvider } from "@earendil-works/pi-ai/oauth";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.js";
 import { clearApiKeyCache, ModelRegistry, type ProviderConfigInput } from "../src/core/model-registry.js";
@@ -57,24 +57,6 @@ describe("ModelRegistry", () => {
 		return registry.getAll().filter((m) => m.provider === provider);
 	}
 
-	function withEnv<T>(name: string, value: string | undefined, fn: () => T): T {
-		const previous = process.env[name];
-		if (value === undefined) {
-			delete process.env[name];
-		} else {
-			process.env[name] = value;
-		}
-		try {
-			return fn();
-		} finally {
-			if (previous === undefined) {
-				delete process.env[name];
-			} else {
-				process.env[name] = previous;
-			}
-		}
-	}
-
 	function toShPath(value: string): string {
 		return value.replace(/\\/g, "/").replace(/"/g, '\\"');
 	}
@@ -105,83 +87,6 @@ describe("ModelRegistry", () => {
 	const emptyContext: Context = {
 		messages: [],
 	};
-
-	test("resolves Cloudflare Workers AI base URL from stored account id", () => {
-		withEnv("CLOUDFLARE_ACCOUNT_ID", undefined, () => {
-			authStorage.set("cloudflare-workers-ai", {
-				type: "api_key",
-				key: "cloudflare-api-token",
-				accountId: "stored-account-id",
-			});
-
-			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
-			const model = registry.find("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.6");
-
-			expect(model?.baseUrl).toBe("https://api.cloudflare.com/client/v4/accounts/stored-account-id/ai/v1");
-		});
-	});
-
-	test("does not list Cloudflare Workers AI as available without an account id", () => {
-		withEnv("CLOUDFLARE_ACCOUNT_ID", undefined, () => {
-			authStorage.set("cloudflare-workers-ai", {
-				type: "api_key",
-				key: "cloudflare-api-token",
-			});
-
-			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
-			const model = registry.find("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.6");
-
-			expect(model).toBeDefined();
-			expect(registry.hasConfiguredAuth(model!)).toBe(false);
-			expect(
-				registry.getAvailable().some((availableModel) => availableModel.provider === "cloudflare-workers-ai"),
-			).toBe(false);
-		});
-	});
-
-	test("reports Cloudflare Workers AI auth as incomplete without an account id", () => {
-		withEnv("CLOUDFLARE_ACCOUNT_ID", undefined, () => {
-			authStorage.set("cloudflare-workers-ai", {
-				type: "api_key",
-				key: "cloudflare-api-token",
-			});
-
-			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
-
-			expect(registry.getProviderAuthStatus("cloudflare-workers-ai")).toEqual({
-				configured: false,
-				label: "missing Cloudflare account ID",
-			});
-		});
-	});
-
-	test("reports Cloudflare Workers AI env auth as incomplete without an account id", () => {
-		withEnv("CLOUDFLARE_ACCOUNT_ID", undefined, () => {
-			withEnv("CLOUDFLARE_API_KEY", "cloudflare-api-token", () => {
-				const registry = ModelRegistry.create(authStorage, modelsJsonPath);
-
-				expect(registry.getProviderAuthStatus("cloudflare-workers-ai")).toEqual({
-					configured: false,
-					label: "missing Cloudflare account ID",
-				});
-			});
-		});
-	});
-
-	test("lists Cloudflare Workers AI as available with an environment account id", () => {
-		withEnv("CLOUDFLARE_ACCOUNT_ID", "env-account-id", () => {
-			authStorage.set("cloudflare-workers-ai", {
-				type: "api_key",
-				key: "cloudflare-api-token",
-			});
-
-			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
-			const model = registry.find("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.6");
-
-			expect(model?.baseUrl).toBe("https://api.cloudflare.com/client/v4/accounts/env-account-id/ai/v1");
-			expect(registry.hasConfiguredAuth(model!)).toBe(true);
-		});
-	});
 
 	describe("baseUrl override (no custom models)", () => {
 		test("overriding baseUrl keeps all built-in models", () => {
@@ -491,7 +396,7 @@ describe("ModelRegistry", () => {
 			}
 		});
 
-		test("compat schema accepts reasoningEffortMap, supportsStrictMode, and cacheControlFormat", () => {
+		test("model schema accepts thinkingLevelMap and compat schema accepts supportsStrictMode and cacheControlFormat", () => {
 			writeRawModelsJson({
 				demo: {
 					baseUrl: "https://example.com/v1",
@@ -505,11 +410,11 @@ describe("ModelRegistry", () => {
 							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 							contextWindow: 1000,
 							maxTokens: 100,
+							thinkingLevelMap: {
+								minimal: null,
+								high: "max",
+							},
 							compat: {
-								reasoningEffortMap: {
-									minimal: "default",
-									high: "max",
-								},
 								supportsStrictMode: false,
 								cacheControlFormat: "anthropic",
 							},
@@ -519,10 +424,11 @@ describe("ModelRegistry", () => {
 			});
 
 			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
-			const compat = registry.find("demo", "demo-model")?.compat as OpenAICompletionsCompat | undefined;
+			const model = registry.find("demo", "demo-model");
+			const compat = model?.compat as OpenAICompletionsCompat | undefined;
 
 			expect(registry.getError()).toBeUndefined();
-			expect(compat?.reasoningEffortMap).toEqual({ minimal: "default", high: "max" });
+			expect(model?.thinkingLevelMap).toEqual({ minimal: null, high: "max" });
 			expect(compat?.supportsStrictMode).toBe(false);
 			expect(compat?.cacheControlFormat).toBe("anthropic");
 		});
@@ -936,6 +842,56 @@ describe("ModelRegistry", () => {
 	});
 
 	describe("dynamic provider lifecycle", () => {
+		test("getProviderDisplayName resolves registered, OAuth, built-in, and fallback names", () => {
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+
+			expect(registry.getProviderDisplayName("openai")).toBe("OpenAI");
+			expect(registry.getProviderDisplayName("github-copilot")).toBe("GitHub Copilot");
+			expect(registry.getProviderDisplayName("unknown-provider")).toBe("unknown-provider");
+
+			registry.registerProvider("named-provider", {
+				name: "Named Provider",
+				baseUrl: "https://provider.test/v1",
+				apiKey: "TEST_KEY",
+				api: "openai-completions",
+				models: [
+					{
+						id: "demo-model",
+						name: "Demo Model",
+						reasoning: false,
+						input: ["text"],
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+						contextWindow: 128000,
+						maxTokens: 4096,
+					},
+				],
+			});
+			expect(registry.getProviderDisplayName("named-provider")).toBe("Named Provider");
+
+			registry.registerProvider("oauth-provider", {
+				baseUrl: "https://provider.test/v1",
+				api: "openai-completions",
+				oauth: {
+					name: "OAuth Provider",
+					login: async () => ({ access: "access", refresh: "refresh", expires: Date.now() + 60_000 }),
+					refreshToken: async (credentials) => credentials,
+					getApiKey: (credentials) => credentials.access,
+				},
+				models: [
+					{
+						id: "demo-model",
+						name: "Demo Model",
+						reasoning: false,
+						input: ["text"],
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+						contextWindow: 128000,
+						maxTokens: 4096,
+					},
+				],
+			});
+			expect(registry.getProviderDisplayName("oauth-provider")).toBe("OAuth Provider");
+		});
+
 		test("failed registerProvider does not persist invalid streamSimple config", () => {
 			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
 

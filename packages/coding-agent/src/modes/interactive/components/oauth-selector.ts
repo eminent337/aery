@@ -6,7 +6,7 @@ import {
 	Input,
 	Spacer,
 	TruncatedText,
-} from "@eminent337/aery-tui";
+} from "@earendil-works/pi-tui";
 import type { AuthStatus, AuthStorage } from "../../../core/auth-storage.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
@@ -117,7 +117,7 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 
 			const isSelected = i === this.selectedIndex;
 
-			const statusIndicator = this.formatStatusIndicator(provider.id);
+			const statusIndicator = this.formatStatusIndicator(provider);
 			let line = "";
 			if (isSelected) {
 				const prefix = theme.fg("accent", "→ ");
@@ -148,35 +148,30 @@ export class OAuthSelectorComponent extends Container implements Focusable {
 		}
 	}
 
-	private formatStatusIndicator(providerId: string): string {
-		const credentials = this.authStorage.get(providerId);
-		if (credentials?.type === "oauth") {
-			return theme.fg("success", " ✓ subscription configured");
+	private formatStatusIndicator(provider: AuthSelectorProvider): string {
+		const credential = this.authStorage.get(provider.id);
+		if (credential?.type === provider.authType) return theme.fg("success", " ✓ configured");
+		if (credential) {
+			const label = credential.type === "oauth" ? "subscription configured" : "API key configured";
+			return theme.fg("muted", " • ") + theme.fg("warning", label);
 		}
+		if (provider.authType !== "api_key") return theme.fg("muted", " • unconfigured");
 
-		const status = this.getAuthStatus(providerId);
-		if (!status.configured && !status.source && status.label) {
-			return theme.fg("muted", ` • ${status.label}`);
+		const status = this.getAuthStatus(provider.id);
+		switch (status.source) {
+			case "environment":
+				return theme.fg("success", ` ✓ env: ${status.label ?? "API key"}`);
+			case "runtime":
+				return theme.fg("success", " ✓ runtime API key");
+			case "fallback":
+				return theme.fg("success", " ✓ custom API key");
+			case "models_json_key":
+				return theme.fg("success", " ✓ key in models.json");
+			case "models_json_command":
+				return theme.fg("success", " ✓ command in models.json");
+			default:
+				return theme.fg("muted", " • unconfigured");
 		}
-		if (credentials?.type === "api_key") {
-			return theme.fg("success", " ✓ configured");
-		}
-		if (status.source === "environment") {
-			return theme.fg("success", ` ✓ env: ${status.label ?? "environment"}`);
-		}
-		if (status.source === "models_json_key") {
-			return theme.fg("success", " ✓ key in models.json");
-		}
-		if (status.source === "models_json_command") {
-			return theme.fg("success", " ✓ command in models.json");
-		}
-		if (status.source === "runtime") {
-			return theme.fg("success", ` ✓ ${status.label ?? "runtime"}`);
-		}
-		if (status.configured) {
-			return theme.fg("success", ` ✓ ${status.label ?? "configured"}`);
-		}
-		return theme.fg("muted", " • unconfigured");
 	}
 
 	handleInput(keyData: string): void {

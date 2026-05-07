@@ -22,12 +22,12 @@
  *   toggled the tool output open (via ctrl+e or clicking)
  *
  * Usage:
- *   aery -e ./built-in-tool-renderer.ts
+ *   pi -e ./built-in-tool-renderer.ts
  */
 
-import type { BashToolDetails, EditToolDetails, ExtensionAPI, ReadToolDetails } from "@eminent337/aery";
-import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@eminent337/aery";
-import { Text } from "@eminent337/aery-tui";
+import type { BashToolDetails, EditToolDetails, ExtensionAPI, ReadToolDetails } from "@earendil-works/pi-coding-agent";
+import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 
 export default function (pi: ExtensionAPI) {
 	const cwd = process.cwd();

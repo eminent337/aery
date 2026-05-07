@@ -4,6 +4,7 @@
  * Replace everything - no discovery, explicit configuration.
  */
 
+import { getModel } from "@earendil-works/pi-ai";
 import {
 	AuthStorage,
 	createAgentSession,
@@ -12,8 +13,7 @@ import {
 	type ResourceLoader,
 	SessionManager,
 	SettingsManager,
-} from "@eminent337/aery";
-import { getModel } from "@eminent337/aery-ai";
+} from "@earendil-works/pi-coding-agent";
 
 // Custom auth storage location
 const authStorage = AuthStorage.create("/tmp/my-agent/auth.json");

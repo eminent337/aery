@@ -25,7 +25,6 @@ const compat = {
 	supportsStore: true,
 	supportsDeveloperRole: true,
 	supportsReasoningEffort: true,
-	reasoningEffortMap: {},
 	supportsUsageInStreaming: true,
 	maxTokensField: "max_completion_tokens",
 	requiresToolResultName: false,
@@ -208,55 +207,6 @@ describe("openai-completions thinking-as-text replay", () => {
 
 			const terminalEvent = events.at(-1);
 			expect(terminalEvent?.type).toBe("done");
-		} finally {
-			server.close();
-			await once(server, "close");
-		}
-	});
-
-	it("explains Cloudflare Workers AI daily allocation failures", async () => {
-		const server = http.createServer(async (req, res) => {
-			if (req.method !== "POST" || req.url !== "/chat/completions") {
-				res.writeHead(404).end();
-				return;
-			}
-
-			res.writeHead(429, { "content-type": "application/json" });
-			res.end(
-				JSON.stringify({
-					errors: [
-						{
-							code: 4006,
-							message:
-								"AiError: you have used up your daily free allocation of 10,000 neurons, please upgrade to Cloudflare's Workers Paid plan if you would like to continue usage.",
-						},
-					],
-				}),
-			);
-		});
-
-		server.listen(0, "127.0.0.1");
-		await once(server, "listening");
-
-		try {
-			const { port } = server.address() as AddressInfo;
-			const events = await collectEvents(
-				streamOpenAICompletions(
-					{
-						...buildModel(`http://127.0.0.1:${port}`),
-						provider: "cloudflare-workers-ai",
-					},
-					buildContext(buildAssistant([{ type: "text", text: "previous answer" }])),
-					{ apiKey: "test-key" },
-				),
-			);
-
-			const terminalEvent = events.at(-1);
-			expect(terminalEvent?.type).toBe("error");
-			if (terminalEvent?.type !== "error") return;
-			expect(terminalEvent.error.errorMessage).toContain("Cloudflare Workers AI quota exhausted");
-			expect(terminalEvent.error.errorMessage).toContain("daily free allocation");
-			expect(terminalEvent.error.errorMessage).toContain("wait for the daily allocation reset");
 		} finally {
 			server.close();
 			await once(server, "close");

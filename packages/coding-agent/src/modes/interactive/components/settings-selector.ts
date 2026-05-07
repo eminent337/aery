@@ -1,5 +1,5 @@
-import type { Transport } from "@eminent337/aery-ai";
-import type { ThinkingLevel } from "@eminent337/aery-core";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Transport } from "@earendil-works/pi-ai";
 import {
 	Container,
 	getCapabilities,
@@ -10,7 +10,7 @@ import {
 	SettingsList,
 	Spacer,
 	Text,
-} from "@eminent337/aery-tui";
+} from "@earendil-works/pi-tui";
 import type { WarningSettings } from "../../../core/settings-manager.js";
 import { getSelectListTheme, getSettingsListTheme, theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
@@ -235,7 +235,7 @@ export class SettingsSelectorComponent extends Container {
 				label: "Transport",
 				description: "Preferred transport for providers that support multiple transports",
 				currentValue: config.transport,
-				values: ["sse", "websocket", "auto"],
+				values: ["sse", "websocket", "websocket-cached", "auto"],
 			},
 			{
 				id: "hide-thinking",
