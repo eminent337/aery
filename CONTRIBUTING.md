@@ -13,6 +13,7 @@ Using AI to write code is fine. Submitting AI-generated code without understandi
 1. **Open an issue first** — discuss the change before writing code
 2. **Keep it small** — focused PRs get merged faster
 3. **Follow the existing style** — match the codebase conventions
+4. **Respect the fork boundary** — Aery-specific core changes must follow [AERY_CUSTOMIZATIONS.md](./AERY_CUSTOMIZATIONS.md)
 
 ## Development Setup
 
@@ -42,6 +43,10 @@ Both must pass.
 - **Themes** — new color schemes → add to `packages/coding-agent/src/modes/interactive/theme/`
 
 Aery's core is minimal. If your feature doesn't belong in the core, it should be an extension.
+
+## Fork and Upstream Sync
+
+Aery is maintained as a product fork of an upstream agent. Keep Aery-specific behavior isolated in new modules, scripts, workflows, or extensions whenever possible. If a change must touch upstream-owned core files, keep the hook small, add focused tests, and update [AERY_CUSTOMIZATIONS.md](./AERY_CUSTOMIZATIONS.md) so future upstream syncs know what to preserve.
 
 ## Extension Contributions
 

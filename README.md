@@ -28,6 +28,10 @@ npm install -g @eminent337/aery
 git clone https://github.com/eminent337/aery && cd aery && ./install.sh
 ```
 
+## Fork Policy
+
+Aery is maintained as a product fork with upstream sync support. Intentional Aery-specific changes are tracked in [AERY_CUSTOMIZATIONS.md](./AERY_CUSTOMIZATIONS.md).
+
 ## License
 
 MIT
