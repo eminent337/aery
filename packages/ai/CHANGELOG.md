@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Clarified Cloudflare Workers AI quota and rate-limit errors so exhausted daily free allocations are shown as actionable provider messages.
+
 ## [0.70.6] - 2026-04-28
 
 ### Added

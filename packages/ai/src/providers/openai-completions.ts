@@ -384,7 +384,7 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 				delete (block as { streamIndex?: number }).streamIndex;
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-			output.errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+			output.errorMessage = formatOpenAICompletionsError(error, model);
 			// Some providers via OpenRouter give additional information in this field.
 			const rawMetadata = (error as any)?.error?.metadata?.raw;
 			if (rawMetadata) output.errorMessage += `\n${rawMetadata}`;
@@ -395,6 +395,76 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 
 	return stream;
 };
+
+function formatOpenAICompletionsError(error: unknown, model: Model<"openai-completions">): string {
+	const fallback = error instanceof Error ? error.message : JSON.stringify(error);
+	if (!isCloudflareError(error, model)) {
+		return fallback;
+	}
+
+	const details = extractProviderErrorDetails(error);
+	if (isCloudflareQuotaError(details)) {
+		return [
+			"Cloudflare Workers AI quota exhausted: the daily free allocation has been used.",
+			"Upgrade Cloudflare Workers AI to a paid plan or wait for the daily allocation reset.",
+			`Provider error: ${details.message || fallback}`,
+		].join("\n");
+	}
+
+	if (details.status === 429) {
+		return [
+			"Cloudflare Workers AI quota exhausted or rate limit reached.",
+			"If the daily free allocation is used up, upgrade Cloudflare Workers AI to a paid plan or wait for the daily allocation reset.",
+			`Provider error: ${details.message || fallback}`,
+		].join("\n");
+	}
+
+	return fallback;
+}
+
+function isCloudflareError(error: unknown, model: Model<"openai-completions">): boolean {
+	const errorAny = error as { headers?: Record<string, string>; message?: string };
+	const message = errorAny?.message || "";
+	return (
+		isCloudflareProvider(model.provider) ||
+		model.baseUrl.includes("api.cloudflare.com") ||
+		message.includes("Cloudflare") ||
+		message.includes("Workers AI")
+	);
+}
+
+function extractProviderErrorDetails(error: unknown): { status?: number; code?: string | number; message?: string } {
+	const errorAny = error as {
+		status?: number;
+		code?: string | number;
+		message?: string;
+		error?: {
+			code?: string | number;
+			message?: string;
+			errors?: Array<{ code?: string | number; message?: string }>;
+		};
+	};
+	const providerError = errorAny?.error;
+	const firstNestedError = Array.isArray(providerError?.errors) ? providerError.errors[0] : undefined;
+
+	return {
+		status: errorAny?.status,
+		code: firstNestedError?.code ?? providerError?.code ?? errorAny?.code,
+		message: firstNestedError?.message ?? providerError?.message ?? errorAny?.message,
+	};
+}
+
+function isCloudflareQuotaError(details: { status?: number; code?: string | number; message?: string }): boolean {
+	const message = (details.message || "").toLowerCase();
+	return (
+		details.status === 429 &&
+		(details.code === 4006 ||
+			details.code === "4006" ||
+			message.includes("daily free allocation") ||
+			message.includes("used up") ||
+			message.includes("neurons"))
+	);
+}
 
 export const streamSimpleOpenAICompletions: StreamFunction<"openai-completions", SimpleStreamOptions> = (
 	model: Model<"openai-completions">,
