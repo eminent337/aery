@@ -125,8 +125,14 @@ export function formatDoctorReport(report: DoctorReport): string {
 	}
 
 	lines.push("");
+	lines.push(formatCoreExtensionsReport(report.coreExtensions));
+
+	return lines.join("\n");
+}
+
+export function formatCoreExtensionsReport(extensions: CoreExtensionDiagnostic): string {
+	const lines: string[] = [];
 	lines.push(chalk.bold("Core Extensions"));
-	const extensions = report.coreExtensions;
 	if (!extensions.repoExists) {
 		lines.push("  core extensions: not installed");
 		lines.push("  repair: run aery update --extensions");
@@ -138,7 +144,6 @@ export function formatDoctorReport(report: DoctorReport): string {
 	} else {
 		lines.push("  core extensions: ok");
 	}
-
 	return lines.join("\n");
 }
 

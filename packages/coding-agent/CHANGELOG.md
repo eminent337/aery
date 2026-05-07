@@ -5,6 +5,7 @@
 ### Added
 - Added `aery doctor` for non-mutating version, provider auth, and core extension health checks.
 - Added a post-login provider setup check so `/login` confirms credentials expose usable local models.
+- Added `/extensions doctor` in interactive mode for non-mutating core extension diagnostics.
 
 ## [0.1.14] - 2026-04-21
 

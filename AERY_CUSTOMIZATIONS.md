@@ -40,11 +40,14 @@ Owned files and hooks:
 - `packages/coding-agent/src/cli/doctor.ts`
 - `packages/coding-agent/src/main.ts`
 - `packages/coding-agent/src/cli/args.ts`
+- `packages/coding-agent/src/core/slash-commands.ts`
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
 
 Verification:
 - `AERY_OFFLINE=1 npx tsx packages/coding-agent/src/cli.ts doctor`
 - `AERY_OFFLINE=1 npx tsx packages/coding-agent/src/cli.ts doctor --json`
 - `npx vitest --run packages/coding-agent/test/doctor.test.ts`
+- `npx vitest --run packages/coding-agent/test/slash-commands.test.ts`
 
 ### Provider Setup and Cloudflare UX
 

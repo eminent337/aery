@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { collectDoctorReport, formatDoctorReport } from "../src/cli/doctor.js";
+import { collectDoctorReport, formatCoreExtensionsReport, formatDoctorReport } from "../src/cli/doctor.js";
 import { AuthStorage } from "../src/core/auth-storage.js";
 import { ModelRegistry } from "../src/core/model-registry.js";
 
@@ -34,5 +34,26 @@ describe("doctor", () => {
 		expect(output).toContain("missing settings entries: 1");
 		expect(output).not.toContain("secret-anthropic-key");
 		expect(output).not.toContain("secret-cloudflare-key");
+	});
+
+	test("formats core extension health for interactive diagnostics", () => {
+		expect(
+			formatCoreExtensionsReport({
+				repoExists: true,
+				missingFiles: [],
+				missingSettingsEntries: [],
+			}),
+		).toContain("core extensions: ok");
+
+		const output = formatCoreExtensionsReport({
+			repoExists: true,
+			missingFiles: ["/tmp/aery-extensions/core/missing.ts"],
+			missingSettingsEntries: ["/tmp/aery-extensions/core/aery-doctor.ts"],
+		});
+
+		expect(output).toContain("core extensions: attention needed");
+		expect(output).toContain("missing files: 1");
+		expect(output).toContain("missing settings entries: 1");
+		expect(output).toContain("repair: run aery update --extensions");
 	});
 });
