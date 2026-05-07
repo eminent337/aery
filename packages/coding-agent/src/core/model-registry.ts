@@ -409,7 +409,7 @@ export class ModelRegistry {
 						baseUrl: model.baseUrl.replace(/\{CLOUDFLARE_ACCOUNT_ID\}/g, accountId),
 					}
 				: model,
-			);
+		);
 	}
 
 	private getCloudflareWorkersAiAccountId(): string | undefined {

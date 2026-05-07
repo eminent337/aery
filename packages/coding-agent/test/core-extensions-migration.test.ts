@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.js";
 import {
 	CORE_EXTENSION_PATHS,
+	type CoreExtensionEnsureResult,
 	diagnoseCoreExtensions,
 	formatCoreExtensionAttentionMessage,
-	type CoreExtensionEnsureResult,
 	runMigrations,
 	wireCoreExtensions,
 } from "../src/migrations.js";

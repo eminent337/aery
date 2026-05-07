@@ -72,10 +72,10 @@ import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
 import type { SourceInfo } from "../../core/source-info.js";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.js";
 import type { TruncationResult } from "../../core/tools/truncate.js";
+import { wireCoreExtensions } from "../../migrations.js";
 import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.js";
 import { copyToClipboard } from "../../utils/clipboard.js";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.js";
-import { wireCoreExtensions } from "../../migrations.js";
 import { parseGitUrl } from "../../utils/git.js";
 import { killTrackedDetachedChildren } from "../../utils/shell.js";
 import { ensureTool } from "../../utils/tools-manager.js";
@@ -4627,8 +4627,7 @@ export class InteractiveMode {
 		};
 
 		try {
-			const apiKeyPrompt =
-				providerId === "cloudflare-workers-ai" ? "Enter Cloudflare API token:" : "Enter API key:";
+			const apiKeyPrompt = providerId === "cloudflare-workers-ai" ? "Enter Cloudflare API token:" : "Enter API key:";
 			const apiKey = (await dialog.showPrompt(apiKeyPrompt)).trim();
 			if (!apiKey) {
 				throw new Error("API key cannot be empty.");

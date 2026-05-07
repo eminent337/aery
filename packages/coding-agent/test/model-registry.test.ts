@@ -133,9 +133,9 @@ describe("ModelRegistry", () => {
 
 			expect(model).toBeDefined();
 			expect(registry.hasConfiguredAuth(model!)).toBe(false);
-			expect(registry.getAvailable().some((availableModel) => availableModel.provider === "cloudflare-workers-ai")).toBe(
-				false,
-			);
+			expect(
+				registry.getAvailable().some((availableModel) => availableModel.provider === "cloudflare-workers-ai"),
+			).toBe(false);
 		});
 	});
 

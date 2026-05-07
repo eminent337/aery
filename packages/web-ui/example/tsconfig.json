@@ -6,10 +6,10 @@
 		"moduleResolution": "bundler",
 		"paths": {
 			"*": ["./*"],
-			"@eminent337/aery-core": ["../../agent/dist/index.d.ts"],
-			"@eminent337/aery-ai": ["../../ai/dist/index.d.ts"],
-			"@eminent337/aery-tui": ["../../tui/dist/index.d.ts"],
-			"@eminent337/aery-web-ui": ["../dist/index.d.ts"]
+			"@eminent337/aery-core": ["../../agent/src/index.ts"],
+			"@eminent337/aery-ai": ["../../ai/src/index.ts"],
+			"@eminent337/aery-tui": ["../../tui/src/index.ts"],
+			"@eminent337/aery-web-ui": ["../src/index.ts"]
 		},
 		"strict": true,
 		"skipLibCheck": true,

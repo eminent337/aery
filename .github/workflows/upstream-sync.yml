@@ -79,7 +79,7 @@ jobs:
           if git show-ref --verify --quiet refs/remotes/origin/upstream-clean; then
             git checkout -B upstream-clean origin/upstream-clean
           else
-            git checkout -B upstream-clean upstream/main
+            git checkout -B upstream-clean origin/main
           fi
 
           git checkout upstream/main -- packages/agent packages/ai packages/tui packages/coding-agent
