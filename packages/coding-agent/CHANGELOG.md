@@ -1,5 +1,10 @@
 # Aery Changelog
 
+## [Unreleased]
+
+### Added
+- Added `aery doctor` for non-mutating version, provider auth, and core extension health checks.
+
 ## [0.1.14] - 2026-04-21
 
 ### Changed

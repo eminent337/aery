@@ -11,6 +11,7 @@ import { type ImageContent, modelsAreEqual, supportsXhigh } from "@eminent337/ae
 import { ProcessTerminal, setKeybindings, TUI } from "@eminent337/aery-tui";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.js";
+import { runDoctorCommand } from "./cli/doctor.js";
 import { processFileArguments } from "./cli/file-processor.js";
 import { buildInitialMessage } from "./cli/initial-message.js";
 import { listModels } from "./cli/list-models.js";
@@ -438,6 +439,10 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	if (await handleConfigCommand(args)) {
+		return;
+	}
+
+	if (await runDoctorCommand(args)) {
 		return;
 	}
 
