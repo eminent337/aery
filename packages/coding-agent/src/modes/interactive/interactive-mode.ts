@@ -65,6 +65,7 @@ import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.j
 import { createCompactionSummaryMessage } from "../../core/messages.js";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.js";
 import { DefaultPackageManager } from "../../core/package-manager.js";
+import { checkProviderSetup } from "../../core/provider-setup-check.js";
 import type { ResourceDiagnostic } from "../../core/resource-loader.js";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.js";
 import { type SessionContext, SessionManager } from "../../core/session-manager.js";
@@ -4599,6 +4600,15 @@ export class InteractiveMode {
 			} else {
 				void this.maybeWarnAboutAnthropicSubscriptionAuth();
 			}
+		}
+
+		const providerCheck = checkProviderSetup(providerId, providerName, this.session.modelRegistry);
+		if (providerCheck.level === "ok") {
+			this.showStatus(providerCheck.message);
+		} else if (providerCheck.level === "warning") {
+			this.showWarning(providerCheck.message);
+		} else {
+			this.showError(providerCheck.message);
 		}
 	}
 
