@@ -206,7 +206,9 @@ jobs:
 
       - name: Check Aery customization ledger
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
-        run: node scripts/check-aery-customizations.mjs
+        run: |
+          node scripts/check-aery-customizations.mjs
+          node scripts/check-aery-branding.mjs
 
       - name: Bump version and publish to npm
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'

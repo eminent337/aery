@@ -149,7 +149,7 @@ for platform in "${PLATFORMS[@]}"; do
     else
         # Unix platforms (tar.gz) - use wrapper directory for mise compatibility
         echo "Creating aery-$platform.tar.gz..."
-        mv $platform pi && tar -czf aery-$platform.tar.gz pi && mv pi $platform
+        mv $platform aery && tar -czf aery-$platform.tar.gz aery && mv aery $platform
     fi
 done
 
@@ -160,7 +160,7 @@ for platform in "${PLATFORMS[@]}"; do
     if [[ "$platform" == "windows-x64" ]]; then
         mkdir -p $platform && (cd $platform && unzip -q ../aery-$platform.zip)
     else
-        tar -xzf aery-$platform.tar.gz && mv pi $platform
+        tar -xzf aery-$platform.tar.gz && mv aery $platform
     fi
 done
 
