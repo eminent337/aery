@@ -60,6 +60,22 @@ Verification:
 - `npx vitest --run packages/coding-agent/test/doctor.test.ts`
 - `npx vitest --run packages/coding-agent/test/slash-commands.test.ts`
 
+### Built-In Capability Visibility
+
+Aery exposes a first-class capability report so users can inspect built-in tools, commands, resources, provider/model status, session intelligence, dynamic tool registration, and subagent/self-extension surfaces without treating Aery as only an extension host.
+
+Owned files and hooks:
+- `packages/coding-agent/src/cli/capabilities.ts`
+- `packages/coding-agent/src/cli/args.ts`
+- `packages/coding-agent/src/main.ts`
+- `packages/coding-agent/src/core/slash-commands.ts`
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+
+Verification:
+- `AERY_OFFLINE=1 npx tsx packages/coding-agent/src/cli.ts capabilities`
+- `AERY_OFFLINE=1 npx tsx packages/coding-agent/src/cli.ts capabilities --json`
+- `npx vitest --run packages/coding-agent/test/capabilities.test.ts`
+
 ### Provider Setup and Cloudflare UX
 
 Aery improves provider setup feedback, especially Cloudflare Workers AI, where both an API token and account ID are required. The `/login` flow should save credentials separately and report whether the provider exposes usable local models after authentication.

@@ -11,6 +11,7 @@ import { type ImageContent, modelsAreEqual, supportsXhigh } from "@eminent337/ae
 import { ProcessTerminal, setKeybindings, TUI } from "@eminent337/aery-tui";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.js";
+import { runCapabilitiesCommand } from "./cli/capabilities.js";
 import { runDoctorCommand } from "./cli/doctor.js";
 import { processFileArguments } from "./cli/file-processor.js";
 import { buildInitialMessage } from "./cli/initial-message.js";
@@ -630,6 +631,10 @@ export async function main(args: string[], options?: MainOptions) {
 	});
 	const { services, session, modelFallbackMessage } = runtime;
 	const { settingsManager, modelRegistry, resourceLoader } = services;
+
+	if (await runCapabilitiesCommand(args, { session, services })) {
+		process.exit(0);
+	}
 
 	if (parsed.help) {
 		const extensionFlags = resourceLoader

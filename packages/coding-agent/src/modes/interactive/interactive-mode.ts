@@ -40,6 +40,7 @@ import {
 	visibleWidth,
 } from "@eminent337/aery-tui";
 import { spawn, spawnSync } from "child_process";
+import { collectCapabilitiesReport, formatCapabilitiesReport } from "../../cli/capabilities.js";
 import { formatCurrentCoreExtensionsReport } from "../../cli/doctor.js";
 import {
 	APP_NAME,
@@ -2522,6 +2523,11 @@ export class InteractiveMode {
 			}
 			if (text === "/session") {
 				this.handleSessionCommand();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/capabilities") {
+				this.handleCapabilitiesCommand();
 				this.editor.setText("");
 				return;
 			}
@@ -5136,6 +5142,16 @@ export class InteractiveMode {
 	private handleExtensionsDoctorCommand(): void {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(formatCurrentCoreExtensionsReport(), 1, 0));
+		this.ui.requestRender();
+	}
+
+	private handleCapabilitiesCommand(): void {
+		const report = collectCapabilitiesReport({
+			session: this.session,
+			services: this.runtimeHost.services,
+		});
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(formatCapabilitiesReport(report), 1, 0));
 		this.ui.requestRender();
 	}
 
