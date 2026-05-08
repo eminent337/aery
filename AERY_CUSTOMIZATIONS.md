@@ -9,6 +9,7 @@ Aery is maintained as a product fork of an upstream AI coding agent. This file r
 - Do not rewrite upstream behavior unless the change is necessary for Aery users and has tests.
 - Keep release, provider, branding, and extension behavior explicit in this file when it differs from upstream.
 - Run `npm run check` before merging changes that affect TypeScript, package metadata, workflows, or release behavior.
+- Keep this ledger valid; `npm run check` runs `scripts/check-aery-customizations.mjs`.
 - After upstream syncs, run `npm run release:verify` if package versions, tags, or release automation changed.
 
 ## Current Aery-Specific Areas
@@ -24,9 +25,11 @@ Owned files and hooks:
 - `.github/workflows/*`
 - `scripts/release.mjs`
 - `scripts/verify-release.mjs`
+- `scripts/check-aery-customizations.mjs`
 
 Verification:
 - `npm run check`
+- `npm run check:customizations`
 - `npm run release:verify`
 - `npm view @eminent337/aery version`
 - `gh release view v<version> --repo eminent337/aery`
@@ -35,8 +38,10 @@ Verification:
 
 Aery uses external core extensions from `aery-extensions`. Local health checks should detect missing extension files or missing settings entries without mutating user configuration unless a repair command explicitly does so.
 
+Runtime/user config touched:
+- `~/.aery/agent/settings.json`
+
 Owned files and hooks:
-- `.aery/settings.json`
 - `packages/coding-agent/src/cli/doctor.ts`
 - `packages/coding-agent/src/main.ts`
 - `packages/coding-agent/src/cli/args.ts`
