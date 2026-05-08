@@ -158,8 +158,9 @@ jobs:
           fi
 
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$NEW_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,2));"
+          npm install --package-lock-only --ignore-scripts
 
-          git add packages/ai/package.json packages/agent/package.json packages/coding-agent/package.json
+          git add package-lock.json packages/ai/package.json packages/agent/package.json packages/coding-agent/package.json
           git commit -m "chore: bump version to $NEW_VERSION" || true
           git push origin main
 

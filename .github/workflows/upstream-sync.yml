@@ -213,7 +213,7 @@ jobs:
       - name: Validate merged upstream state
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
         run: |
-          npm install --ignore-scripts
+          npm ci --ignore-scripts
           npm run check
           git diff --exit-code
 
@@ -265,8 +265,9 @@ jobs:
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$NEW_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,2));"
+          npm install --package-lock-only --ignore-scripts
 
-          git add packages/ai/package.json packages/agent/package.json packages/coding-agent/package.json packages/web-ui/package.json
+          git add package-lock.json packages/ai/package.json packages/agent/package.json packages/coding-agent/package.json packages/web-ui/package.json
           git pull --rebase origin main || true
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
           git push origin main
