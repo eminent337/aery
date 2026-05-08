@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { collectDoctorReport, formatCoreExtensionsReport, formatDoctorReport } from "../src/cli/doctor.js";
+import {
+	collectDoctorReport,
+	formatCoreExtensionsReport,
+	formatCurrentCoreExtensionsReport,
+	formatDoctorReport,
+} from "../src/cli/doctor.js";
 import { AuthStorage } from "../src/core/auth-storage.js";
 import { ModelRegistry } from "../src/core/model-registry.js";
 
@@ -54,6 +59,14 @@ describe("doctor", () => {
 		expect(output).toContain("core extensions: attention needed");
 		expect(output).toContain("missing files: 1");
 		expect(output).toContain("missing settings entries: 1");
+		expect(output).toContain("repair: run aery update --extensions");
+	});
+
+	test("formats current core extension health from an agent dir", () => {
+		const output = formatCurrentCoreExtensionsReport("/tmp/aery-agent-dir-that-does-not-exist");
+
+		expect(output).toContain("Core Extensions");
+		expect(output).toContain("core extensions: not installed");
 		expect(output).toContain("repair: run aery update --extensions");
 	});
 });

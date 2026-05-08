@@ -40,7 +40,7 @@ import {
 	visibleWidth,
 } from "@eminent337/aery-tui";
 import { spawn, spawnSync } from "child_process";
-import { formatCoreExtensionsReport } from "../../cli/doctor.js";
+import { formatCurrentCoreExtensionsReport } from "../../cli/doctor.js";
 import {
 	APP_NAME,
 	getAgentDir,
@@ -74,7 +74,7 @@ import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
 import type { SourceInfo } from "../../core/source-info.js";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.js";
 import type { TruncationResult } from "../../core/tools/truncate.js";
-import { diagnoseCoreExtensions, wireCoreExtensions } from "../../migrations.js";
+import { wireCoreExtensions } from "../../migrations.js";
 import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.js";
 import { copyToClipboard } from "../../utils/clipboard.js";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.js";
@@ -5134,12 +5134,8 @@ export class InteractiveMode {
 	}
 
 	private handleExtensionsDoctorCommand(): void {
-		const agentDir = getAgentDir();
-		const repoPath = path.join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
-		const settingsPath = path.join(agentDir, "settings.json");
-		const diagnostic = diagnoseCoreExtensions(repoPath, settingsPath);
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new Text(formatCoreExtensionsReport(diagnostic), 1, 0));
+		this.chatContainer.addChild(new Text(formatCurrentCoreExtensionsReport(), 1, 0));
 		this.ui.requestRender();
 	}
 

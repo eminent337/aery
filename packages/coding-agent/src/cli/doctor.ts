@@ -48,10 +48,14 @@ const DEFAULT_PROVIDER_CHECKS = [
 	"bedrock",
 ];
 
-function getCoreExtensionDiagnostic(agentDir: string): CoreExtensionDiagnostic {
+export function getCoreExtensionDiagnostic(agentDir: string = getAgentDir()): CoreExtensionDiagnostic {
 	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
 	const settingsPath = join(agentDir, "settings.json");
 	return diagnoseCoreExtensions(repoPath, settingsPath);
+}
+
+export function formatCurrentCoreExtensionsReport(agentDir: string = getAgentDir()): string {
+	return formatCoreExtensionsReport(getCoreExtensionDiagnostic(agentDir));
 }
 
 export async function collectDoctorReport(options: DoctorReportOptions = {}): Promise<DoctorReport> {
@@ -84,7 +88,7 @@ export async function collectDoctorReport(options: DoctorReportOptions = {}): Pr
 			provider,
 			status: modelRegistry.getProviderAuthStatus(provider),
 		})),
-		coreExtensions: options.coreExtensions ?? getCoreExtensionDiagnostic(options.agentDir ?? getAgentDir()),
+		coreExtensions: options.coreExtensions ?? getCoreExtensionDiagnostic(options.agentDir),
 	};
 }
 

@@ -11,6 +11,7 @@ Aery is maintained as a product fork of an upstream AI coding agent. This file r
 - Run `npm run check` before merging changes that affect TypeScript, package metadata, workflows, or release behavior.
 - Keep this ledger valid; `npm run check` runs `scripts/check-aery-customizations.mjs`.
 - Keep runtime source and tooling branded as Aery; `npm run check` runs `scripts/check-aery-branding.mjs`.
+- Use `npm run ownership:report` before larger upstream merges or releases to review Aery-owned paths and recent changes.
 - After upstream syncs, run `npm run release:verify` if package versions, tags, or release automation changed.
 
 ## Current Aery-Specific Areas
@@ -28,11 +29,13 @@ Owned files and hooks:
 - `scripts/verify-release.mjs`
 - `scripts/check-aery-customizations.mjs`
 - `scripts/check-aery-branding.mjs`
+- `scripts/aery-ownership-report.mjs`
 
 Verification:
 - `npm run check`
 - `npm run check:customizations`
 - `npm run check:branding`
+- `npm run ownership:report`
 - `npm run release:verify`
 - `npm view @eminent337/aery version`
 - `gh release view v<version> --repo eminent337/aery`
@@ -83,6 +86,26 @@ Owned files and hooks:
 Verification:
 - `gh workflow run "Upstream Sync" --repo eminent337/aery`
 - `gh run watch --repo eminent337/aery <run-id> --exit-status`
+
+### Intentional Upstream Compatibility
+
+Some upstream names remain intentionally for compatibility with existing extensions, historical release notes, or sync automation. They are not Aery ownership drift.
+
+Allowed compatibility:
+- `pkg.pi` extension manifests remain accepted alongside `pkg.aery` so older extensions continue to load.
+- Extension examples and tests may use a callback parameter named `pi` because that is part of the extension API vocabulary.
+- Changelog and README history may reference upstream issue URLs or package names when describing inherited upstream changes.
+- Upstream sync workflows may contain upstream repository names and rewrite rules because they are the controlled import path.
+
+Owned files and hooks:
+- `packages/coding-agent/src/core/package-manager.ts`
+- `packages/coding-agent/src/core/extensions/loader.ts`
+- `.github/workflows/upstream-sync.yml`
+- `.github/workflows/backfill-upstream.yml`
+
+Verification:
+- `npm run check:branding`
+- `npm run check`
 
 ## Adding New Aery Customizations
 

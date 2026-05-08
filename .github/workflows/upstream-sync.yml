@@ -210,6 +210,13 @@ jobs:
           node scripts/check-aery-customizations.mjs
           node scripts/check-aery-branding.mjs
 
+      - name: Validate merged upstream state
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
+        run: |
+          npm install --ignore-scripts
+          npm run check
+          git diff --exit-code
+
       - name: Bump version and publish to npm
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
         id: publish_package
