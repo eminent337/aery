@@ -34,7 +34,9 @@ describe("capabilities", () => {
 			},
 			resources: {
 				extensions: 3,
+				extensionNames: ["aery-footer", "subagent", "web-search"],
 				extensionErrors: 0,
+				extensionLoadErrors: [],
 				skills: 4,
 				prompts: 2,
 				themes: 1,
@@ -60,6 +62,7 @@ describe("capabilities", () => {
 		expect(output).toContain("current: anthropic/claude-sonnet-4-5");
 		expect(output).toContain("thinking: high");
 		expect(output).toContain("extensions: 3 loaded, 0 errors");
+		expect(output).toContain("loaded extensions: aery-footer, subagent, web-search");
 		expect(output).toContain("commands: 3 built-in, 1 extension, 1 prompt, 1 skill");
 		expect(output).toContain("session: persisted abc123");
 	});

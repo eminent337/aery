@@ -53,16 +53,19 @@ Owned files and hooks:
 - `packages/coding-agent/src/cli/args.ts`
 - `packages/coding-agent/src/core/slash-commands.ts`
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+- `packages/coding-agent/src/migrations.ts`
 
 Verification:
 - `AERY_OFFLINE=1 npx tsx packages/coding-agent/src/cli.ts doctor`
 - `AERY_OFFLINE=1 npx tsx packages/coding-agent/src/cli.ts doctor --json`
 - `npx vitest --run packages/coding-agent/test/doctor.test.ts`
 - `npx vitest --run packages/coding-agent/test/slash-commands.test.ts`
+- `npx vitest --run packages/coding-agent/test/core-extensions-migration.test.ts`
 
 ### Built-In Capability Visibility
 
 Aery exposes a first-class capability report so users can inspect built-in tools, commands, resources, provider/model status, session intelligence, dynamic tool registration, and subagent/self-extension surfaces without treating Aery as only an extension host.
+The report includes loaded extension names and exact extension load errors so extension health is inspectable from the CLI and JSON output.
 
 Owned files and hooks:
 - `packages/coding-agent/src/cli/capabilities.ts`

@@ -37,7 +37,9 @@ export interface CapabilitiesReport {
 	};
 	resources: {
 		extensions: number;
+		extensionNames: string[];
 		extensionErrors: number;
+		extensionLoadErrors: Array<{ path: string; error: string }>;
 		skills: number;
 		prompts: number;
 		themes: number;
@@ -66,6 +68,16 @@ function countLabel(count: number, singular: string, plural = `${singular}s`): s
 	return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function formatExtensionName(extensionPath: string): string {
+	const coreMarker = "/core/";
+	const coreIndex = extensionPath.lastIndexOf(coreMarker);
+	const raw =
+		coreIndex >= 0
+			? extensionPath.slice(coreIndex + coreMarker.length)
+			: (extensionPath.split("/").pop() ?? extensionPath);
+	return raw.replace(/\.ts$/, "");
+}
+
 export function collectCapabilitiesReport(options: CollectCapabilitiesOptions): CapabilitiesReport {
 	const { session, services } = options;
 	const model = session.model;
@@ -77,6 +89,7 @@ export function collectCapabilitiesReport(options: CollectCapabilitiesOptions): 
 		.sort();
 
 	const extensionsResult = services.resourceLoader.getExtensions();
+	const extensionNames = extensionsResult.extensions.map((extension) => formatExtensionName(extension.path)).sort();
 	const extensionCommands = extensionsResult.extensions.flatMap((extension) => Array.from(extension.commands.keys()));
 	const extensionTools = extensionsResult.extensions.flatMap((extension) => Array.from(extension.tools.keys()));
 	const promptCommands = services.resourceLoader.getPrompts().prompts.map((prompt) => prompt.name);
@@ -116,7 +129,9 @@ export function collectCapabilitiesReport(options: CollectCapabilitiesOptions): 
 		},
 		resources: {
 			extensions: extensionsResult.extensions.length,
+			extensionNames,
 			extensionErrors: extensionsResult.errors.length,
+			extensionLoadErrors: extensionsResult.errors,
 			skills: services.resourceLoader.getSkills().skills.length,
 			prompts: services.resourceLoader.getPrompts().prompts.length,
 			themes: services.resourceLoader.getThemes().themes.length,
@@ -167,6 +182,10 @@ export function formatCapabilitiesReport(report: CapabilitiesReport): string {
 	lines.push(
 		`  extensions: ${report.resources.extensions} loaded, ${report.resources.extensionErrors} ${report.resources.extensionErrors === 1 ? "error" : "errors"}`,
 	);
+	lines.push(`  loaded extensions: ${formatList(report.resources.extensionNames)}`);
+	for (const error of report.resources.extensionLoadErrors) {
+		lines.push(`  extension error: ${error.path}: ${error.error}`);
+	}
 	lines.push(
 		`  resources: ${countLabel(report.resources.skills, "skill")}, ${countLabel(report.resources.prompts, "prompt")}, ${countLabel(report.resources.themes, "theme")}, ${countLabel(report.resources.contextFiles, "context file")}`,
 	);

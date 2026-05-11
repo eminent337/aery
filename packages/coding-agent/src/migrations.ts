@@ -34,6 +34,8 @@ export const CORE_EXTENSION_PATHS = [
 	"aery-team",
 	"subagent/index",
 	"marketplace",
+	"session-auto-name",
+	"upstream-notify",
 	"init-prompt",
 ] as const;
 
