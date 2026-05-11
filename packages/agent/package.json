@@ -1,6 +1,6 @@
 {
   "name": "@eminent337/aery-core",
-  "version": "0.67.112",
+  "version": "0.67.113",
   "description": "Aery agent core — agent loop, tool execution, session management",
   "type": "module",
   "main": "./dist/index.js",
