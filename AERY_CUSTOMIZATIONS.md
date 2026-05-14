@@ -79,6 +79,17 @@ Verification:
 - `AERY_OFFLINE=1 npx tsx packages/coding-agent/src/cli.ts capabilities --json`
 - `npx vitest --run packages/coding-agent/test/capabilities.test.ts`
 
+### OAuth Callback Page Branding
+
+The OAuth callback page shown in the browser during provider login uses the Aery logo and branding instead of the upstream pi logo.
+
+Owned files and hooks:
+- `packages/ai/src/utils/oauth/oauth-page.ts`
+
+Verification:
+- `npm run check:branding`
+- `npm run check`
+
 ### Provider Setup and Cloudflare UX
 
 Aery improves provider setup feedback, especially Cloudflare Workers AI, where both an API token and account ID are required. The `/login` flow should save credentials separately and report whether the provider exposes usable local models after authentication.

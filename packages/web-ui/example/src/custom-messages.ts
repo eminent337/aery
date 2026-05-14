@@ -17,7 +17,7 @@ export interface SystemNotificationMessage {
 }
 
 // Extend CustomAgentMessages interface via declaration merging
-// This must target pi-agent-core where CustomAgentMessages is defined
+// This must target aery-core where CustomAgentMessages is defined
 declare module "@eminent337/aery-core" {
 	interface CustomAgentMessages {
 		"system-notification": SystemNotificationMessage;
