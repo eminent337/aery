@@ -93,13 +93,13 @@ Verification:
 ### Provider Setup and Cloudflare UX
 
 Aery improves provider setup feedback, especially Cloudflare Workers AI, where both an API token and account ID are required. The `/login` flow should save credentials separately and report whether the provider exposes usable local models after authentication.
-OpenAI-compatible provider errors should turn common authentication, billing/quota, rate-limit, and temporary server failures into actionable messages while preserving the raw provider error.
+OpenAI-compatible provider errors should turn common authentication, billing/quota, rate-limit, and temporary server failures into actionable messages while preserving the raw provider error. This logic lives in `aery-error-formatting.ts` so upstream syncs to `openai-completions.ts` cannot overwrite it.
 
 Owned files and hooks:
 - `packages/coding-agent/src/core/provider-setup-check.ts`
 - `packages/coding-agent/src/core/model-registry.ts`
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
-- `packages/ai/src/providers/openai-completions.ts`
+- `packages/ai/src/providers/aery-error-formatting.ts`
 
 Verification:
 - `npx vitest --run packages/coding-agent/test/provider-setup-check.test.ts`
