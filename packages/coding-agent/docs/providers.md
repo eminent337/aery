@@ -95,6 +95,16 @@ Store credentials in `~/.aery/agent/auth.json`:
 
 The file is created with `0600` permissions (user read/write only). Auth file credentials take priority over environment variables.
 
+### Custom OpenAI-compatible setup
+
+For OpenAI-compatible endpoints that need a custom base URL and model ID, run `/login`, choose `Use an API key`, then choose `Custom OpenAI-compatible`.
+
+Aery saves:
+- provider structure in `~/.aery/agent/models.json`
+- API key in `~/.aery/agent/auth.json`
+
+This covers common proxy and self-hosted endpoints without needing the provider extension path.
+
 ### Key Resolution
 
 The `key` field supports three formats:
@@ -200,6 +210,8 @@ export GOOGLE_CLOUD_LOCATION=us-central1
 Or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account key file.
 
 ## Custom Providers
+
+**Via `/login`:** Use the built-in `Custom OpenAI-compatible` flow for endpoints that need `baseUrl + model ID + API key`.
 
 **Via models.json:** Add Ollama, LM Studio, vLLM, or any provider that speaks a supported API (OpenAI Completions, OpenAI Responses, Anthropic Messages, Google Generative AI). See [models.md](models.md).
 

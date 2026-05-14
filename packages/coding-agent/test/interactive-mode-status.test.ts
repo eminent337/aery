@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { AutocompleteProvider } from "@eminent337/aery-tui";
 import { CombinedAutocompleteProvider, Container } from "@eminent337/aery-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
+import { CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID } from "../src/core/custom-openai-compatible.js";
 import type { AutocompleteProviderFactory } from "../src/core/extensions/types.js";
 import type { SourceInfo } from "../src/core/source-info.js";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.js";
@@ -77,6 +78,25 @@ describe("InteractiveMode.showStatus", () => {
 		// adds spacer + text
 		expect(fakeThis.chatContainer.children).toHaveLength(5);
 		expect(renderLastLine(fakeThis.chatContainer)).toContain("STATUS_TWO");
+	});
+});
+
+describe("InteractiveMode.getLoginProviderOptions", () => {
+	test("includes the built-in custom OpenAI-compatible option for API key login", () => {
+		const fakeThis: any = {
+			session: {
+				modelRegistry: {
+					authStorage: {
+						getOAuthProviders: () => [],
+					},
+					getAll: () => [{ provider: "openai" }],
+				},
+			},
+		};
+
+		const options = (InteractiveMode as any).prototype.getLoginProviderOptions.call(fakeThis, "api_key");
+
+		expect(options.some((option: { id: string }) => option.id === CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID)).toBe(true);
 	});
 });
 

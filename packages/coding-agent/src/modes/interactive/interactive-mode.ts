@@ -47,12 +47,17 @@ import {
 	getAgentDir,
 	getAuthPath,
 	getDebugLogPath,
+	getModelsPath,
 	getShareViewerUrl,
 	getUpdateInstruction,
 	VERSION,
 } from "../../config.js";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.js";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.js";
+import {
+	CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
+	saveCustomOpenAICompatibleProvider,
+} from "../../core/custom-openai-compatible.js";
 import type {
 	AutocompleteProviderFactory,
 	ExtensionCommandContext,
@@ -207,6 +212,7 @@ const API_KEY_PROVIDER_NAMES: Record<string, string> = {
 };
 
 const API_KEY_LOGIN_PROVIDER_BLOCKLIST = new Set(["amazon-bedrock", "llama.cpp", "lmstudio", "ollama"]);
+const CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL = "Custom OpenAI-compatible";
 
 export function isApiKeyLoginProvider(
 	providerId: string,
@@ -4429,6 +4435,13 @@ export class InteractiveMode {
 				authType: "api_key",
 			});
 		}
+		if (!authType || authType === "api_key") {
+			options.push({
+				id: CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
+				name: CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL,
+				authType: "api_key",
+			});
+		}
 
 		const filteredOptions = authType ? options.filter((option) => option.authType === authType) : options;
 		return filteredOptions.sort((a, b) => a.name.localeCompare(b.name));
@@ -4500,7 +4513,9 @@ export class InteractiveMode {
 						return;
 					}
 
-					if (providerOption.authType === "oauth") {
+					if (providerOption.id === CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID) {
+						await this.showCustomOpenAICompatibleLoginDialog();
+					} else if (providerOption.authType === "oauth") {
 						await this.showLoginDialog(providerOption.id, providerOption.name);
 					} else {
 						await this.showApiKeyLoginDialog(providerOption.id, providerOption.name);
@@ -4673,6 +4688,95 @@ export class InteractiveMode {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			if (errorMsg !== "Login cancelled") {
 				this.showError(`Failed to save API key for ${providerName}: ${errorMsg}`);
+			}
+		}
+	}
+
+	private async showCustomOpenAICompatibleLoginDialog(): Promise<void> {
+		const previousModel = this.session.model;
+		const dialog = new LoginDialogComponent(
+			this.ui,
+			CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
+			(_success, _message) => {},
+			`Configure ${CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL}`,
+		);
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		try {
+			const baseUrl = (await dialog.showPrompt("Enter base URL:", "https://api.example.com/v1")).trim();
+			if (!baseUrl) {
+				throw new Error("Base URL cannot be empty.");
+			}
+
+			const modelId = (await dialog.showPrompt("Enter model ID:", "gpt-4o-mini")).trim();
+			if (!modelId) {
+				throw new Error("Model ID cannot be empty.");
+			}
+
+			const apiKey = (await dialog.showPrompt("Enter API key:", "sk-...")).trim();
+			if (!apiKey) {
+				throw new Error("API key cannot be empty.");
+			}
+
+			const saved = saveCustomOpenAICompatibleProvider({
+				modelsPath: getModelsPath(),
+				baseUrl,
+				modelId,
+			});
+			this.session.modelRegistry.authStorage.set(saved.providerId, { type: "api_key", key: apiKey });
+			this.session.modelRegistry.refresh();
+
+			restoreEditor();
+			await this.updateAvailableProviderCount();
+			this.footer.invalidate();
+			this.updateEditorBorderColor();
+
+			const model = this.session.modelRegistry.find(saved.providerId, saved.modelId);
+			let selectedModel = false;
+			if (model) {
+				try {
+					await this.session.setModel(model);
+					selectedModel = true;
+				} catch (error: unknown) {
+					this.showError(
+						`Saved ${saved.providerId}/${saved.modelId}, but selecting it failed: ${
+							error instanceof Error ? error.message : String(error)
+						}. Use /model to select it manually.`,
+					);
+				}
+			}
+
+			if (selectedModel) {
+				this.showStatus(
+					`Configured ${saved.providerId}/${saved.modelId}. Provider saved to ${saved.modelsPath}; API key saved to ${getAuthPath()}.`,
+				);
+			} else {
+				this.showStatus(
+					`Configured ${saved.providerId}/${saved.modelId}. Provider saved to ${saved.modelsPath}; API key saved to ${getAuthPath()}. Use /model to select it.`,
+				);
+			}
+
+			if (isUnknownModel(previousModel) && !selectedModel) {
+				this.showWarning(
+					`Custom provider ${saved.providerId} is available, but no model was selected automatically.`,
+				);
+			}
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.showError(`Failed to configure ${CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL}: ${errorMsg}`);
 			}
 		}
 	}

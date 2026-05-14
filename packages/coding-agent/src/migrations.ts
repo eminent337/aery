@@ -14,7 +14,6 @@ const MIGRATION_GUIDE_URL =
 const EXTENSIONS_DOC_URL = "https://github.com/eminent337/aery/blob/main/packages/coding-agent/docs/extensions.md";
 export const CORE_EXTENSION_PATHS = [
 	"damage-control",
-	"provider-profiles",
 	"model-failover",
 	"web-search",
 	"web-fetch",

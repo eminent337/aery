@@ -2,6 +2,8 @@
 
 Add custom providers and models (Ollama, vLLM, LM Studio, proxies) via `~/.aery/agent/models.json`.
 
+If you only need a standard OpenAI-compatible endpoint with a custom base URL, model ID, and API key, you can use `/login` -> `Use an API key` -> `Custom OpenAI-compatible` and let aery write the files for you.
+
 ## Table of Contents
 
 - [Minimal Example](#minimal-example)
