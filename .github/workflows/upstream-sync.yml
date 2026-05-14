@@ -176,21 +176,18 @@ jobs:
         run: |
           git checkout main
 
-          # Merge upstream-clean. Use ours strategy for files aery intentionally diverges on.
-          if git merge upstream-clean \
-              --no-edit \
-              -m "upstream: merge upstream-clean $(date +%Y-%m-%d)" \
-              -X theirs \
-              -- packages/agent packages/ai packages/tui packages/coding-agent \
-              2>/dev/null; then
-            echo "merged=1" >> $GITHUB_OUTPUT
+          # Sync only the upstream-owned package directories. `git merge` cannot
+          # be limited with pathspecs, so checking out these paths avoids false
+          # "merged with conflicts" reports while keeping Aery-owned files intact.
+          SYNC_PATHS=(packages/agent packages/ai packages/tui packages/coding-agent)
+          if git diff --quiet HEAD upstream-clean -- "${SYNC_PATHS[@]}"; then
+            echo "No upstream package changes to apply."
           else
-            # Conflict — commit what merged cleanly, report the rest
-            git add -A
-            git commit -m "upstream: partial merge upstream-clean $(date +%Y-%m-%d) — conflicts need review" || true
-            echo "merged=1" >> $GITHUB_OUTPUT
-            echo "had_conflicts=true" >> $GITHUB_OUTPUT
+            git checkout upstream-clean -- "${SYNC_PATHS[@]}"
+            git add "${SYNC_PATHS[@]}"
+            git commit -m "upstream: sync upstream-clean package updates $(date +%Y-%m-%d)"
           fi
+          echo "merged=1" >> $GITHUB_OUTPUT
 
           # Merge jiti commits (patch-based, small scope)
           while IFS= read -r COMMIT; do
