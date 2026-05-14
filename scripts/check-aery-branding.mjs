@@ -69,6 +69,16 @@ for (const root of roots) {
 	}
 }
 
+// Ensure the pi logo SVG has been replaced in the OAuth callback page
+const oauthPage = "packages/ai/src/utils/oauth/oauth-page.ts";
+if (existsSync(oauthPage)) {
+	const content = readFileSync(oauthPage, "utf-8");
+	// The pi logo uses this distinctive path data from the geometric π shape
+	if (content.includes("M165.29 165.29")) {
+		errors.push(`${oauthPage}: pi logo SVG still present — replace with Aery logo`);
+	}
+}
+
 if (errors.length > 0) {
 	console.error("Aery branding check failed:");
 	for (const error of errors) {
