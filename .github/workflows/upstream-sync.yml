@@ -184,6 +184,26 @@ jobs:
             echo "No upstream package changes to apply."
           else
             git checkout upstream-clean -- "${SYNC_PATHS[@]}"
+
+            # Restore Aery-kept providers that upstream dropped.
+            # cloudflare-workers-ai: upstream replaced with cloudflare-ai-gateway,
+            # but Aery users rely on Workers AI (direct Cloudflare hosted models).
+            node -e "
+              const fs = require('fs');
+              const path = 'packages/ai/src/models.generated.ts';
+              let content = fs.readFileSync(path, 'utf-8');
+              if (!content.includes('cloudflare-workers-ai')) {
+                const inject = fs.readFileSync('packages/ai/src/aery-cloudflare-workers-ai-models.txt', 'utf-8');
+                const marker = 'export const MODELS';
+                const idx = content.lastIndexOf('};');
+                content = content.slice(0, idx) + inject + '\n' + content.slice(idx);
+                fs.writeFileSync(path, content);
+                console.log('Restored cloudflare-workers-ai models');
+              } else {
+                console.log('cloudflare-workers-ai already present');
+              }
+            " || true
+
             git add "${SYNC_PATHS[@]}"
             git commit -m "upstream: sync upstream-clean package updates $(date +%Y-%m-%d)"
           fi

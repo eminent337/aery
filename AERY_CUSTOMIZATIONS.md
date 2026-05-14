@@ -148,3 +148,17 @@ When adding an Aery-specific core behavior:
 5. Mention upstream sync risk in the PR or issue when the change touches upstream-owned files.
 
 This keeps the fork useful without making future upstream updates expensive.
+
+### Cloudflare Workers AI Provider
+
+Aery keeps `cloudflare-workers-ai` (direct Cloudflare hosted models: Llama, Gemma, Kimi, etc.) even though upstream replaced it with `cloudflare-ai-gateway`. The provider snapshot is stored in `packages/ai/src/aery-cloudflare-workers-ai-models.txt` and re-injected into `models.generated.ts` by the upstream sync workflow if upstream drops it.
+
+The compat flag `supportsReasoningEffort: false` is set on all Workers AI models to prevent `reasoning_effort` being sent to Cloudflare's API (which rejects it).
+
+Owned files and hooks:
+- `packages/ai/src/aery-cloudflare-workers-ai-models.txt`
+- `.github/workflows/upstream-sync.yml`
+
+Verification:
+- `npm run check`
+- `grep -c "cloudflare-workers-ai" packages/ai/src/models.generated.ts`
