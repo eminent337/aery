@@ -38,6 +38,8 @@ export const CORE_EXTENSION_PATHS = [
 	"init-prompt",
 ] as const;
 
+export const DEPRECATED_CORE_EXTENSION_PATHS = ["provider-profiles"] as const;
+
 export interface CoreExtensionDiagnostic {
 	repoExists: boolean;
 	missingFiles: string[];
@@ -57,6 +59,10 @@ export interface CoreExtensionEnsureResult extends CoreExtensionWireResult {
 
 export function getCoreExtensionFilePaths(repoPath: string): string[] {
 	return CORE_EXTENSION_PATHS.map((extensionPath) => join(repoPath, "core", `${extensionPath}.ts`));
+}
+
+function getDeprecatedCoreExtensionFilePaths(repoPath: string): string[] {
+	return DEPRECATED_CORE_EXTENSION_PATHS.map((extensionPath) => join(repoPath, "core", `${extensionPath}.ts`));
 }
 
 function readSettingsExtensions(settingsPath: string): string[] {
@@ -94,11 +100,15 @@ export function wireCoreExtensions(repoPath: string, settingsPath: string): Core
 	const existingExtensions = Array.isArray(parsedSettings.extensions)
 		? parsedSettings.extensions.filter((value): value is string => typeof value === "string")
 		: [];
+	const deprecatedExtensions = new Set(getDeprecatedCoreExtensionFilePaths(repoPath));
+	const filteredExistingExtensions = existingExtensions.filter(
+		(extensionPath) => !deprecatedExtensions.has(extensionPath),
+	);
 	const settings: Record<string, unknown> & { extensions?: string[] } = {
 		...parsedSettings,
-		extensions: existingExtensions,
+		extensions: filteredExistingExtensions,
 	};
-	const existing = new Set<string>(existingExtensions);
+	const existing = new Set<string>(filteredExistingExtensions);
 	const added: string[] = [];
 	for (const extensionPath of getCoreExtensionFilePaths(repoPath)) {
 		if (!existsSync(extensionPath) || existing.has(extensionPath)) continue;
@@ -108,7 +118,7 @@ export function wireCoreExtensions(repoPath: string, settingsPath: string): Core
 		added.push(extensionPath);
 	}
 
-	if (added.length > 0) {
+	if (added.length > 0 || filteredExistingExtensions.length !== existingExtensions.length) {
 		mkdirSync(dirname(settingsPath), { recursive: true });
 		writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
 	}
