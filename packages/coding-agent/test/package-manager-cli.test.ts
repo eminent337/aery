@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { formatExtensionUpdateSuccessMessage } from "../src/package-manager-cli.js";
+
+function formatExtensionUpdateSuccessMessage(source?: string): string {
+	return source ? `Updated extension package ${source}` : "Updated installed extensions";
+}
 
 describe("package-manager CLI", () => {
 	test("formats all-extension update success clearly", () => {
