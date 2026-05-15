@@ -209,13 +209,13 @@ jobs:
               const lines = fs.readFileSync(path, 'utf-8').split('\n');
               const out = [];
               const seen = new Set();
-              let inAliases = false;
+              let inDedupeObject = false;
               for (const line of lines) {
-                if (line.includes('_aliases = {')) {
-                  inAliases = true;
+                if (line.includes('const VIRTUAL_MODULES') || line.includes('_aliases = {')) {
+                  inDedupeObject = true;
                   seen.clear();
                 }
-                if (inAliases) {
+                if (inDedupeObject) {
                   const match = line.match(/^(\s*)(\"[^\"]+\"|typebox):/);
                   if (match) {
                     if (seen.has(match[2])) continue;
@@ -223,7 +223,7 @@ jobs:
                   }
                 }
                 out.push(line);
-                if (inAliases && line.trim() === '};') inAliases = false;
+                if (inDedupeObject && line.trim() === '};') inDedupeObject = false;
               }
               fs.writeFileSync(path, out.join('\n'));
             "
