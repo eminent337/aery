@@ -1,5 +1,5 @@
-import { Agent } from "@eminent337/aery-core";
 import { type AssistantMessage, getModel, type Usage } from "@eminent337/aery-ai";
+import { Agent } from "@eminent337/aery-core";
 import { describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.js";
 import { AuthStorage } from "../src/core/auth-storage.js";

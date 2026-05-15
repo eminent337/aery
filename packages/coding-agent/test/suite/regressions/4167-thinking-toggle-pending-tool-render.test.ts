@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@eminent337/aery-core";
 import type { AssistantMessage, ToolResultMessage, Usage } from "@eminent337/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
 import { Container, Text, type TUI } from "@eminent337/aery-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.js";

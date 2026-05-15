@@ -2,8 +2,8 @@
  * Hello Tool - Minimal custom tool example
  */
 
-import { Type } from "@eminent337/aery-ai";
 import { defineTool, type ExtensionAPI } from "@eminent337/aery";
+import { Type } from "@eminent337/aery-ai";
 
 const helloTool = defineTool({
 	name: "hello",
