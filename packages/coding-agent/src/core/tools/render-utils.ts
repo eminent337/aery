@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import type { ImageContent, TextContent } from "@eminent337/aery-ai";
 import { getCapabilities, getImageDimensions, imageFallback } from "@eminent337/aery-tui";
-import stripAnsi from "strip-ansi";
+import { stripAnsi } from "../../utils/ansi.js";
 import { sanitizeBinaryOutput } from "../../utils/shell.js";
 
 export function shortenPath(path: unknown): string {
@@ -31,7 +31,7 @@ export function getTextOutput(
 	result: { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> } | undefined,
 	showImages: boolean,
 ): string {
-	if (!result || !result.content) return "";
+	if (!result) return "";
 
 	const textBlocks = result.content.filter((c) => c.type === "text");
 	const imageBlocks = result.content.filter((c) => c.type === "image");

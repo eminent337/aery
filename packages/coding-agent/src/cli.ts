@@ -5,12 +5,13 @@
  *
  * Test with: npx tsx src/cli-new.ts [args...]
  */
-process.title = "aery";
+import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
+import { APP_NAME } from "./config.js";
+import { main } from "./main.js";
+
+process.title = APP_NAME;
 process.env.AERY_CODING_AGENT = "true";
 process.emitWarning = (() => {}) as typeof process.emitWarning;
-
-import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
-import { main } from "./main.js";
 
 // bodyTimeout/headersTimeout default to 300s in undici; long local-LLM stalls
 // (e.g. vLLM buffering a large tool call) exceed that and abort the SSE stream

@@ -22,7 +22,7 @@
  *   toggled the tool output open (via ctrl+e or clicking)
  *
  * Usage:
- *   aery -e ./built-in-tool-renderer.ts
+ *   pi -e ./built-in-tool-renderer.ts
  */
 
 import type { BashToolDetails, EditToolDetails, ExtensionAPI, ReadToolDetails } from "@eminent337/aery";

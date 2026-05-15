@@ -11,7 +11,7 @@ import { dirname, join } from "path";
 import { getOAuthApiKey } from "../src/utils/oauth/index.js";
 import type { OAuthCredentials, OAuthProvider } from "../src/utils/oauth/types.js";
 
-const AUTH_PATH = join(homedir(), ".aery", "agent", "auth.json");
+const AUTH_PATH = join(homedir(), ".pi", "agent", "auth.json");
 
 type ApiKeyCredential = {
 	type: "api_key";
@@ -53,7 +53,6 @@ function saveAuthStorage(storage: AuthStorage): void {
  * For API key credentials, returns the key directly.
  * For OAuth credentials, returns the access token (refreshing if expired and saving back).
  *
- * For google-gemini-cli and google-antigravity, returns JSON-encoded { token, projectId }
  */
 export async function resolveApiKey(provider: string): Promise<string | undefined> {
 	const storage = loadAuthStorage();

@@ -2,8 +2,8 @@
  * Print mode (single-shot): Send prompts, output result, exit.
  *
  * Used for:
- * - `aery -p "prompt"` - text output
- * - `aery --mode json "prompt"` - JSON event stream
+ * - `pi -p "prompt"` - text output
+ * - `pi --mode json "prompt"` - JSON event stream
  */
 
 import type { AssistantMessage, ImageContent } from "@eminent337/aery-ai";

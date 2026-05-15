@@ -84,24 +84,6 @@ describe("core extensions migration", () => {
 		);
 	});
 
-	it("removes deprecated core extension entries while wiring current core extensions", () => {
-		const { agentDir, repoPath } = createAgentDirWithCoreExtensions();
-		const settingsPath = path.join(agentDir, "settings.json");
-		const deprecatedPath = path.join(repoPath, "core", "provider-profiles.ts");
-		fs.mkdirSync(path.dirname(deprecatedPath), { recursive: true });
-		fs.writeFileSync(deprecatedPath, "export default function extension() {}\n", "utf-8");
-		fs.writeFileSync(settingsPath, JSON.stringify({ extensions: [deprecatedPath] }, null, 2), "utf-8");
-
-		const result = wireCoreExtensions(repoPath, settingsPath);
-		const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as { extensions?: string[] };
-
-		expect(result.added.length).toBeGreaterThan(0);
-		expect(settings.extensions).not.toContain(deprecatedPath);
-		expect(new Set(settings.extensions)).toEqual(
-			new Set(CORE_EXTENSION_PATHS.map((extensionPath) => path.join(repoPath, "core", `${extensionPath}.ts`))),
-		);
-	});
-
 	it("formats offline core extension repair guidance", () => {
 		const result: CoreExtensionEnsureResult = {
 			repoExists: false,

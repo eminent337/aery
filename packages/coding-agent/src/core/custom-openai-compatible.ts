@@ -43,6 +43,28 @@ function slugify(value: string): string {
 		.slice(0, 48);
 }
 
+function isJsonObject(value: unknown): value is JsonObject {
+	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isLegacyBlankCustomOpenAICompatibleProvider(providerId: string, providerConfig: unknown): boolean {
+	if (providerId !== "custom-openai-compatible" && providerId !== CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID) return false;
+	if (!isJsonObject(providerConfig)) return false;
+	if (providerConfig.baseUrl !== "") return false;
+	if (providerConfig.api !== undefined && providerConfig.api !== "openai-completions") return false;
+	const models = providerConfig.models;
+	if (!Array.isArray(models) || models.length === 0) return false;
+	return models.every((model) => isJsonObject(model) && typeof model.id === "string" && model.id.trim() === "");
+}
+
+function removeLegacyBlankCustomOpenAICompatibleProviders(providers: Record<string, unknown>): void {
+	for (const [providerId, providerConfig] of Object.entries(providers)) {
+		if (isLegacyBlankCustomOpenAICompatibleProvider(providerId, providerConfig)) {
+			delete providers[providerId];
+		}
+	}
+}
+
 function deriveProviderSeed(baseUrl: string): string {
 	try {
 		const url = new URL(baseUrl);
@@ -99,6 +121,7 @@ export function saveCustomOpenAICompatibleProvider(
 
 	const config = loadModelsConfig(input.modelsPath);
 	const providers = config.providers as Record<string, unknown>;
+	removeLegacyBlankCustomOpenAICompatibleProviders(providers);
 	const providerId = getProviderIdForBaseUrl(providers, baseUrl);
 
 	providers[providerId] = {

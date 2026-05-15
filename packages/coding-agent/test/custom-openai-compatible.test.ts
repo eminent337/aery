@@ -90,6 +90,39 @@ describe("custom OpenAI-compatible provider setup", () => {
 		expect(readModelsJson().providers["custom-api-example-com-v1"].models[0].id).toBe("new-model");
 	});
 
+	test("removes legacy blank custom provider scaffold when saving a valid provider", () => {
+		writeFileSync(
+			modelsPath,
+			JSON.stringify(
+				{
+					providers: {
+						"custom-openai-compatible": {
+							baseUrl: "",
+							api: "openai-completions",
+							compat: {
+								supportsDeveloperRole: false,
+								supportsReasoningEffort: false,
+							},
+							models: [{ id: "", name: "Custom Model" }],
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		saveCustomOpenAICompatibleProvider({
+			modelsPath,
+			baseUrl: "https://api.example.com/v1",
+			modelId: "gpt-4o-mini",
+		});
+
+		const providers = readModelsJson().providers;
+		expect(providers["custom-openai-compatible"]).toBeUndefined();
+		expect(providers["custom-api-example-com-v1"]).toBeDefined();
+	});
+
 	test("custom providers defined in models.json can authenticate via auth.json", () => {
 		const saved: SavedCustomOpenAICompatibleProvider = saveCustomOpenAICompatibleProvider({
 			modelsPath,

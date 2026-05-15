@@ -41,12 +41,18 @@ Edit directly or use `/settings` for common options.
 | `theme` | string | `"dark"` | Theme name (`"dark"`, `"light"`, or custom) |
 | `quietStartup` | boolean | `false` | Hide startup header |
 | `collapseChangelog` | boolean | `false` | Show condensed changelog after updates |
-| `enableInstallTelemetry` | boolean | `true` | Send an anonymous version/update ping after changelog-detected updates |
+| `enableInstallTelemetry` | boolean | `true` | Send an anonymous install/update version ping after first install or changelog-detected updates. This does not control update checks |
 | `doubleEscapeAction` | string | `"tree"` | Action for double-escape: `"tree"`, `"fork"`, or `"none"` |
 | `treeFilterMode` | string | `"default"` | Default filter for `/tree`: `"default"`, `"no-tools"`, `"user-only"`, `"labeled-only"`, `"all"` |
 | `editorPaddingX` | number | `0` | Horizontal padding for input editor (0-3) |
 | `autocompleteMaxVisible` | number | `5` | Max visible items in autocomplete dropdown (3-20) |
 | `showHardwareCursor` | boolean | `false` | Show terminal cursor |
+
+### Telemetry and update checks
+
+`enableInstallTelemetry` only controls the anonymous install/update ping to `https://eminent337.github.io/api/report-install`. Opting out of telemetry does not disable update checks; Pi can still fetch `https://eminent337.github.io/api/latest-version` to look for the latest version.
+
+Set `AERY_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--offline` or `AERY_OFFLINE=1` to disable all startup network operations described here, including update checks, package update checks, and install/update telemetry.
 
 ### Warnings
 
@@ -161,7 +167,7 @@ Normally the package manager's global modules location is queried using `root -g
 { "sessionDir": ".aery/sessions" }
 ```
 
-When multiple sources specify a session directory, `--session-dir` CLI flag takes precedence over `sessionDir` in settings.json.
+When multiple sources specify a session directory, precedence is `--session-dir`, `AERY_CODING_AGENT_SESSION_DIR`, then `sessionDir` in settings.json.
 
 ### Model Cycling
 
@@ -185,7 +191,7 @@ When multiple sources specify a session directory, `--session-dir` CLI flag take
 
 These settings define where to load extensions, skills, prompts, and themes from.
 
-Paths in `~/.aery/agent/settings.json` resolve relative to `~/.aery/agent`. Paths in `.aery/settings.json` resolve relative to `.aery`. Absolute paths and `~` are supported.
+Paths in `~/.aery/agent/settings.json` resolve relative to `~/.aery/agent`. Paths in `.aery/settings.json` resolve relative to `.pi`. Absolute paths and `~` are supported.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
@@ -204,7 +210,7 @@ String form loads all resources from a package:
 
 ```json
 {
-  "packages": ["aery-skills", "@org/my-extension"]
+  "packages": ["pi-skills", "@org/my-extension"]
 }
 ```
 
@@ -214,7 +220,7 @@ Object form filters which resources to load:
 {
   "packages": [
     {
-      "source": "aery-skills",
+      "source": "pi-skills",
       "skills": ["brave-search", "transcribe"],
       "extensions": []
     }
@@ -245,7 +251,7 @@ See [packages.md](packages.md) for package management details.
   "warnings": {
     "anthropicExtraUsage": true
   },
-  "packages": ["aery-skills"]
+  "packages": ["pi-skills"]
 }
 ```
 

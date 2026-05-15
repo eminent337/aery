@@ -1,4 +1,4 @@
-> aery can create TUI components. Ask it to build one for your use case.
+> pi can create TUI components. Ask it to build one for your use case.
 
 # TUI Components
 
@@ -96,11 +96,11 @@ pi.on("session_start", async (_event, ctx) => {
 });
 ```
 
-**In custom tools** via `aery.ui.custom()`:
+**In custom tools** via `pi.ui.custom()`:
 
 ```typescript
 async execute(toolCallId, params, onUpdate, ctx, signal) {
-  const handle = aery.ui.custom(myComponent);
+  const handle = pi.ui.custom(myComponent);
   // ...
   handle.close();
 }
@@ -445,10 +445,10 @@ interface MyTheme {
 
 ## Debug logging
 
-Set `PI_TUI_WRITE_LOG` to capture the raw ANSI stream written to stdout.
+Set `AERY_TUI_WRITE_LOG` to capture the raw ANSI stream written to stdout.
 
 ```bash
-PI_TUI_WRITE_LOG=/tmp/tui-ansi.log npx tsx packages/tui/test/chat-simple.ts
+AERY_TUI_WRITE_LOG=/tmp/tui-ansi.log npx tsx packages/tui/test/chat-simple.ts
 ```
 
 ## Performance
@@ -737,7 +737,7 @@ ctx.ui.setStatus("my-ext", undefined);
 
 ### Pattern 4b: Working Indicator Customization
 
-Customize the inline working indicator shown while aery is streaming a response.
+Customize the inline working indicator shown while pi is streaming a response.
 
 ```typescript
 // Static indicator
@@ -757,7 +757,7 @@ ctx.ui.setWorkingIndicator({
 // Hide the indicator entirely
 ctx.ui.setWorkingIndicator({ frames: [] });
 
-// Restore aery's default spinner
+// Restore pi's default spinner
 ctx.ui.setWorkingIndicator();
 ```
 
@@ -874,7 +874,7 @@ class VimEditor extends CustomEditor {
   }
 }
 
-export default function (aery: ExtensionAPI) {
+export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     // Factory receives theme and keybindings from the app
     ctx.ui.setEditorComponent((tui, theme, keybindings) =>

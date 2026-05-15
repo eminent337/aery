@@ -1,10 +1,8 @@
-> aery can help you use the SDK. Ask it to build an integration for your use case.
+> pi can help you use the SDK. Ask it to build an integration for your use case.
 
 # SDK
 
-The SDK provides programmatic access to the agent's capabilities. Use it to embed the agent in other applications, build custom interfaces, or integrate with automated workflows.
-
-> This SDK is based on [pi-mono](https://github.com/badlogic/pi-mono). Similar SDKs exist in [opencode](https://github.com/sst/opencode) and [openclaude](https://github.com/Gitlawb/openclaude). Concepts are transferable across these projects.
+The SDK provides programmatic access to pi's agent capabilities. Use it to embed pi in other applications, build custom interfaces, or integrate with automated workflows.
 
 **Example use cases:**
 - Build a custom UI (web, desktop, mobile)
@@ -56,7 +54,7 @@ The main factory function for a single `AgentSession`.
 `createAgentSession()` uses a `ResourceLoader` to supply extensions, skills, prompt templates, themes, and context files. If you do not provide one, it uses `DefaultResourceLoader` with standard discovery.
 
 ```typescript
-import { createAgentSession } from "@eminent337/aery";
+import { createAgentSession, SessionManager } from "@eminent337/aery";
 
 // Minimal: defaults with DefaultResourceLoader
 const { session } = await createAgentSession();
@@ -64,7 +62,7 @@ const { session } = await createAgentSession();
 // Custom: override specific options
 const { session } = await createAgentSession({
   model: myModel,
-  tools: [readTool, bashTool],
+  tools: ["read", "bash"],
   sessionManager: SessionManager.inMemory(),
 });
 ```
@@ -221,7 +219,7 @@ await session.prompt("After you're done, also check X", { streamingBehavior: "fo
 ```
 
 **Behavior:**
-- **Extension commands** (e.g., `/mycommand`): Execute immediately, even during streaming. They manage their own LLM interaction via `aery.sendMessage()`.
+- **Extension commands** (e.g., `/mycommand`): Execute immediately, even during streaming. They manage their own LLM interaction via `pi.sendMessage()`.
 - **File-based prompt templates** (from `.md` files): Expanded to their content before sending or queueing.
 - **During streaming without `streamingBehavior`**: Throws an error. Use `steer()` or `followUp()` directly, or specify the option.
 - **`preflightResult(true)`**: Means the prompt was accepted, queued, or handled immediately.
@@ -468,70 +466,56 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 
 ### Tools
 
-```typescript
-import {
-  codingTools,   // read, bash, edit, write (default)
-  readOnlyTools, // read, grep, find, ls
-  readTool, bashTool, editTool, writeTool,
-  grepTool, findTool, lsTool,
-} from "@eminent337/aery";
+Specify which built-in tools to enable:
 
-// Use built-in tool set
+- Built-in tool names: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`
+- Default built-ins: `read`, `bash`, `edit`, `write`
+- `noTools: "all"` disables all tools
+- `noTools: "builtin"` disables default built-ins while keeping extension and custom tools enabled
+
+```typescript
+import { createAgentSession } from "@eminent337/aery";
+
+// Read-only mode
 const { session } = await createAgentSession({
-  tools: readOnlyTools,
+  tools: ["read", "grep", "find", "ls"],
 });
 
 // Pick specific tools
 const { session } = await createAgentSession({
-  tools: [readTool, bashTool, grepTool],
+  tools: ["read", "bash", "grep"],
 });
 ```
 
 #### Tools with Custom cwd
 
-**Important:** The pre-built tool instances (`readTool`, `bashTool`, etc.) use `process.cwd()` for path resolution. When you specify a custom `cwd` AND provide explicit `tools`, you must use the tool factory functions to ensure paths resolve correctly:
+When you pass a custom `cwd`, `createAgentSession()` builds selected built-in tools for that cwd.
 
 ```typescript
-import {
-  createCodingTools,    // Creates [read, bash, edit, write] for specific cwd
-  createReadOnlyTools,  // Creates [read, grep, find, ls] for specific cwd
-  createReadTool,
-  createBashTool,
-  createEditTool,
-  createWriteTool,
-  createGrepTool,
-  createFindTool,
-  createLsTool,
-} from "@eminent337/aery";
+import { createAgentSession, SessionManager } from "@eminent337/aery";
 
 const cwd = "/path/to/project";
 
-// Use factory for tool sets
+// Use default tools for custom cwd
 const { session } = await createAgentSession({
   cwd,
-  tools: createCodingTools(cwd),  // Tools resolve paths relative to cwd
+  sessionManager: SessionManager.inMemory(cwd),
 });
 
-// Or pick specific tools
+// Or pick specific tools for custom cwd
 const { session } = await createAgentSession({
   cwd,
-  tools: [createReadTool(cwd), createBashTool(cwd), createGrepTool(cwd)],
+  tools: ["read", "bash", "grep"],
+  sessionManager: SessionManager.inMemory(cwd),
 });
 ```
-
-**When you don't need factories:**
-- If you omit `tools`, aery automatically creates them with the correct `cwd`
-- If you use `process.cwd()` as your `cwd`, the pre-built instances work fine
-
-**When you must use factories:**
-- When you specify both `cwd` (different from `process.cwd()`) AND `tools`
 
 > See [examples/sdk/05-tools.ts](../examples/sdk/05-tools.ts)
 
 ### Custom Tools
 
 ```typescript
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { createAgentSession, defineTool } from "@eminent337/aery";
 
 // Inline custom tool
@@ -557,6 +541,8 @@ const { session } = await createAgentSession({
 Use `defineTool()` for standalone definitions and arrays like `customTools: [myTool]`. Inline `pi.registerTool({ ... })` already infers parameter types correctly.
 
 Custom tools passed via `customTools` are combined with extension-registered tools. Extensions loaded by the ResourceLoader can also register tools via `pi.registerTool()`.
+
+If you pass `tools`, include each custom or extension tool name you want enabled, for example `tools: ["read", "bash", "my_tool"]`.
 
 > See [examples/sdk/05-tools.ts](../examples/sdk/05-tools.ts)
 
@@ -584,7 +570,7 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 
 Extensions can register tools, subscribe to events, add commands, and more. See [extensions.md](extensions.md) for the full API.
 
-**Event Bus:** Extensions can communicate via `aery.events`. Pass a shared `eventBus` to `DefaultResourceLoader` if you need to emit or listen from outside:
+**Event Bus:** Extensions can communicate via `pi.events`. Pass a shared `eventBus` to `DefaultResourceLoader` if you need to emit or listen from outside:
 
 ```typescript
 import { createEventBus, DefaultResourceLoader } from "@eminent337/aery";
@@ -884,15 +870,13 @@ interface LoadExtensionsResult {
 
 ```typescript
 import { getModel } from "@eminent337/aery-ai";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import {
   AuthStorage,
-  bashTool,
   createAgentSession,
   DefaultResourceLoader,
   defineTool,
   ModelRegistry,
-  readTool,
   SessionManager,
   SettingsManager,
 } from "@eminent337/aery";
@@ -946,7 +930,7 @@ const { session } = await createAgentSession({
   authStorage,
   modelRegistry,
 
-  tools: [readTool, bashTool],
+  tools: ["read", "bash", "status"],
   customTools: [statusTool],
   resourceLoader: loader,
 
@@ -1083,7 +1067,7 @@ See [RPC documentation](rpc.md) for the JSON protocol.
 For subprocess-based integration without building with the SDK, use the CLI directly:
 
 ```bash
-aery --mode rpc --no-session
+pi --mode rpc --no-session
 ```
 
 See [RPC documentation](rpc.md) for the JSON protocol.
@@ -1125,13 +1109,7 @@ defineTool
 SessionManager
 SettingsManager
 
-// Built-in tools (use process.cwd())
-codingTools
-readOnlyTools
-readTool, bashTool, editTool, writeTool
-grepTool, findTool, lsTool
-
-// Tool factories (for custom cwd)
+// Tool factories
 createCodingTools
 createReadOnlyTools
 createReadTool, createBashTool, createEditTool, createWriteTool

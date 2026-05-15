@@ -24,7 +24,10 @@ const ignoredFiles = new Set(["scripts/check-aery-branding.mjs"]);
 
 const forbidden = [
 	{ label: "upstream npm scope", pattern: /@mariozechner\/pi[\w-]*/g },
+	{ label: "upstream npm scope", pattern: /@earendil-works\/pi[\w-]*/g },
+	{ label: "invalid rewritten upstream npm scope", pattern: /@earendil\/aery[\w-]*/g },
 	{ label: "upstream repository", pattern: /badlogic\/pi-mono/g },
+	{ label: "upstream repository", pattern: /earendil-works\/pi-mono/g },
 	{ label: "upstream site", pattern: /pi\.dev/g },
 	{ label: "upstream config path", pattern: /(?:~\/)?\.pi(?=\/|\\|"|'|`)/g },
 	{ label: "upstream env var", pattern: /(?<![A-Z])PI_[A-Z0-9_]+/g },

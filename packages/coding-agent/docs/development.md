@@ -6,7 +6,7 @@ See [AGENTS.md](../../../AGENTS.md) for additional guidelines.
 
 ```bash
 git clone https://github.com/eminent337/aery
-cd aery
+cd pi-mono
 npm install
 npm run build
 ```
@@ -14,7 +14,7 @@ npm run build
 Run from source:
 
 ```bash
-/path/to/aery/install.sh
+/path/to/pi-mono/pi-test.sh
 ```
 
 The script can be run from any directory. Pi keeps the caller's current working directory.
@@ -26,8 +26,8 @@ Configure via `package.json`:
 ```json
 {
   "aeryConfig": {
-    "name": "aery",
-    "configDir": ".aery"
+    "name": "pi",
+    "configDir": ".pi"
   }
 }
 ```

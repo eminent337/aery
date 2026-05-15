@@ -5,8 +5,8 @@
  * When --ssh is provided, read/write/edit/bash run on the remote.
  *
  * Usage:
- *   aery -e ./ssh.ts --ssh user@host
- *   aery -e ./ssh.ts --ssh user@host:/remote/path
+ *   pi -e ./ssh.ts --ssh user@host
+ *   pi -e ./ssh.ts --ssh user@host:/remote/path
  *
  * Requirements:
  *   - SSH key-based auth (no password prompts)

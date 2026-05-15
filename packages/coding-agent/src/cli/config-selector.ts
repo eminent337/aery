@@ -1,5 +1,5 @@
 /**
- * TUI config selector for `aery config` command
+ * TUI config selector for `pi config` command
  */
 
 import { ProcessTerminal, TUI } from "@eminent337/aery-tui";

@@ -53,7 +53,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/reload` | Reload keybindings, extensions, skills, prompts, and context files |
 | `/hotkeys` | Show all keyboard shortcuts |
 | `/changelog` | Display version history |
-| `/quit` | Quit aery |
+| `/quit` | Quit pi |
 
 ## Message Queue
 
@@ -64,7 +64,7 @@ You can submit messages while the agent is still working:
 - **Escape** aborts and restores queued messages to the editor.
 - **Alt+Up** retrieves queued messages back to the editor.
 
-On Windows Terminal, Alt+Enter is fullscreen by default. Remap it as described in [Terminal setup](terminal-setup.md) if you want aery to receive the shortcut.
+On Windows Terminal, Alt+Enter is fullscreen by default. Remap it as described in [Terminal setup](terminal-setup.md) if you want pi to receive the shortcut.
 
 Configure delivery in [Settings](settings.md) with `steeringMode` and `followUpMode`.
 
@@ -73,11 +73,11 @@ Configure delivery in [Settings](settings.md) with `steeringMode` and `followUpM
 Sessions are saved automatically to `~/.aery/agent/sessions/`, organized by working directory.
 
 ```bash
-aery -c                  # Continue most recent session
-aery -r                  # Browse and select a session
-aery --no-session        # Ephemeral mode; do not save
-aery --session <path|id> # Use a specific session file or session ID
-aery --fork <path|id>    # Fork a session into a new session file
+pi -c                  # Continue most recent session
+pi -r                  # Browse and select a session
+pi --no-session        # Ephemeral mode; do not save
+pi --session <path|id> # Use a specific session file or session ID
+pi --fork <path|id>    # Fork a session into a new session file
 ```
 
 Useful session commands:
@@ -88,7 +88,7 @@ Useful session commands:
 - `/clone` duplicates the current active branch into a new session file.
 - `/compact` summarizes older messages to free context.
 
-See [Sessions](session.md), [Session Tree](tree.md), and [Compaction](compaction.md) for details.
+See [Sessions](sessions.md) and [Compaction](compaction.md) for details.
 
 ## Context Files
 
@@ -104,7 +104,7 @@ Use context files for project conventions, commands, safety rules, and preferenc
 
 Replace the default system prompt with:
 
-- `.aery/SYSTEM.md` for a project
+- `.pi/SYSTEM.md` for a project
 - `~/.aery/agent/SYSTEM.md` globally
 
 Append to the default prompt without replacing it with `APPEND_SYSTEM.md` in either location.
@@ -115,26 +115,26 @@ Use `/export [file]` to write a session to HTML.
 
 Use `/share` to upload a private GitHub gist with a shareable HTML link.
 
-If you use aery for open source work and want to publish sessions for model, prompt, tool, and evaluation research, see [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). It publishes sessions to Hugging Face datasets.
+If you use pi for open source work and want to publish sessions for model, prompt, tool, and evaluation research, see [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). It publishes sessions to Hugging Face datasets.
 
 ## CLI Reference
 
 ```bash
-aery [options] [@files...] [messages...]
+pi [options] [@files...] [messages...]
 ```
 
 ### Package Commands
 
 ```bash
-aery install <source> [-l]     # Install package, -l for project-local
-aery remove <source> [-l]      # Remove package
-aery uninstall <source> [-l]   # Alias for remove
-aery update [source|self|aery]   # Update aery and packages; skips pinned packages
-aery update --extensions       # Update packages only
-aery update --self             # Update aery only
-aery update --extension <src>  # Update one package
-aery list                      # List installed packages
-aery config                    # Enable/disable package resources
+pi install <source> [-l]     # Install package, -l for project-local
+pi remove <source> [-l]      # Remove package
+pi uninstall <source> [-l]   # Alias for remove
+pi update [source|self|pi]   # Update pi and packages; skips pinned packages
+pi update --extensions       # Update packages only
+pi update --self             # Update pi only
+pi update --extension <src>  # Update one package
+pi list                      # List installed packages
+pi config                    # Enable/disable package resources
 ```
 
 See [Pi Packages](packages.md) for package sources and security notes.
@@ -149,10 +149,10 @@ See [Pi Packages](packages.md) for package sources and security notes.
 | `--mode rpc` | RPC mode over stdin/stdout; see [RPC mode](rpc.md) |
 | `--export <in> [out]` | Export a session to HTML |
 
-In print mode, aery also reads piped stdin and merges it into the initial prompt:
+In print mode, pi also reads piped stdin and merges it into the initial prompt:
 
 ```bash
-cat README.md | aery -p "Summarize this text"
+cat README.md | pi -p "Summarize this text"
 ```
 
 ### Model Options
@@ -204,7 +204,7 @@ Built-in tools: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`.
 Combine `--no-*` with explicit flags to load exactly what you need, ignoring settings. Example:
 
 ```bash
-aery --no-extensions -e ./my-extension.ts
+pi --no-extensions -e ./my-extension.ts
 ```
 
 ### Other Options
@@ -222,48 +222,50 @@ aery --no-extensions -e ./my-extension.ts
 Prefix files with `@` to include them in the message:
 
 ```bash
-aery @prompt.md "Answer this"
-aery -p @screenshot.png "What's in this image?"
-aery @code.ts @test.ts "Review these files"
+pi @prompt.md "Answer this"
+pi -p @screenshot.png "What's in this image?"
+pi @code.ts @test.ts "Review these files"
 ```
 
 ### Examples
 
 ```bash
 # Interactive with initial prompt
-aery "List all .ts files in src/"
+pi "List all .ts files in src/"
 
 # Non-interactive
-aery -p "Summarize this codebase"
+pi -p "Summarize this codebase"
 
 # Non-interactive with piped stdin
-cat README.md | aery -p "Summarize this text"
+cat README.md | pi -p "Summarize this text"
 
 # Different model
-aery --provider openai --model gpt-4o "Help me refactor"
+pi --provider openai --model gpt-4o "Help me refactor"
 
 # Model with provider prefix
-aery --model openai/gpt-4o "Help me refactor"
+pi --model openai/gpt-4o "Help me refactor"
 
 # Model with thinking level shorthand
-aery --model sonnet:high "Solve this complex problem"
+pi --model sonnet:high "Solve this complex problem"
 
 # Limit model cycling
-aery --models "claude-*,gpt-4o"
+pi --models "claude-*,gpt-4o"
 
 # Read-only mode
-aery --tools read,grep,find,ls -p "Review the code"
+pi --tools read,grep,find,ls -p "Review the code"
 ```
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `PI_CODING_AGENT_DIR` | Override config directory; default is `~/.aery/agent` |
-| `PI_PACKAGE_DIR` | Override package directory, useful for Nix/Guix store paths |
-| `PI_SKIP_VERSION_CHECK` | Skip version check at startup |
-| `PI_TELEMETRY` | Override install telemetry: `1`/`true`/`yes` or `0`/`false`/`no` |
-| `PI_CACHE_RETENTION` | Set to `long` for extended prompt cache where supported |
+| `AERY_CODING_AGENT_DIR` | Override config directory; default is `~/.aery/agent` |
+| `AERY_CODING_AGENT_SESSION_DIR` | Override session storage directory; overridden by `--session-dir` |
+| `AERY_PACKAGE_DIR` | Override package directory, useful for Nix/Guix store paths |
+| `AERY_OFFLINE` | Disable startup network operations, including update checks, package update checks, and install/update telemetry |
+| `AERY_SKIP_VERSION_CHECK` | Skip the Pi version update check at startup. This prevents the `eminent337.github.io` latest-version request |
+| `AERY_TELEMETRY` | Override install/update telemetry: `1`/`true`/`yes` or `0`/`false`/`no`. This does not disable update checks |
+| `AERY_CACHE_RETENTION` | Set to `long` for extended prompt cache where supported |
 | `VISUAL`, `EDITOR` | External editor for Ctrl+G |
 
 ## Design Principles

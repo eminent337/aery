@@ -120,7 +120,7 @@ describe("CombinedAutocompleteProvider", () => {
 		let outsideDir = "";
 
 		beforeEach(() => {
-			rootDir = mkdtempSync(join(tmpdir(), "aery-autocomplete-root-"));
+			rootDir = mkdtempSync(join(tmpdir(), "pi-autocomplete-root-"));
 			baseDir = join(rootDir, "cwd");
 			outsideDir = join(rootDir, "outside");
 			mkdirSync(baseDir, { recursive: true });
@@ -282,7 +282,7 @@ describe("CombinedAutocompleteProvider", () => {
 
 		test("includes hidden paths but excludes .git", async () => {
 			setupFolder(baseDir, {
-				dirs: [".aery", ".github", ".git"],
+				dirs: [".pi", ".github", ".git"],
 				files: {
 					".aery/config.json": "{}",
 					".github/workflows/ci.yml": "name: ci",
@@ -295,7 +295,7 @@ describe("CombinedAutocompleteProvider", () => {
 			const result = await getSuggestions(provider, [line], 0, line.length);
 
 			const values = result?.items.map((item) => item.value) ?? [];
-			assert.ok(values.includes("@.aery/"));
+			assert.ok(values.includes("@.pi/"));
 			assert.ok(values.includes("@.github/"));
 			assert.ok(!values.some((value) => value === "@.git" || value.startsWith("@.git/")));
 		});
@@ -365,7 +365,7 @@ describe("CombinedAutocompleteProvider", () => {
 				dirs: ["packages/coding-agent/examples/extensions/plan-mode"],
 				files: {
 					"packages/coding-agent/examples/extensions/plan-mode/README.md": "readme",
-					"packages/pods/docs/plan.md": "plan",
+					"packages/web-ui/docs/plan.md": "plan",
 				},
 			};
 			setupFolder(normalBaseDir, structure);
@@ -385,7 +385,7 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.ok(
 				normalize(normalResult).includes("plan-mode/ :: packages/coding-agent/examples/extensions/plan-mode"),
 			);
-			assert.ok(normalize(normalResult).includes("plan.md :: packages/pods/docs/plan.md"));
+			assert.ok(normalize(normalResult).includes("plan.md :: packages/web-ui/docs/plan.md"));
 		});
 
 		test("continues autocomplete inside quoted @ paths", async () => {
@@ -431,7 +431,7 @@ describe("CombinedAutocompleteProvider", () => {
 		let baseDir = "";
 
 		beforeEach(() => {
-			baseDir = mkdtempSync(join(tmpdir(), "aery-autocomplete-"));
+			baseDir = mkdtempSync(join(tmpdir(), "pi-autocomplete-"));
 		});
 
 		afterEach(() => {
@@ -477,7 +477,7 @@ describe("CombinedAutocompleteProvider", () => {
 		let baseDir = "";
 
 		beforeEach(() => {
-			baseDir = mkdtempSync(join(tmpdir(), "aery-autocomplete-"));
+			baseDir = mkdtempSync(join(tmpdir(), "pi-autocomplete-"));
 		});
 
 		afterEach(() => {

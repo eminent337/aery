@@ -6,6 +6,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DefaultPackageManager, type ProgressEvent, type ResolvedResource } from "../src/core/package-manager.js";
 import { SettingsManager } from "../src/core/settings-manager.js";
+import { shouldUseWindowsShell } from "../src/utils/child-process.js";
 
 function normalizeForMatch(value: string): string {
 	return value.replace(/\\/g, "/");
@@ -118,7 +119,7 @@ Content`,
 			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
 		});
 
-		it("should auto-discover root markdown skills from .aery skill dirs", async () => {
+		it("should auto-discover root markdown skills from .pi skill dirs", async () => {
 			const skillFile = join(agentDir, "skills", "single-file.md");
 			mkdirSync(join(agentDir, "skills"), { recursive: true });
 			writeFileSync(
@@ -134,8 +135,8 @@ Content`,
 			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
 		});
 
-		it("should resolve project paths relative to .aery", async () => {
-			const extDir = join(tempDir, ".aery", "extensions");
+		it("should resolve project paths relative to .pi", async () => {
+			const extDir = join(tempDir, ".pi", "extensions");
 			mkdirSync(extDir, { recursive: true });
 			const extPath = join(extDir, "project-ext.ts");
 			writeFileSync(extPath, "export default function() {}");
@@ -159,64 +160,75 @@ Content`,
 		});
 
 		it("should resolve symlinked user and project resources once", async () => {
-			const sharedDir = join(tempDir, "shared-resources");
-			const sharedExtensionsDir = join(sharedDir, "extensions");
-			const sharedSkillsDir = join(sharedDir, "skills");
-			const sharedPromptsDir = join(sharedDir, "prompts");
-			const sharedThemesDir = join(sharedDir, "themes");
-			mkdirSync(sharedExtensionsDir, { recursive: true });
-			mkdirSync(sharedSkillsDir, { recursive: true });
-			mkdirSync(sharedPromptsDir, { recursive: true });
-			mkdirSync(sharedThemesDir, { recursive: true });
+			const previousHome = process.env.HOME;
+			process.env.HOME = tempDir;
 
-			writeFileSync(join(sharedExtensionsDir, "shared.ts"), "export default function() {}");
-			mkdirSync(join(sharedSkillsDir, "shared-skill"), { recursive: true });
-			writeFileSync(
-				join(sharedSkillsDir, "shared-skill", "SKILL.md"),
-				`---
+			try {
+				const sharedDir = join(tempDir, "shared-resources");
+				const sharedExtensionsDir = join(sharedDir, "extensions");
+				const sharedSkillsDir = join(sharedDir, "skills");
+				const sharedPromptsDir = join(sharedDir, "prompts");
+				const sharedThemesDir = join(sharedDir, "themes");
+				mkdirSync(sharedExtensionsDir, { recursive: true });
+				mkdirSync(sharedSkillsDir, { recursive: true });
+				mkdirSync(sharedPromptsDir, { recursive: true });
+				mkdirSync(sharedThemesDir, { recursive: true });
+
+				writeFileSync(join(sharedExtensionsDir, "shared.ts"), "export default function() {}");
+				mkdirSync(join(sharedSkillsDir, "shared-skill"), { recursive: true });
+				writeFileSync(
+					join(sharedSkillsDir, "shared-skill", "SKILL.md"),
+					`---
 name: shared-skill
 description: Shared skill
 ---
 Content`,
-			);
-			writeFileSync(join(sharedPromptsDir, "shared.md"), "Shared prompt");
-			writeFileSync(join(sharedThemesDir, "shared.json"), JSON.stringify({ name: "shared-theme" }));
+				);
+				writeFileSync(join(sharedPromptsDir, "shared.md"), "Shared prompt");
+				writeFileSync(join(sharedThemesDir, "shared.json"), JSON.stringify({ name: "shared-theme" }));
 
-			mkdirSync(join(agentDir), { recursive: true });
-			mkdirSync(join(tempDir, ".aery"), { recursive: true });
-			symlinkSync(sharedExtensionsDir, join(agentDir, "extensions"), "dir");
-			symlinkSync(sharedSkillsDir, join(agentDir, "skills"), "dir");
-			symlinkSync(sharedPromptsDir, join(agentDir, "prompts"), "dir");
-			symlinkSync(sharedThemesDir, join(agentDir, "themes"), "dir");
-			symlinkSync(sharedExtensionsDir, join(tempDir, ".aery", "extensions"), "dir");
-			symlinkSync(sharedSkillsDir, join(tempDir, ".aery", "skills"), "dir");
-			symlinkSync(sharedPromptsDir, join(tempDir, ".aery", "prompts"), "dir");
-			symlinkSync(sharedThemesDir, join(tempDir, ".aery", "themes"), "dir");
+				mkdirSync(join(agentDir), { recursive: true });
+				mkdirSync(join(tempDir, ".pi"), { recursive: true });
+				symlinkSync(sharedExtensionsDir, join(agentDir, "extensions"), "dir");
+				symlinkSync(sharedSkillsDir, join(agentDir, "skills"), "dir");
+				symlinkSync(sharedPromptsDir, join(agentDir, "prompts"), "dir");
+				symlinkSync(sharedThemesDir, join(agentDir, "themes"), "dir");
+				symlinkSync(sharedExtensionsDir, join(tempDir, ".pi", "extensions"), "dir");
+				symlinkSync(sharedSkillsDir, join(tempDir, ".pi", "skills"), "dir");
+				symlinkSync(sharedPromptsDir, join(tempDir, ".pi", "prompts"), "dir");
+				symlinkSync(sharedThemesDir, join(tempDir, ".pi", "themes"), "dir");
 
-			const result = await packageManager.resolve();
+				const result = await packageManager.resolve();
 
-			expect({
-				extensions: result.extensions.length,
-				skills: result.skills.length,
-				prompts: result.prompts.length,
-				themes: result.themes.length,
-			}).toEqual({
-				extensions: 1,
-				skills: 1,
-				prompts: 1,
-				themes: 1,
-			});
+				expect({
+					extensions: result.extensions.length,
+					skills: result.skills.length,
+					prompts: result.prompts.length,
+					themes: result.themes.length,
+				}).toEqual({
+					extensions: 1,
+					skills: 1,
+					prompts: 1,
+					themes: 1,
+				});
 
-			// Project auto-discovered has higher precedence than user auto-discovered,
-			// so the surviving entry should be scoped to project.
-			expect(result.extensions[0].metadata.scope).toBe("project");
-			expect(result.skills[0].metadata.scope).toBe("project");
-			expect(result.prompts[0].metadata.scope).toBe("project");
-			expect(result.themes[0].metadata.scope).toBe("project");
+				// Project auto-discovered has higher precedence than user auto-discovered,
+				// so the surviving entry should be scoped to project.
+				expect(result.extensions[0].metadata.scope).toBe("project");
+				expect(result.skills[0].metadata.scope).toBe("project");
+				expect(result.prompts[0].metadata.scope).toBe("project");
+				expect(result.themes[0].metadata.scope).toBe("project");
+			} finally {
+				if (previousHome === undefined) {
+					delete process.env.HOME;
+				} else {
+					process.env.HOME = previousHome;
+				}
+			}
 		});
 
 		it("should auto-discover project prompts with overrides", async () => {
-			const promptsDir = join(tempDir, ".aery", "prompts");
+			const promptsDir = join(tempDir, ".pi", "prompts");
 			mkdirSync(promptsDir, { recursive: true });
 			const promptPath = join(promptsDir, "is.md");
 			writeFileSync(promptPath, "Is prompt");
@@ -235,7 +247,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "my-extensions-pkg",
-					aery: {
+					pi: {
 						extensions: ["./extensions/clip.ts", "./extensions/cost.ts"],
 					},
 				}),
@@ -259,6 +271,94 @@ Content`,
 
 			// Should NOT find helper.ts (not declared in manifest)
 			expect(result.extensions.some((r) => pathEndsWith(r.path, "helper.ts"))).toBe(false);
+		});
+	});
+
+	describe("auto-discovered skill metadata", () => {
+		it("should use the agent dir as baseDir for user .pi/agent skills", async () => {
+			const skillPath = join(agentDir, "skills", "user-pi", "SKILL.md");
+			mkdirSync(join(agentDir, "skills", "user-pi"), { recursive: true });
+			writeFileSync(skillPath, "---\nname: user-pi\ndescription: user pi\n---\n");
+
+			const result = await packageManager.resolve();
+			const skill = result.skills.find((r) => r.path === skillPath);
+
+			expect(skill?.metadata.source).toBe("auto");
+			expect(skill?.metadata.scope).toBe("user");
+			expect(skill?.metadata.baseDir).toBe(agentDir);
+		});
+
+		it("should use the project .pi dir as baseDir for project .pi skills", async () => {
+			const projectBaseDir = join(tempDir, ".pi");
+			const skillPath = join(projectBaseDir, "skills", "project-pi", "SKILL.md");
+			mkdirSync(join(projectBaseDir, "skills", "project-pi"), { recursive: true });
+			writeFileSync(skillPath, "---\nname: project-pi\ndescription: project pi\n---\n");
+
+			const result = await packageManager.resolve();
+			const skill = result.skills.find((r) => r.path === skillPath);
+
+			expect(skill?.metadata.source).toBe("auto");
+			expect(skill?.metadata.scope).toBe("project");
+			expect(skill?.metadata.baseDir).toBe(projectBaseDir);
+		});
+
+		it("should use ~/.agents as baseDir for user .agents skills", async () => {
+			const previousHome = process.env.HOME;
+			process.env.HOME = tempDir;
+
+			try {
+				const agentsBaseDir = join(tempDir, ".agents");
+				const skillPath = join(agentsBaseDir, "skills", "user-agents", "SKILL.md");
+				mkdirSync(join(agentsBaseDir, "skills", "user-agents"), { recursive: true });
+				writeFileSync(skillPath, "---\nname: user-agents\ndescription: user agents\n---\n");
+
+				const result = await packageManager.resolve();
+				const skill = result.skills.find((r) => r.path === skillPath);
+
+				expect(skill?.metadata.source).toBe("auto");
+				expect(skill?.metadata.scope).toBe("user");
+				expect(skill?.metadata.baseDir).toBe(agentsBaseDir);
+			} finally {
+				if (previousHome === undefined) {
+					delete process.env.HOME;
+				} else {
+					process.env.HOME = previousHome;
+				}
+			}
+		});
+
+		it("should use each project .agents dir as baseDir for project .agents skills", async () => {
+			const repoRoot = join(tempDir, "repo");
+			const nestedCwd = join(repoRoot, "packages", "feature");
+			mkdirSync(nestedCwd, { recursive: true });
+			mkdirSync(join(repoRoot, ".git"), { recursive: true });
+
+			const repoAgentsBaseDir = join(repoRoot, ".agents");
+			const repoSkill = join(repoAgentsBaseDir, "skills", "repo", "SKILL.md");
+			mkdirSync(join(repoAgentsBaseDir, "skills", "repo"), { recursive: true });
+			writeFileSync(repoSkill, "---\nname: repo\ndescription: repo\n---\n");
+
+			const packageAgentsBaseDir = join(repoRoot, "packages", ".agents");
+			const packageSkill = join(packageAgentsBaseDir, "skills", "package", "SKILL.md");
+			mkdirSync(join(packageAgentsBaseDir, "skills", "package"), { recursive: true });
+			writeFileSync(packageSkill, "---\nname: package\ndescription: package\n---\n");
+
+			const pm = new DefaultPackageManager({
+				cwd: nestedCwd,
+				agentDir,
+				settingsManager,
+			});
+
+			const result = await pm.resolve();
+			const resolvedRepoSkill = result.skills.find((r) => r.path === repoSkill);
+			const resolvedPackageSkill = result.skills.find((r) => r.path === packageSkill);
+
+			expect(resolvedRepoSkill?.metadata.source).toBe("auto");
+			expect(resolvedRepoSkill?.metadata.scope).toBe("project");
+			expect(resolvedRepoSkill?.metadata.baseDir).toBe(repoAgentsBaseDir);
+			expect(resolvedPackageSkill?.metadata.source).toBe("auto");
+			expect(resolvedPackageSkill?.metadata.scope).toBe("project");
+			expect(resolvedPackageSkill?.metadata.baseDir).toBe(packageAgentsBaseDir);
 		});
 	});
 
@@ -343,7 +443,7 @@ Content`,
 
 			try {
 				const cwd = join(tempDir, "scratch", "nested");
-				const localAgentDir = join(tempDir, ".aery", "agent");
+				const localAgentDir = join(tempDir, ".pi", "agent");
 				const localSettingsManager = SettingsManager.inMemory();
 				mkdirSync(cwd, { recursive: true });
 				mkdirSync(localAgentDir, { recursive: true });
@@ -424,10 +524,10 @@ Content`,
 			expect(result.skills.some((r) => r.path.includes("venv") && r.enabled)).toBe(false);
 		});
 
-		it("should not apply parent .gitignore to .aery auto-discovery", async () => {
+		it("should not apply parent .gitignore to .pi auto-discovery", async () => {
 			writeFileSync(join(tempDir, ".gitignore"), ".pi\n");
 
-			const skillDir = join(tempDir, ".aery", "skills", "auto-skill");
+			const skillDir = join(tempDir, ".pi", "skills", "auto-skill");
 			mkdirSync(skillDir, { recursive: true });
 			const skillPath = join(skillDir, "SKILL.md");
 			writeFileSync(skillPath, "---\nname: auto-skill\ndescription: Auto\n---\nContent");
@@ -453,7 +553,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "my-package",
-					aery: {
+					pi: {
 						extensions: ["./src/index.ts"],
 						skills: ["./skills"],
 					},
@@ -520,14 +620,11 @@ Content`,
 	describe("windows command spawning", () => {
 		it("should avoid the shell for git so Windows paths with spaces stay single arguments", () => {
 			vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-			const managerWithInternals = packageManager as unknown as {
-				shouldUseWindowsShell(command: string): boolean;
-			};
 
-			expect(managerWithInternals.shouldUseWindowsShell("git")).toBe(false);
-			expect(managerWithInternals.shouldUseWindowsShell("npm")).toBe(true);
-			expect(managerWithInternals.shouldUseWindowsShell("pnpm")).toBe(true);
-			expect(managerWithInternals.shouldUseWindowsShell("C:/Program Files/nodejs/npm.cmd")).toBe(true);
+			expect(shouldUseWindowsShell("git")).toBe(false);
+			expect(shouldUseWindowsShell("npm")).toBe(true);
+			expect(shouldUseWindowsShell("pnpm")).toBe(true);
+			expect(shouldUseWindowsShell("C:/Program Files/nodejs/npm.cmd")).toBe(true);
 		});
 	});
 
@@ -600,7 +697,7 @@ Content`,
 
 		it("should update git package dependencies with --omit=dev", async () => {
 			const source = "git:github.com/user/repo";
-			const targetDir = join(tempDir, ".aery", "git", "github.com", "user", "repo");
+			const targetDir = join(tempDir, ".pi", "git", "github.com", "user", "repo");
 			mkdirSync(targetDir, { recursive: true });
 			writeFileSync(join(targetDir, "package.json"), JSON.stringify({ name: "repo", version: "1.0.0" }));
 			settingsManager.setProjectPackages([source]);
@@ -636,7 +733,7 @@ Content`,
 			});
 
 			const source = "git:github.com/user/repo";
-			const targetDir = join(tempDir, ".aery", "git", "github.com", "user", "repo");
+			const targetDir = join(tempDir, ".pi", "git", "github.com", "user", "repo");
 			mkdirSync(targetDir, { recursive: true });
 			writeFileSync(join(targetDir, "package.json"), JSON.stringify({ name: "repo", version: "1.0.0" }));
 			settingsManager.setProjectPackages([source]);
@@ -786,7 +883,7 @@ Content`,
 			expect(settings.packages?.[0]).toBe(expected);
 		});
 
-		it("should store project local packages relative to .aery settings base", () => {
+		it("should store project local packages relative to .pi settings base", () => {
 			const projectPkgDir = join(tempDir, "project-local-pkg");
 			mkdirSync(join(projectPkgDir, "extensions"), { recursive: true });
 			writeFileSync(join(projectPkgDir, "extensions", "index.ts"), "export default function() {}");
@@ -795,7 +892,7 @@ Content`,
 			expect(added).toBe(true);
 
 			const settings = settingsManager.getProjectSettings();
-			const rel = relative(join(tempDir, ".aery"), projectPkgDir);
+			const rel = relative(join(tempDir, ".pi"), projectPkgDir);
 			const expected = rel.startsWith(".") ? rel : `./${rel}`;
 			expect(settings.packages?.[0]).toBe(expected);
 		});
@@ -1011,7 +1108,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "manifest-pkg",
-					aery: {
+					pi: {
 						extensions: ["extensions", "node_modules/dep/extensions", "!**/skip.ts"],
 					},
 				}),
@@ -1039,7 +1136,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "skill-manifest-pkg",
-					aery: {
+					pi: {
 						skills: ["skills", "!**/bad-skill"],
 					},
 				}),
@@ -1066,7 +1163,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "skill-manifest-glob-pkg",
-					aery: {
+					pi: {
 						skills: ["./plugins/*/skills"],
 					},
 				}),
@@ -1091,7 +1188,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "layered-pkg",
-					aery: {
+					pi: {
 						extensions: ["extensions", "!**/baz.ts"],
 					},
 				}),
@@ -1295,7 +1392,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "manifest-force-pkg",
-					aery: {
+					pi: {
 						extensions: ["extensions", "!**/two.ts", "+extensions/two.ts"],
 					},
 				}),
@@ -1525,7 +1622,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			writeFileSync(
 				join(pkgDir, "extensions", "custom", "package.json"),
 				JSON.stringify({
-					aery: {
+					pi: {
 						extensions: ["./main.ts"],
 					},
 				}),
@@ -1592,7 +1689,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 
 	describe("offline mode and network timeouts", () => {
 		it("should update project npm packages using @latest when newer version is available", async () => {
-			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
 			mkdirSync(installedPath, { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			settingsManager.setProjectPackages(["npm:example"]);
@@ -1609,13 +1706,13 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			);
 			expect(runCommandSpy).toHaveBeenCalledWith(
 				"npm",
-				["install", "example@latest", "--prefix", join(tempDir, ".aery", "npm")],
+				["install", "example@latest", "--prefix", join(tempDir, ".pi", "npm")],
 				undefined,
 			);
 		});
 
 		it("should skip project npm update when installed version matches latest", async () => {
-			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
 			mkdirSync(installedPath, { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.2.3" }));
 			settingsManager.setProjectPackages(["npm:example"]);
@@ -1639,8 +1736,8 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			const userOldPath = join(agentDir, "node_modules", "user-old");
 			const userCurrentPath = join(agentDir, "node_modules", "user-current");
 			const userUnknownPath = join(agentDir, "node_modules", "user-unknown");
-			const projectOldPath = join(tempDir, ".aery", "npm", "node_modules", "project-old");
-			const projectCurrentPath = join(tempDir, ".aery", "npm", "node_modules", "project-current");
+			const projectOldPath = join(tempDir, ".pi", "npm", "node_modules", "project-old");
+			const projectCurrentPath = join(tempDir, ".pi", "npm", "node_modules", "project-current");
 			const installPaths = [userOldPath, userCurrentPath, userUnknownPath, projectOldPath, projectCurrentPath];
 			for (const installPath of installPaths) {
 				mkdirSync(installPath, { recursive: true });
@@ -1734,7 +1831,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			expect(runCommandSpy).toHaveBeenNthCalledWith(
 				2,
 				"npm",
-				["install", "project-old@latest", "project-missing@latest", "--prefix", join(tempDir, ".aery", "npm")],
+				["install", "project-old@latest", "project-missing@latest", "--prefix", join(tempDir, ".pi", "npm")],
 				undefined,
 			);
 			expect(updateGitSpy).toHaveBeenCalledTimes(3);
@@ -1787,7 +1884,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		});
 
 		it("should not run npm view during resolve for installed unpinned packages", async () => {
-			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
 			mkdirSync(join(installedPath, "extensions"), { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			writeFileSync(join(installedPath, "extensions", "index.ts"), "export default function() {};");
@@ -1801,7 +1898,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		});
 
 		it("should reinstall pinned npm packages when installed version does not match", async () => {
-			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
 			mkdirSync(installedPath, { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			settingsManager.setProjectPackages(["npm:example@2.0.0"]);
@@ -1824,7 +1921,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		});
 
 		it("should report updates for installed unpinned npm packages", async () => {
-			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
 			mkdirSync(installedPath, { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			settingsManager.setProjectPackages(["npm:example"]);
@@ -1843,7 +1940,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		});
 
 		it("should skip pinned packages when checking for updates", async () => {
-			const installedNpmPath = join(tempDir, ".aery", "npm", "node_modules", "example");
+			const installedNpmPath = join(tempDir, ".pi", "npm", "node_modules", "example");
 			mkdirSync(installedNpmPath, { recursive: true });
 			writeFileSync(join(installedNpmPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			const parsedGitSource = (packageManager as any).parseSource("git:github.com/example/repo@v1");

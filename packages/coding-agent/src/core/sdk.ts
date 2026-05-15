@@ -1,8 +1,9 @@
 import { join } from "node:path";
-import { type Message, type Model, streamSimple } from "@eminent337/aery-ai";
+import { clampThinkingLevel, type Message, type Model, streamSimple } from "@eminent337/aery-ai";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@eminent337/aery-core";
-import { getAgentDir, getDocsPath } from "../config.js";
+import { getAgentDir } from "../config.js";
 import { AgentSession } from "./agent-session.js";
+import { formatNoModelsAvailableMessage } from "./auth-guidance.js";
 import { AuthStorage } from "./auth-storage.js";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.js";
@@ -58,8 +59,8 @@ export interface CreateAgentSessionOptions {
 	/**
 	 * Optional allowlist of tool names.
 	 *
-	 * When omitted, aery enables the default built-in tools (read, bash, edit, write)
-	 * and leaves extension/custom tools enabled.
+	 * When omitted, pi enables the default built-in tools (read, bash, edit, write)
+	 * and leaves extension/custom tools enabled unless `noTools` changes that default.
 	 * When provided, only the listed tool names are enabled.
 	 */
 	tools?: string[];
@@ -139,11 +140,19 @@ function getAttributionHeaders(
 			"X-OpenRouter-Categories": "cli-agent",
 		};
 	}
-	return {
-		"HTTP-Referer": "https://aery.dev",
-		"X-OpenRouter-Title": "aery",
-		"X-OpenRouter-Categories": "cli-agent",
-	};
+
+	if (
+		model.provider === "cloudflare-workers-ai" ||
+		model.provider === "cloudflare-ai-gateway" ||
+		model.baseUrl.includes("api.cloudflare.com") ||
+		model.baseUrl.includes("gateway.ai.cloudflare.com")
+	) {
+		return {
+			"User-Agent": "pi-coding-agent",
+		};
+	}
+
+	return undefined;
 }
 
 /**
@@ -175,7 +184,7 @@ function getAttributionHeaders(
  * await loader.reload();
  * const { session } = await createAgentSession({
  *   model: myModel,
- *   tools: [readTool, bashTool],
+ *   tools: ["read", "bash"],
  *   resourceLoader: loader,
  *   sessionManager: SessionManager.inMemory(),
  * });
@@ -232,7 +241,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		});
 		model = result.model;
 		if (!model) {
-			modelFallbackMessage = `No models available. Use /login or set an API key environment variable. See ${join(getDocsPath(), "providers.md")} or https://eminent337.github.io. Then use /model to select a model.`;
+			modelFallbackMessage = formatNoModelsAvailableMessage();
 		} else if (modelFallbackMessage) {
 			modelFallbackMessage += `. Using ${model.provider}/${model.id}`;
 		}
@@ -253,8 +262,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	}
 
 	// Clamp to model capabilities
-	if (!model || !model.reasoning) {
+	if (!model) {
 		thinkingLevel = "off";
+	} else {
+		thinkingLevel = clampThinkingLevel(model, thinkingLevel) as ThinkingLevel;
 	}
 
 	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write"];

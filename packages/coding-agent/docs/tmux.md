@@ -40,7 +40,7 @@ With `extended-keys-format csi-u`, the same keys are forwarded as:
 - `Ctrl+D` → `\x1b[100;5u`
 - `Ctrl+Enter` → `\x1b[13;5u`
 
-Aery supports both formats, but `csi-u` is the recommended tmux setup.
+Pi supports both formats, but `csi-u` is the recommended tmux setup.
 
 ## What This Fixes
 

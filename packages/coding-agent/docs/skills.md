@@ -1,4 +1,4 @@
-> aery can create skills. Ask it to build one for your use case.
+> pi can create skills. Ask it to build one for your use case.
 
 # Skills
 
@@ -29,7 +29,7 @@ Pi loads skills from:
 - Project:
   - `.aery/skills/`
   - `.agents/skills/` in `cwd` and ancestor directories (up to git repo root, or filesystem root when not in a repo)
-- Packages: `skills/` directories or `aery.skills` entries in `package.json`
+- Packages: `skills/` directories or `pi.skills` entries in `package.json`
 - Settings: `skills` array with files or directories
 - CLI: `--skill <path>` (repeatable, additive even with `--no-skills`)
 
@@ -63,7 +63,7 @@ For project-level Claude Code skills, add to `.aery/settings.json`:
 
 ## How Skills Work
 
-1. At startup, aery scans skill locations and extracts names and descriptions
+1. At startup, pi scans skill locations and extracts names and descriptions
 2. The system prompt includes available skills in XML format per the [specification](https://agentskills.io/integrate-skills)
 3. When a task matches, the agent uses `read` to load the full SKILL.md (models don't always do this; use prompting or `/skill:name` to force it)
 4. The agent follows the instructions, using relative paths to reference scripts and assets
@@ -229,4 +229,4 @@ cd /path/to/brave-search && npm install
 ## Skill Repositories
 
 - [Anthropic Skills](https://github.com/anthropics/skills) - Document processing (docx, pdf, pptx, xlsx), web development
-- [aery Extensions](https://github.com/eminent337/aery-extensions) - Web search, browser automation, Google APIs, transcription
+- [Pi Skills](https://github.com/badlogic/pi-skills) - Web search, browser automation, Google APIs, transcription

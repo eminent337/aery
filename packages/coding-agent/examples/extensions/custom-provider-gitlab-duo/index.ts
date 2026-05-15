@@ -2,10 +2,10 @@
  * GitLab Duo Provider Extension
  *
  * Provides access to GitLab Duo AI models (Claude and GPT) through GitLab's AI Gateway.
- * Delegates to aery-ai's built-in Anthropic and OpenAI streaming implementations.
+ * Delegates to pi-ai's built-in Anthropic and OpenAI streaming implementations.
  *
  * Usage:
- *   aery -e ./packages/coding-agent/examples/extensions/custom-provider-gitlab-duo
+ *   pi -e ./packages/coding-agent/examples/extensions/custom-provider-gitlab-duo
  *   # Then /login gitlab-duo, or set GITLAB_TOKEN=glpat-...
  */
 

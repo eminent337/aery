@@ -5,7 +5,7 @@
  * when thinking blocks are hidden.
  *
  * Usage:
- *   aery --extension examples/extensions/hidden-thinking-label.ts
+ *   pi --extension examples/extensions/hidden-thinking-label.ts
  *
  * Test:
  *   1. Load this extension

@@ -7,7 +7,7 @@ import {
 	type ThinkingConfig,
 	ThinkingLevel,
 } from "@google/genai";
-import { calculateCost } from "../models.js";
+import { calculateCost, clampThinkingLevel } from "../models.js";
 import type {
 	Api,
 	AssistantMessage,
@@ -24,7 +24,7 @@ import type {
 } from "../types.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
-import type { GoogleThinkingLevel } from "./google-gemini-cli.js";
+import type { GoogleThinkingLevel } from "./google-shared.js";
 import {
 	convertMessages,
 	convertTools,
@@ -33,7 +33,7 @@ import {
 	mapToolChoice,
 	retainThoughtSignature,
 } from "./google-shared.js";
-import { buildBaseOptions, clampReasoning } from "./simple-options.js";
+import { buildBaseOptions } from "./simple-options.js";
 
 export interface GoogleVertexOptions extends StreamOptions {
 	toolChoice?: "auto" | "none" | "any";
@@ -46,7 +46,7 @@ export interface GoogleVertexOptions extends StreamOptions {
 	location?: string;
 }
 
-const API_VERSION = "v1";
+const AAERY_VERSION = "v1";
 const GCP_VERTEX_CREDENTIALS_MARKER = "gcp-vertex-credentials";
 
 const THINKING_LEVEL_MAP: Record<GoogleThinkingLevel, ThinkingLevel> = {
@@ -305,7 +305,8 @@ export const streamSimpleGoogleVertex: StreamFunction<"google-vertex", SimpleStr
 		} satisfies GoogleVertexOptions);
 	}
 
-	const effort = clampReasoning(options.reasoning)!;
+	const clampedReasoning = clampThinkingLevel(model, options.reasoning);
+	const effort = (clampedReasoning === "off" ? "high" : clampedReasoning) as ClampedThinkingLevel;
 	const geminiModel = model as unknown as Model<"google-generative-ai">;
 
 	if (isGemini3ProModel(geminiModel) || isGemini3FlashModel(geminiModel)) {
@@ -337,7 +338,7 @@ function createClient(
 		vertexai: true,
 		project,
 		location,
-		apiVersion: API_VERSION,
+		apiVersion: AAERY_VERSION,
 		httpOptions: buildHttpOptions(model, optionsHeaders),
 	});
 }
@@ -350,7 +351,7 @@ function createClientWithApiKey(
 	return new GoogleGenAI({
 		vertexai: true,
 		apiKey,
-		apiVersion: API_VERSION,
+		apiVersion: AAERY_VERSION,
 		httpOptions: buildHttpOptions(model, optionsHeaders),
 	});
 }
@@ -495,7 +496,7 @@ function isGemini3FlashModel(model: Model<"google-generative-ai">): boolean {
 function getDisabledThinkingConfig(model: Model<"google-vertex">): ThinkingConfig {
 	// Google docs: Gemini 3.1 Pro cannot disable thinking, and Gemini 3 Flash / Flash-Lite
 	// do not support full thinking-off either. For Gemini 3 models, use the lowest supported
-	// thinkingLevel without includeThoughts so hidden thinking remains invisible to aery.
+	// thinkingLevel without includeThoughts so hidden thinking remains invisible to pi.
 	const geminiModel = model as unknown as Model<"google-generative-ai">;
 	if (isGemini3ProModel(geminiModel)) {
 		return { thinkingLevel: ThinkingLevel.LOW };

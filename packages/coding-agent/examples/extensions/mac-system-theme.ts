@@ -1,8 +1,8 @@
 /**
- * Syncs aery theme with macOS system appearance (dark/light mode).
+ * Syncs pi theme with macOS system appearance (dark/light mode).
  *
  * Usage:
- *   aery -e examples/extensions/mac-system-theme.ts
+ *   pi -e examples/extensions/mac-system-theme.ts
  */
 
 import { exec } from "node:child_process";

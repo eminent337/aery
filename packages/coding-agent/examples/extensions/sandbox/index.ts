@@ -30,8 +30,8 @@
  * ```
  *
  * Usage:
- * - `aery -e ./sandbox` - sandbox enabled with default/config settings
- * - `aery -e ./sandbox --no-sandbox` - disable sandboxing
+ * - `pi -e ./sandbox` - sandbox enabled with default/config settings
+ * - `pi -e ./sandbox --no-sandbox` - disable sandboxing
  * - `/sandbox` - show current sandbox configuration
  *
  * Setup:
@@ -77,7 +77,7 @@ const DEFAULT_CONFIG: SandboxConfig = {
 };
 
 function loadConfig(cwd: string): SandboxConfig {
-	const projectConfigPath = join(cwd, ".aery", "sandbox.json");
+	const projectConfigPath = join(cwd, ".pi", "sandbox.json");
 	const globalConfigPath = join(getAgentDir(), "extensions", "sandbox.json");
 
 	let globalConfig: Partial<SandboxConfig> = {};

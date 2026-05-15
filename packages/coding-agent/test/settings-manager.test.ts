@@ -15,7 +15,7 @@ describe("SettingsManager", () => {
 			rmSync(testDir, { recursive: true });
 		}
 		mkdirSync(agentDir, { recursive: true });
-		mkdirSync(join(projectDir, ".aery"), { recursive: true });
+		mkdirSync(join(projectDir, ".pi"), { recursive: true });
 	});
 
 	afterEach(() => {
@@ -36,7 +36,7 @@ describe("SettingsManager", () => {
 				}),
 			);
 
-			// Create SettingsManager (simulates aery starting up)
+			// Create SettingsManager (simulates pi starting up)
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			// Simulate user editing settings.json externally to add enabledModels
@@ -200,7 +200,7 @@ describe("SettingsManager", () => {
 	describe("error tracking", () => {
 		it("should collect and clear load errors via drainErrors", () => {
 			const globalSettingsPath = join(agentDir, "settings.json");
-			const projectSettingsPath = join(projectDir, ".aery", "settings.json");
+			const projectSettingsPath = join(projectDir, ".pi", "settings.json");
 			writeFileSync(globalSettingsPath, "{ invalid global json");
 			writeFileSync(projectSettingsPath, "{ invalid project json");
 
@@ -220,13 +220,13 @@ describe("SettingsManager", () => {
 			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
 
 			// Delete the .pi folder that beforeEach created
-			rmSync(join(projectDir, ".aery"), { recursive: true });
+			rmSync(join(projectDir, ".pi"), { recursive: true });
 
 			// Create SettingsManager (reads both global and project settings)
 			const manager = SettingsManager.create(projectDir, agentDir);
 
-			// .aery folder should NOT have been created just from reading
-			expect(existsSync(join(projectDir, ".aery"))).toBe(false);
+			// .pi folder should NOT have been created just from reading
+			expect(existsSync(join(projectDir, ".pi"))).toBe(false);
 
 			// Settings should still be loaded from global
 			expect(manager.getTheme()).toBe("dark");
@@ -238,22 +238,22 @@ describe("SettingsManager", () => {
 			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
 
 			// Delete the .pi folder that beforeEach created
-			rmSync(join(projectDir, ".aery"), { recursive: true });
+			rmSync(join(projectDir, ".pi"), { recursive: true });
 
 			const manager = SettingsManager.create(projectDir, agentDir);
 
-			// .aery folder should NOT exist yet
-			expect(existsSync(join(projectDir, ".aery"))).toBe(false);
+			// .pi folder should NOT exist yet
+			expect(existsSync(join(projectDir, ".pi"))).toBe(false);
 
 			// Write a project-specific setting
 			manager.setProjectPackages([{ source: "npm:test-pkg" }]);
 			await manager.flush();
 
 			// Now .pi folder should exist
-			expect(existsSync(join(projectDir, ".aery"))).toBe(true);
+			expect(existsSync(join(projectDir, ".pi"))).toBe(true);
 
 			// And settings file should be created
-			expect(existsSync(join(projectDir, ".aery", "settings.json"))).toBe(true);
+			expect(existsSync(join(projectDir, ".pi", "settings.json"))).toBe(true);
 		});
 	});
 
@@ -305,7 +305,7 @@ describe("SettingsManager", () => {
 
 		it("should return project sessionDir, overriding global", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: "/global/sessions" }));
-			writeFileSync(join(projectDir, ".aery", "settings.json"), JSON.stringify({ sessionDir: "./sessions" }));
+			writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({ sessionDir: "./sessions" }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 			expect(manager.getSessionDir()).toBe("./sessions");
 		});

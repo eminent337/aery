@@ -7,7 +7,7 @@
 			"@eminent337/aery/hooks": ["./src/core/hooks/index.ts"],
 			"@eminent337/aery-tui": ["../tui/src/index.ts"],
 			"@eminent337/aery-ai": ["../ai/src/index.ts"],
-			"@sinclair/typebox": ["../../node_modules/@sinclair/typebox"]
+			"typebox": ["../../node_modules/typebox"]
 		},
 		"skipLibCheck": true
 	},

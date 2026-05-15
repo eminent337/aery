@@ -29,7 +29,7 @@ export const API_KEY = process.env.ANTHROPIC_OAUTH_TOKEN || process.env.ANTHROPI
 // OAuth API key resolution from ~/.aery/agent/auth.json
 // ============================================================================
 
-const AUTH_PATH = join(homedir(), ".aery", "agent", "auth.json");
+const AUTH_PATH = join(homedir(), ".pi", "agent", "auth.json");
 
 type ApiKeyCredential = {
 	type: "api_key";
@@ -71,7 +71,6 @@ function saveAuthStorage(storage: AuthStorageData): void {
  * For API key credentials, returns the key directly.
  * For OAuth credentials, returns the access token (refreshing if expired and saving back).
  *
- * For google-gemini-cli and google-antigravity, returns JSON-encoded { token, projectId }
  */
 export async function resolveApiKey(provider: string): Promise<string | undefined> {
 	const storage = loadAuthStorage();
@@ -115,7 +114,7 @@ export function hasAuthForProvider(provider: string): boolean {
 }
 
 /** Path to the real pi agent config directory */
-export const AERY_AGENT_DIR = join(homedir(), ".aery", "agent");
+export const AERY_AGENT_DIR = join(homedir(), ".pi", "agent");
 
 /**
  * Get an AuthStorage instance backed by ~/.aery/agent/auth.json
@@ -233,7 +232,7 @@ export function createTestResourceLoader(options: CreateTestResourceLoaderOption
  * Use this for e2e tests that need real LLM calls.
  */
 export function createTestSession(options: TestSessionOptions = {}): TestSessionContext {
-	const tempDir = join(tmpdir(), `aery-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+	const tempDir = join(tmpdir(), `pi-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 	mkdirSync(tempDir, { recursive: true });
 
 	const model = getModel("anthropic", "claude-sonnet-4-5")!;
