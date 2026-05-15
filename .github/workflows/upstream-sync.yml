@@ -203,6 +203,30 @@ jobs:
               packages/tui/src/tui.ts \
               packages/coding-agent/package.json \
               2>/dev/null || true
+            node -e "
+              const fs = require('fs');
+              const path = 'packages/coding-agent/src/core/extensions/loader.ts';
+              const lines = fs.readFileSync(path, 'utf-8').split('\n');
+              const out = [];
+              const seen = new Set();
+              let inAliases = false;
+              for (const line of lines) {
+                if (line.includes('_aliases = {')) {
+                  inAliases = true;
+                  seen.clear();
+                }
+                if (inAliases) {
+                  const match = line.match(/^(\s*)(\"[^\"]+\"|typebox):/);
+                  if (match) {
+                    if (seen.has(match[2])) continue;
+                    seen.add(match[2]);
+                  }
+                }
+                out.push(line);
+                if (inAliases && line.trim() === '};') inAliases = false;
+              }
+              fs.writeFileSync(path, out.join('\n'));
+            "
 
             # Restore Aery-kept providers that upstream dropped.
             # cloudflare-workers-ai: upstream replaced with cloudflare-ai-gateway,
