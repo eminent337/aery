@@ -4,7 +4,12 @@
  * Shows how to replace or modify the default system prompt.
  */
 
-import { createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager } from "@eminent337/aery";
+import {
+	createAgentSession,
+	DefaultResourceLoader,
+	getAgentDir,
+	SessionManager,
+} from "@eminent337/aery";
 
 const cwd = process.cwd();
 const agentDir = getAgentDir();

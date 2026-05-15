@@ -1,5 +1,5 @@
-import type { AssistantMessage, Model } from "@eminent337/aery-ai";
 import type { AgentMessage } from "@eminent337/aery-core";
+import type { AssistantMessage, Model } from "@eminent337/aery-ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type CompactionPreparation, compact, generateSummary } from "../src/core/compaction/index.js";
 

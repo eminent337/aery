@@ -4,6 +4,7 @@
  * Replace everything - no discovery, explicit configuration.
  */
 
+import { getModel } from "@eminent337/aery-ai";
 import {
 	AuthStorage,
 	createAgentSession,
@@ -13,7 +14,6 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@eminent337/aery";
-import { getModel } from "@eminent337/aery-ai";
 
 // Custom auth storage location
 const authStorage = AuthStorage.create("/tmp/my-agent/auth.json");

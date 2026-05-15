@@ -2,8 +2,8 @@
  * Extension runner - executes extensions and manages their lifecycle.
  */
 
-import type { ImageContent, Model } from "@eminent337/aery-ai";
 import type { AgentMessage } from "@eminent337/aery-core";
+import type { ImageContent, Model } from "@eminent337/aery-ai";
 import type { KeyId } from "@eminent337/aery-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.js";
 import type { ResourceDiagnostic } from "../diagnostics.js";

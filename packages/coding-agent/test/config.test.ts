@@ -146,7 +146,9 @@ describe("detectInstallMethod", () => {
 		);
 
 		expect(detectInstallMethod()).toBe("pnpm");
-		expect(getUpdateInstruction("@eminent337/aery")).toBe("Run: pnpm install -g @eminent337/aery");
+		expect(getUpdateInstruction("@eminent337/aery")).toBe(
+			"Run: pnpm install -g @eminent337/aery",
+		);
 	});
 
 	test("does not self-update unknown wrapper installs", () => {
@@ -230,7 +232,9 @@ describe("detectInstallMethod", () => {
 		setExecPath(`${packageDir}\\dist\\cli.js`);
 
 		expect(detectInstallMethod()).toBe("npm");
-		expect(getUpdateInstruction("@eminent337/aery")).toBe("Run: npm install -g @eminent337/aery");
+		expect(getUpdateInstruction("@eminent337/aery")).toBe(
+			"Run: npm install -g @eminent337/aery",
+		);
 	});
 
 	test("self-updates bun global installs from bun pm bin", () => {
@@ -326,6 +330,8 @@ describe("detectInstallMethod", () => {
 		chmodSync(packageDir, 0o500);
 
 		expect(getSelfUpdateCommand("@eminent337/aery")).toBeUndefined();
-		expect(getSelfUpdateUnavailableInstruction("@eminent337/aery")).toContain("the install path is not writable");
+		expect(getSelfUpdateUnavailableInstruction("@eminent337/aery")).toContain(
+			"the install path is not writable",
+		);
 	});
 });

@@ -20,8 +20,8 @@
  *   pi -e ./tool-override.ts
  */
 
-import { type ExtensionAPI, getAgentDir, withFileMutationQueue } from "@eminent337/aery";
 import type { TextContent } from "@eminent337/aery-ai";
+import { type ExtensionAPI, getAgentDir, withFileMutationQueue } from "@eminent337/aery";
 import { constants, readFileSync } from "fs";
 import { access, appendFile, readFile } from "fs/promises";
 import { join, resolve } from "path";
