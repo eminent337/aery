@@ -229,13 +229,32 @@ jobs:
             git checkout HEAD -- \
               packages/ai/src/utils/oauth/oauth-page.ts \
               packages/ai/src/providers/aery-error-formatting.ts \
+              packages/ai/src/aery-cloudflare-workers-ai-models.txt \
               packages/coding-agent/src/cli/doctor.ts \
               packages/coding-agent/src/cli/capabilities.ts \
               packages/coding-agent/src/core/provider-setup-check.ts \
-              packages/coding-agent/src/migrations.ts \
-              packages/coding-agent/src/core/package-manager.ts \
               packages/coding-agent/src/core/auth-guidance.ts \
+              packages/coding-agent/src/core/custom-openai-compatible.ts \
+              packages/coding-agent/src/core/package-manager.ts \
+              packages/coding-agent/src/migrations.ts \
+              packages/coding-agent/src/utils/aery-user-agent.ts \
+              packages/coding-agent/src/utils/uuid.ts \
+              packages/coding-agent/src/modes/interactive/theme/aery.json \
+              packages/coding-agent/src/modes/interactive/theme/catppuccin-mocha.json \
+              packages/coding-agent/src/modes/interactive/theme/dracula.json \
+              packages/coding-agent/src/modes/interactive/theme/nord.json \
+              packages/coding-agent/src/modes/interactive/theme/tokyo-night.json \
+              packages/coding-agent/test/aery-user-agent.test.ts \
               packages/coding-agent/test/auth-guidance.test.ts \
+              packages/coding-agent/test/capabilities.test.ts \
+              packages/coding-agent/test/compaction-thinking-model.test.ts \
+              packages/coding-agent/test/core-extensions-migration.test.ts \
+              packages/coding-agent/test/custom-openai-compatible.test.ts \
+              packages/coding-agent/test/doctor.test.ts \
+              packages/coding-agent/test/login-dialog.test.ts \
+              packages/coding-agent/test/package-manager-cli.test.ts \
+              packages/coding-agent/test/provider-setup-check.test.ts \
+              packages/coding-agent/test/slash-commands.test.ts \
               2>/dev/null || true
             perl -pi -e 's|\.pi/|.aery/|g; s|"\.pi"|".aery"|g; s|`\.pi`|`.aery`|g; s|\(\.pi/|\(.aery/|g' \
               packages/coding-agent/src/config.ts \
