@@ -1,18 +1,18 @@
-# @earendil-works/pi-agent-core
+# @eminent337/aery-core
 
-Stateful agent with tool execution and event streaming. Built on `@earendil-works/pi-ai`.
+Stateful agent with tool execution and event streaming. Built on `@eminent337/aery-ai`.
 
 ## Installation
 
 ```bash
-npm install @earendil-works/pi-agent-core
+npm install @eminent337/aery-core
 ```
 
 ## Quick Start
 
 ```typescript
-import { Agent } from "@earendil-works/pi-agent-core";
-import { getModel } from "@earendil-works/pi-ai";
+import { Agent } from "@eminent337/aery-core";
+import { getModel } from "@eminent337/aery-ai";
 
 const agent = new Agent({
   initialState: {
@@ -355,7 +355,7 @@ Follow-up messages are checked only when there are no more tool calls and no ste
 Extend `AgentMessage` via declaration merging:
 
 ```typescript
-declare module "@earendil-works/pi-agent-core" {
+declare module "@eminent337/aery-core" {
   interface CustomAgentMessages {
     notification: { role: "notification"; text: string; timestamp: number };
   }
@@ -436,7 +436,7 @@ Return `terminate: true` from `execute()` or `afterToolCall` to hint that the ag
 For browser apps that proxy through a backend:
 
 ```typescript
-import { Agent, streamProxy } from "@earendil-works/pi-agent-core";
+import { Agent, streamProxy } from "@eminent337/aery-core";
 
 const agent = new Agent({
   streamFn: (model, context, options) =>
@@ -453,7 +453,7 @@ const agent = new Agent({
 For direct control without the Agent class:
 
 ```typescript
-import { agentLoop, agentLoopContinue } from "@earendil-works/pi-agent-core";
+import { agentLoop, agentLoopContinue } from "@eminent337/aery-core";
 
 const context: AgentContext = {
   systemPrompt: "You are helpful.",

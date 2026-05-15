@@ -5,7 +5,7 @@
  * from cwd and ~/.aery/agent. Model chosen from settings or first available.
  */
 
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
+import { createAgentSession } from "@eminent337/aery";
 
 const { session } = await createAgentSession();
 

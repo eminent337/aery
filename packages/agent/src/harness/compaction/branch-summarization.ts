@@ -5,8 +5,8 @@
  * a summary of the branch being left so context isn't lost.
  */
 
-import type { Model } from "@earendil-works/pi-ai";
-import { completeSimple } from "@earendil-works/pi-ai";
+import type { Model } from "@eminent337/aery-ai";
+import { completeSimple } from "@eminent337/aery-ai";
 import type { AgentMessage } from "../../types.js";
 import {
 	convertToLlm,

@@ -5,7 +5,7 @@
 </p>
 <p align="center">
   <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
+  <a href="https://www.npmjs.com/package/@eminent337/aery"><img alt="npm" src="https://img.shields.io/npm/v/@eminent337/aery?style=flat-square" /></a>
 </p>
 <p align="center">
   <a href="https://eminent337.github.io">eminent337.github.io</a> domain graciously donated by
@@ -74,7 +74,7 @@ curl -fsSL https://eminent337.github.io/install.sh | sh
 Or with npm:
 
 ```bash
-npm install -g @earendil-works/pi-coding-agent
+npm install -g @eminent337/aery
 ```
 
 Authenticate with an API key:
@@ -434,7 +434,7 @@ See [docs/packages.md](docs/packages.md).
 ### SDK
 
 ```typescript
-import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
+import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@eminent337/aery";
 
 const authStorage = AuthStorage.create();
 const modelRegistry = ModelRegistry.create(authStorage);
@@ -648,6 +648,6 @@ MIT
 
 ## See Also
 
-- [@earendil-works/pi-ai](https://www.npmjs.com/package/@earendil-works/pi-ai): Core LLM toolkit
-- [@earendil-works/pi-agent-core](https://www.npmjs.com/package/@earendil-works/pi-agent-core): Agent framework
-- [@earendil-works/pi-tui](https://www.npmjs.com/package/@earendil-works/pi-tui): Terminal UI components
+- [@eminent337/aery-ai](https://www.npmjs.com/package/@eminent337/aery-ai): Core LLM toolkit
+- [@eminent337/aery-core](https://www.npmjs.com/package/@eminent337/aery-core): Agent framework
+- [@eminent337/aery-tui](https://www.npmjs.com/package/@eminent337/aery-tui): Terminal UI components

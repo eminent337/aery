@@ -269,7 +269,7 @@ export function getSelfUpdateUnavailableInstruction(
 ): string {
 	const method = detectInstallMethod();
 	if (method === "bun-binary") {
-		return `Download from: https://github.com/earendil-works/pi-mono/releases/latest`;
+		return `Download from: https://github.com/eminent337/aery/releases/latest`;
 	}
 	const command = getSelfUpdateCommandForMethod(method, packageName, updatePackageName, npmCommand);
 	if (command) {
@@ -417,7 +417,7 @@ interface PackageJson {
 const pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8")) as PackageJson;
 
 const aeryConfigName: string | undefined = pkg.aeryConfig?.name;
-export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
+export const PACKAGE_NAME: string = pkg.name || "@eminent337/aery";
 export const APP_NAME: string = aeryConfigName || "pi";
 export const APP_TITLE: string = aeryConfigName ? APP_NAME : "π";
 export const CONFIG_DIR_NAME: string = pkg.aeryConfig?.configDir || ".pi";

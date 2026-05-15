@@ -1,5 +1,5 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Text } from "@earendil-works/pi-tui";
+import type { AgentTool } from "@eminent337/aery-core";
+import { Text } from "@eminent337/aery-tui";
 import { existsSync, readdirSync, statSync } from "fs";
 import nodePath from "path";
 import { type Static, Type } from "typebox";

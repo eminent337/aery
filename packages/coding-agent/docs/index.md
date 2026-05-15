@@ -13,7 +13,7 @@ curl -fsSL https://eminent337.github.io/install.sh | sh
 Or alternatively with npm:
 
 ```bash
-npm install -g @earendil-works/pi-coding-agent
+npm install -g @eminent337/aery
 ```
 
 Then run it in a project directory:

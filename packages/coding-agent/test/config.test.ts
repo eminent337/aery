@@ -146,8 +146,8 @@ describe("detectInstallMethod", () => {
 		);
 
 		expect(detectInstallMethod()).toBe("pnpm");
-		expect(getUpdateInstruction("@earendil-works/pi-coding-agent")).toBe(
-			"Run: pnpm install -g @earendil-works/pi-coding-agent",
+		expect(getUpdateInstruction("@eminent337/aery")).toBe(
+			"Run: pnpm install -g @eminent337/aery",
 		);
 	});
 
@@ -155,22 +155,22 @@ describe("detectInstallMethod", () => {
 		setExecPath("/usr/local/bin/node");
 
 		expect(detectInstallMethod()).toBe("unknown");
-		expect(getSelfUpdateCommand("@earendil-works/pi-coding-agent")).toBeUndefined();
-		expect(getUpdateInstruction("@earendil-works/pi-coding-agent")).toBe(
-			"Update @earendil-works/pi-coding-agent using the package manager, wrapper, or source checkout that provides this installation.",
+		expect(getSelfUpdateCommand("@eminent337/aery")).toBeUndefined();
+		expect(getUpdateInstruction("@eminent337/aery")).toBe(
+			"Update @eminent337/aery using the package manager, wrapper, or source checkout that provides this installation.",
 		);
 	});
 
 	test("self-updates npm installs from custom prefixes", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent");
+		const command = getSelfUpdateCommand("@eminent337/aery");
 
 		expect(detectInstallMethod()).toBe("npm");
 		expect(command).toEqual({
 			command: "npm",
-			args: ["--prefix", prefix, "install", "-g", "@earendil-works/pi-coding-agent"],
-			display: `npm --prefix ${prefix} install -g @earendil-works/pi-coding-agent`,
+			args: ["--prefix", prefix, "install", "-g", "@eminent337/aery"],
+			display: `npm --prefix ${prefix} install -g @eminent337/aery`,
 		});
 	});
 
@@ -201,29 +201,29 @@ describe("detectInstallMethod", () => {
 	test("self-update respects configured npmCommand", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent", ["npm", "--prefix", prefix]);
+		const command = getSelfUpdateCommand("@eminent337/aery", ["npm", "--prefix", prefix]);
 
 		expect(command).toEqual({
 			command: "npm",
-			args: ["--prefix", prefix, "install", "-g", "@earendil-works/pi-coding-agent"],
-			display: `npm --prefix ${prefix} install -g @earendil-works/pi-coding-agent`,
+			args: ["--prefix", prefix, "install", "-g", "@eminent337/aery"],
+			display: `npm --prefix ${prefix} install -g @eminent337/aery`,
 		});
 	});
 
 	test("self-update treats empty npmCommand as unset", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent", []);
+		const command = getSelfUpdateCommand("@eminent337/aery", []);
 
-		expect(command?.args).toEqual(["--prefix", prefix, "install", "-g", "@earendil-works/pi-coding-agent"]);
+		expect(command?.args).toEqual(["--prefix", prefix, "install", "-g", "@eminent337/aery"]);
 	});
 
 	test("quotes npm self-update display paths", () => {
 		const { prefix } = createNpmPrefixInstall("pi prefix ");
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent");
+		const command = getSelfUpdateCommand("@eminent337/aery");
 
-		expect(command?.display).toBe(`npm --prefix "${prefix}" install -g @earendil-works/pi-coding-agent`);
+		expect(command?.display).toBe(`npm --prefix "${prefix}" install -g @eminent337/aery`);
 	});
 
 	test("does not infer Windows npm custom prefixes from package paths", () => {
@@ -232,21 +232,21 @@ describe("detectInstallMethod", () => {
 		setExecPath(`${packageDir}\\dist\\cli.js`);
 
 		expect(detectInstallMethod()).toBe("npm");
-		expect(getUpdateInstruction("@earendil-works/pi-coding-agent")).toBe(
-			"Run: npm install -g @earendil-works/pi-coding-agent",
+		expect(getUpdateInstruction("@eminent337/aery")).toBe(
+			"Run: npm install -g @eminent337/aery",
 		);
 	});
 
 	test("self-updates bun global installs from bun pm bin", () => {
 		createBunGlobalInstall();
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent");
+		const command = getSelfUpdateCommand("@eminent337/aery");
 
 		expect(detectInstallMethod()).toBe("bun");
 		expect(command).toEqual({
 			command: "bun",
-			args: ["install", "-g", "@earendil-works/pi-coding-agent"],
-			display: "bun install -g @earendil-works/pi-coding-agent",
+			args: ["install", "-g", "@eminent337/aery"],
+			display: "bun install -g @eminent337/aery",
 		});
 	});
 
@@ -329,8 +329,8 @@ describe("detectInstallMethod", () => {
 		const { packageDir } = createNpmPrefixInstall();
 		chmodSync(packageDir, 0o500);
 
-		expect(getSelfUpdateCommand("@earendil-works/pi-coding-agent")).toBeUndefined();
-		expect(getSelfUpdateUnavailableInstruction("@earendil-works/pi-coding-agent")).toContain(
+		expect(getSelfUpdateCommand("@eminent337/aery")).toBeUndefined();
+		expect(getSelfUpdateUnavailableInstruction("@eminent337/aery")).toContain(
 			"the install path is not writable",
 		);
 	});
