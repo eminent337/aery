@@ -420,7 +420,7 @@ const aeryConfigName: string | undefined = pkg.aeryConfig?.name;
 export const PACKAGE_NAME: string = pkg.name || "@eminent337/aery";
 export const APP_NAME: string = aeryConfigName || "pi";
 export const APP_TITLE: string = aeryConfigName ? APP_NAME : "π";
-export const CONFIG_DIR_NAME: string = pkg.aeryConfig?.configDir || ".pi";
+export const CONFIG_DIR_NAME: string = pkg.aeryConfig?.configDir || ".aery";
 export const VERSION: string = pkg.version || "0.0.0";
 
 // e.g., AERY_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR

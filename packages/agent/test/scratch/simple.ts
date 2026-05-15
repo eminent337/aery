@@ -23,14 +23,14 @@ const { skills: sourcedSkills } = await loadSourcedSkills<Source, SourcedSkill>(
 	env,
 	[
 		source("project", join(env.cwd, ".aery/skills")),
-		source("user", join(homedir(), ".pi/agent/skills")),
+		source("user", join(homedir(), ".aery/agent/skills")),
 		source("path", join(env.cwd, "../../../pi-skills")),
 	],
 	(skill, source) => ({ ...skill, source }),
 );
 const { promptTemplates: sourcedPromptTemplates } = await loadSourcedPromptTemplates<Source, SourcedPromptTemplate>(
 	env,
-	[source("project", join(env.cwd, ".aery/prompts")), source("user", join(homedir(), ".pi/agent/prompts"))],
+	[source("project", join(env.cwd, ".aery/prompts")), source("user", join(homedir(), ".aery/agent/prompts"))],
 	(promptTemplate, source) => ({ ...promptTemplate, source }),
 );
 

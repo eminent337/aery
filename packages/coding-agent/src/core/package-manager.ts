@@ -2182,7 +2182,7 @@ export class DefaultPackageManager implements PackageManager {
 			}
 		};
 
-		// Project extensions from .pi/
+		// Project extensions from .aery/
 		addResources(
 			"extensions",
 			collectAutoExtensionEntries(projectDirs.extensions),
@@ -2191,7 +2191,7 @@ export class DefaultPackageManager implements PackageManager {
 			projectBaseDir,
 		);
 
-		// Project skills from .pi/
+		// Project skills from .aery/
 		addResources(
 			"skills",
 			collectAutoSkillEntries(projectDirs.skills, "pi"),

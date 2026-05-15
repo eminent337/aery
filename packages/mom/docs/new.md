@@ -762,7 +762,7 @@ async function loadCustomTools(dataDir: string): Promise<LoadedTool[]> {
   // Discover tool directories
   const toolDirs = [
     path.join(dataDir, "tools"),
-    path.join(os.homedir(), ".pi", "mom", "tools"),
+    path.join(os.homedir(), ".aery", "mom", "tools"),
   ];
   
   for (const dir of toolDirs) {
