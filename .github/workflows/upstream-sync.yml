@@ -233,6 +233,9 @@ jobs:
               packages/coding-agent/src/cli/capabilities.ts \
               packages/coding-agent/src/core/provider-setup-check.ts \
               packages/coding-agent/src/migrations.ts \
+              packages/coding-agent/src/core/package-manager.ts \
+              packages/coding-agent/src/core/auth-guidance.ts \
+              packages/coding-agent/test/auth-guidance.test.ts \
               2>/dev/null || true
             perl -pi -e 's|\.pi/|.aery/|g; s|"\.pi"|".aery"|g; s|`\.pi`|`.aery`|g; s|\(\.pi/|\(.aery/|g' \
               packages/coding-agent/src/config.ts \
