@@ -90,6 +90,20 @@ describe("custom OpenAI-compatible provider setup", () => {
 		expect(readModelsJson().providers["custom-api-example-com-v1"].models[0].id).toBe("new-model");
 	});
 
+	test("writes the requested API type for non-OpenAI-compatible gateway routes", () => {
+		const saved = saveCustomOpenAICompatibleProvider({
+			modelsPath,
+			baseUrl: "https://aery-gateway.example/v1/anthropic",
+			modelId: "claude-sonnet-4-5",
+			api: "anthropic-messages",
+		});
+
+		const provider = readModelsJson().providers[saved.providerId];
+		expect(provider.api).toBe("anthropic-messages");
+		expect(provider.baseUrl).toBe("https://aery-gateway.example/v1/anthropic");
+		expect(provider.models[0].id).toBe("claude-sonnet-4-5");
+	});
+
 	test("removes legacy blank custom provider scaffold when saving a valid provider", () => {
 		writeFileSync(
 			modelsPath,

@@ -21,6 +21,7 @@ export interface SaveCustomOpenAICompatibleProviderInput {
 	modelsPath: string;
 	baseUrl: string;
 	modelId: string;
+	api?: string;
 }
 
 export interface SavedCustomOpenAICompatibleProvider {
@@ -91,11 +92,11 @@ function loadModelsConfig(modelsPath: string): JsonObject {
 	}
 }
 
-function getProviderIdForBaseUrl(existingProviders: Record<string, unknown>, baseUrl: string): string {
+function getProviderIdForBaseUrl(existingProviders: Record<string, unknown>, baseUrl: string, api: string): string {
 	for (const [providerId, providerValue] of Object.entries(existingProviders)) {
 		if (!providerValue || typeof providerValue !== "object" || Array.isArray(providerValue)) continue;
 		const provider = providerValue as { baseUrl?: unknown; api?: unknown };
-		if (provider.baseUrl === baseUrl && provider.api === "openai-completions") {
+		if (provider.baseUrl === baseUrl && provider.api === api) {
 			return providerId;
 		}
 	}
@@ -116,17 +117,18 @@ export function saveCustomOpenAICompatibleProvider(
 ): SavedCustomOpenAICompatibleProvider {
 	const baseUrl = input.baseUrl.trim().replace(/\/+$/g, "");
 	const modelId = input.modelId.trim();
+	const api = input.api?.trim() || "openai-completions";
 	if (!baseUrl) throw new Error("Base URL cannot be empty.");
 	if (!modelId) throw new Error("Model ID cannot be empty.");
 
 	const config = loadModelsConfig(input.modelsPath);
 	const providers = config.providers as Record<string, unknown>;
 	removeLegacyBlankCustomOpenAICompatibleProviders(providers);
-	const providerId = getProviderIdForBaseUrl(providers, baseUrl);
+	const providerId = getProviderIdForBaseUrl(providers, baseUrl, api);
 
 	providers[providerId] = {
 		baseUrl,
-		api: "openai-completions",
+		api,
 		compat: DEFAULT_COMPAT,
 		models: [
 			{

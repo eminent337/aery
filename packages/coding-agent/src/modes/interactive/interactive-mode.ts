@@ -215,6 +215,11 @@ const API_KEY_LOGIN_PROVIDER_BLOCKLIST = new Set(["amazon-bedrock", "llama.cpp",
 const CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL = "Custom OpenAI-compatible";
 const AERY_GATEWAY_PROVIDER_ID = "__aery-gateway__";
 const AERY_GATEWAY_BASE_URL = "https://aery-gateway.eminent337.workers.dev/v1";
+const AERY_GATEWAY_PROVIDER_APIS: Record<string, string> = {
+	anthropic: "anthropic-messages",
+	"google-generative-ai": "google-generative-ai",
+	"openai-responses": "openai-responses",
+};
 
 export function isApiKeyLoginProvider(
 	providerId: string,
@@ -4738,6 +4743,7 @@ export class InteractiveMode {
 				modelsPath: getModelsPath(),
 				baseUrl,
 				modelId,
+				api: AERY_GATEWAY_PROVIDER_APIS[provider] ?? "openai-completions",
 			});
 			this.session.modelRegistry.authStorage.set(saved.providerId, { type: "api_key", key: aeryKey });
 			this.session.modelRegistry.refresh();
