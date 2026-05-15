@@ -202,6 +202,28 @@ jobs:
               done
             fi
 
+            # Explicitly remove known upstream-deleted files that cause type errors.
+            # These were removed in the harness refactor and Gemini CLI removal.
+            for stale in \
+              packages/agent/test/harness/factory.test.ts \
+              packages/agent/test/harness/resource-expansion.test.ts \
+              packages/agent/src/harness/execution-env.ts \
+              packages/agent/src/harness/factory.ts \
+              packages/agent/src/harness/session/repo/jsonl.ts \
+              packages/agent/src/harness/session/repo/memory.ts \
+              packages/agent/src/harness/session/repo/shared.ts \
+              packages/agent/src/harness/session/storage/jsonl.ts \
+              packages/agent/src/harness/session/storage/memory.ts \
+              packages/ai/src/providers/google-gemini-cli.ts \
+              packages/ai/src/utils/oauth/google-antigravity.ts \
+              packages/ai/src/utils/oauth/google-gemini-cli.ts \
+              packages/ai/test/google-gemini-cli-claude-thinking-header.test.ts \
+              packages/ai/test/google-gemini-cli-empty-stream.test.ts \
+              packages/ai/test/google-gemini-cli-retry-delay.test.ts \
+              packages/ai/test/google-tool-call-missing-args.test.ts; do
+              [ -f "$stale" ] && git rm -f "$stale" 2>/dev/null || true
+            done
+
             # Reapply Aery-owned branding and config path guards after taking
             # upstream package files. These are intentionally not upstreamed.
             git checkout HEAD -- \
