@@ -335,6 +335,9 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm run check
+          # Commit any biome auto-fixes so git diff --exit-code passes
+          git add -A
+          git diff --cached --quiet || git commit -m "chore(upstream-clean): apply biome formatting fixes"
           git diff --exit-code
 
       - name: Bump version and publish to npm
