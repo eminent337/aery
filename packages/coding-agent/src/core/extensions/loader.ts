@@ -464,6 +464,9 @@ function readAeryManifest(packageJsonPath: string): AeryManifest | null {
 		if (pkg.aery && typeof pkg.aery === "object") {
 			return pkg.aery as AeryManifest;
 		}
+		if (pkg.pi && typeof pkg.pi === "object") {
+			return pkg.pi as AeryManifest;
+		}
 		return null;
 	} catch {
 		return null;

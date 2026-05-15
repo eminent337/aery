@@ -517,8 +517,8 @@ function collectAutoThemeEntries(dir: string): string[] {
 function readAeryManifestFile(packageJsonPath: string): AeryManifest | null {
 	try {
 		const content = readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content) as { aery?: AeryManifest };
-		return pkg.aery ?? null;
+		const pkg = JSON.parse(content) as { aery?: AeryManifest; pi?: AeryManifest };
+		return pkg.aery ?? pkg.pi ?? null;
 	} catch {
 		return null;
 	}
@@ -2051,8 +2051,8 @@ export class DefaultPackageManager implements PackageManager {
 
 		try {
 			const content = readFileSync(packageJsonPath, "utf-8");
-			const pkg = JSON.parse(content) as { aery?: AeryManifest };
-			return pkg.aery ?? null;
+			const pkg = JSON.parse(content) as { aery?: AeryManifest; pi?: AeryManifest };
+			return pkg.aery ?? pkg.pi ?? null;
 		} catch {
 			return null;
 		}
