@@ -1,12 +1,16 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.js";
 
-const cliPath = resolve(__dirname, "../src/cli.ts");
-const tsxPath = resolve(__dirname, "../../../node_modules/tsx/dist/cli.mjs");
+const testDir = realpathSync(__dirname);
+const packageRoot = resolve(testDir, "..");
+const repoRoot = resolve(packageRoot, "../..");
+const cliPath = resolve(packageRoot, "src/cli.ts");
+const tsxPath = resolve(repoRoot, "node_modules/tsx/dist/cli.mjs");
+const tsconfigPath = resolve(repoRoot, "tsconfig.json");
 
 const tempDirs: string[] = [];
 
@@ -36,7 +40,7 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
 				...process.env,
 				[ENV_AGENT_DIR]: agentDir,
 				AERY_OFFLINE: "1",
-				TSX_TSCONFIG_PATH: resolve(__dirname, "../../../tsconfig.json"),
+				TSX_TSCONFIG_PATH: tsconfigPath,
 			},
 			stdio: ["ignore", "pipe", "pipe"],
 		});
@@ -60,7 +64,7 @@ describe("stdout cleanliness in non-interactive modes", () => {
 	it("keeps stdout empty for --mode json --help", async () => {
 		const result = await runCli(["--mode", "json", "--help"]);
 
-		expect(result.code).toBe(0);
+		expect(result.code, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("Usage:");
 	});
@@ -68,7 +72,7 @@ describe("stdout cleanliness in non-interactive modes", () => {
 	it("keeps stdout empty for -p --help", async () => {
 		const result = await runCli(["-p", "--help"]);
 
-		expect(result.code).toBe(0);
+		expect(result.code, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("Usage:");
 	});
