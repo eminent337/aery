@@ -351,15 +351,19 @@ jobs:
           npm install --ignore-scripts 2>/dev/null || true
 
           # Bump and publish aery-ai
+          AI_NPM=$(npm view @eminent337/aery-ai version 2>/dev/null || echo "0.0.0")
           AI_CUR=$(node -p "require('./packages/ai/package.json').version")
-          IFS='.' read -r A B C <<< "$AI_CUR"; AI_NEW="$A.$B.$((C+1))"
+          AI_BASE=$(node -e "const a='$AI_NPM'.split('.').map(Number),b='$AI_CUR'.split('.').map(Number);const r=a[0]>b[0]||a[0]===b[0]&&a[1]>b[1]||a[0]===b[0]&&a[1]===b[1]&&a[2]>=b[2]?'$AI_NPM':'$AI_CUR';console.log(r)")
+          IFS='.' read -r A B C <<< "$AI_BASE"; AI_NEW="$A.$B.$((C+1))"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/ai/package.json'));p.version='$AI_NEW';fs.writeFileSync('./packages/ai/package.json',JSON.stringify(p,null,2));"
           (cd packages/ai && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
           npm publish ./packages/ai --access public --ignore-scripts --tag latest || true
 
           # Bump and publish aery-core
+          CORE_NPM=$(npm view @eminent337/aery-core version 2>/dev/null || echo "0.0.0")
           CORE_CUR=$(node -p "require('./packages/agent/package.json').version")
-          IFS='.' read -r A B C <<< "$CORE_CUR"; CORE_NEW="$A.$B.$((C+1))"
+          CORE_BASE=$(node -e "const a='$CORE_NPM'.split('.').map(Number),b='$CORE_CUR'.split('.').map(Number);const r=a[0]>b[0]||a[0]===b[0]&&a[1]>b[1]||a[0]===b[0]&&a[1]===b[1]&&a[2]>=b[2]?'$CORE_NPM':'$CORE_CUR';console.log(r)")
+          IFS='.' read -r A B C <<< "$CORE_BASE"; CORE_NEW="$A.$B.$((C+1))"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/agent/package.json'));p.version='$CORE_NEW';fs.writeFileSync('./packages/agent/package.json',JSON.stringify(p,null,2));"
           (cd packages/agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
           npm publish ./packages/agent --access public --ignore-scripts --tag latest || true
@@ -384,7 +388,10 @@ jobs:
           (cd packages/coding-agent && npm run copy-assets 2>/dev/null || true)
 
           # Bump and publish coding-agent
-          CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
+          NPM_VERSION=$(npm view @eminent337/aery version 2>/dev/null || echo "0.0.0")
+          LOCAL_VERSION=$(node -p "require('./packages/coding-agent/package.json').version")
+          # Use whichever is higher as the base to avoid 403 on re-publish
+          CURRENT=$(node -e "const a='$NPM_VERSION'.split('.').map(Number),b='$LOCAL_VERSION'.split('.').map(Number);const gt=(x,y)=>x[0]>y[0]||x[0]===y[0]&&x[1]>y[1]||x[0]===y[0]&&x[1]===y[1]&&x[2]>y[2];console.log(gt(a,b)?'$NPM_VERSION':'$LOCAL_VERSION')")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$NEW_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,2));"
