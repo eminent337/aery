@@ -148,6 +148,7 @@ jobs:
               -e 's|pi-test-model|aery-test-model|g' \
               -e 's|pi-test-prompts|aery-test-prompts|g' \
               -e 's|\.pi/extensions|.aery/extensions|g' \
+              -e 's|\.pi/|.aery/|g' \
               -e 's|\.pi/skills|.aery/skills|g' \
               -e 's|\.pi/prompts|.aery/prompts|g' \
               -e 's|\.pi/themes|.aery/themes|g' \
@@ -162,6 +163,8 @@ jobs:
               -e 's|\.pi/presets|.aery/presets|g' \
               -e 's|\.pi/sandbox|.aery/sandbox|g' \
               -e 's|\.pi/config|.aery/config|g' \
+              -e 's|"\.pi"|".aery"|g' \
+              -e "s|'\\.pi'|'.aery'|g" \
               -e 's|~/\.pi\b|~/.aery|g' \
               2>/dev/null || true
 
@@ -189,6 +192,17 @@ jobs:
             echo "No upstream package changes to apply."
           else
             git checkout upstream-clean -- "${SYNC_PATHS[@]}"
+
+            # Reapply Aery-owned branding and config path guards after taking
+            # upstream package files. These are intentionally not upstreamed.
+            git checkout HEAD -- packages/ai/src/utils/oauth/oauth-page.ts || true
+            perl -pi -e 's|\.pi/|.aery/|g; s|"\.pi"|".aery"|g; s|`\.pi`|`.aery`|g; s|\(\.pi/|\(.aery/|g' \
+              packages/coding-agent/src/config.ts \
+              packages/coding-agent/src/core/package-manager.ts \
+              packages/coding-agent/src/modes/interactive/components/config-selector.ts \
+              packages/tui/src/tui.ts \
+              packages/coding-agent/package.json \
+              2>/dev/null || true
 
             # Restore Aery-kept providers that upstream dropped.
             # cloudflare-workers-ai: upstream replaced with cloudflare-ai-gateway,
