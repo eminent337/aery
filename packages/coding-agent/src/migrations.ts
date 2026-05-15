@@ -332,7 +332,7 @@ function migrateToolsToBin(): void {
 
 /**
  * Check for deprecated hooks/ and tools/ directories.
- * Note: tools/ may contain fd/rg binaries extracted by aery, so only warn if it has other files.
+ * Note: tools/ may contain fd/rg binaries extracted by pi, so only warn if it has other files.
  */
 function checkDeprecatedExtensionDirs(baseDir: string, label: string): string[] {
 	const hooksDir = join(baseDir, "hooks");
@@ -387,32 +387,6 @@ function migrateExtensionSystem(cwd: string): string[] {
 }
 
 /**
- * Print deprecation warnings and wait for keypress.
- */
-export async function showDeprecationWarnings(warnings: string[]): Promise<void> {
-	if (warnings.length === 0) return;
-
-	for (const warning of warnings) {
-		console.log(chalk.yellow(`Warning: ${warning}`));
-	}
-	console.log(chalk.yellow(`\nMove your extensions to the extensions/ directory.`));
-	console.log(chalk.yellow(`Migration guide: ${MIGRATION_GUIDE_URL}`));
-	console.log(chalk.yellow(`Documentation: ${EXTENSIONS_DOC_URL}`));
-	console.log(chalk.dim(`\nPress any key to continue...`));
-
-	await new Promise<void>((resolve) => {
-		process.stdin.setRawMode?.(true);
-		process.stdin.resume();
-		process.stdin.once("data", () => {
-			process.stdin.setRawMode?.(false);
-			process.stdin.pause();
-			resolve();
-		});
-	});
-	console.log();
-}
-
-/**
  * Wire any missing core extensions for existing users who already have aery-extensions installed.
  * Runs on every startup but is idempotent — only adds extensions not already in settings.
  */
@@ -442,7 +416,6 @@ export function ensureCoreExtensions(): CoreExtensionEnsureResult {
 	const repoPath = join(agentDir, "git", "github.com", "eminent337", "aery-extensions");
 	const settingsPath = join(agentDir, "settings.json");
 
-	// Clone if missing
 	if (!existsSync(repoPath)) {
 		try {
 			mkdirSync(join(agentDir, "git", "github.com", "eminent337"), { recursive: true });
@@ -452,7 +425,6 @@ export function ensureCoreExtensions(): CoreExtensionEnsureResult {
 			});
 			return { ...wireCoreExtensions(repoPath, settingsPath), status: "installed", repoPath, settingsPath };
 		} catch (error) {
-			// Network unavailable or git missing
 			return {
 				...diagnoseCoreExtensions(repoPath, settingsPath),
 				added: [],
@@ -464,7 +436,6 @@ export function ensureCoreExtensions(): CoreExtensionEnsureResult {
 		}
 	}
 
-	// Repo exists — pull updates in the background (fire and forget)
 	try {
 		spawnSync("git", ["-C", repoPath, "pull", "--ff-only", "--quiet"], {
 			timeout: 10000,
@@ -474,7 +445,6 @@ export function ensureCoreExtensions(): CoreExtensionEnsureResult {
 		// Ignore pull failures — offline or git missing
 	}
 
-	// Wire any newly added core extensions
 	try {
 		return { ...wireCoreExtensions(repoPath, settingsPath), status: "ok", repoPath, settingsPath };
 	} catch (error) {
@@ -507,6 +477,32 @@ export function formatCoreExtensionAttentionMessage(result: CoreExtensionEnsureR
 	}
 
 	return undefined;
+}
+
+/**
+ * Print deprecation warnings and wait for keypress.
+ */
+export async function showDeprecationWarnings(warnings: string[]): Promise<void> {
+	if (warnings.length === 0) return;
+
+	for (const warning of warnings) {
+		console.log(chalk.yellow(`Warning: ${warning}`));
+	}
+	console.log(chalk.yellow(`\nMove your extensions to the extensions/ directory.`));
+	console.log(chalk.yellow(`Migration guide: ${MIGRATION_GUIDE_URL}`));
+	console.log(chalk.yellow(`Documentation: ${EXTENSIONS_DOC_URL}`));
+	console.log(chalk.dim(`\nPress any key to continue...`));
+
+	await new Promise<void>((resolve) => {
+		process.stdin.setRawMode?.(true);
+		process.stdin.resume();
+		process.stdin.once("data", () => {
+			process.stdin.setRawMode?.(false);
+			process.stdin.pause();
+			resolve();
+		});
+	});
+	console.log();
 }
 
 /**

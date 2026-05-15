@@ -1,16 +1,12 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.js";
 
-const testDir = realpathSync(__dirname);
-const packageRoot = resolve(testDir, "..");
-const repoRoot = resolve(packageRoot, "../..");
-const cliPath = resolve(packageRoot, "src/cli.ts");
-const tsxPath = resolve(repoRoot, "node_modules/tsx/dist/cli.mjs");
-const tsconfigPath = resolve(repoRoot, "tsconfig.json");
+const cliPath = resolve(__dirname, "../src/cli.ts");
+const tsxPath = resolve(__dirname, "../../../node_modules/tsx/dist/cli.mjs");
 
 const tempDirs: string[] = [];
 
@@ -30,8 +26,33 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
 	const tempRoot = createTempDir();
 	const agentDir = join(tempRoot, "agent");
 	const projectDir = join(tempRoot, "project");
+	const projectConfigDir = join(projectDir, ".aery");
 	mkdirSync(agentDir, { recursive: true });
-	mkdirSync(projectDir, { recursive: true });
+	mkdirSync(projectConfigDir, { recursive: true });
+
+	const fakeNpmPath = join(tempRoot, "fake-npm.mjs");
+	writeFileSync(
+		fakeNpmPath,
+		[
+			'console.log("changed 1 package in 471ms");',
+			'console.log("found 0 vulnerabilities");',
+			"process.exit(0);",
+		].join("\n"),
+		"utf-8",
+	);
+
+	writeFileSync(
+		join(projectConfigDir, "settings.json"),
+		JSON.stringify(
+			{
+				packages: ["npm:fake-package"],
+				npmCommand: [process.execPath, fakeNpmPath],
+			},
+			null,
+			2,
+		),
+		"utf-8",
+	);
 
 	return await new Promise((resolvePromise, reject) => {
 		const child = spawn(process.execPath, [tsxPath, cliPath, ...args], {
@@ -39,8 +60,7 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
 			env: {
 				...process.env,
 				[ENV_AGENT_DIR]: agentDir,
-				AERY_OFFLINE: "1",
-				TSX_TSCONFIG_PATH: tsconfigPath,
+				TSX_TSCONFIG_PATH: resolve(__dirname, "../../../tsconfig.json"),
 			},
 			stdio: ["ignore", "pipe", "pipe"],
 		});
@@ -61,19 +81,23 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
 }
 
 describe("stdout cleanliness in non-interactive modes", () => {
-	it("keeps stdout empty for --mode json --help", async () => {
+	it("keeps stdout empty for --mode json --help while routing startup chatter to stderr", async () => {
 		const result = await runCli(["--mode", "json", "--help"]);
 
-		expect(result.code, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+		expect(result.code).toBe(0);
 		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("changed 1 package in 471ms");
+		expect(result.stderr).toContain("found 0 vulnerabilities");
 		expect(result.stderr).toContain("Usage:");
 	});
 
-	it("keeps stdout empty for -p --help", async () => {
+	it("keeps stdout empty for -p --help while routing startup chatter to stderr", async () => {
 		const result = await runCli(["-p", "--help"]);
 
-		expect(result.code, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+		expect(result.code).toBe(0);
 		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("changed 1 package in 471ms");
+		expect(result.stderr).toContain("found 0 vulnerabilities");
 		expect(result.stderr).toContain("Usage:");
 	});
 });

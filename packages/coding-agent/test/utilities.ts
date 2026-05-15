@@ -29,7 +29,7 @@ export const API_KEY = process.env.ANTHROPIC_OAUTH_TOKEN || process.env.ANTHROPI
 // OAuth API key resolution from ~/.aery/agent/auth.json
 // ============================================================================
 
-const AUTH_PATH = join(homedir(), ".pi", "agent", "auth.json");
+const AUTH_PATH = join(homedir(), ".aery", "agent", "auth.json");
 
 type ApiKeyCredential = {
 	type: "api_key";
@@ -114,7 +114,7 @@ export function hasAuthForProvider(provider: string): boolean {
 }
 
 /** Path to the real pi agent config directory */
-export const AERY_AGENT_DIR = join(homedir(), ".pi", "agent");
+export const AERY_AGENT_DIR = join(homedir(), ".aery", "agent");
 
 /**
  * Get an AuthStorage instance backed by ~/.aery/agent/auth.json

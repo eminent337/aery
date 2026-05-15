@@ -2,7 +2,7 @@
  * Credential storage for API keys and OAuth tokens.
  * Handles loading, saving, and refreshing credentials from auth.json.
  *
- * Uses file locking to prevent race conditions when multiple aery instances
+ * Uses file locking to prevent race conditions when multiple pi instances
  * try to refresh tokens simultaneously.
  */
 
@@ -23,7 +23,6 @@ import { resolveConfigValue } from "./resolve-config-value.js";
 export type ApiKeyCredential = {
 	type: "api_key";
 	key: string;
-	accountId?: string;
 };
 
 export type OAuthCredential = {
@@ -396,7 +395,7 @@ export class AuthStorage {
 
 	/**
 	 * Refresh OAuth token with backend locking to prevent race conditions.
-	 * Multiple aery instances may try to refresh simultaneously when tokens expire.
+	 * Multiple pi instances may try to refresh simultaneously when tokens expire.
 	 */
 	private async refreshOAuthTokenWithLock(
 		providerId: OAuthProviderId,

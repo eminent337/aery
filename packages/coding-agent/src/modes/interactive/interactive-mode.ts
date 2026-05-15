@@ -7,8 +7,15 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AssistantMessage, ImageContent, Message, Model, OAuthProviderId } from "@eminent337/aery-ai";
-import { getProviders } from "@eminent337/aery-ai";
+import {
+	type AssistantMessage,
+	getProviders,
+	type ImageContent,
+	type Message,
+	type Model,
+	type OAuthProviderId,
+	type OAuthSelectPrompt,
+} from "@eminent337/aery-ai";
 import type { AgentMessage } from "@eminent337/aery-core";
 import type {
 	AutocompleteItem,
@@ -26,6 +33,8 @@ import {
 	type Component,
 	Container,
 	fuzzyFilter,
+	getCapabilities,
+	hyperlink,
 	Loader,
 	type LoaderIndicatorOptions,
 	Markdown,
@@ -39,24 +48,18 @@ import {
 	visibleWidth,
 } from "@eminent337/aery-tui";
 import { spawn, spawnSync } from "child_process";
-import { collectCapabilitiesReport, formatCapabilitiesReport } from "../../cli/capabilities.js";
-import { formatCurrentCoreExtensionsReport } from "../../cli/doctor.js";
 import {
 	APP_NAME,
+	APP_TITLE,
 	getAgentDir,
 	getAuthPath,
 	getDebugLogPath,
-	getModelsPath,
+	getDocsPath,
 	getShareViewerUrl,
-	getUpdateInstruction,
 	VERSION,
 } from "../../config.js";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.js";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.js";
-import {
-	CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
-	saveCustomOpenAICompatibleProvider,
-} from "../../core/custom-openai-compatible.js";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -72,7 +75,7 @@ import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.j
 import { createCompactionSummaryMessage } from "../../core/messages.js";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.js";
 import { DefaultPackageManager } from "../../core/package-manager.js";
-import { checkProviderSetup } from "../../core/provider-setup-check.js";
+import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.js";
 import type { ResourceDiagnostic } from "../../core/resource-loader.js";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.js";
 import { type SessionContext, SessionManager } from "../../core/session-manager.js";
@@ -80,11 +83,12 @@ import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
 import type { SourceInfo } from "../../core/source-info.js";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.js";
 import type { TruncationResult } from "../../core/tools/truncate.js";
-import { wireCoreExtensions } from "../../migrations.js";
 import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.js";
 import { copyToClipboard } from "../../utils/clipboard.js";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.js";
 import { parseGitUrl } from "../../utils/git.js";
+import { getCwdRelativePath } from "../../utils/paths.js";
+import { getPiUserAgent } from "../../utils/pi-user-agent.js";
 import { killTrackedDetachedChildren } from "../../utils/shell.js";
 import { ensureTool } from "../../utils/tools-manager.js";
 import { checkForNewPiVersion } from "../../utils/version-check.js";
@@ -104,7 +108,7 @@ import { ExtensionEditorComponent } from "./components/extension-editor.js";
 import { ExtensionInputComponent } from "./components/extension-input.js";
 import { ExtensionSelectorComponent } from "./components/extension-selector.js";
 import { FooterComponent } from "./components/footer.js";
-import { keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.js";
+import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.js";
 import { LoginDialogComponent } from "./components/login-dialog.js";
 import { ModelSelectorComponent } from "./components/model-selector.js";
 import { type AuthSelectorProvider, OAuthSelectorComponent } from "./components/oauth-selector.js";
@@ -188,51 +192,22 @@ function hasDefaultModelProvider(providerId: string): providerId is keyof typeof
 	return providerId in defaultModelPerProvider;
 }
 
-const API_KEY_PROVIDER_NAMES: Record<string, string> = {
-	anthropic: "Anthropic",
-	"azure-openai-responses": "Azure OpenAI Responses",
-	cerebras: "Cerebras",
-	"cloudflare-workers-ai": "Cloudflare Workers AI",
-	fireworks: "Fireworks",
-	google: "Google Gemini",
-	"google-vertex": "Google Vertex AI",
-	groq: "Groq",
-	huggingface: "Hugging Face",
-	"kimi-coding": "Kimi For Coding",
-	mistral: "Mistral",
-	minimax: "MiniMax",
-	"minimax-cn": "MiniMax (China)",
-	opencode: "OpenCode Zen",
-	"opencode-go": "OpenCode Go",
-	openai: "OpenAI",
-	openrouter: "OpenRouter",
-	"vercel-ai-gateway": "Vercel AI Gateway",
-	xai: "xAI",
-	zai: "ZAI",
-};
+const BEDROCK_PROVIDER_ID = "amazon-bedrock";
 
-const API_KEY_LOGIN_PROVIDER_BLOCKLIST = new Set(["amazon-bedrock", "llama.cpp", "lmstudio", "ollama"]);
-const CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL = "Custom OpenAI-compatible";
-const AERY_GATEWAY_PROVIDER_ID = "__aery-gateway__";
-const AERY_GATEWAY_BASE_URL = "https://aery-gateway.eminent337.workers.dev/v1";
-const AERY_GATEWAY_PROVIDER_APIS: Record<string, string> = {
-	anthropic: "anthropic-messages",
-	"google-generative-ai": "google-generative-ai",
-	"openai-responses": "openai-responses",
-};
+const BUILT_IN_MODEL_PROVIDERS = new Set<string>(getProviders());
 
 export function isApiKeyLoginProvider(
 	providerId: string,
 	oauthProviderIds: ReadonlySet<string>,
-	builtInProviderIds: ReadonlySet<string> = new Set(getProviders()),
+	builtInProviderIds: ReadonlySet<string> = BUILT_IN_MODEL_PROVIDERS,
 ): boolean {
-	if (API_KEY_PROVIDER_NAMES[providerId]) return true;
-	if (builtInProviderIds.has(providerId)) return false;
+	if (BUILT_IN_PROVIDER_DISPLAY_NAMES[providerId]) {
+		return true;
+	}
+	if (builtInProviderIds.has(providerId)) {
+		return false;
+	}
 	return !oauthProviderIds.has(providerId);
-}
-
-export function getApiKeyProviderDisplayName(providerId: string): string {
-	return API_KEY_PROVIDER_NAMES[providerId] ?? providerId;
 }
 
 /**
@@ -261,7 +236,7 @@ export class InteractiveMode {
 	private statusContainer: Container;
 	private defaultEditor: CustomEditor;
 	private editor: EditorComponent;
-	private customEditorFactory: EditorFactory | undefined;
+	private editorComponentFactory: EditorFactory | undefined;
 	private autocompleteProvider: AutocompleteProvider | undefined;
 	private autocompleteProviderWrappers: AutocompleteProviderFactory[] = [];
 	private fdPath: string | undefined;
@@ -641,7 +616,7 @@ export class InteractiveMode {
 			);
 			const onboarding = theme.fg(
 				"dim",
-				`Aery can explain its own features and look up its docs. Ask it how to use or extend Aery.`,
+				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
 			);
 			this.builtInHeader = new ExpandableText(
 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
@@ -707,9 +682,9 @@ export class InteractiveMode {
 		const cwdBasename = path.basename(this.sessionManager.getCwd());
 		const sessionName = this.sessionManager.getSessionName();
 		if (sessionName) {
-			this.ui.terminal.setTitle(`⌬ aery - ${sessionName} - ${cwdBasename}`);
+			this.ui.terminal.setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`);
 		} else {
-			this.ui.terminal.setTitle(`⌬ aery - ${cwdBasename}`);
+			this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
 		}
 	}
 
@@ -851,7 +826,7 @@ export class InteractiveMode {
 		}
 
 		if (extendedKeysFormat === "xterm") {
-			return "tmux extended-keys-format is xterm. Aery works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
+			return "tmux extended-keys-format is xterm. Pi works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
 		}
 
 		return undefined;
@@ -875,8 +850,6 @@ export class InteractiveMode {
 			// Fresh install - record the version, send telemetry, don't show changelog
 			this.settingsManager.setLastChangelogVersion(VERSION);
 			this.reportInstallTelemetry(VERSION);
-			// Auto-install core extension pack on fresh install
-			this.installCorePackIfNeeded();
 			return undefined;
 		}
 
@@ -899,36 +872,14 @@ export class InteractiveMode {
 			return;
 		}
 
-		void fetch(`https://aery.dev/install?version=${encodeURIComponent(version)}`, {
+		void fetch(`https://eminent337.github.io/api/report-install?version=${encodeURIComponent(version)}`, {
+			headers: {
+				"User-Agent": getPiUserAgent(version),
+			},
 			signal: AbortSignal.timeout(5000),
 		})
 			.then(() => undefined)
 			.catch(() => undefined);
-	}
-
-	private installCorePackIfNeeded(): void {
-		// Fire-and-forget: install core extension pack on fresh install
-		void (async () => {
-			try {
-				const { execFile } = await import("node:child_process");
-				const { promisify } = await import("node:util");
-				const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
-				const { join } = await import("node:path");
-				const { homedir } = await import("node:os");
-				const exec = promisify(execFile);
-				await exec("aery", ["install", "https://github.com/eminent337/aery-extensions"], {
-					timeout: 30000,
-				});
-				// Wire core extensions into settings.json
-				const repoPath = join(homedir(), ".aery", "agent", "git", "github.com", "eminent337", "aery-extensions");
-				const settingsPath = join(homedir(), ".aery", "agent", "settings.json");
-				wireCoreExtensions(repoPath, settingsPath);
-				const settings = existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, "utf-8")) : {};
-				writeFileSync(settingsPath, `${JSON.stringify({ ...settings, quietStartup: true }, null, 2)}\n`);
-			} catch {
-				// Silent fail — user can install manually
-			}
-		})();
 	}
 
 	private getMarkdownThemeWithSettings(): MarkdownTheme {
@@ -963,15 +914,9 @@ export class InteractiveMode {
 	private formatContextPath(p: string): string {
 		const cwd = path.resolve(this.sessionManager.getCwd());
 		const absolutePath = path.isAbsolute(p) ? path.resolve(p) : path.resolve(cwd, p);
-		const relativePath = path.relative(cwd, absolutePath);
-		const isInsideCwd =
-			relativePath === "" ||
-			(!relativePath.startsWith("..") &&
-				!relativePath.startsWith(`..${path.sep}`) &&
-				!path.isAbsolute(relativePath));
-
-		if (isInsideCwd) {
-			return relativePath || ".";
+		const relativePath = getCwdRelativePath(absolutePath, cwd);
+		if (relativePath !== undefined) {
+			return relativePath;
 		}
 
 		return this.formatDisplayPath(absolutePath);
@@ -2020,7 +1965,7 @@ export class InteractiveMode {
 				this.setupAutocompleteProvider();
 			},
 			setEditorComponent: (factory) => this.setCustomEditorComponent(factory),
-			getEditorComponent: () => this.customEditorFactory,
+			getEditorComponent: () => this.editorComponentFactory,
 			get theme() {
 				return theme;
 			},
@@ -2079,7 +2024,7 @@ export class InteractiveMode {
 					this.hideExtensionSelector();
 					resolve(undefined);
 				},
-				{ tui: this.ui, timeout: opts?.timeout },
+				{ tui: this.ui, timeout: opts?.timeout, onToggleToolsExpanded: () => this.toggleToolOutputExpansion() },
 			);
 
 			this.editorContainer.clear();
@@ -2219,7 +2164,8 @@ export class InteractiveMode {
 	 * Pass undefined to restore the default editor.
 	 */
 	private setCustomEditorComponent(factory: EditorFactory | undefined): void {
-		this.customEditorFactory = factory;
+		this.editorComponentFactory = factory;
+
 		// Save text from current editor before switching
 		const currentText = this.editor.getText();
 
@@ -2476,7 +2422,7 @@ export class InteractiveMode {
 			// Write to temp file
 			const tmpDir = os.tmpdir();
 			const ext = extensionForImageMimeType(image.mimeType) ?? "png";
-			const fileName = `aery-clipboard-${crypto.randomUUID()}.${ext}`;
+			const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
 			const filePath = path.join(tmpDir, fileName);
 			fs.writeFileSync(filePath, Buffer.from(image.bytes));
 
@@ -2540,11 +2486,6 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
-			if (text === "/capabilities") {
-				this.handleCapabilitiesCommand();
-				this.editor.setText("");
-				return;
-			}
 			if (text === "/changelog") {
 				this.handleChangelogCommand();
 				this.editor.setText("");
@@ -2567,11 +2508,6 @@ export class InteractiveMode {
 			}
 			if (text === "/tree") {
 				this.showTreeSelector();
-				this.editor.setText("");
-				return;
-			}
-			if (text === "/extensions doctor" || text === "/extensions") {
-				this.handleExtensionsDoctorCommand();
 				this.editor.setText("");
 				return;
 			}
@@ -2694,6 +2630,7 @@ export class InteractiveMode {
 
 		switch (event.type) {
 			case "agent_start":
+				this.pendingTools.clear();
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -2728,6 +2665,11 @@ export class InteractiveMode {
 				this.updateTerminalTitle();
 				this.footer.invalidate();
 				this.ui.requestRender();
+				break;
+
+			case "thinking_level_changed":
+				this.footer.invalidate();
+				this.updateEditorBorderColor();
 				break;
 
 			case "message_start":
@@ -3156,6 +3098,7 @@ export class InteractiveMode {
 		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
 		this.pendingTools.clear();
+		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
 
 		if (options.updateFooter) {
 			this.footer.invalidate();
@@ -3197,16 +3140,16 @@ export class InteractiveMode {
 							}
 							component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
 						} else {
-							this.pendingTools.set(content.id, component);
+							renderedPendingTools.set(content.id, component);
 						}
 					}
 				}
 			} else if (message.role === "toolResult") {
 				// Match tool results to pending tool components
-				const component = this.pendingTools.get(message.toolCallId);
+				const component = renderedPendingTools.get(message.toolCallId);
 				if (component) {
 					component.updateResult(message);
-					this.pendingTools.delete(message.toolCallId);
+					renderedPendingTools.delete(message.toolCallId);
 				}
 			} else {
 				// All other messages use standard rendering
@@ -3214,6 +3157,9 @@ export class InteractiveMode {
 			}
 		}
 
+		for (const [toolCallId, component] of renderedPendingTools) {
+			this.pendingTools.set(toolCallId, component);
+		}
 		this.ui.requestRender();
 	}
 
@@ -3299,6 +3245,36 @@ export class InteractiveMode {
 	}
 
 	/**
+	 * Last-resort handler for uncaught exceptions. The TUI puts stdin into raw
+	 * mode and hides the cursor; without this handler, an uncaught throw from
+	 * anywhere (e.g. an extension's async `ChildProcess.on("exit")` callback)
+	 * tears down the process while leaving the terminal in raw mode with no
+	 * cursor, requiring `stty sane && reset` to recover.
+	 *
+	 * Unlike emergencyTerminalExit, the terminal is still alive here, so we
+	 * call ui.stop() to restore cooked mode, the cursor, and disable bracketed
+	 * paste / Kitty / modifyOtherKeys sequences.
+	 */
+	private uncaughtCrash(error: Error): never {
+		if (this.isShuttingDown) {
+			process.exit(1);
+		}
+		this.isShuttingDown = true;
+		try {
+			this.unregisterSignalHandlers();
+		} catch {}
+		try {
+			killTrackedDetachedChildren();
+		} catch {}
+		try {
+			this.ui.stop();
+		} catch {}
+		console.error("pi exiting due to uncaughtException:");
+		console.error(error);
+		process.exit(1);
+	}
+
+	/**
 	 * Check if shutdown was requested and perform shutdown if so.
 	 */
 	private async checkShutdownRequested(): Promise<void> {
@@ -3336,6 +3312,13 @@ export class InteractiveMode {
 		process.stderr.on("error", terminalErrorHandler);
 		this.signalCleanupHandlers.push(() => process.stdout.off("error", terminalErrorHandler));
 		this.signalCleanupHandlers.push(() => process.stderr.off("error", terminalErrorHandler));
+
+		// Restore the terminal before the process dies on any uncaught throw.
+		// Without this, an unhandled exception from extension code (or anywhere
+		// in pi) leaves the terminal in raw mode with no cursor.
+		const uncaughtExceptionHandler = (error: Error) => this.uncaughtCrash(error);
+		process.prependListener("uncaughtException", uncaughtExceptionHandler);
+		this.signalCleanupHandlers.push(() => process.off("uncaughtException", uncaughtExceptionHandler));
 	}
 
 	private unregisterSignalHandlers(): void {
@@ -3409,6 +3392,7 @@ export class InteractiveMode {
 		}
 		// If not streaming, Alt+Enter acts like regular Enter (trigger onSubmit)
 		else if (this.editor.onSubmit) {
+			this.editor.setText("");
 			this.editor.onSubmit(text);
 		}
 	}
@@ -3507,7 +3491,7 @@ export class InteractiveMode {
 		}
 
 		const currentText = this.editor.getExpandedText?.() ?? this.editor.getText();
-		const tmpFile = path.join(os.tmpdir(), `aery-editor-${Date.now()}.aery.md`);
+		const tmpFile = path.join(os.tmpdir(), `pi-editor-${Date.now()}.pi.md`);
 
 		try {
 			// Write current content to temp file
@@ -3558,6 +3542,7 @@ export class InteractiveMode {
 	showError(errorMessage: string): void {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("error", `Error: ${errorMessage}`), 1, 0));
+		this.chatContainer.addChild(new Spacer(1));
 		this.ui.requestRender();
 	}
 
@@ -3568,13 +3553,13 @@ export class InteractiveMode {
 	}
 
 	showNewVersionNotification(newVersion: string): void {
-		const action = theme.fg("accent", getUpdateInstruction("@eminent337/aery"));
-		const updateInstruction = theme.fg("muted", `New version ${newVersion} is available. `) + action;
-		const changelogUrl = theme.fg(
-			"accent",
-			"https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md",
-		);
-		const changelogLine = theme.fg("muted", "Changelog: ") + changelogUrl;
+		const action = theme.fg("accent", `${APP_NAME} update`);
+		const updateInstruction = theme.fg("muted", `New version ${newVersion} is available. Run `) + action;
+		const changelogUrl = "https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md";
+		const changelogLink = getCapabilities().hyperlinks
+			? hyperlink(theme.fg("accent", "open changelog"), changelogUrl)
+			: theme.fg("accent", changelogUrl);
+		const changelogLine = theme.fg("muted", "Changelog: ") + changelogLink;
 
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
@@ -4433,24 +4418,12 @@ export class InteractiveMode {
 
 		const modelProviders = new Set(this.session.modelRegistry.getAll().map((model) => model.provider));
 		for (const providerId of modelProviders) {
-			if (oauthProviderIds.has(providerId) || API_KEY_LOGIN_PROVIDER_BLOCKLIST.has(providerId)) {
+			if (!isApiKeyLoginProvider(providerId, oauthProviderIds)) {
 				continue;
 			}
 			options.push({
 				id: providerId,
-				name: getApiKeyProviderDisplayName(providerId),
-				authType: "api_key",
-			});
-		}
-		if (!authType || authType === "api_key") {
-			options.push({
-				id: AERY_GATEWAY_PROVIDER_ID,
-				name: "Aery Gateway",
-				authType: "api_key",
-			});
-			options.push({
-				id: CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
-				name: CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL,
+				name: this.session.modelRegistry.getProviderDisplayName(providerId),
 				authType: "api_key",
 			});
 		}
@@ -4461,7 +4434,6 @@ export class InteractiveMode {
 
 	private getLogoutProviderOptions(): AuthSelectorProvider[] {
 		const authStorage = this.session.modelRegistry.authStorage;
-		const oauthNameById = new Map(authStorage.getOAuthProviders().map((provider) => [provider.id, provider.name]));
 		const options: AuthSelectorProvider[] = [];
 
 		for (const providerId of authStorage.list()) {
@@ -4471,10 +4443,7 @@ export class InteractiveMode {
 			}
 			options.push({
 				id: providerId,
-				name:
-					credential.type === "oauth"
-						? (oauthNameById.get(providerId) ?? providerId)
-						: getApiKeyProviderDisplayName(providerId),
+				name: this.session.modelRegistry.getProviderDisplayName(providerId),
 				authType: credential.type,
 			});
 		}
@@ -4525,12 +4494,10 @@ export class InteractiveMode {
 						return;
 					}
 
-					if (providerOption.id === AERY_GATEWAY_PROVIDER_ID) {
-						await this.showAeryGatewayLoginDialog();
-					} else if (providerOption.id === CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID) {
-						await this.showCustomOpenAICompatibleLoginDialog();
-					} else if (providerOption.authType === "oauth") {
+					if (providerOption.authType === "oauth") {
 						await this.showLoginDialog(providerOption.id, providerOption.name);
+					} else if (providerOption.id === BEDROCK_PROVIDER_ID) {
+						this.showBedrockSetupDialog(providerOption.id, providerOption.name);
 					} else {
 						await this.showApiKeyLoginDialog(providerOption.id, providerOption.name);
 					}
@@ -4539,6 +4506,7 @@ export class InteractiveMode {
 					done();
 					this.showLoginAuthTypeSelector();
 				},
+				(providerId) => this.session.modelRegistry.getProviderAuthStatus(providerId),
 			);
 			return { component: selector, focus: selector };
 		});
@@ -4552,7 +4520,9 @@ export class InteractiveMode {
 
 		const providerOptions = this.getLogoutProviderOptions();
 		if (providerOptions.length === 0) {
-			this.showStatus("No providers logged in. Use /login first.");
+			this.showStatus(
+				"No stored credentials to remove. /logout only removes credentials saved by /login; environment variables and models.json config are unchanged.",
+			);
 			return;
 		}
 
@@ -4576,7 +4546,7 @@ export class InteractiveMode {
 						const message =
 							providerOption.authType === "oauth"
 								? `Logged out of ${providerOption.name}`
-								: `Removed API key for ${providerOption.name}`;
+								: `Removed stored API key for ${providerOption.name}. Environment variables and models.json config are unchanged.`;
 						this.showStatus(message);
 					} catch (error: unknown) {
 						this.showError(`Logout failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -4642,15 +4612,34 @@ export class InteractiveMode {
 				void this.maybeWarnAboutAnthropicSubscriptionAuth();
 			}
 		}
+	}
 
-		const providerCheck = checkProviderSetup(providerId, providerName, this.session.modelRegistry);
-		if (providerCheck.level === "ok") {
-			this.showStatus(providerCheck.message);
-		} else if (providerCheck.level === "warning") {
-			this.showWarning(providerCheck.message);
-		} else {
-			this.showError(providerCheck.message);
-		}
+	private showBedrockSetupDialog(providerId: string, providerName: string): void {
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		const dialog = new LoginDialogComponent(
+			this.ui,
+			providerId,
+			() => restoreEditor(),
+			providerName,
+			"Amazon Bedrock setup",
+		);
+		dialog.showInfo([
+			theme.fg("text", "Amazon Bedrock uses AWS credentials instead of a single API key."),
+			theme.fg("text", "Configure an AWS profile, IAM keys, bearer token, or role-based credentials."),
+			theme.fg("muted", "See:"),
+			theme.fg("accent", `  ${path.join(getDocsPath(), "providers.md")}`),
+		]);
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
 	}
 
 	private async showApiKeyLoginDialog(providerId: string, providerName: string): Promise<void> {
@@ -4678,22 +4667,12 @@ export class InteractiveMode {
 		};
 
 		try {
-			const apiKeyPrompt = providerId === "cloudflare-workers-ai" ? "Enter Cloudflare API token:" : "Enter API key:";
-			const apiKey = (await dialog.showPrompt(apiKeyPrompt)).trim();
+			const apiKey = (await dialog.showPrompt("Enter API key:")).trim();
 			if (!apiKey) {
 				throw new Error("API key cannot be empty.");
 			}
 
-			if (providerId === "cloudflare-workers-ai") {
-				const accountId = (await dialog.showPrompt("Enter Cloudflare account ID:")).trim();
-				if (!accountId) {
-					throw new Error("Cloudflare account ID cannot be empty.");
-				}
-				this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey, accountId });
-				this.session.modelRegistry.refresh();
-			} else {
-				this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
-			}
+			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
 
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);
@@ -4706,158 +4685,32 @@ export class InteractiveMode {
 		}
 	}
 
-	private async showAeryGatewayLoginDialog(): Promise<void> {
-		const dialog = new LoginDialogComponent(
-			this.ui,
-			AERY_GATEWAY_PROVIDER_ID,
-			(_success, _message) => {},
-			"Connect to Aery Gateway",
-		);
-
-		this.editorContainer.clear();
-		this.editorContainer.addChild(dialog);
-		this.ui.setFocus(dialog);
-		this.ui.requestRender();
-
-		const restoreEditor = () => {
+	private showOAuthLoginSelect(dialog: LoginDialogComponent, prompt: OAuthSelectPrompt): Promise<string | undefined> {
+		return new Promise((resolve) => {
+			const restoreDialog = () => {
+				this.editorContainer.clear();
+				this.editorContainer.addChild(dialog);
+				this.ui.setFocus(dialog);
+				this.ui.requestRender();
+			};
+			const labels = prompt.options.map((option) => option.label);
+			const selector = new ExtensionSelectorComponent(
+				prompt.message,
+				labels,
+				(optionLabel) => {
+					restoreDialog();
+					resolve(prompt.options.find((option) => option.label === optionLabel)?.id);
+				},
+				() => {
+					restoreDialog();
+					resolve(undefined);
+				},
+			);
 			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
+			this.editorContainer.addChild(selector);
+			this.ui.setFocus(selector);
 			this.ui.requestRender();
-		};
-
-		try {
-			const aeryKey = (await dialog.showPrompt("Enter your Aery key:", "aery_...")).trim();
-			if (!aeryKey) throw new Error("Aery key cannot be empty.");
-
-			const provider = (
-				await dialog.showPrompt("Provider to route through (e.g. anthropic, openai, openrouter):", "anthropic")
-			).trim();
-			if (!provider) throw new Error("Provider cannot be empty.");
-
-			const modelId = (await dialog.showPrompt("Model ID:", "claude-sonnet-4-5")).trim();
-			if (!modelId) throw new Error("Model ID cannot be empty.");
-
-			const baseUrl = `${AERY_GATEWAY_BASE_URL}/${provider}`;
-			const saved = saveCustomOpenAICompatibleProvider({
-				modelsPath: getModelsPath(),
-				baseUrl,
-				modelId,
-				api: AERY_GATEWAY_PROVIDER_APIS[provider] ?? "openai-completions",
-			});
-			this.session.modelRegistry.authStorage.set(saved.providerId, { type: "api_key", key: aeryKey });
-			this.session.modelRegistry.refresh();
-
-			restoreEditor();
-			await this.updateAvailableProviderCount();
-			this.footer.invalidate();
-			this.updateEditorBorderColor();
-
-			const model = this.session.modelRegistry.find(saved.providerId, saved.modelId);
-			if (model) {
-				try {
-					await this.session.setModel(model);
-					this.showStatus(`Connected to Aery Gateway → ${provider}/${modelId}.`);
-				} catch {
-					this.showStatus(`Aery Gateway configured. Use /model to select ${saved.providerId}/${modelId}.`);
-				}
-			}
-		} catch (error: unknown) {
-			restoreEditor();
-			const errorMsg = error instanceof Error ? error.message : String(error);
-			if (errorMsg !== "Login cancelled") {
-				this.showError(`Failed to connect to Aery Gateway: ${errorMsg}`);
-			}
-		}
-	}
-
-	private async showCustomOpenAICompatibleLoginDialog(): Promise<void> {
-		const previousModel = this.session.model;
-		const dialog = new LoginDialogComponent(
-			this.ui,
-			CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
-			(_success, _message) => {},
-			`Configure ${CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL}`,
-		);
-
-		this.editorContainer.clear();
-		this.editorContainer.addChild(dialog);
-		this.ui.setFocus(dialog);
-		this.ui.requestRender();
-
-		const restoreEditor = () => {
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			this.ui.requestRender();
-		};
-
-		try {
-			const baseUrl = (await dialog.showPrompt("Enter base URL:", "https://api.example.com/v1")).trim();
-			if (!baseUrl) {
-				throw new Error("Base URL cannot be empty.");
-			}
-
-			const modelId = (await dialog.showPrompt("Enter model ID:", "gpt-4o-mini")).trim();
-			if (!modelId) {
-				throw new Error("Model ID cannot be empty.");
-			}
-
-			const apiKey = (await dialog.showPrompt("Enter API key:", "sk-...")).trim();
-			if (!apiKey) {
-				throw new Error("API key cannot be empty.");
-			}
-
-			const saved = saveCustomOpenAICompatibleProvider({
-				modelsPath: getModelsPath(),
-				baseUrl,
-				modelId,
-			});
-			this.session.modelRegistry.authStorage.set(saved.providerId, { type: "api_key", key: apiKey });
-			this.session.modelRegistry.refresh();
-
-			restoreEditor();
-			await this.updateAvailableProviderCount();
-			this.footer.invalidate();
-			this.updateEditorBorderColor();
-
-			const model = this.session.modelRegistry.find(saved.providerId, saved.modelId);
-			let selectedModel = false;
-			if (model) {
-				try {
-					await this.session.setModel(model);
-					selectedModel = true;
-				} catch (error: unknown) {
-					this.showError(
-						`Saved ${saved.providerId}/${saved.modelId}, but selecting it failed: ${
-							error instanceof Error ? error.message : String(error)
-						}. Use /model to select it manually.`,
-					);
-				}
-			}
-
-			if (selectedModel) {
-				this.showStatus(
-					`Configured ${saved.providerId}/${saved.modelId}. Provider saved to ${saved.modelsPath}; API key saved to ${getAuthPath()}.`,
-				);
-			} else {
-				this.showStatus(
-					`Configured ${saved.providerId}/${saved.modelId}. Provider saved to ${saved.modelsPath}; API key saved to ${getAuthPath()}. Use /model to select it.`,
-				);
-			}
-
-			if (isUnknownModel(previousModel) && !selectedModel) {
-				this.showWarning(
-					`Custom provider ${saved.providerId} is available, but no model was selected automatically.`,
-				);
-			}
-		} catch (error: unknown) {
-			restoreEditor();
-			const errorMsg = error instanceof Error ? error.message : String(error);
-			if (errorMsg !== "Login cancelled") {
-				this.showError(`Failed to configure ${CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL}: ${errorMsg}`);
-			}
-		}
+		});
 	}
 
 	private async showLoginDialog(providerId: string, providerName: string): Promise<void> {
@@ -4909,9 +4762,7 @@ export class InteractiveMode {
 					if (usesCallbackServer) {
 						// Show input for manual paste, racing with callback
 						dialog
-							.showManualInput(
-								"Open the URL in your browser, log in, then paste the redirect URL here.\n(WSL/remote users: after login, copy the full URL from the browser address bar and paste it below)",
-							)
+							.showManualInput("Paste redirect URL below, or complete login in browser:")
 							.then((value) => {
 								if (value && manualCodeResolve) {
 									manualCodeResolve(value);
@@ -4938,6 +4789,8 @@ export class InteractiveMode {
 				onProgress: (message: string) => {
 					dialog.showProgress(message);
 				},
+
+				onSelect: (prompt: OAuthSelectPrompt) => this.showOAuthLoginSelect(dialog, prompt),
 
 				onManualCodeInput: () => manualCodePromise,
 
@@ -5322,49 +5175,18 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
-	private handleExtensionsDoctorCommand(): void {
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new Text(formatCurrentCoreExtensionsReport(), 1, 0));
-		this.ui.requestRender();
-	}
-
-	private handleCapabilitiesCommand(): void {
-		const report = collectCapabilitiesReport({
-			session: this.session,
-			services: this.runtimeHost.services,
-		});
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new Text(formatCapabilitiesReport(report), 1, 0));
-		this.ui.requestRender();
-	}
-
-	/**
-	 * Capitalize keybinding for display (e.g., "ctrl+c" -> "Ctrl+C").
-	 */
-	private capitalizeKey(key: string): string {
-		return key
-			.split("/")
-			.map((k) =>
-				k
-					.split("+")
-					.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-					.join("+"),
-			)
-			.join("/");
-	}
-
 	/**
 	 * Get capitalized display string for an app keybinding action.
 	 */
 	private getAppKeyDisplay(action: AppKeybinding): string {
-		return this.capitalizeKey(keyText(action));
+		return keyDisplayText(action);
 	}
 
 	/**
 	 * Get capitalized display string for an editor keybinding action.
 	 */
 	private getEditorKeyDisplay(action: Keybinding): string {
-		return this.capitalizeKey(keyText(action));
+		return keyDisplayText(action);
 	}
 
 	private handleHotkeysCommand(): void {
@@ -5468,7 +5290,7 @@ export class InteractiveMode {
 `;
 			for (const [key, shortcut] of shortcuts) {
 				const description = shortcut.description ?? shortcut.extensionPath;
-				const keyDisplay = key.replace(/\b\w/g, (c) => c.toUpperCase());
+				const keyDisplay = formatKeyText(key, { capitalize: true });
 				hotkeys += `| \`${keyDisplay}\` | ${description} |\n`;
 			}
 		}

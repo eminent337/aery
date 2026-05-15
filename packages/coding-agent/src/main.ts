@@ -7,17 +7,15 @@
 
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { type ImageContent, modelsAreEqual, supportsXhigh } from "@eminent337/aery-ai";
+import { type ImageContent, modelsAreEqual } from "@eminent337/aery-ai";
 import { ProcessTerminal, setKeybindings, TUI } from "@eminent337/aery-tui";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.js";
-import { runCapabilitiesCommand } from "./cli/capabilities.js";
-import { runDoctorCommand } from "./cli/doctor.js";
 import { processFileArguments } from "./cli/file-processor.js";
 import { buildInitialMessage } from "./cli/initial-message.js";
 import { listModels } from "./cli/list-models.js";
 import { selectSession } from "./cli/session-picker.js";
-import { getAgentDir, VERSION } from "./config.js";
+import { ENV_SESSION_DIR, expandTildePath, getAgentDir, VERSION } from "./config.js";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.js";
 import {
 	type AgentSessionRuntimeDiagnostic,
@@ -42,12 +40,7 @@ import {
 import { SessionManager } from "./core/session-manager.js";
 import { SettingsManager } from "./core/settings-manager.js";
 import { printTimings, resetTimings, time } from "./core/timings.js";
-import {
-	ensureCoreExtensions,
-	formatCoreExtensionAttentionMessage,
-	runMigrations,
-	showDeprecationWarnings,
-} from "./migrations.js";
+import { runMigrations, showDeprecationWarnings } from "./migrations.js";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.js";
 import { ExtensionSelectorComponent } from "./modes/interactive/components/extension-selector.js";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.js";
@@ -443,10 +436,6 @@ export async function main(args: string[], options?: MainOptions) {
 		return;
 	}
 
-	if (await runDoctorCommand(args)) {
-		return;
-	}
-
 	const parsed = parseArgs(args);
 	if (parsed.diagnostics.length > 0) {
 		for (const d of parsed.diagnostics) {
@@ -494,10 +483,6 @@ export async function main(args: string[], options?: MainOptions) {
 	const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(process.cwd());
 	time("runMigrations");
 
-	// Ensure aery-extensions is cloned and core extensions are wired (no-op if already done)
-	const coreExtStatus = ensureCoreExtensions();
-	time("ensureCoreExtensions");
-
 	const cwd = process.cwd();
 	const agentDir = getAgentDir();
 	const startupSettingsManager = SettingsManager.create(cwd, agentDir);
@@ -508,7 +493,11 @@ export async function main(args: string[], options?: MainOptions) {
 	// settings, resources, provider registrations, and models must be resolved only after
 	// the target session cwd is known. The startup-cwd settings manager is used only for
 	// sessionDir lookup during session selection.
-	const sessionDir = parsed.sessionDir ?? startupSettingsManager.getSessionDir();
+	const envSessionDir = process.env[ENV_SESSION_DIR];
+	const sessionDir =
+		parsed.sessionDir ??
+		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
+		startupSettingsManager.getSessionDir();
 	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager);
 	const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);
 	if (missingSessionCwdIssue) {
@@ -606,15 +595,7 @@ export async function main(args: string[], options?: MainOptions) {
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {
-			let effectiveThinking = created.session.thinkingLevel;
-			if (!created.session.model.reasoning) {
-				effectiveThinking = "off";
-			} else if (effectiveThinking === "xhigh" && !supportsXhigh(created.session.model)) {
-				effectiveThinking = "high";
-			}
-			if (effectiveThinking !== created.session.thinkingLevel) {
-				created.session.setThinkingLevel(effectiveThinking);
-			}
+			created.session.setThinkingLevel(created.session.thinkingLevel);
 		}
 
 		return {
@@ -631,10 +612,6 @@ export async function main(args: string[], options?: MainOptions) {
 	});
 	const { services, session, modelFallbackMessage } = runtime;
 	const { settingsManager, modelRegistry, resourceLoader } = services;
-
-	if (await runCapabilitiesCommand(args, { session, services })) {
-		process.exit(0);
-	}
 
 	if (parsed.help) {
 		const extensionFlags = resourceLoader
@@ -672,13 +649,6 @@ export async function main(args: string[], options?: MainOptions) {
 	// Show deprecation warnings in interactive mode
 	if (appMode === "interactive" && deprecationWarnings.length > 0) {
 		await showDeprecationWarnings(deprecationWarnings);
-	}
-
-	if (appMode === "interactive") {
-		const coreExtensionAttentionMessage = formatCoreExtensionAttentionMessage(coreExtStatus);
-		if (coreExtensionAttentionMessage) {
-			console.log(chalk.yellow(coreExtensionAttentionMessage));
-		}
 	}
 
 	const scopedModels = [...session.scopedModels];

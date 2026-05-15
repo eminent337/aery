@@ -80,14 +80,6 @@ export function clampThinkingLevel<TApi extends Api>(
 }
 
 /**
- * Backward-compatible helper for callers that only need to know whether a
- * model exposes the extended xhigh thinking level.
- */
-export function supportsXhigh<TApi extends Api>(model: Model<TApi>): boolean {
-	return getSupportedThinkingLevels(model).includes("xhigh");
-}
-
-/**
  * Check if two models are equal by comparing both their id and provider.
  * Returns false if either model is null or undefined.
  */

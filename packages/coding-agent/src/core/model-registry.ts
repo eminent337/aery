@@ -80,15 +80,6 @@ const VercelGatewayRoutingSchema = Type.Object({
 	order: Type.Optional(Type.Array(Type.String())),
 });
 
-// Schema for OpenAI compatibility settings
-const ReasoningEffortMapSchema = Type.Object({
-	minimal: Type.Optional(Type.String()),
-	low: Type.Optional(Type.String()),
-	medium: Type.Optional(Type.String()),
-	high: Type.Optional(Type.String()),
-	xhigh: Type.Optional(Type.String()),
-});
-
 // Schema for thinking level support and provider-specific values
 const ThinkingLevelMapValueSchema = Type.Union([Type.String(), Type.Null()]);
 const ThinkingLevelMapSchema = Type.Object({
@@ -104,7 +95,6 @@ const OpenAICompletionsCompatSchema = Type.Object({
 	supportsStore: Type.Optional(Type.Boolean()),
 	supportsDeveloperRole: Type.Optional(Type.Boolean()),
 	supportsReasoningEffort: Type.Optional(Type.Boolean()),
-	reasoningEffortMap: Type.Optional(ReasoningEffortMapSchema),
 	supportsUsageInStreaming: Type.Optional(Type.Boolean()),
 	maxTokensField: Type.Optional(Type.Union([Type.Literal("max_completion_tokens"), Type.Literal("max_tokens")])),
 	requiresToolResultName: Type.Optional(Type.Boolean()),
@@ -115,6 +105,7 @@ const OpenAICompletionsCompatSchema = Type.Object({
 		Type.Union([
 			Type.Literal("openai"),
 			Type.Literal("openrouter"),
+			Type.Literal("together"),
 			Type.Literal("deepseek"),
 			Type.Literal("zai"),
 			Type.Literal("qwen"),
@@ -191,6 +182,7 @@ const ModelOverrideSchema = Type.Object({
 type ModelOverride = Static<typeof ModelOverrideSchema>;
 
 const ProviderConfigSchema = Type.Object({
+	name: Type.Optional(Type.String({ minLength: 1 })),
 	baseUrl: Type.Optional(Type.String({ minLength: 1 })),
 	apiKey: Type.Optional(Type.String({ minLength: 1 })),
 	api: Type.Optional(Type.String({ minLength: 1 })),
@@ -227,30 +219,6 @@ function stripJsonComments(input: string): string {
 	return input
 		.replace(/"(?:\\.|[^"\\])*"|\/\/[^\n]*/g, (m) => (m[0] === '"' ? m : ""))
 		.replace(/"(?:\\.|[^"\\])*"|,(\s*[}\]])/g, (m, tail) => tail ?? (m[0] === '"' ? m : ""));
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function isLegacyBlankCustomOpenAICompatibleProvider(providerName: string, providerConfig: unknown): boolean {
-	if (providerName !== "custom-openai-compatible" && providerName !== "__custom-openai-compatible__") return false;
-	if (!isJsonObject(providerConfig)) return false;
-	if (providerConfig.baseUrl !== "") return false;
-	if (providerConfig.api !== undefined && providerConfig.api !== "openai-completions") return false;
-	const models = providerConfig.models;
-	if (!Array.isArray(models) || models.length === 0) return false;
-	return models.every((model) => isJsonObject(model) && typeof model.id === "string" && model.id.trim() === "");
-}
-
-function removeLegacyBlankCustomOpenAICompatibleProviders(config: unknown): unknown {
-	if (!isJsonObject(config) || !isJsonObject(config.providers)) return config;
-	for (const [providerName, providerConfig] of Object.entries(config.providers)) {
-		if (isLegacyBlankCustomOpenAICompatibleProvider(providerName, providerConfig)) {
-			delete config.providers[providerName];
-		}
-	}
-	return config;
 }
 
 /** Provider override config (baseUrl, compat) without request auth/headers */
@@ -433,31 +401,7 @@ export class ModelRegistry {
 			}
 		}
 
-		combined = this.resolveCloudflareWorkersAiModels(combined);
-
 		this.models = combined;
-	}
-
-	private resolveCloudflareWorkersAiModels(models: Model<Api>[]): Model<Api>[] {
-		const accountId = this.getCloudflareWorkersAiAccountId();
-		if (!accountId) {
-			return models;
-		}
-		return models.map((model) =>
-			model.provider === "cloudflare-workers-ai"
-				? {
-						...model,
-						baseUrl: model.baseUrl.replace(/\{CLOUDFLARE_ACCOUNT_ID\}/g, accountId),
-					}
-				: model,
-		);
-	}
-
-	private getCloudflareWorkersAiAccountId(): string | undefined {
-		const credential = this.authStorage.get("cloudflare-workers-ai");
-		const storedAccountId =
-			credential?.type === "api_key" && typeof credential.accountId === "string" ? credential.accountId.trim() : "";
-		return storedAccountId || process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined;
 	}
 
 	/** Load built-in models and apply provider/model overrides */
@@ -514,9 +458,7 @@ export class ModelRegistry {
 
 		try {
 			const content = readFileSync(modelsJsonPath, "utf-8");
-			const parsed = removeLegacyBlankCustomOpenAICompatibleProviders(
-				JSON.parse(stripJsonComments(content)) as unknown,
-			);
+			const parsed = JSON.parse(stripJsonComments(content)) as unknown;
 
 			if (!validateModelsConfig.Check(parsed)) {
 				const errors =
@@ -586,10 +528,8 @@ export class ModelRegistry {
 				if (!providerConfig.baseUrl) {
 					throw new Error(`Provider ${providerName}: "baseUrl" is required when defining custom models.`);
 				}
-				if (!providerConfig.apiKey && !this.authStorage.hasAuth(providerName)) {
-					throw new Error(
-						`Provider ${providerName}: "apiKey" is required when defining custom models unless auth is already saved in auth.json.`,
-					);
+				if (!providerConfig.apiKey) {
+					throw new Error(`Provider ${providerName}: "apiKey" is required when defining custom models.`);
 				}
 			}
 			// Built-in providers with custom models: baseUrl/apiKey/api are optional,
@@ -696,10 +636,6 @@ export class ModelRegistry {
 	 * Get API key for a model.
 	 */
 	hasConfiguredAuth(model: Model<Api>): boolean {
-		if (model.provider === "cloudflare-workers-ai" && !this.getCloudflareWorkersAiAccountId()) {
-			return false;
-		}
-
 		return (
 			this.authStorage.hasAuth(model.provider) ||
 			this.providerRequestConfigs.get(model.provider)?.apiKey !== undefined
@@ -788,13 +724,6 @@ export class ModelRegistry {
 	 */
 	getProviderAuthStatus(provider: string): AuthStatus {
 		const authStatus = this.authStorage.getAuthStatus(provider);
-		if (provider === "cloudflare-workers-ai") {
-			const providerApiKey = this.providerRequestConfigs.get(provider)?.apiKey;
-			if (!this.getCloudflareWorkersAiAccountId() && (authStatus.source || providerApiKey)) {
-				return { configured: false, label: "missing Cloudflare account ID" };
-			}
-		}
-
 		if (authStatus.source) {
 			return authStatus;
 		}
@@ -813,6 +742,22 @@ export class ModelRegistry {
 		}
 
 		return { configured: true, source: "models_json_key" };
+	}
+
+	/**
+	 * Get display name for a provider.
+	 */
+	getProviderDisplayName(provider: string): string {
+		const registeredProvider = this.registeredProviders.get(provider);
+		const oauthProvider = this.authStorage.getOAuthProviders().find((p) => p.id === provider);
+
+		return (
+			registeredProvider?.name ??
+			registeredProvider?.oauth?.name ??
+			oauthProvider?.name ??
+			BUILT_IN_PROVIDER_DISPLAY_NAMES[provider] ??
+			provider
+		);
 	}
 
 	/**
@@ -975,22 +920,6 @@ export class ModelRegistry {
 				};
 			});
 		}
-	}
-
-	/**
-	 * Get display name for a provider.
-	 */
-	getProviderDisplayName(provider: string): string {
-		const registeredProvider = this.registeredProviders.get(provider);
-		const oauthProvider = this.authStorage.getOAuthProviders().find((p) => p.id === provider);
-
-		return (
-			registeredProvider?.name ??
-			registeredProvider?.oauth?.name ??
-			oauthProvider?.name ??
-			BUILT_IN_PROVIDER_DISPLAY_NAMES[provider] ??
-			provider
-		);
 	}
 }
 

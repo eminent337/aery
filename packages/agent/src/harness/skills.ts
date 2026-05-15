@@ -31,7 +31,6 @@ export function formatSkillInvocation(skill: Skill, additionalInstructions?: str
 	return additionalInstructions ? `${skillBlock}\n\n${additionalInstructions}` : skillBlock;
 }
 
-/** Compatibility alias for older harness consumers. */
 export const expandSkillCommand = formatSkillInvocation;
 
 /**

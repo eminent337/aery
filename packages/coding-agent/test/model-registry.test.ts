@@ -214,35 +214,6 @@ describe("ModelRegistry", () => {
 	});
 
 	describe("custom models merge behavior", () => {
-		test("ignores legacy blank custom OpenAI-compatible scaffold entries", () => {
-			writeRawModelsJson({
-				"custom-openai-compatible": {
-					baseUrl: "",
-					api: "openai-completions",
-					compat: {
-						supportsDeveloperRole: false,
-						supportsReasoningEffort: false,
-					},
-					models: [
-						{
-							id: "",
-							name: "Custom Model",
-							reasoning: false,
-							input: ["text"],
-							contextWindow: 128000,
-							maxTokens: 16384,
-						},
-					],
-				},
-			});
-
-			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
-
-			expect(registry.getError()).toBeUndefined();
-			expect(registry.find("custom-openai-compatible", "")).toBeUndefined();
-			expect(getModelsForProvider(registry, "openai").length).toBeGreaterThan(0);
-		});
-
 		test("built-in provider custom models inherit api and baseUrl without explicit fields", () => {
 			// Built-in providers already have api/baseUrl on every model, and auth
 			// comes from env vars / auth storage. No need to specify them.

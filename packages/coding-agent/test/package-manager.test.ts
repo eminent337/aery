@@ -119,7 +119,7 @@ Content`,
 			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
 		});
 
-		it("should auto-discover root markdown skills from .aery skill dirs", async () => {
+		it("should auto-discover root markdown skills from .pi skill dirs", async () => {
 			const skillFile = join(agentDir, "skills", "single-file.md");
 			mkdirSync(join(agentDir, "skills"), { recursive: true });
 			writeFileSync(
@@ -135,7 +135,7 @@ Content`,
 			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
 		});
 
-		it("should resolve project paths relative to .aery", async () => {
+		it("should resolve project paths relative to .pi", async () => {
 			const extDir = join(tempDir, ".aery", "extensions");
 			mkdirSync(extDir, { recursive: true });
 			const extPath = join(extDir, "project-ext.ts");
@@ -288,7 +288,7 @@ Content`,
 			expect(skill?.metadata.baseDir).toBe(agentDir);
 		});
 
-		it("should use the project .aery dir as baseDir for project .aery skills", async () => {
+		it("should use the project .pi dir as baseDir for project .pi skills", async () => {
 			const projectBaseDir = join(tempDir, ".aery");
 			const skillPath = join(projectBaseDir, "skills", "project-pi", "SKILL.md");
 			mkdirSync(join(projectBaseDir, "skills", "project-pi"), { recursive: true });
@@ -317,7 +317,7 @@ Content`,
 
 				expect(skill?.metadata.source).toBe("auto");
 				expect(skill?.metadata.scope).toBe("user");
-				expect(skill?.metadata.baseDir).toBe(agentDir);
+				expect(skill?.metadata.baseDir).toBe(agentsBaseDir);
 			} finally {
 				if (previousHome === undefined) {
 					delete process.env.HOME;
@@ -355,10 +355,10 @@ Content`,
 
 			expect(resolvedRepoSkill?.metadata.source).toBe("auto");
 			expect(resolvedRepoSkill?.metadata.scope).toBe("project");
-			expect(resolvedRepoSkill?.metadata.baseDir).toBe(join(nestedCwd, ".aery"));
+			expect(resolvedRepoSkill?.metadata.baseDir).toBe(repoAgentsBaseDir);
 			expect(resolvedPackageSkill?.metadata.source).toBe("auto");
 			expect(resolvedPackageSkill?.metadata.scope).toBe("project");
-			expect(resolvedPackageSkill?.metadata.baseDir).toBe(join(nestedCwd, ".aery"));
+			expect(resolvedPackageSkill?.metadata.baseDir).toBe(packageAgentsBaseDir);
 		});
 	});
 
@@ -524,8 +524,8 @@ Content`,
 			expect(result.skills.some((r) => r.path.includes("venv") && r.enabled)).toBe(false);
 		});
 
-		it("should not apply parent .gitignore to .aery auto-discovery", async () => {
-			writeFileSync(join(tempDir, ".gitignore"), ".aery\n");
+		it("should not apply parent .gitignore to .pi auto-discovery", async () => {
+			writeFileSync(join(tempDir, ".gitignore"), ".pi\n");
 
 			const skillDir = join(tempDir, ".aery", "skills", "auto-skill");
 			mkdirSync(skillDir, { recursive: true });
@@ -883,7 +883,7 @@ Content`,
 			expect(settings.packages?.[0]).toBe(expected);
 		});
 
-		it("should store project local packages relative to .aery settings base", () => {
+		it("should store project local packages relative to .pi settings base", () => {
 			const projectPkgDir = join(tempDir, "project-local-pkg");
 			mkdirSync(join(projectPkgDir, "extensions"), { recursive: true });
 			writeFileSync(join(projectPkgDir, "extensions", "index.ts"), "export default function() {}");

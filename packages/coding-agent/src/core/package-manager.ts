@@ -325,7 +325,7 @@ function collectFiles(
 	return files;
 }
 
-type SkillDiscoveryMode = "aery" | "agents";
+type SkillDiscoveryMode = "pi" | "agents";
 
 function collectSkillEntries(
 	dir: string,
@@ -384,7 +384,7 @@ function collectSkillEntries(
 			}
 
 			const relPath = toPosixPath(relative(root, fullPath));
-			if (mode === "aery" && dir === root && isFile && entry.name.endsWith(".md") && !ig.ignores(relPath)) {
+			if (mode === "pi" && dir === root && isFile && entry.name.endsWith(".md") && !ig.ignores(relPath)) {
 				entries.push(fullPath);
 				continue;
 			}
@@ -517,8 +517,8 @@ function collectAutoThemeEntries(dir: string): string[] {
 function readAeryManifestFile(packageJsonPath: string): AeryManifest | null {
 	try {
 		const content = readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content) as { pi?: AeryManifest; aery?: AeryManifest };
-		return pkg.aery ?? pkg.pi ?? null;
+		const pkg = JSON.parse(content) as { aery?: AeryManifest };
+		return pkg.aery ?? null;
 	} catch {
 		return null;
 	}
@@ -614,7 +614,7 @@ function collectAutoExtensionEntries(dir: string): string[] {
  */
 function collectResourceFiles(dir: string, resourceType: ResourceType): string[] {
 	if (resourceType === "skills") {
-		return collectSkillEntries(dir, "aery");
+		return collectSkillEntries(dir, "pi");
 	}
 	if (resourceType === "extensions") {
 		return collectAutoExtensionEntries(dir);
@@ -770,10 +770,6 @@ export class DefaultPackageManager implements PackageManager {
 
 	setProgressCallback(callback: ProgressCallback | undefined): void {
 		this.progressCallback = callback;
-	}
-
-	shouldUseWindowsShell(command: string): boolean {
-		return shouldUseWindowsShell(command);
 	}
 
 	addSourceToSettings(source: string, options?: { local?: boolean }): boolean {
@@ -1817,7 +1813,7 @@ export class DefaultPackageManager implements PackageManager {
 		this.ensureGitIgnore(installRoot);
 		const packageJsonPath = join(installRoot, "package.json");
 		if (!existsSync(packageJsonPath)) {
-			const pkgJson = { name: "aery-extensions", private: true };
+			const pkgJson = { name: "pi-extensions", private: true };
 			writeFileSync(packageJsonPath, JSON.stringify(pkgJson, null, 2), "utf-8");
 		}
 	}
@@ -1894,7 +1890,7 @@ export class DefaultPackageManager implements PackageManager {
 			.update(`${prefix}-${suffix ?? ""}`)
 			.digest("hex")
 			.slice(0, 8);
-		return join(tmpdir(), "aery-extensions", prefix, hash, suffix ?? "");
+		return join(tmpdir(), "pi-extensions", prefix, hash, suffix ?? "");
 	}
 
 	private getBaseDirForScope(scope: SourceScope): string {
@@ -2055,8 +2051,8 @@ export class DefaultPackageManager implements PackageManager {
 
 		try {
 			const content = readFileSync(packageJsonPath, "utf-8");
-			const pkg = JSON.parse(content) as { pi?: AeryManifest; aery?: AeryManifest };
-			return pkg.aery ?? pkg.pi ?? null;
+			const pkg = JSON.parse(content) as { aery?: AeryManifest };
+			return pkg.aery ?? null;
 		} catch {
 			return null;
 		}
@@ -2186,6 +2182,7 @@ export class DefaultPackageManager implements PackageManager {
 			}
 		};
 
+		// Project extensions from .aery/
 		addResources(
 			"extensions",
 			collectAutoExtensionEntries(projectDirs.extensions),
@@ -2193,16 +2190,32 @@ export class DefaultPackageManager implements PackageManager {
 			projectOverrides.extensions,
 			projectBaseDir,
 		);
+
+		// Project skills from .aery/
 		addResources(
 			"skills",
-			[
-				...collectAutoSkillEntries(projectDirs.skills, "aery"),
-				...projectAgentsSkillDirs.flatMap((dir) => collectAutoSkillEntries(dir, "agents")),
-			],
+			collectAutoSkillEntries(projectDirs.skills, "pi"),
 			projectMetadata,
 			projectOverrides.skills,
 			projectBaseDir,
 		);
+
+		// Project skills from .agents/ (each with its own baseDir)
+		for (const agentsSkillsDir of projectAgentsSkillDirs) {
+			const agentsBaseDir = dirname(agentsSkillsDir); // the .agents directory
+			const agentsMetadata: PathMetadata = {
+				...projectMetadata,
+				baseDir: agentsBaseDir,
+			};
+			addResources(
+				"skills",
+				collectAutoSkillEntries(agentsSkillsDir, "agents"),
+				agentsMetadata,
+				projectOverrides.skills,
+				agentsBaseDir,
+			);
+		}
+
 		addResources(
 			"prompts",
 			collectAutoPromptEntries(projectDirs.prompts),
@@ -2218,6 +2231,7 @@ export class DefaultPackageManager implements PackageManager {
 			projectBaseDir,
 		);
 
+		// User extensions from ~/.aery/agent/
 		addResources(
 			"extensions",
 			collectAutoExtensionEntries(userDirs.extensions),
@@ -2225,16 +2239,30 @@ export class DefaultPackageManager implements PackageManager {
 			userOverrides.extensions,
 			globalBaseDir,
 		);
+
+		// User skills from ~/.aery/agent/
 		addResources(
 			"skills",
-			[
-				...collectAutoSkillEntries(userDirs.skills, "aery"),
-				...collectAutoSkillEntries(userAgentsSkillsDir, "agents"),
-			],
+			collectAutoSkillEntries(userDirs.skills, "pi"),
 			userMetadata,
 			userOverrides.skills,
 			globalBaseDir,
 		);
+
+		// User skills from ~/.agents/ (with its own baseDir)
+		const userAgentsBaseDir = dirname(userAgentsSkillsDir);
+		const userAgentsMetadata: PathMetadata = {
+			...userMetadata,
+			baseDir: userAgentsBaseDir,
+		};
+		addResources(
+			"skills",
+			collectAutoSkillEntries(userAgentsSkillsDir, "agents"),
+			userAgentsMetadata,
+			userOverrides.skills,
+			userAgentsBaseDir,
+		);
+
 		addResources(
 			"prompts",
 			collectAutoPromptEntries(userDirs.prompts),

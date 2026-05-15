@@ -27,7 +27,7 @@ Configure via `package.json`:
 {
   "aeryConfig": {
     "name": "pi",
-    "configDir": ".pi"
+    "configDir": ".aery"
   }
 }
 ```

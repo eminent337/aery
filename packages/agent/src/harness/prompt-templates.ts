@@ -224,5 +224,4 @@ export function formatPromptTemplateInvocation(template: PromptTemplate, args: s
 	return substituteArgs(template.content, args);
 }
 
-/** Compatibility alias for older harness consumers. */
 export const expandPromptTemplate = formatPromptTemplateInvocation;
