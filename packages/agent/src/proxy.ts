@@ -79,6 +79,14 @@ export interface ProxyStreamOptions extends ProxySerializableStreamOptions {
 	proxyUrl: string;
 }
 
+type ProxyFetchResponse = {
+	ok: boolean;
+	status: number;
+	statusText: string;
+	json(): Promise<unknown>;
+	body: ReadableStream<Uint8Array> | null;
+};
+
 /**
  * Stream function that proxies through a server instead of calling LLM providers directly.
  * The server strips the partial field from delta events to reduce bandwidth.
@@ -149,7 +157,7 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 		}
 
 		try {
-			const response = await fetch(`${options.proxyUrl}/api/stream`, {
+			const response = (await fetch(`${options.proxyUrl}/api/stream`, {
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${options.authToken}`,
@@ -161,7 +169,7 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 					options: buildProxyRequestOptions(options),
 				}),
 				signal: options.signal,
-			});
+			})) as ProxyFetchResponse;
 
 			if (!response.ok) {
 				let errorMessage = `Proxy error: ${response.status} ${response.statusText}`;
@@ -176,7 +184,11 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 				throw new Error(errorMessage);
 			}
 
-			reader = response.body!.getReader();
+			if (!response.body) {
+				throw new Error("Proxy error: response body is empty");
+			}
+
+			reader = response.body.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
 
