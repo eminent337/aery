@@ -119,7 +119,7 @@ Content`,
 			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
 		});
 
-		it("should auto-discover root markdown skills from .pi skill dirs", async () => {
+		it("should auto-discover root markdown skills from .aery skill dirs", async () => {
 			const skillFile = join(agentDir, "skills", "single-file.md");
 			mkdirSync(join(agentDir, "skills"), { recursive: true });
 			writeFileSync(
@@ -135,8 +135,8 @@ Content`,
 			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
 		});
 
-		it("should resolve project paths relative to .pi", async () => {
-			const extDir = join(tempDir, ".pi", "extensions");
+		it("should resolve project paths relative to .aery", async () => {
+			const extDir = join(tempDir, ".aery", "extensions");
 			mkdirSync(extDir, { recursive: true });
 			const extPath = join(extDir, "project-ext.ts");
 			writeFileSync(extPath, "export default function() {}");
@@ -188,15 +188,15 @@ Content`,
 				writeFileSync(join(sharedThemesDir, "shared.json"), JSON.stringify({ name: "shared-theme" }));
 
 				mkdirSync(join(agentDir), { recursive: true });
-				mkdirSync(join(tempDir, ".pi"), { recursive: true });
+				mkdirSync(join(tempDir, ".aery"), { recursive: true });
 				symlinkSync(sharedExtensionsDir, join(agentDir, "extensions"), "dir");
 				symlinkSync(sharedSkillsDir, join(agentDir, "skills"), "dir");
 				symlinkSync(sharedPromptsDir, join(agentDir, "prompts"), "dir");
 				symlinkSync(sharedThemesDir, join(agentDir, "themes"), "dir");
-				symlinkSync(sharedExtensionsDir, join(tempDir, ".pi", "extensions"), "dir");
-				symlinkSync(sharedSkillsDir, join(tempDir, ".pi", "skills"), "dir");
-				symlinkSync(sharedPromptsDir, join(tempDir, ".pi", "prompts"), "dir");
-				symlinkSync(sharedThemesDir, join(tempDir, ".pi", "themes"), "dir");
+				symlinkSync(sharedExtensionsDir, join(tempDir, ".aery", "extensions"), "dir");
+				symlinkSync(sharedSkillsDir, join(tempDir, ".aery", "skills"), "dir");
+				symlinkSync(sharedPromptsDir, join(tempDir, ".aery", "prompts"), "dir");
+				symlinkSync(sharedThemesDir, join(tempDir, ".aery", "themes"), "dir");
 
 				const result = await packageManager.resolve();
 
@@ -228,7 +228,7 @@ Content`,
 		});
 
 		it("should auto-discover project prompts with overrides", async () => {
-			const promptsDir = join(tempDir, ".pi", "prompts");
+			const promptsDir = join(tempDir, ".aery", "prompts");
 			mkdirSync(promptsDir, { recursive: true });
 			const promptPath = join(promptsDir, "is.md");
 			writeFileSync(promptPath, "Is prompt");
@@ -275,7 +275,7 @@ Content`,
 	});
 
 	describe("auto-discovered skill metadata", () => {
-		it("should use the agent dir as baseDir for user .pi/agent skills", async () => {
+		it("should use the agent dir as baseDir for user .aery/agent skills", async () => {
 			const skillPath = join(agentDir, "skills", "user-pi", "SKILL.md");
 			mkdirSync(join(agentDir, "skills", "user-pi"), { recursive: true });
 			writeFileSync(skillPath, "---\nname: user-pi\ndescription: user pi\n---\n");
@@ -288,8 +288,8 @@ Content`,
 			expect(skill?.metadata.baseDir).toBe(agentDir);
 		});
 
-		it("should use the project .pi dir as baseDir for project .pi skills", async () => {
-			const projectBaseDir = join(tempDir, ".pi");
+		it("should use the project .aery dir as baseDir for project .aery skills", async () => {
+			const projectBaseDir = join(tempDir, ".aery");
 			const skillPath = join(projectBaseDir, "skills", "project-pi", "SKILL.md");
 			mkdirSync(join(projectBaseDir, "skills", "project-pi"), { recursive: true });
 			writeFileSync(skillPath, "---\nname: project-pi\ndescription: project pi\n---\n");
@@ -317,7 +317,7 @@ Content`,
 
 				expect(skill?.metadata.source).toBe("auto");
 				expect(skill?.metadata.scope).toBe("user");
-				expect(skill?.metadata.baseDir).toBe(agentsBaseDir);
+				expect(skill?.metadata.baseDir).toBe(agentDir);
 			} finally {
 				if (previousHome === undefined) {
 					delete process.env.HOME;
@@ -355,10 +355,10 @@ Content`,
 
 			expect(resolvedRepoSkill?.metadata.source).toBe("auto");
 			expect(resolvedRepoSkill?.metadata.scope).toBe("project");
-			expect(resolvedRepoSkill?.metadata.baseDir).toBe(repoAgentsBaseDir);
+			expect(resolvedRepoSkill?.metadata.baseDir).toBe(join(nestedCwd, ".aery"));
 			expect(resolvedPackageSkill?.metadata.source).toBe("auto");
 			expect(resolvedPackageSkill?.metadata.scope).toBe("project");
-			expect(resolvedPackageSkill?.metadata.baseDir).toBe(packageAgentsBaseDir);
+			expect(resolvedPackageSkill?.metadata.baseDir).toBe(join(nestedCwd, ".aery"));
 		});
 	});
 
@@ -443,7 +443,7 @@ Content`,
 
 			try {
 				const cwd = join(tempDir, "scratch", "nested");
-				const localAgentDir = join(tempDir, ".pi", "agent");
+				const localAgentDir = join(tempDir, ".aery", "agent");
 				const localSettingsManager = SettingsManager.inMemory();
 				mkdirSync(cwd, { recursive: true });
 				mkdirSync(localAgentDir, { recursive: true });
@@ -524,10 +524,10 @@ Content`,
 			expect(result.skills.some((r) => r.path.includes("venv") && r.enabled)).toBe(false);
 		});
 
-		it("should not apply parent .gitignore to .pi auto-discovery", async () => {
-			writeFileSync(join(tempDir, ".gitignore"), ".pi\n");
+		it("should not apply parent .gitignore to .aery auto-discovery", async () => {
+			writeFileSync(join(tempDir, ".gitignore"), ".aery\n");
 
-			const skillDir = join(tempDir, ".pi", "skills", "auto-skill");
+			const skillDir = join(tempDir, ".aery", "skills", "auto-skill");
 			mkdirSync(skillDir, { recursive: true });
 			const skillPath = join(skillDir, "SKILL.md");
 			writeFileSync(skillPath, "---\nname: auto-skill\ndescription: Auto\n---\nContent");
@@ -697,7 +697,7 @@ Content`,
 
 		it("should update git package dependencies with --omit=dev", async () => {
 			const source = "git:github.com/user/repo";
-			const targetDir = join(tempDir, ".pi", "git", "github.com", "user", "repo");
+			const targetDir = join(tempDir, ".aery", "git", "github.com", "user", "repo");
 			mkdirSync(targetDir, { recursive: true });
 			writeFileSync(join(targetDir, "package.json"), JSON.stringify({ name: "repo", version: "1.0.0" }));
 			settingsManager.setProjectPackages([source]);
@@ -733,7 +733,7 @@ Content`,
 			});
 
 			const source = "git:github.com/user/repo";
-			const targetDir = join(tempDir, ".pi", "git", "github.com", "user", "repo");
+			const targetDir = join(tempDir, ".aery", "git", "github.com", "user", "repo");
 			mkdirSync(targetDir, { recursive: true });
 			writeFileSync(join(targetDir, "package.json"), JSON.stringify({ name: "repo", version: "1.0.0" }));
 			settingsManager.setProjectPackages([source]);
@@ -883,7 +883,7 @@ Content`,
 			expect(settings.packages?.[0]).toBe(expected);
 		});
 
-		it("should store project local packages relative to .pi settings base", () => {
+		it("should store project local packages relative to .aery settings base", () => {
 			const projectPkgDir = join(tempDir, "project-local-pkg");
 			mkdirSync(join(projectPkgDir, "extensions"), { recursive: true });
 			writeFileSync(join(projectPkgDir, "extensions", "index.ts"), "export default function() {}");
@@ -892,7 +892,7 @@ Content`,
 			expect(added).toBe(true);
 
 			const settings = settingsManager.getProjectSettings();
-			const rel = relative(join(tempDir, ".pi"), projectPkgDir);
+			const rel = relative(join(tempDir, ".aery"), projectPkgDir);
 			const expected = rel.startsWith(".") ? rel : `./${rel}`;
 			expect(settings.packages?.[0]).toBe(expected);
 		});
@@ -1689,7 +1689,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 
 	describe("offline mode and network timeouts", () => {
 		it("should update project npm packages using @latest when newer version is available", async () => {
-			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
 			mkdirSync(installedPath, { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			settingsManager.setProjectPackages(["npm:example"]);
@@ -1706,13 +1706,13 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			);
 			expect(runCommandSpy).toHaveBeenCalledWith(
 				"npm",
-				["install", "example@latest", "--prefix", join(tempDir, ".pi", "npm")],
+				["install", "example@latest", "--prefix", join(tempDir, ".aery", "npm")],
 				undefined,
 			);
 		});
 
 		it("should skip project npm update when installed version matches latest", async () => {
-			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
 			mkdirSync(installedPath, { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.2.3" }));
 			settingsManager.setProjectPackages(["npm:example"]);
@@ -1736,8 +1736,8 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			const userOldPath = join(agentDir, "node_modules", "user-old");
 			const userCurrentPath = join(agentDir, "node_modules", "user-current");
 			const userUnknownPath = join(agentDir, "node_modules", "user-unknown");
-			const projectOldPath = join(tempDir, ".pi", "npm", "node_modules", "project-old");
-			const projectCurrentPath = join(tempDir, ".pi", "npm", "node_modules", "project-current");
+			const projectOldPath = join(tempDir, ".aery", "npm", "node_modules", "project-old");
+			const projectCurrentPath = join(tempDir, ".aery", "npm", "node_modules", "project-current");
 			const installPaths = [userOldPath, userCurrentPath, userUnknownPath, projectOldPath, projectCurrentPath];
 			for (const installPath of installPaths) {
 				mkdirSync(installPath, { recursive: true });
@@ -1831,7 +1831,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			expect(runCommandSpy).toHaveBeenNthCalledWith(
 				2,
 				"npm",
-				["install", "project-old@latest", "project-missing@latest", "--prefix", join(tempDir, ".pi", "npm")],
+				["install", "project-old@latest", "project-missing@latest", "--prefix", join(tempDir, ".aery", "npm")],
 				undefined,
 			);
 			expect(updateGitSpy).toHaveBeenCalledTimes(3);
@@ -1884,7 +1884,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		});
 
 		it("should not run npm view during resolve for installed unpinned packages", async () => {
-			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
 			mkdirSync(join(installedPath, "extensions"), { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			writeFileSync(join(installedPath, "extensions", "index.ts"), "export default function() {};");
@@ -1898,7 +1898,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		});
 
 		it("should reinstall pinned npm packages when installed version does not match", async () => {
-			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
 			mkdirSync(installedPath, { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			settingsManager.setProjectPackages(["npm:example@2.0.0"]);
@@ -1921,7 +1921,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		});
 
 		it("should report updates for installed unpinned npm packages", async () => {
-			const installedPath = join(tempDir, ".pi", "npm", "node_modules", "example");
+			const installedPath = join(tempDir, ".aery", "npm", "node_modules", "example");
 			mkdirSync(installedPath, { recursive: true });
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			settingsManager.setProjectPackages(["npm:example"]);
@@ -1940,7 +1940,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		});
 
 		it("should skip pinned packages when checking for updates", async () => {
-			const installedNpmPath = join(tempDir, ".pi", "npm", "node_modules", "example");
+			const installedNpmPath = join(tempDir, ".aery", "npm", "node_modules", "example");
 			mkdirSync(installedNpmPath, { recursive: true });
 			writeFileSync(join(installedNpmPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			const parsedGitSource = (packageManager as any).parseSource("git:github.com/example/repo@v1");
