@@ -310,7 +310,7 @@ jobs:
           TSGO=$(which tsgo 2>/dev/null || echo "../../node_modules/.bin/tsgo")
 
           # Build packages in dependency order
-          for pkg in tui ai agent; do
+          for pkg in tui ai agent coding-agent; do
             (cd packages/$pkg && $TSGO -p tsconfig.build.json 2>/dev/null || true)
           done
           (cd packages/ai && npm link 2>/dev/null || true)
