@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,8 +38,7 @@ describe("Coding Agent Tools", () => {
 
 	beforeEach(() => {
 		// Create a unique temporary directory for each test
-		testDir = join(tmpdir(), `coding-agent-test-${Date.now()}`);
-		mkdirSync(testDir, { recursive: true });
+		testDir = mkdtempSync(join(tmpdir(), "coding-agent-test-"));
 	});
 
 	afterEach(() => {
@@ -781,8 +780,7 @@ describe("edit tool fuzzy matching", () => {
 	let testDir: string;
 
 	beforeEach(() => {
-		testDir = join(tmpdir(), `coding-agent-fuzzy-test-${Date.now()}`);
-		mkdirSync(testDir, { recursive: true });
+		testDir = mkdtempSync(join(tmpdir(), "coding-agent-fuzzy-test-"));
 	});
 
 	afterEach(() => {
@@ -957,8 +955,7 @@ describe("edit tool CRLF handling", () => {
 	let testDir: string;
 
 	beforeEach(() => {
-		testDir = join(tmpdir(), `coding-agent-crlf-test-${Date.now()}`);
-		mkdirSync(testDir, { recursive: true });
+		testDir = mkdtempSync(join(tmpdir(), "coding-agent-crlf-test-"));
 	});
 
 	afterEach(() => {
