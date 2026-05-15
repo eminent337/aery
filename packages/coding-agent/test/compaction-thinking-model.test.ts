@@ -60,7 +60,7 @@ describe.skipIf(!HAS_ANTIGRAVITY_AUTH)("Compaction with thinking models (Antigra
 		modelId: "claude-opus-4-5-thinking" | "claude-sonnet-4-5",
 		thinkingLevel: ThinkingLevel = "high",
 	) {
-		const model = getModel("google-antigravity", modelId);
+		const model = getModel("google-antigravity" as any, modelId);
 		if (!model) {
 			throw new Error(`Model not found: google-antigravity/${modelId}`);
 		}
