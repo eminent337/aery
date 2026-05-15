@@ -159,6 +159,8 @@ export function parseArgs(args: string[]): Args {
 			result.offline = true;
 		} else if (arg.startsWith("@")) {
 			result.fileArgs.push(arg.slice(1)); // Remove @ prefix
+		} else if (result.print && arg.startsWith("---")) {
+			result.messages.push(arg);
 		} else if (arg.startsWith("--")) {
 			const eqIndex = arg.indexOf("=");
 			if (eqIndex !== -1) {
