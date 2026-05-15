@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { Agent, type AgentMessage, type ThinkingLevel } from "@eminent337/aery-core";
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@eminent337/aery-ai";
+import { Agent, type AgentMessage, type ThinkingLevel } from "@eminent337/aery-core";
 import { getAgentDir } from "../config.js";
 import { AgentSession } from "./agent-session.js";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.js";

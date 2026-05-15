@@ -1,6 +1,6 @@
-import { complete, getModel } from "@eminent337/aery-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@eminent337/aery";
 import { DynamicBorder, getMarkdownTheme } from "@eminent337/aery";
+import { complete, getModel } from "@eminent337/aery-ai";
 import { Container, Markdown, matchesKey, Text } from "@eminent337/aery-tui";
 
 type ContentBlock = {

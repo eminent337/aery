@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@eminent337/aery-core";
 import type { Transport } from "@eminent337/aery-ai";
+import type { ThinkingLevel } from "@eminent337/aery-core";
 import {
 	Container,
 	getCapabilities,

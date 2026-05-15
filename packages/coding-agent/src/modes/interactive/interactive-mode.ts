@@ -7,7 +7,6 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@eminent337/aery-core";
 import {
 	type AssistantMessage,
 	getProviders,
@@ -17,6 +16,7 @@ import {
 	type OAuthProviderId,
 	type OAuthSelectPrompt,
 } from "@eminent337/aery-ai";
+import type { AgentMessage } from "@eminent337/aery-core";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
