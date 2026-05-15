@@ -193,17 +193,24 @@ jobs:
           else
             git checkout upstream-clean -- "${SYNC_PATHS[@]}"
 
-            # Remove files that upstream deleted but still exist on main.
-            # git checkout only adds/updates — it does not remove deleted files.
-            for sync_path in "${SYNC_PATHS[@]}"; do
-              git diff --name-only --diff-filter=D upstream-clean HEAD -- "$sync_path" | while read -r deleted; do
+            # Remove files that upstream previously had but has now deleted.
+            # Only remove files that exist in the previous upstream-clean state
+            # (meaning upstream owned them) but are gone from the new upstream-clean.
+            if git show-ref --verify --quiet refs/remotes/origin/upstream-clean; then
+              git diff --name-only --diff-filter=D origin/upstream-clean upstream-clean -- "${SYNC_PATHS[@]}" | while read -r deleted; do
                 [ -f "$deleted" ] && git rm -f "$deleted" 2>/dev/null || true
               done
-            done
+            fi
 
             # Reapply Aery-owned branding and config path guards after taking
             # upstream package files. These are intentionally not upstreamed.
-            git checkout HEAD -- packages/ai/src/utils/oauth/oauth-page.ts || true
+            git checkout HEAD -- \
+              packages/ai/src/utils/oauth/oauth-page.ts \
+              packages/ai/src/providers/aery-error-formatting.ts \
+              packages/coding-agent/src/cli/doctor.ts \
+              packages/coding-agent/src/cli/capabilities.ts \
+              packages/coding-agent/src/core/provider-setup-check.ts \
+              2>/dev/null || true
             perl -pi -e 's|\.pi/|.aery/|g; s|"\.pi"|".aery"|g; s|`\.pi`|`.aery`|g; s|\(\.pi/|\(.aery/|g' \
               packages/coding-agent/src/config.ts \
               packages/coding-agent/src/core/package-manager.ts \
