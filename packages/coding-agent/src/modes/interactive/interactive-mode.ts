@@ -214,7 +214,7 @@ const API_KEY_PROVIDER_NAMES: Record<string, string> = {
 const API_KEY_LOGIN_PROVIDER_BLOCKLIST = new Set(["amazon-bedrock", "llama.cpp", "lmstudio", "ollama"]);
 const CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL = "Custom OpenAI-compatible";
 const AERY_GATEWAY_PROVIDER_ID = "__aery-gateway__";
-const AERY_GATEWAY_BASE_URL = "https://api.aery.dev/v1";
+const AERY_GATEWAY_BASE_URL = "https://aery-gateway.eminent337.workers.dev/v1";
 
 export function isApiKeyLoginProvider(
 	providerId: string,
