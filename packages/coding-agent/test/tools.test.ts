@@ -33,7 +33,7 @@ function getTextOutput(result: any): string {
 	);
 }
 
-describe("Coding Agent Tools", () => {
+describe.sequential("Coding Agent Tools", () => {
 	let testDir: string;
 
 	beforeEach(() => {
@@ -777,7 +777,7 @@ describe("Coding Agent Tools", () => {
 	});
 });
 
-describe("edit tool fuzzy matching", () => {
+describe.sequential("edit tool fuzzy matching", () => {
 	let testDir: string;
 
 	beforeEach(() => {
@@ -953,7 +953,7 @@ describe("edit tool fuzzy matching", () => {
 	});
 });
 
-describe("edit tool CRLF handling", () => {
+describe.sequential("edit tool CRLF handling", () => {
 	let testDir: string;
 
 	beforeEach(() => {
