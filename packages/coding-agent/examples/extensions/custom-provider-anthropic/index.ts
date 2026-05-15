@@ -23,7 +23,6 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlockParam, MessageCreateParamsStreaming } from "@anthropic-ai/sdk/resources/messages.js";
-import type { ExtensionAPI } from "@eminent337/aery";
 import {
 	type Api,
 	type AssistantMessage,
@@ -44,6 +43,7 @@ import {
 	type ToolCall,
 	type ToolResultMessage,
 } from "@eminent337/aery-ai";
+import type { ExtensionAPI } from "@eminent337/aery";
 
 // =============================================================================
 // OAuth Implementation (copied from packages/ai/src/utils/oauth/anthropic.ts)

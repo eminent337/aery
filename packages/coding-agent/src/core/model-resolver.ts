@@ -2,8 +2,8 @@
  * Model resolution, scoping, and initial selection
  */
 
-import { type Api, type KnownProvider, type Model, modelsAreEqual } from "@eminent337/aery-ai";
 import type { ThinkingLevel } from "@eminent337/aery-core";
+import { type Api, type KnownProvider, type Model, modelsAreEqual } from "@eminent337/aery-ai";
 import chalk from "chalk";
 import { minimatch } from "minimatch";
 import { isValidThinkingLevel } from "../cli/args.js";
@@ -19,8 +19,6 @@ export const defaultModelPerProvider: Record<KnownProvider, string> = {
 	"openai-codex": "gpt-5.5",
 	deepseek: "deepseek-v4-pro",
 	google: "gemini-3.1-pro-preview",
-	"google-gemini-cli": "gemini-3.1-pro-preview",
-	"google-antigravity": "claude-sonnet-4-5",
 	"google-vertex": "gemini-3.1-pro-preview",
 	"github-copilot": "gpt-5.4",
 	openrouter: "moonshotai/kimi-k2.6",

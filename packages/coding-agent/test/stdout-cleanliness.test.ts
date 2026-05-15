@@ -1,12 +1,11 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.js";
 
 const cliPath = resolve(__dirname, "../src/cli.ts");
-const builtCliPath = resolve(__dirname, "../dist/cli.js");
 const tsxPath = resolve(__dirname, "../../../node_modules/tsx/dist/cli.mjs");
 
 const tempDirs: string[] = [];
@@ -56,8 +55,7 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
 	);
 
 	return await new Promise((resolvePromise, reject) => {
-		const cliArgs = existsSync(builtCliPath) ? [builtCliPath, ...args] : [tsxPath, cliPath, ...args];
-		const child = spawn(process.execPath, cliArgs, {
+		const child = spawn(process.execPath, [tsxPath, cliPath, ...args], {
 			cwd: projectDir,
 			env: {
 				...process.env,
@@ -82,7 +80,7 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
 	});
 }
 
-describe.sequential("stdout cleanliness in non-interactive modes", () => {
+describe("stdout cleanliness in non-interactive modes", () => {
 	it("keeps stdout empty for --mode json --help while routing startup chatter to stderr", async () => {
 		const result = await runCli(["--mode", "json", "--help"]);
 

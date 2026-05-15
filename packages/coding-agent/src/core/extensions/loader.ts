@@ -8,9 +8,9 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as _bundledPiAgentCore from "@eminent337/aery-core";
 import * as _bundledPiAi from "@eminent337/aery-ai";
 import * as _bundledPiAiOauth from "@eminent337/aery-ai/oauth";
-import * as _bundledPiAgentCore from "@eminent337/aery-core";
 import type { KeyId } from "@eminent337/aery-tui";
 import * as _bundledPiTui from "@eminent337/aery-tui";
 import { createJiti } from "jiti/static";
@@ -463,9 +463,6 @@ function readAeryManifest(packageJsonPath: string): AeryManifest | null {
 		const pkg = JSON.parse(content);
 		if (pkg.aery && typeof pkg.aery === "object") {
 			return pkg.aery as AeryManifest;
-		}
-		if (pkg.pi && typeof pkg.pi === "object") {
-			return pkg.pi as AeryManifest;
 		}
 		return null;
 	} catch {

@@ -31,8 +31,6 @@ export function formatSkillInvocation(skill: Skill, additionalInstructions?: str
 	return additionalInstructions ? `${skillBlock}\n\n${additionalInstructions}` : skillBlock;
 }
 
-export const expandSkillCommand = formatSkillInvocation;
-
 /**
  * Load skills from one or more directories.
  *

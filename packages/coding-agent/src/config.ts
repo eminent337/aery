@@ -418,8 +418,8 @@ const pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8")) as PackageJs
 
 const aeryConfigName: string | undefined = pkg.aeryConfig?.name;
 export const PACKAGE_NAME: string = pkg.name || "@eminent337/aery";
-export const APP_NAME: string = aeryConfigName || "aery";
-export const APP_TITLE: string = aeryConfigName ? APP_NAME : "Aery";
+export const APP_NAME: string = aeryConfigName || "pi";
+export const APP_TITLE: string = aeryConfigName ? APP_NAME : "π";
 export const CONFIG_DIR_NAME: string = pkg.aeryConfig?.configDir || ".aery";
 export const VERSION: string = pkg.version || "0.0.0";
 

@@ -190,14 +190,6 @@ export class AgentHarness<
 		this.followUpQueueMode = options.followUpMode ?? "one-at-a-time";
 	}
 
-	get conversation(): { session: Session; model: Model<any> } {
-		return { session: this.session, model: this.model };
-	}
-
-	get agent(): { state: { model: Model<any>; thinkingLevel: ThinkingLevel } } {
-		return { state: { model: this.model, thinkingLevel: this.thinkingLevel } };
-	}
-
 	private getHandlers(type: string): Set<AgentHarnessHandler> | undefined {
 		return this.handlers.get(type);
 	}

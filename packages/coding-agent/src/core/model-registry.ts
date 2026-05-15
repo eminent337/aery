@@ -221,29 +221,6 @@ function stripJsonComments(input: string): string {
 		.replace(/"(?:\\.|[^"\\])*"|,(\s*[}\]])/g, (m, tail) => tail ?? (m[0] === '"' ? m : ""));
 }
 
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isLegacyBlankCustomOpenAICompatibleProvider(providerName: string, providerConfig: unknown): boolean {
-	if (providerName !== "custom-openai-compatible") return false;
-	if (!isJsonObject(providerConfig)) return false;
-	if (typeof providerConfig.baseUrl !== "string" || providerConfig.baseUrl.trim() !== "") return false;
-	const models = providerConfig.models;
-	if (!Array.isArray(models) || models.length === 0) return false;
-	return models.every((model) => isJsonObject(model) && typeof model.id === "string" && model.id.trim() === "");
-}
-
-function removeLegacyBlankCustomOpenAICompatibleProviders(config: unknown): unknown {
-	if (!isJsonObject(config) || !isJsonObject(config.providers)) return config;
-	for (const [providerName, providerConfig] of Object.entries(config.providers)) {
-		if (isLegacyBlankCustomOpenAICompatibleProvider(providerName, providerConfig)) {
-			delete config.providers[providerName];
-		}
-	}
-	return config;
-}
-
 /** Provider override config (baseUrl, compat) without request auth/headers */
 interface ProviderOverride {
 	baseUrl?: string;
@@ -424,24 +401,7 @@ export class ModelRegistry {
 			}
 		}
 
-		combined = this.resolveCloudflareWorkersAiModels(combined);
-
 		this.models = combined;
-	}
-
-	private resolveCloudflareWorkersAiModels(models: Model<Api>[]): Model<Api>[] {
-		const accountId = this.getCloudflareWorkersAiAccountId();
-		if (!accountId) {
-			return models;
-		}
-		return models.map((model) =>
-			model.provider === "cloudflare-workers-ai"
-				? {
-						...model,
-						baseUrl: model.baseUrl.replace(/\{CLOUDFLARE_ACCOUNT_ID\}/g, accountId),
-					}
-				: model,
-		);
 	}
 
 	/** Load built-in models and apply provider/model overrides */
@@ -498,9 +458,7 @@ export class ModelRegistry {
 
 		try {
 			const content = readFileSync(modelsJsonPath, "utf-8");
-			const parsed = removeLegacyBlankCustomOpenAICompatibleProviders(
-				JSON.parse(stripJsonComments(content)) as unknown,
-			);
+			const parsed = JSON.parse(stripJsonComments(content)) as unknown;
 
 			if (!validateModelsConfig.Check(parsed)) {
 				const errors =
@@ -570,10 +528,8 @@ export class ModelRegistry {
 				if (!providerConfig.baseUrl) {
 					throw new Error(`Provider ${providerName}: "baseUrl" is required when defining custom models.`);
 				}
-				if (!providerConfig.apiKey && !this.authStorage.hasAuth(providerName)) {
-					throw new Error(
-						`Provider ${providerName}: "apiKey" is required when defining custom models unless auth is already saved in auth.json.`,
-					);
+				if (!providerConfig.apiKey) {
+					throw new Error(`Provider ${providerName}: "apiKey" is required when defining custom models.`);
 				}
 			}
 			// Built-in providers with custom models: baseUrl/apiKey/api are optional,
@@ -680,21 +636,10 @@ export class ModelRegistry {
 	 * Get API key for a model.
 	 */
 	hasConfiguredAuth(model: Model<Api>): boolean {
-		if (model.provider === "cloudflare-workers-ai" && !this.getCloudflareWorkersAiAccountId()) {
-			return false;
-		}
-
 		return (
 			this.authStorage.hasAuth(model.provider) ||
 			this.providerRequestConfigs.get(model.provider)?.apiKey !== undefined
 		);
-	}
-
-	private getCloudflareWorkersAiAccountId(): string | undefined {
-		const credential = this.authStorage.get("cloudflare-workers-ai");
-		const storedAccountId =
-			credential?.type === "api_key" && typeof credential.accountId === "string" ? credential.accountId.trim() : "";
-		return storedAccountId || process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined;
 	}
 
 	private getModelRequestKey(provider: string, modelId: string): string {
@@ -779,15 +724,6 @@ export class ModelRegistry {
 	 */
 	getProviderAuthStatus(provider: string): AuthStatus {
 		const authStatus = this.authStorage.getAuthStatus(provider);
-		if (provider === "cloudflare-workers-ai") {
-			const providerApiKey = this.providerRequestConfigs.get(provider)?.apiKey;
-			if (!this.getCloudflareWorkersAiAccountId() && (authStatus.source || providerApiKey)) {
-				return { configured: false, label: "missing Cloudflare account ID" };
-			}
-			if (authStatus.source) {
-				return authStatus;
-			}
-		}
 		if (authStatus.source) {
 			return authStatus;
 		}
