@@ -3209,7 +3209,6 @@ export class InteractiveMode {
 			}
 		}
 
-		this.pendingTools.clear();
 		this.ui.requestRender();
 	}
 
