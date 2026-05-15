@@ -213,6 +213,8 @@ const API_KEY_PROVIDER_NAMES: Record<string, string> = {
 
 const API_KEY_LOGIN_PROVIDER_BLOCKLIST = new Set(["amazon-bedrock", "llama.cpp", "lmstudio", "ollama"]);
 const CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL = "Custom OpenAI-compatible";
+const AERY_GATEWAY_PROVIDER_ID = "__aery-gateway__";
+const AERY_GATEWAY_BASE_URL = "https://api.aery.dev/v1";
 
 export function isApiKeyLoginProvider(
 	providerId: string,
@@ -4437,6 +4439,11 @@ export class InteractiveMode {
 		}
 		if (!authType || authType === "api_key") {
 			options.push({
+				id: AERY_GATEWAY_PROVIDER_ID,
+				name: "Aery Gateway",
+				authType: "api_key",
+			});
+			options.push({
 				id: CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
 				name: CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL,
 				authType: "api_key",
@@ -4513,7 +4520,9 @@ export class InteractiveMode {
 						return;
 					}
 
-					if (providerOption.id === CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID) {
+					if (providerOption.id === AERY_GATEWAY_PROVIDER_ID) {
+						await this.showAeryGatewayLoginDialog();
+					} else if (providerOption.id === CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID) {
 						await this.showCustomOpenAICompatibleLoginDialog();
 					} else if (providerOption.authType === "oauth") {
 						await this.showLoginDialog(providerOption.id, providerOption.name);
@@ -4688,6 +4697,70 @@ export class InteractiveMode {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			if (errorMsg !== "Login cancelled") {
 				this.showError(`Failed to save API key for ${providerName}: ${errorMsg}`);
+			}
+		}
+	}
+
+	private async showAeryGatewayLoginDialog(): Promise<void> {
+		const dialog = new LoginDialogComponent(
+			this.ui,
+			AERY_GATEWAY_PROVIDER_ID,
+			(_success, _message) => {},
+			"Connect to Aery Gateway",
+		);
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		try {
+			const aeryKey = (await dialog.showPrompt("Enter your Aery key:", "aery_...")).trim();
+			if (!aeryKey) throw new Error("Aery key cannot be empty.");
+
+			const provider = (
+				await dialog.showPrompt("Provider to route through (e.g. anthropic, openai, openrouter):", "anthropic")
+			).trim();
+			if (!provider) throw new Error("Provider cannot be empty.");
+
+			const modelId = (await dialog.showPrompt("Model ID:", "claude-sonnet-4-5")).trim();
+			if (!modelId) throw new Error("Model ID cannot be empty.");
+
+			const baseUrl = `${AERY_GATEWAY_BASE_URL}/${provider}`;
+			const saved = saveCustomOpenAICompatibleProvider({
+				modelsPath: getModelsPath(),
+				baseUrl,
+				modelId,
+			});
+			this.session.modelRegistry.authStorage.set(saved.providerId, { type: "api_key", key: aeryKey });
+			this.session.modelRegistry.refresh();
+
+			restoreEditor();
+			await this.updateAvailableProviderCount();
+			this.footer.invalidate();
+			this.updateEditorBorderColor();
+
+			const model = this.session.modelRegistry.find(saved.providerId, saved.modelId);
+			if (model) {
+				try {
+					await this.session.setModel(model);
+					this.showStatus(`Connected to Aery Gateway → ${provider}/${modelId}.`);
+				} catch {
+					this.showStatus(`Aery Gateway configured. Use /model to select ${saved.providerId}/${modelId}.`);
+				}
+			}
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.showError(`Failed to connect to Aery Gateway: ${errorMsg}`);
 			}
 		}
 	}

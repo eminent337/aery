@@ -90,6 +90,17 @@ Verification:
 - `npm run check:branding`
 - `npm run check`
 
+### Aery Gateway
+
+Aery ships a Cloudflare Worker gateway at `https://api.aery.dev/v1` (Option B: user brings their own provider keys, stored encrypted in Cloudflare KV under a single Aery key). The `/login` flow includes an "Aery Gateway" option that pre-fills the base URL and stores the Aery key as the API credential.
+
+Owned files and hooks:
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+
+Verification:
+- `npm run check`
+- `grep -n "AERY_GATEWAY" packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+
 ### Provider Setup and Cloudflare UX
 
 Aery improves provider setup feedback, especially Cloudflare Workers AI, where both an API token and account ID are required. The `/login` flow should save credentials separately and report whether the provider exposes usable local models after authentication.
