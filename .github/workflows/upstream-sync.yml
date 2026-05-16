@@ -463,7 +463,7 @@ jobs:
           git push origin main
 
           # Workaround npm workspace bug by packing first and publishing the tarball
-          (cd packages/coding-agent && rm -f *.tgz && npm pack && npm publish *.tgz --access public --ignore-scripts --tag latest)
+          (cd packages/coding-agent && rm -f *.tgz && npm pack --ignore-scripts && npm publish *.tgz --access public --ignore-scripts --tag latest)
 
           git tag "v$NEW_VERSION" || true
           git push origin "v$NEW_VERSION" || true
