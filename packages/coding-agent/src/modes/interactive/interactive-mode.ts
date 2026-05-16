@@ -587,7 +587,16 @@ export class InteractiveMode {
 
 		// Add header with keybindings from config (unless silenced)
 		if (this.options.verbose || !this.settingsManager.getQuietStartup()) {
-			const logo = theme.bold(theme.fg("accent", APP_NAME)) + theme.fg("dim", ` v${this.version}`);
+			// Aery ASCII art mascot
+			const ac = (t: string) => theme.fg("accent", t);
+			const dm = (t: string) => theme.fg("dim", t);
+			const bold = (t: string) => theme.bold(t);
+			const asciiLogo = [
+				bold(ac(" █▀█  █▀▀  █▀█  █  █")),
+				bold(ac(" █▀█  █▀   █▀▄  ▀▄▄█")),
+				bold(ac(" ▀  ▀ ▀▀▀  ▀  ▀    ▀")),
+			].join("\n");
+			const logo = `${asciiLogo}  ${dm(`v${this.version}`)}`;
 
 			// Build startup instructions using keybinding hint helpers
 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
@@ -626,7 +635,7 @@ export class InteractiveMode {
 			);
 			const onboarding = theme.fg(
 				"dim",
-				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
+				`${APP_NAME} can explain its own features and look up its docs. Ask it how to use or extend ${APP_NAME}.`,
 			);
 			this.builtInHeader = new ExpandableText(
 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
