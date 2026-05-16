@@ -13,7 +13,12 @@
  *   export default function (pi: ExtensionAPI) { ... }
  */
 
-import { createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager } from "@eminent337/aery";
+import {
+	createAgentSession,
+	DefaultResourceLoader,
+	getAgentDir,
+	SessionManager,
+} from "@eminent337/aery";
 
 // Extensions are discovered automatically from standard locations.
 // You can also add paths via settings.json or DefaultResourceLoader options.
