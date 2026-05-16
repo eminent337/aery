@@ -8,6 +8,9 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const require = createRequire(import.meta.url);
+
 import * as _bundledPiAi from "@eminent337/aery-ai";
 import * as _bundledPiAiOauth from "@eminent337/aery-ai/oauth";
 import * as _bundledPiAgentCore from "@eminent337/aery-core";
@@ -55,8 +58,6 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@eminent337/aery": _bundledPiCodingAgent,
 };
 
-const require = createRequire(import.meta.url);
-
 /**
  * Get aliases for jiti (used in Node.js/development mode).
  * In Bun binary mode, virtualModules is used instead.
@@ -79,7 +80,13 @@ function getAliases(): Record<string, string> {
 		if (fs.existsSync(workspacePath)) {
 			return workspacePath;
 		}
-		return fileURLToPath(import.meta.resolve(specifier));
+		// Fallback for when the package doesn't exist locally (e.g. testing)
+		try {
+			return require.resolve(specifier);
+		} catch {
+			// If resolution fails (e.g., inside Vitest), just return the specifier
+			return specifier;
+		}
 	};
 
 	const piCodingAgentEntry = packageIndex;

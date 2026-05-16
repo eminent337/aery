@@ -34,7 +34,7 @@ describe("doctor", () => {
 		expect(output).toContain("latest: 0.1.97");
 		expect(output).toContain("update available");
 		expect(output).toContain("anthropic: configured via stored");
-		expect(output).toContain("cloudflare-workers-ai: missing Cloudflare account ID");
+		expect(output).toContain("cloudflare-workers-ai: configured via stored");
 		expect(output).toContain("core extensions: attention needed");
 		expect(output).toContain("missing settings entries: 1");
 		expect(output).not.toContain("secret-anthropic-key");
