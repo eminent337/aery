@@ -353,6 +353,15 @@ jobs:
       - name: Validate merged upstream state
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
         run: |
+          # Normalize coding-agent version back to Aery's 0.1.x scheme.
+          # After upstream-clean is merged, packages/coding-agent/package.json gets
+          # reset to the upstream version (e.g., 0.74.0). This causes sync-deps to
+          # think 0.74.0 is the intended version for @eminent337/aery, so it won't
+          # fix sibling packages that depend on ^0.74.0.
+          # Solution: force coding-agent to use the same version as aery-ai (a sibling
+          # that is not overwritten by upstream), then run sync-deps to align everything.
+          SIBLING_VERSION=$(node -p "require('./packages/ai/package.json').version" 2>/dev/null || echo "0.1.118")
+          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$SIBLING_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,'\t'));"
           node scripts/sync-deps.mjs || true
           npm install --ignore-scripts
           node scripts/patch-upstream-code.mjs || true
