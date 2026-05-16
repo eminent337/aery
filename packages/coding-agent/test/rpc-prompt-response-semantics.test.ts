@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Agent } from "@eminent337/aery-core";
 import {
 	type AssistantMessage,
 	type AssistantMessageEvent,
@@ -8,7 +9,6 @@ import {
 	getModel,
 	type Model,
 } from "@eminent337/aery-ai";
-import { Agent } from "@eminent337/aery-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.js";
 import type { AgentSessionRuntime } from "../src/core/agent-session-runtime.js";
