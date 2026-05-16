@@ -328,7 +328,6 @@ jobs:
             " || true
 
             git add "${SYNC_PATHS[@]}"
-            git commit -m "upstream: sync upstream-clean package updates $(date +%Y-%m-%d)"
           fi
           echo "merged=1" >> $GITHUB_OUTPUT
 
@@ -366,10 +365,8 @@ jobs:
           npm install --ignore-scripts
           node scripts/patch-upstream-code.mjs || true
           npm run check
-          # Commit any biome auto-fixes so git diff --exit-code passes
           git add -A
-          git diff --cached --quiet || git commit -m "chore(upstream-clean): apply biome formatting fixes"
-          git diff --exit-code
+          git diff --cached --quiet 
 
       - name: E2E Publish Verification
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
@@ -385,149 +382,24 @@ jobs:
           /tmp/aery-e2e/bin/aery --version || (echo "E2E publish test failed: aery binary not found or crashed" && exit 1)
           # Clean up
           rm -rf /tmp/aery-e2e eminent337-aery-*.tgz
-
-      - name: Bump version and publish to npm
+      - name: Create Pull Request
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
-        id: publish_package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          HUSKY: '0'
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
-          npm install --ignore-scripts 2>/dev/null || true
-
-          # Bump and publish aery-ai (always 0.1.x)
-          AI_NPM=$(npm view @eminent337/aery-ai version 2>/dev/null || echo "0.0.0")
-          AI_CUR=$(node -p "require('./packages/ai/package.json').version")
-          AI_BASE=$(node -e "const n='$AI_NPM',l='$AI_CUR';const ok=v=>v.startsWith('0.1.');const p=v=>parseInt(v.split('.')[2]);if(ok(n)&&ok(l)){console.log(p(n)>=p(l)?n:l)}else if(ok(n)){console.log(n)}else if(ok(l)){console.log(l)}else{console.log('0.1.117')}")
-          IFS='.' read -r A B C <<< "$AI_BASE"; AI_NEW="$A.$B.$((C+1))"
-          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/ai/package.json'));p.version='$AI_NEW';fs.writeFileSync('./packages/ai/package.json',JSON.stringify(p,null,2));"
-          (cd packages/ai && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
-          npm publish ./packages/ai --access public --ignore-scripts --tag latest || true
-
-          # Bump and publish aery-core (always 0.1.x)
-          CORE_NPM=$(npm view @eminent337/aery-core version 2>/dev/null || echo "0.0.0")
-          CORE_CUR=$(node -p "require('./packages/agent/package.json').version")
-          CORE_BASE=$(node -e "const n='$CORE_NPM',l='$CORE_CUR';const ok=v=>v.startsWith('0.1.');const p=v=>parseInt(v.split('.')[2]);if(ok(n)&&ok(l)){console.log(p(n)>=p(l)?n:l)}else if(ok(n)){console.log(n)}else if(ok(l)){console.log(l)}else{console.log('0.1.117')}")
-          IFS='.' read -r A B C <<< "$CORE_BASE"; CORE_NEW="$A.$B.$((C+1))"
-          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/agent/package.json'));p.version='$CORE_NEW';fs.writeFileSync('./packages/agent/package.json',JSON.stringify(p,null,2));"
-          node scripts/patch-upstream-code.mjs || true
-          (cd packages/agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
-          npm publish ./packages/agent --access public --ignore-scripts --tag latest || true
-
-          # Bump and publish aery-tui (always 0.1.x)
-          TUI_NPM=$(npm view @eminent337/aery-tui version 2>/dev/null || echo "0.0.0")
-          TUI_CUR=$(node -p "require('./packages/tui/package.json').version")
-          TUI_BASE=$(node -e "const n='$TUI_NPM',l='$TUI_CUR';const ok=v=>v.startsWith('0.1.');const p=v=>parseInt(v.split('.')[2]);if(ok(n)&&ok(l)){console.log(p(n)>=p(l)?n:l)}else if(ok(n)){console.log(n)}else if(ok(l)){console.log(l)}else{console.log('0.1.117')}")
-          IFS='.' read -r A B C <<< "$TUI_BASE"; TUI_NEW="$A.$B.$((C+1))"
-          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/tui/package.json'));p.version='$TUI_NEW';fs.writeFileSync('./packages/tui/package.json',JSON.stringify(p,null,2));"
-          (cd packages/tui && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
-          npm publish ./packages/tui --access public --ignore-scripts --tag latest || true
-
-          # Bump and publish aery-web-ui (always 0.1.x)
-          WEBUI_NPM=$(npm view @eminent337/aery-web-ui version 2>/dev/null || echo "0.0.0")
-          WEBUI_CUR=$(node -p "require('./packages/web-ui/package.json').version")
-          WEBUI_BASE=$(node -e "const n='$WEBUI_NPM',l='$WEBUI_CUR';const ok=v=>v.startsWith('0.1.');const p=v=>parseInt(v.split('.')[2]);if(ok(n)&&ok(l)){console.log(p(n)>=p(l)?n:l)}else if(ok(n)){console.log(n)}else if(ok(l)){console.log(l)}else{console.log('0.1.117')}")
-          IFS='.' read -r A B C <<< "$WEBUI_BASE"; WEBUI_NEW="$A.$B.$((C+1))"
-          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/web-ui/package.json'));p.version='$WEBUI_NEW';fs.writeFileSync('./packages/web-ui/package.json',JSON.stringify(p,null,2));"
-          (cd packages/web-ui && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
-          npm publish ./packages/web-ui --access public --ignore-scripts --tag latest || true
-
-          # Pin all sibling dep versions in coding-agent to the freshly-bumped 0.1.x versions
-          node -e "
-            const fs=require('fs');
-            const f='packages/coding-agent/package.json';
-            const p=JSON.parse(fs.readFileSync(f,'utf-8'));
-            if(p.dependencies?.['@eminent337/aery-ai'])   p.dependencies['@eminent337/aery-ai']   = '$AI_NEW';
-            if(p.dependencies?.['@eminent337/aery-core'])  p.dependencies['@eminent337/aery-core']  = '$CORE_NEW';
-            if(p.dependencies?.['@eminent337/aery-tui'])   p.dependencies['@eminent337/aery-tui']   = '$TUI_NEW';
-            if(p.dependencies?.['@eminent337/aery-web-ui']) p.dependencies['@eminent337/aery-web-ui'] = '$WEBUI_NEW';
-            fs.writeFileSync(f, JSON.stringify(p,null,2));
-          "
-          # Regenerate coding-agent lock file so npm publish gets clean deps
-          npm install --ignore-scripts 2>/dev/null || true
-
-          # Install tsgo globally so builds succeed
-          npm install -g "@typescript/native-preview@7.0.0-dev.20260120.1" 2>/dev/null || true
-          TSGO=$(which tsgo 2>/dev/null || echo "../../node_modules/.bin/tsgo")
-
-          # Build packages in dependency order
-          for pkg in tui ai agent coding-agent; do
-            (cd packages/$pkg && $TSGO -p tsconfig.build.json 2>/dev/null || true)
-          done
-          (cd packages/ai && npm link 2>/dev/null || true)
-          (cd packages/agent && npm link 2>/dev/null || true)
-          (cd packages/coding-agent && npm link @eminent337/aery-ai @eminent337/aery-core 2>/dev/null || true)
-          (cd packages/coding-agent && $TSGO -p tsconfig.build.json 2>/dev/null || true)
-          chmod +x packages/coding-agent/dist/cli.js || true
-          (cd packages/coding-agent && npm run copy-assets 2>/dev/null || true)
-
-          # Bump and publish coding-agent
-          # Always use Aery's 0.1.x version scheme — never follow upstream's version.
-          # Use npm's published 0.1.x version as base if available, else local 0.1.x.
-          NPM_VERSION=$(npm view @eminent337/aery version 2>/dev/null || echo "0.0.0")
-          LOCAL_VERSION=$(node -p "require('./packages/coding-agent/package.json').version")
-          # Pick the higher 0.1.x version as base; ignore any non-0.1.x versions from upstream bleed
-          CURRENT=$(node -e "
-            const npm='$NPM_VERSION', local='$LOCAL_VERSION';
-            const isAery = v => v.startsWith('0.1.');
-            const patch = v => parseInt(v.split('.')[2]);
-            if (isAery(npm) && isAery(local)) { console.log(patch(npm)>=patch(local)?npm:local); }
-            else if (isAery(npm)) { console.log(npm); }
-            else if (isAery(local)) { console.log(local); }
-            else { console.log('0.1.117'); }
-          ")
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$NEW_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,2));"
-          node scripts/sync-deps.mjs
-          npm install --package-lock-only --ignore-scripts
-
-          git add package-lock.json packages/ai/package.json packages/agent/package.json packages/tui/package.json packages/web-ui/package.json packages/coding-agent/package.json
-          git pull --rebase origin main || true
-          git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
-          git push origin main
-
-          # Bump and publish coding-agent
-          # Remove node_modules before publishing because earlier npm link commands
-          # create symlinks that crash NPM v10's Arborist with 'Cannot read properties of null'.
-          rm -rf packages/coding-agent/node_modules
-          npm publish ./packages/coding-agent --access public --ignore-scripts --tag latest || true
-
-          git tag "v$NEW_VERSION" || true
-          git push origin "v$NEW_VERSION" || true
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        if: steps.publish_package.outputs.new_version != ''
-        uses: actions/github-script@v8
+        uses: peter-evans/create-pull-request@v6
         with:
-          script: |
-            const version = '${{ steps.publish_package.outputs.new_version }}';
-            const tag = `v${version}`;
-            try {
-              await github.rest.repos.createRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag_name: tag,
-                name: `Aery ${tag}`,
-                body: `## Aery ${tag}\n\n### Install\n\`\`\`bash\nnpm install -g @eminent337/aery\n\`\`\`\n\n### Usage\n\`\`\`bash\naery\n\`\`\``,
-                draft: false,
-                prerelease: false,
-                make_latest: 'true'
-              });
-              console.log(`Released ${tag}`);
-            } catch (e) {
-              if (e.status === 422) {
-                console.log(`Release ${tag} already exists, skipping.`);
-              } else {
-                throw e;
-              }
-            }
-
-      - name: Push main
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
-        run: git push origin main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "upstream: sync upstream package updates"
+          title: "🚀 Upstream Sync: ${{ steps.check.outputs.has_updates == 'true' && 'Updates Available' || 'Check' }}"
+          body: |
+            This PR merges the latest updates from the upstream \`badlogic/pi-mono/main\` branch into Aery.
+            
+            - The changes have passed the E2E Publish Verification tests.
+            - The \`pi -> aery\` naming scripts have been applied.
+            - The NPM dependencies have been normalized for the local workspace.
+            
+            Please review the changes and merge if everything looks correct. After merging, the \`publish.yml\` workflow will handle bumping versions and releasing to npm.
+          branch: "sync/upstream-updates"
+          delete-branch: true
+          labels: "upstream-sync"
 
       - name: Notify upstream sync failure
         if: ${{ failure() }}
