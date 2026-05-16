@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -38,7 +39,7 @@ describe("Coding Agent Tools", () => {
 
 	beforeEach(() => {
 		// Create a unique temporary directory for each test
-		testDir = join(tmpdir(), `coding-agent-test-${Date.now()}`);
+		testDir = join(tmpdir(), `coding-agent-test-${crypto.randomUUID()}`);
 		mkdirSync(testDir, { recursive: true });
 	});
 
@@ -781,7 +782,7 @@ describe("edit tool fuzzy matching", () => {
 	let testDir: string;
 
 	beforeEach(() => {
-		testDir = join(tmpdir(), `coding-agent-fuzzy-test-${Date.now()}`);
+		testDir = join(tmpdir(), `coding-agent-fuzzy-test-${crypto.randomUUID()}`);
 		mkdirSync(testDir, { recursive: true });
 	});
 
@@ -957,7 +958,7 @@ describe("edit tool CRLF handling", () => {
 	let testDir: string;
 
 	beforeEach(() => {
-		testDir = join(tmpdir(), `coding-agent-crlf-test-${Date.now()}`);
+		testDir = join(tmpdir(), `coding-agent-crlf-test-${crypto.randomUUID()}`);
 		mkdirSync(testDir, { recursive: true });
 	});
 
