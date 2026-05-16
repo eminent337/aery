@@ -20,8 +20,8 @@ import { type ExtensionAPI, getMarkdownTheme, withFileMutationQueue } from "@emi
 import type { Message } from "@eminent337/aery-ai";
 import { StringEnum } from "@eminent337/aery-ai";
 import type { AgentToolResult } from "@eminent337/aery-core";
-import { Container, Markdown, Spacer, Text } from "@eminent337/aery-tui";
 import { Type } from "typebox";
+import { Container, Markdown, Spacer, Text } from "../../../src/tui/index.js";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.js";
 
 const MAX_PARALLEL_TASKS = 8;

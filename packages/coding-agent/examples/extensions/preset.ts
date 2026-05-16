@@ -43,7 +43,7 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@eminent337/aery";
 import { DynamicBorder, getAgentDir } from "@eminent337/aery";
 import type { Api, Model } from "@eminent337/aery-ai";
-import { Container, Key, type SelectItem, SelectList, Text } from "@eminent337/aery-tui";
+import { Container, Key, type SelectItem, SelectList, Text } from "../../src/tui/index.js";
 
 // Preset configuration
 interface Preset {

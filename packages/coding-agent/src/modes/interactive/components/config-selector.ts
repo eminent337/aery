@@ -4,6 +4,9 @@
 
 import { homedir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
+import { CONFIG_DIR_NAME } from "../../../config.js";
+import type { PathMetadata, ResolvedPaths, ResolvedResource } from "../../../core/package-manager.js";
+import type { PackageSource, SettingsManager } from "../../../core/settings-manager.js";
 import {
 	type Component,
 	Container,
@@ -14,10 +17,7 @@ import {
 	Spacer,
 	truncateToWidth,
 	visibleWidth,
-} from "@eminent337/aery-tui";
-import { CONFIG_DIR_NAME } from "../../../config.js";
-import type { PathMetadata, ResolvedPaths, ResolvedResource } from "../../../core/package-manager.js";
-import type { PackageSource, SettingsManager } from "../../../core/settings-manager.js";
+} from "../../../tui/index.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { rawKeyHint } from "./keybinding-hints.js";

@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import * as os from "node:os";
+import { KeybindingsManager } from "../../../core/keybindings.js";
+import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.js";
 import {
 	type Component,
 	Container,
@@ -12,9 +14,7 @@ import {
 	Text,
 	truncateToWidth,
 	visibleWidth,
-} from "@eminent337/aery-tui";
-import { KeybindingsManager } from "../../../core/keybindings.js";
-import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.js";
+} from "../../../tui/index.js";
 import { canonicalizePath as _canonicalizePath } from "../../../utils/paths.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";

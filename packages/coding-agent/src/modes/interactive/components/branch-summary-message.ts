@@ -1,5 +1,5 @@
-import { Box, Markdown, type MarkdownTheme, Spacer, Text } from "@eminent337/aery-tui";
 import type { BranchSummaryMessage } from "../../../core/messages.js";
+import { Box, Markdown, type MarkdownTheme, Spacer, Text } from "../../../tui/index.js";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
 import { keyText } from "./keybinding-hints.js";
 

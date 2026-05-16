@@ -28,6 +28,8 @@ import type {
 	ThinkingLevel,
 	ToolExecutionMode,
 } from "@eminent337/aery-core";
+import type { Static, TSchema } from "typebox";
+import type { Theme } from "../../modes/interactive/theme/theme.js";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -38,9 +40,7 @@ import type {
 	OverlayHandle,
 	OverlayOptions,
 	TUI,
-} from "@eminent337/aery-tui";
-import type { Static, TSchema } from "typebox";
-import type { Theme } from "../../modes/interactive/theme/theme.js";
+} from "../../tui/index.js";
 import type { BashResult } from "../bash-executor.js";
 import type { CompactionPreparation, CompactionResult } from "../compaction/index.js";
 import type { EventBus } from "../event-bus.js";

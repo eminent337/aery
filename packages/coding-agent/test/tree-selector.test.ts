@@ -1,4 +1,3 @@
-import { setKeybindings } from "@eminent337/aery-tui";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.js";
 import type {
@@ -9,6 +8,7 @@ import type {
 } from "../src/core/session-manager.js";
 import { TreeSelectorComponent } from "../src/modes/interactive/components/tree-selector.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
+import { setKeybindings } from "../src/tui/index.js";
 
 beforeAll(() => {
 	initTheme("dark");

@@ -1,12 +1,12 @@
 import type { AssistantMessage, ToolResultMessage, Usage } from "@eminent337/aery-ai";
 import type { AgentMessage } from "@eminent337/aery-core";
-import { Container, Text, type TUI } from "@eminent337/aery-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.js";
 import type { SessionContext } from "../../../src/core/session-manager.js";
 import type { ToolExecutionComponent } from "../../../src/modes/interactive/components/tool-execution.js";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.js";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.js";
+import { Container, Text, type TUI } from "../../../src/tui/index.js";
 import { stripAnsi } from "../../../src/utils/ansi.js";
 
 const TOOL_CALL_ID = "tool-4167";

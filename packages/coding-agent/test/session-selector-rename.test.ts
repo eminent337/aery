@@ -1,9 +1,9 @@
-import { setKeybindings } from "@eminent337/aery-tui";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.js";
 import type { SessionInfo } from "../src/core/session-manager.js";
 import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
+import { setKeybindings } from "../src/tui/index.js";
 
 async function flushPromises(): Promise<void> {
 	await new Promise<void>((resolve) => {

@@ -1,11 +1,11 @@
 import { homedir } from "node:os";
 import * as path from "node:path";
-import { type AutocompleteProvider, CombinedAutocompleteProvider, Container } from "@eminent337/aery-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { AutocompleteProviderFactory } from "../src/core/extensions/types.js";
 import type { SourceInfo } from "../src/core/source-info.js";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
+import { type AutocompleteProvider, CombinedAutocompleteProvider, Container } from "../src/tui/index.js";
 
 function renderLastLine(container: Container, width = 120): string {
 	const last = container.children[container.children.length - 1];

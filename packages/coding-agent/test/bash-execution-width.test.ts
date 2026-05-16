@@ -2,10 +2,11 @@
  * Test that BashExecutionComponent's collapsed output respects the render-time width,
  * not a stale captured width. Regression test for #2569.
  */
-import { visibleWidth } from "@eminent337/aery-tui";
+
 import { beforeAll, describe, expect, it } from "vitest";
 import { BashExecutionComponent } from "../src/modes/interactive/components/bash-execution.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
+import { visibleWidth } from "../src/tui/index.js";
 
 /** Minimal TUI stub that only exposes terminal.columns */
 function createTuiStub(columns: number): { columns: number; stub: any } {

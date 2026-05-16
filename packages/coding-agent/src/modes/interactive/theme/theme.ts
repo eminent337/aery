@@ -1,11 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { EditorTheme, MarkdownTheme, SelectListTheme } from "@eminent337/aery-tui";
 import chalk from "chalk";
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
 import { getCustomThemesDir, getThemesDir } from "../../../config.js";
 import type { SourceInfo } from "../../../core/source-info.js";
+import type { EditorTheme, MarkdownTheme, SelectListTheme } from "../../../tui/index.js";
 import { closeWatcher, watchWithErrorHandler } from "../../../utils/fs-watch.js";
 import { highlight, supportsLanguage } from "../../../utils/syntax-highlight.js";
 
@@ -1132,7 +1132,7 @@ export function getEditorTheme(): EditorTheme {
 	};
 }
 
-export function getSettingsListTheme(): import("@eminent337/aery-tui").SettingsListTheme {
+export function getSettingsListTheme(): import("../../../tui/index.js").SettingsListTheme {
 	return {
 		label: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : text),
 		value: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : theme.fg("muted", text)),

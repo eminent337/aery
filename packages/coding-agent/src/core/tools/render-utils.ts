@@ -1,6 +1,6 @@
 import * as os from "node:os";
 import type { ImageContent, TextContent } from "@eminent337/aery-ai";
-import { getCapabilities, getImageDimensions, imageFallback } from "@eminent337/aery-tui";
+import { getCapabilities, getImageDimensions, imageFallback } from "../../tui/index.js";
 import { stripAnsi } from "../../utils/ansi.js";
 import { sanitizeBinaryOutput } from "../../utils/shell.js";
 

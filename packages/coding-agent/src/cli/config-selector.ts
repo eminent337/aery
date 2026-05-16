@@ -2,11 +2,11 @@
  * TUI config selector for `pi config` command
  */
 
-import { ProcessTerminal, TUI } from "@eminent337/aery-tui";
 import type { ResolvedPaths } from "../core/package-manager.js";
 import type { SettingsManager } from "../core/settings-manager.js";
 import { ConfigSelectorComponent } from "../modes/interactive/components/config-selector.js";
 import { initTheme, stopThemeWatcher } from "../modes/interactive/theme/theme.js";
+import { ProcessTerminal, TUI } from "../tui/index.js";
 
 export interface ConfigSelectorOptions {
 	resolvedPaths: ResolvedPaths;

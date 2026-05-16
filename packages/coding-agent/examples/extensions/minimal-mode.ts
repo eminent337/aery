@@ -26,8 +26,8 @@ import {
 	createReadTool,
 	createWriteTool,
 } from "@eminent337/aery";
-import { Text } from "@eminent337/aery-tui";
 import { homedir } from "os";
+import { Text } from "../../src/tui/index.js";
 
 /**
  * Shorten a path by replacing home directory with ~

@@ -19,8 +19,8 @@
 
 import type { ExtensionAPI, ExtensionContext, Theme, ToolExecutionMode } from "@eminent337/aery";
 import { StringEnum } from "@eminent337/aery-ai";
-import { type Component, matchesKey, Text, truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
 import { Type } from "typebox";
+import { type Component, matchesKey, Text, truncateToWidth, visibleWidth } from "../../src/tui/index.js";
 
 // Thrown from the tool on illegal actions. The agent runtime surfaces thrown
 // errors as tool errors (isError=true) without resetting any of our state.

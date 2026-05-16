@@ -2,13 +2,13 @@
  * Component for displaying bash command execution with streaming output.
  */
 
-import { Container, Loader, Spacer, Text, type TUI } from "@eminent337/aery-tui";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type TruncationResult,
 	truncateTail,
 } from "../../../core/tools/truncate.js";
+import { Container, Loader, Spacer, Text, type TUI } from "../../../tui/index.js";
 import { stripAnsi } from "../../../utils/ansi.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";

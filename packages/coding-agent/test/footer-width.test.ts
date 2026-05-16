@@ -1,9 +1,9 @@
-import { visibleWidth } from "@eminent337/aery-tui";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.js";
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.js";
 import { FooterComponent } from "../src/modes/interactive/components/footer.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
+import { visibleWidth } from "../src/tui/index.js";
 
 type AssistantUsage = {
 	input: number;

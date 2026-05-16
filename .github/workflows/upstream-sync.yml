@@ -58,11 +58,9 @@ jobs:
               -e 's|@mariozechner/pi-coding-agent|@eminent337/aery|g' \
               -e 's|@mariozechner/pi-agent-core|@eminent337/aery-core|g' \
               -e 's|@mariozechner/pi-ai|@eminent337/aery-ai|g' \
-              -e 's|@mariozechner/pi-tui|@eminent337/aery-tui|g' \
               -e 's|@earendil-works/pi-coding-agent|@eminent337/aery|g' \
               -e 's|@earendil-works/pi-agent-core|@eminent337/aery-core|g' \
               -e 's|@earendil-works/pi-ai|@eminent337/aery-ai|g' \
-              -e 's|@earendil-works/pi-tui|@eminent337/aery-tui|g' \
               -e 's|@mariozechner/pi-mom|@eminent337/aery-mom|g' \
               -e 's|@mariozechner/pi-web-ui|@eminent337/aery-web-ui|g' \
               -e 's|@mariozechner/pi-agent-old|@eminent337/aery-agent-old|g' \
@@ -141,7 +139,6 @@ jobs:
               packages/coding-agent/src/config.ts \
               packages/coding-agent/src/core/package-manager.ts \
               packages/coding-agent/src/modes/interactive/components/config-selector.ts \
-              packages/tui/src/tui.ts \
               packages/coding-agent/package.json \
               2>/dev/null || true
               

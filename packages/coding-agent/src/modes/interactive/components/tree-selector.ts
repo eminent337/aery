@@ -1,3 +1,4 @@
+import type { SessionTreeNode } from "../../../core/session-manager.js";
 import {
 	type Component,
 	Container,
@@ -8,8 +9,7 @@ import {
 	Text,
 	TruncatedText,
 	truncateToWidth,
-} from "@eminent337/aery-tui";
-import type { SessionTreeNode } from "../../../core/session-manager.js";
+} from "../../../tui/index.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyHint, keyText } from "./keybinding-hints.js";

@@ -17,36 +17,6 @@ import {
 	type OAuthSelectPrompt,
 } from "@eminent337/aery-ai";
 import type { AgentMessage } from "@eminent337/aery-core";
-import type {
-	AutocompleteItem,
-	AutocompleteProvider,
-	EditorComponent,
-	Keybinding,
-	KeyId,
-	MarkdownTheme,
-	OverlayHandle,
-	OverlayOptions,
-	SlashCommand,
-} from "@eminent337/aery-tui";
-import {
-	CombinedAutocompleteProvider,
-	type Component,
-	Container,
-	fuzzyFilter,
-	getCapabilities,
-	hyperlink,
-	Loader,
-	type LoaderIndicatorOptions,
-	Markdown,
-	matchesKey,
-	ProcessTerminal,
-	Spacer,
-	setKeybindings,
-	Text,
-	TruncatedText,
-	TUI,
-	visibleWidth,
-} from "@eminent337/aery-tui";
 import { spawn, spawnSync } from "child_process";
 import {
 	APP_NAME,
@@ -65,6 +35,36 @@ import {
 	CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
 	saveCustomOpenAICompatibleProvider,
 } from "../../core/custom-openai-compatible.js";
+import type {
+	AutocompleteItem,
+	AutocompleteProvider,
+	EditorComponent,
+	Keybinding,
+	KeyId,
+	MarkdownTheme,
+	OverlayHandle,
+	OverlayOptions,
+	SlashCommand,
+} from "../../tui/index.js";
+import {
+	CombinedAutocompleteProvider,
+	type Component,
+	Container,
+	fuzzyFilter,
+	getCapabilities,
+	hyperlink,
+	Loader,
+	type LoaderIndicatorOptions,
+	Markdown,
+	matchesKey,
+	ProcessTerminal,
+	Spacer,
+	setKeybindings,
+	Text,
+	TruncatedText,
+	TUI,
+	visibleWidth,
+} from "../../tui/index.js";
 
 const CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL = "Custom OpenAI-compatible";
 const AERY_GATEWAY_PROVIDER_ID = "__aery-gateway__";

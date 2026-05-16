@@ -2,7 +2,7 @@
  * Armin says hi! A fun easter egg with animated XBM art.
  */
 
-import type { Component, TUI } from "@eminent337/aery-tui";
+import type { Component, TUI } from "../../../tui/index.js";
 import { theme } from "../theme/theme.js";
 
 // XBM image: 31x36 pixels, LSB first, 1=background, 0=foreground

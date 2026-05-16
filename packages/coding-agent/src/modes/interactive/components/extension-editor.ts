@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { KeybindingsManager } from "../../../core/keybindings.js";
 import {
 	Container,
 	Editor,
@@ -16,8 +17,7 @@ import {
 	Spacer,
 	Text,
 	type TUI,
-} from "@eminent337/aery-tui";
-import type { KeybindingsManager } from "../../../core/keybindings.js";
+} from "../../../tui/index.js";
 import { getEditorTheme, theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyHint } from "./keybinding-hints.js";

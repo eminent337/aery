@@ -2,7 +2,7 @@
  * Utilities for formatting keybinding hints in the UI.
  */
 
-import { getKeybindings, type Keybinding, type KeyId } from "@eminent337/aery-tui";
+import { getKeybindings, type Keybinding, type KeyId } from "../../../tui/index.js";
 import { theme } from "../theme/theme.js";
 
 export interface KeyTextFormatOptions {

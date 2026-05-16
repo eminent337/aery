@@ -10,7 +10,7 @@
 
 import type { ExtensionAPI } from "@eminent337/aery";
 import type { AssistantMessage } from "@eminent337/aery-ai";
-import { truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
+import { truncateToWidth, visibleWidth } from "../../src/tui/index.js";
 
 export default function (pi: ExtensionAPI) {
 	let enabled = false;

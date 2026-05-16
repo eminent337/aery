@@ -11,8 +11,6 @@ import { fileURLToPath } from "node:url";
 import * as _bundledPiAi from "@eminent337/aery-ai";
 import * as _bundledPiAiOauth from "@eminent337/aery-ai/oauth";
 import * as _bundledPiAgentCore from "@eminent337/aery-core";
-import type { KeyId } from "@eminent337/aery-tui";
-import * as _bundledPiTui from "@eminent337/aery-tui";
 import { createJiti } from "jiti/static";
 // Static imports of packages that extensions may use.
 // These MUST be static so Bun bundles them into the compiled binary.
@@ -24,6 +22,8 @@ import { CONFIG_DIR_NAME, getAgentDir, getBuiltinExtensionsDir, isBunBinary } fr
 // NOTE: This import works because loader.ts exports are NOT re-exported from index.ts,
 // avoiding a circular dependency. Extensions can import from @eminent337/aery.
 import * as _bundledPiCodingAgent from "../../index.js";
+import type { KeyId } from "../../tui/index.js";
+import * as _bundledPiTui from "../../tui/index.js";
 import { createEventBus, type EventBus } from "../event-bus.js";
 import type { ExecOptions } from "../exec.js";
 import { execCommand } from "../exec.js";
@@ -49,7 +49,7 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@sinclair/typebox/compile": _bundledTypeboxCompile,
 	"@sinclair/typebox/value": _bundledTypeboxValue,
 	"@eminent337/aery-core": _bundledPiAgentCore,
-	"@eminent337/aery-tui": _bundledPiTui,
+	"../../tui/index.js": _bundledPiTui,
 	"@eminent337/aery-ai": _bundledPiAi,
 	"@eminent337/aery-ai/oauth": _bundledPiAiOauth,
 	"@eminent337/aery": _bundledPiCodingAgent,
@@ -84,14 +84,14 @@ function getAliases(): Record<string, string> {
 
 	const piCodingAgentEntry = packageIndex;
 	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@eminent337/aery-core");
-	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@eminent337/aery-tui");
+	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "../../tui/index.js");
 	const piAiEntry = resolveWorkspaceOrImport("ai/dist/index.js", "@eminent337/aery-ai");
 	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@eminent337/aery-ai/oauth");
 
 	_aliases = {
 		"@eminent337/aery": piCodingAgentEntry,
 		"@eminent337/aery-core": piAgentCoreEntry,
-		"@eminent337/aery-tui": piTuiEntry,
+		"../../tui/index.js": piTuiEntry,
 		"@eminent337/aery-ai": piAiEntry,
 		"@eminent337/aery-ai/oauth": piAiOauthEntry,
 		typebox: typeboxEntry,

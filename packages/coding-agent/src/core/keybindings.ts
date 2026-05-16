@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+import { getAgentDir } from "../config.js";
 import {
 	type Keybinding,
 	type KeybindingDefinitions,
@@ -5,10 +8,7 @@ import {
 	type KeyId,
 	TUI_KEYBINDINGS,
 	KeybindingsManager as TuiKeybindingsManager,
-} from "@eminent337/aery-tui";
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
-import { getAgentDir } from "../config.js";
+} from "../tui/index.js";
 
 export interface AppKeybindings {
 	"app.interrupt": true;
@@ -56,7 +56,7 @@ export interface AppKeybindings {
 
 export type AppKeybinding = keyof AppKeybindings;
 
-declare module "@eminent337/aery-tui" {
+declare module "../tui/index.js" {
 	interface Keybindings extends AppKeybindings {}
 }
 

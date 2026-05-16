@@ -1,3 +1,4 @@
+import type { AuthStatus, AuthStorage } from "../../../core/auth-storage.js";
 import {
 	Container,
 	type Focusable,
@@ -6,8 +7,7 @@ import {
 	Input,
 	Spacer,
 	TruncatedText,
-} from "@eminent337/aery-tui";
-import type { AuthStatus, AuthStorage } from "../../../core/auth-storage.js";
+} from "../../../tui/index.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 

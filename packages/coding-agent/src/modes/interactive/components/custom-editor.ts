@@ -1,5 +1,5 @@
-import { Editor, type EditorOptions, type EditorTheme, type TUI } from "@eminent337/aery-tui";
 import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.js";
+import { Editor, type EditorOptions, type EditorTheme, type TUI } from "../../../tui/index.js";
 
 /**
  * Custom editor that handles app-level keybindings for coding-agent.

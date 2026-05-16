@@ -1,8 +1,8 @@
 import type { TextContent } from "@eminent337/aery-ai";
-import type { Component } from "@eminent337/aery-tui";
-import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@eminent337/aery-tui";
 import type { MessageRenderer } from "../../../core/extensions/types.js";
 import type { CustomMessage } from "../../../core/messages.js";
+import type { Component } from "../../../tui/index.js";
+import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "../../../tui/index.js";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
 
 /**

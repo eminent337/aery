@@ -3,10 +3,10 @@
  */
 
 import type { Api, Model } from "@eminent337/aery-ai";
-import { fuzzyFilter } from "@eminent337/aery-tui";
 import chalk from "chalk";
 import { formatNoModelsAvailableMessage } from "../core/auth-guidance.js";
 import type { ModelRegistry } from "../core/model-registry.js";
+import { fuzzyFilter } from "../tui/index.js";
 
 /**
  * Format a number as human-readable (e.g., 200000 -> "200K", 1000000 -> "1M")

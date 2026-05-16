@@ -15,7 +15,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@eminent337/aery";
 import type { AssistantMessage, TextContent } from "@eminent337/aery-ai";
 import type { AgentMessage } from "@eminent337/aery-core";
-import { Key } from "@eminent337/aery-tui";
+import { Key } from "../../../src/tui/index.js";
 import { extractTodoItems, isSafeCommand, markCompletedSteps, type TodoItem } from "./utils.js";
 
 // Tools

@@ -5,12 +5,12 @@
  */
 
 import type { AssistantMessage } from "@eminent337/aery-ai";
-import { ProcessTerminal, TUI } from "@eminent337/aery-tui";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
+import { ProcessTerminal, TUI } from "../src/tui/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

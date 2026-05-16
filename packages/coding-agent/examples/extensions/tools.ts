@@ -11,7 +11,7 @@
 
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@eminent337/aery";
 import { getSettingsListTheme } from "@eminent337/aery";
-import { Container, type SettingItem, SettingsList } from "@eminent337/aery-tui";
+import { Container, type SettingItem, SettingsList } from "../../src/tui/index.js";
 
 // State persisted to session
 interface ToolsState {

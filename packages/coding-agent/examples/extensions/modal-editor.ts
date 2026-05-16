@@ -10,7 +10,7 @@
  */
 
 import { CustomEditor, type ExtensionAPI } from "@eminent337/aery";
-import { matchesKey, truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
+import { matchesKey, truncateToWidth, visibleWidth } from "../../src/tui/index.js";
 
 // Normal mode key mappings: key -> escape sequence (or null for mode switch)
 const NORMAL_KEYS: Record<string, string | null> = {

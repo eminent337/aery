@@ -1,13 +1,13 @@
 import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
 import type { Api, ImageContent, Model, TextContent } from "@eminent337/aery-ai";
 import type { AgentTool } from "@eminent337/aery-core";
-import { Text } from "@eminent337/aery-tui";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile } from "fs/promises";
 import { type Static, Type } from "typebox";
 import { getReadmePath } from "../../config.js";
 import { keyHint, keyText } from "../../modes/interactive/components/keybinding-hints.js";
 import { getLanguageFromPath, highlightCode, type Theme } from "../../modes/interactive/theme/theme.js";
+import { Text } from "../../tui/index.js";
 import { formatDimensionNote, resizeImage } from "../../utils/image-resize.js";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.js";
 import { formatPathRelativeToCwdOrAbsolute } from "../../utils/paths.js";

@@ -7,7 +7,7 @@ import {
 	type AutocompleteProvider,
 	type AutocompleteSuggestions,
 	fuzzyFilter,
-} from "@eminent337/aery-tui";
+} from "../../src/tui/index.js";
 
 type GitHubIssue = {
 	number: number;

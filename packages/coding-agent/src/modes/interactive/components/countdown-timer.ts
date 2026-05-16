@@ -2,7 +2,7 @@
  * Reusable countdown timer for dialog components.
  */
 
-import type { TUI } from "@eminent337/aery-tui";
+import type { TUI } from "../../../tui/index.js";
 
 export class CountdownTimer {
 	private intervalId: ReturnType<typeof setInterval> | undefined;

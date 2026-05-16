@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs";
 import type { AgentTool } from "@eminent337/aery-core";
-import { Container, Text, truncateToWidth } from "@eminent337/aery-tui";
 import { spawn } from "child_process";
 import { type Static, Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
 import { truncateToVisualLines } from "../../modes/interactive/components/visual-truncate.js";
 import { theme } from "../../modes/interactive/theme/theme.js";
+import { Container, Text, truncateToWidth } from "../../tui/index.js";
 import { waitForChildProcess } from "../../utils/child-process.js";
 import {
 	getShellConfig,

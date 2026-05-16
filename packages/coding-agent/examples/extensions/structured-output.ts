@@ -6,8 +6,8 @@
  */
 
 import { defineTool, type ExtensionAPI } from "@eminent337/aery";
-import { Text } from "@eminent337/aery-tui";
 import { Type } from "typebox";
+import { Text } from "../../src/tui/index.js";
 
 interface StructuredOutputDetails {
 	headline: string;

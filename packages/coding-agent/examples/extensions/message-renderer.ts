@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI } from "@eminent337/aery";
-import { Box, Text } from "@eminent337/aery-tui";
+import { Box, Text } from "../../src/tui/index.js";
 
 export default function (pi: ExtensionAPI) {
 	// Register custom renderer for "status-update" messages

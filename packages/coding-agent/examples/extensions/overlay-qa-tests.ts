@@ -20,9 +20,9 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@eminent337/aery";
-import type { Component, OverlayAnchor, OverlayHandle, OverlayOptions, TUI } from "@eminent337/aery-tui";
-import { matchesKey, truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
 import { spawn } from "child_process";
+import type { Component, OverlayAnchor, OverlayHandle, OverlayOptions, TUI } from "../../src/tui/index.js";
+import { matchesKey, truncateToWidth, visibleWidth } from "../../src/tui/index.js";
 
 // Global handle for toggle demo (in real code, use a more elegant pattern)
 let globalToggleHandle: OverlayHandle | null = null;

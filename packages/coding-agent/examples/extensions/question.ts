@@ -5,8 +5,8 @@
  */
 
 import type { ExtensionAPI } from "@eminent337/aery";
-import { Editor, type EditorTheme, Key, matchesKey, Text, truncateToWidth } from "@eminent337/aery-tui";
 import { Type } from "typebox";
+import { Editor, type EditorTheme, Key, matchesKey, Text, truncateToWidth } from "../../src/tui/index.js";
 
 interface OptionWithDesc {
 	label: string;

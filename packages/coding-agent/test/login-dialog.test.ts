@@ -1,9 +1,9 @@
-import { setKeybindings, type TUI } from "@eminent337/aery-tui";
 import stripAnsi from "strip-ansi";
 import { beforeEach, describe, expect, it } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.js";
 import { LoginDialogComponent } from "../src/modes/interactive/components/login-dialog.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
+import { setKeybindings, type TUI } from "../src/tui/index.js";
 
 describe("LoginDialogComponent", () => {
 	beforeEach(() => {

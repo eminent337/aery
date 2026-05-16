@@ -1,5 +1,6 @@
 import type { Transport } from "@eminent337/aery-ai";
 import type { ThinkingLevel } from "@eminent337/aery-core";
+import type { WarningSettings } from "../../../core/settings-manager.js";
 import {
 	Container,
 	getCapabilities,
@@ -10,8 +11,7 @@ import {
 	SettingsList,
 	Spacer,
 	Text,
-} from "@eminent337/aery-tui";
-import type { WarningSettings } from "../../../core/settings-manager.js";
+} from "../../../tui/index.js";
 import { getSelectListTheme, getSettingsListTheme, theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyDisplayText } from "./keybinding-hints.js";

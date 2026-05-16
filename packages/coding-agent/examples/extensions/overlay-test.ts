@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@eminent337/aery";
-import { CURSOR_MARKER, type Focusable, matchesKey, visibleWidth } from "@eminent337/aery-tui";
+import { CURSOR_MARKER, type Focusable, matchesKey, visibleWidth } from "../../src/tui/index.js";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("overlay-test", {

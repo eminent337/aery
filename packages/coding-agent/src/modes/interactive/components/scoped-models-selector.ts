@@ -9,7 +9,7 @@ import {
 	matchesKey,
 	Spacer,
 	Text,
-} from "@eminent337/aery-tui";
+} from "../../../tui/index.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyText } from "./keybinding-hints.js";

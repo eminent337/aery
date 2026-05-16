@@ -8,7 +8,6 @@
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@eminent337/aery-ai";
-import { ProcessTerminal, setKeybindings, TUI } from "@eminent337/aery-tui";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.js";
 import { processFileArguments } from "./cli/file-processor.js";
@@ -45,6 +44,7 @@ import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.js";
 import { ExtensionSelectorComponent } from "./modes/interactive/components/extension-selector.js";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.js";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.js";
+import { ProcessTerminal, setKeybindings, TUI } from "./tui/index.js";
 import { isLocalPath } from "./utils/paths.js";
 
 /**

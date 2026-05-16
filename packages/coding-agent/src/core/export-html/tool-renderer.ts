@@ -6,8 +6,8 @@
  */
 
 import type { ImageContent, TextContent } from "@eminent337/aery-ai";
-import type { Component } from "@eminent337/aery-tui";
 import type { Theme } from "../../modes/interactive/theme/theme.js";
+import type { Component } from "../../tui/index.js";
 import type { ToolDefinition, ToolRenderContext } from "../extensions/types.js";
 import { ansiLinesToHtml } from "./ansi-to-html.js";
 

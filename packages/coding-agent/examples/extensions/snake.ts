@@ -3,7 +3,7 @@
  */
 
 import type { ExtensionAPI } from "@eminent337/aery";
-import { matchesKey, visibleWidth } from "@eminent337/aery-tui";
+import { matchesKey, visibleWidth } from "../../src/tui/index.js";
 
 const GAME_WIDTH = 40;
 const GAME_HEIGHT = 15;

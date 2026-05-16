@@ -1,4 +1,6 @@
 import { type Model, modelsAreEqual } from "@eminent337/aery-ai";
+import type { ModelRegistry } from "../../../core/model-registry.js";
+import type { SettingsManager } from "../../../core/settings-manager.js";
 import {
 	Container,
 	type Focusable,
@@ -8,9 +10,7 @@ import {
 	Spacer,
 	Text,
 	type TUI,
-} from "@eminent337/aery-tui";
-import type { ModelRegistry } from "../../../core/model-registry.js";
-import type { SettingsManager } from "../../../core/settings-manager.js";
+} from "../../../tui/index.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyHint } from "./keybinding-hints.js";

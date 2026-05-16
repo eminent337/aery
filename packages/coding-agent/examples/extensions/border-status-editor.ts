@@ -1,6 +1,6 @@
 import { CustomEditor, type ExtensionAPI, type ExtensionContext, type KeybindingsManager } from "@eminent337/aery";
-import type { Component, EditorTheme, TUI } from "@eminent337/aery-tui";
-import { truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
+import type { Component, EditorTheme, TUI } from "../../src/tui/index.js";
+import { truncateToWidth, visibleWidth } from "../../src/tui/index.js";
 
 function fitBorder(
 	left: string,

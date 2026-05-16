@@ -12,8 +12,8 @@
 
 import type { ExtensionAPI, ExtensionContext, Theme } from "@eminent337/aery";
 import { StringEnum } from "@eminent337/aery-ai";
-import { matchesKey, Text, truncateToWidth } from "@eminent337/aery-tui";
 import { Type } from "typebox";
+import { matchesKey, Text, truncateToWidth } from "../../src/tui/index.js";
 
 interface Todo {
 	id: number;

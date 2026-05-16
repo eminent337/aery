@@ -1,10 +1,10 @@
 import type { AgentTool } from "@eminent337/aery-core";
-import { Container, Text } from "@eminent337/aery-tui";
 import { mkdir as fsMkdir, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
 import { type Static, Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
 import { getLanguageFromPath, highlightCode } from "../../modes/interactive/theme/theme.js";
+import { Container, Text } from "../../tui/index.js";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.js";
 import { withFileMutationQueue } from "./file-mutation-queue.js";
 import { resolveToCwd } from "./path-utils.js";

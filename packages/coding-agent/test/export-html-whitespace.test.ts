@@ -1,10 +1,10 @@
-import type { Component } from "@eminent337/aery-tui";
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 import { ansiLinesToHtml } from "../src/core/export-html/ansi-to-html.js";
 import { createToolHtmlRenderer } from "../src/core/export-html/tool-renderer.js";
 import type { ToolDefinition } from "../src/core/extensions/types.js";
 import type { Theme } from "../src/modes/interactive/theme/theme.js";
+import type { Component } from "../src/tui/index.js";
 
 describe("export HTML tool output whitespace", () => {
 	it("preserves whitespace for plain-text tool output lines without preserving template whitespace", () => {

@@ -27,7 +27,7 @@
 
 import type { BashToolDetails, EditToolDetails, ExtensionAPI, ReadToolDetails } from "@eminent337/aery";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@eminent337/aery";
-import { Text } from "@eminent337/aery-tui";
+import { Text } from "../../src/tui/index.js";
 
 export default function (pi: ExtensionAPI) {
 	const cwd = process.cwd();
