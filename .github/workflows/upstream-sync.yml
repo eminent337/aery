@@ -111,6 +111,8 @@ jobs:
               -e 's|"X-OpenRouter-Title": "pi"|"X-OpenRouter-Title": "aery"|g' \
               -e 's|originator: string = "pi"|originator: string = "aery"|g' \
               -e 's|command: "pi"|command: "aery"|g' \
+              -e 's|\.toBe("pi")|.toBe("aery")|g' \
+              -e "s|\.toBe('pi')|.toBe('aery')|g" \
               -e 's|pi-test-auth|aery-test-auth|g' \
               -e 's|pi-test-model|aery-test-model|g' \
               -e 's|pi-test-prompts|aery-test-prompts|g' \
@@ -187,6 +189,119 @@ jobs:
             git push origin sync/upstream-rebranded
           else
             git push origin sync/upstream-rebranded
+          fi
+
+      - name: Restore Protected Aery Files
+        if: steps.check.outputs.has_updates == 'true'
+        run: |
+          git checkout sync/upstream-rebranded
+
+          # AERY PROTECTED: These files are Aery additions not present in upstream.
+          # If upstream deleted them, restore them from the last known good commit.
+          PROTECTED_FILES=(
+            "packages/ai/src/utils/oauth/google-gemini-cli.ts"
+            "packages/ai/src/utils/oauth/google-antigravity.ts"
+            "packages/ai/src/providers/google-gemini-cli.ts"
+          )
+
+          RESTORED=false
+          for FILE in "${PROTECTED_FILES[@]}"; do
+            if [ ! -f "$FILE" ]; then
+              echo "⚠️  Protected file missing: $FILE — restoring from git history..."
+              LAST_COMMIT=$(git log --all --oneline --diff-filter=D -- "$FILE" | head -1 | awk '{print $1}')
+              if [ -n "$LAST_COMMIT" ]; then
+                git show "${LAST_COMMIT}^:${FILE}" > "$FILE" 2>/dev/null && echo "✅ Restored $FILE" || echo "❌ Failed to restore $FILE"
+                RESTORED=true
+              else
+                echo "❌ No history found for $FILE"
+              fi
+            fi
+          done
+
+          if [ "$RESTORED" = "true" ]; then
+            # Re-inject the restored providers back into the registry if they were removed
+            node -e "
+              const fs = require('fs');
+              const oauthIndex = 'packages/ai/src/utils/oauth/index.ts';
+              if (fs.existsSync(oauthIndex)) {
+                let content = fs.readFileSync(oauthIndex, 'utf-8');
+                if (!content.includes('antigravityOAuthProvider')) {
+                  content = content.replace(
+                    /export \* from \"\.\/types\.js\";/,
+                    '// Google Antigravity\nexport { antigravityOAuthProvider, loginAntigravity, refreshAntigravityToken } from \"./google-antigravity.js\";\n// Google Gemini CLI\nexport { geminiCliOAuthProvider, loginGeminiCli, refreshGoogleCloudToken } from \"./google-gemini-cli.js\";\n\nexport * from \"./types.js\";'
+                  );
+                  content = content.replace(
+                    /import \{ openaiCodexOAuthProvider \} from \"\.\/openai-codex\.js\";/,
+                    'import { antigravityOAuthProvider } from \"./google-antigravity.js\";\nimport { geminiCliOAuthProvider } from \"./google-gemini-cli.js\";\nimport { openaiCodexOAuthProvider } from \"./openai-codex.js\";'
+                  );
+                  content = content.replace(
+                    /githubCopilotOAuthProvider,/,
+                    'githubCopilotOAuthProvider,\n\tgeminiCliOAuthProvider,\n\tantigravityOAuthProvider,'
+                  );
+                  fs.writeFileSync(oauthIndex, content);
+                }
+              }
+
+              const regBuiltins = 'packages/ai/src/providers/register-builtins.ts';
+              if (fs.existsSync(regBuiltins)) {
+                let content = fs.readFileSync(regBuiltins, 'utf-8');
+                if (!content.includes('streamGoogleGeminiCli')) {
+                  content = content.replace(
+                    /import type \{ GoogleVertexOptions \} from \"\.\/google-vertex\.js\";/,
+                    'import type { GoogleGeminiCliOptions } from \"./google-gemini-cli.js\";\nimport type { GoogleVertexOptions } from \"./google-vertex.js\";'
+                  );
+                  content = content.replace(
+                    /interface GoogleVertexProviderModule/,
+                    'interface GoogleGeminiCliProviderModule {\\n\\tstreamGoogleGeminiCli: StreamFunction<\"google-gemini-cli\", GoogleGeminiCliOptions>;\\n\\tstreamSimpleGoogleGeminiCli: StreamFunction<\"google-gemini-cli\", SimpleStreamOptions>;\\n}\\n\\ninterface GoogleVertexProviderModule'
+                  );
+                  content = content.replace(
+                    /let googleVertexProviderModulePromise:/,
+                    'let googleGeminiCliProviderModulePromise:\\n\\t| Promise<LazyProviderModule<\"google-gemini-cli\", GoogleGeminiCliOptions, SimpleStreamOptions>>\\n\\t| undefined;\\nlet googleVertexProviderModulePromise:'
+                  );
+                  content = content.replace(
+                    /function loadGoogleVertexProviderModule/,
+                    'function loadGoogleGeminiCliProviderModule(): Promise<\\n\\tLazyProviderModule<\"google-gemini-cli\", GoogleGeminiCliOptions, SimpleStreamOptions>\\n> {\\n\\tgoogleGeminiCliProviderModulePromise ||= import(\"./google-gemini-cli.js\").then((module) => {\\n\\t\\tconst provider = module as GoogleGeminiCliProviderModule;\\n\\t\\treturn {\\n\\t\\t\\tstream: provider.streamGoogleGeminiCli,\\n\\t\\t\\tstreamSimple: provider.streamSimpleGoogleGeminiCli,\\n\\t\\t};\\n\\t});\\n\\treturn googleGeminiCliProviderModulePromise;\\n}\\n\\nfunction loadGoogleVertexProviderModule'
+                  );
+                  content = content.replace(
+                    /export const streamGoogleVertex/,
+                    'export const streamGoogleGeminiCli = createLazyStream(loadGoogleGeminiCliProviderModule);\\nexport const streamSimpleGoogleGeminiCli = createLazySimpleStream(loadGoogleGeminiCliProviderModule);\\nexport const streamGoogleVertex'
+                  );
+                  content = content.replace(
+                    /registerApiProvider\(\{\\n\\t\\tapi: \"google-vertex\"/,
+                    'registerApiProvider({\\n\\t\\tapi: \"google-gemini-cli\",\\n\\t\\tstream: streamGoogleGeminiCli,\\n\\t\\tstreamSimple: streamSimpleGoogleGeminiCli,\\n\\t});\\n\\n\\tregisterApiProvider({\\n\\t\\tapi: \"google-vertex\"'
+                  );
+                  fs.writeFileSync(regBuiltins, content);
+                }
+              }
+
+              const googleShared = 'packages/ai/src/providers/google-shared.ts';
+              if (fs.existsSync(googleShared)) {
+                let content = fs.readFileSync(googleShared, 'utf-8');
+                if (!content.includes('google-gemini-cli')) {
+                  content = content.replace(
+                    /type GoogleApiType = \"google-generative-ai\" \| \"google-vertex\";/,
+                    'type GoogleApiType = \"google-generative-ai\" | \"google-vertex\" | \"google-gemini-cli\";'
+                  );
+                  fs.writeFileSync(googleShared, content);
+                }
+              }
+            " || true
+
+            git add -A
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: restore protected Aery files (gemini-cli, antigravity)" --no-verify
+              git push origin sync/upstream-rebranded
+            fi
+          fi
+
+          # Also run the UI re-injection script for the custom-openai-compatible and aery-gateway logic
+          if [ -f "scripts/inject-aery-ui.js" ]; then
+            node -e "$(< scripts/inject-aery-ui.js)" || true
+            git add -A
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: restore protected Aery UI logic (custom-openai, aery-gateway)" --no-verify
+              git push origin sync/upstream-rebranded
+            fi
           fi
 
       - name: Create Pull Request

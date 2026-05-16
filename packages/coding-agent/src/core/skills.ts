@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import ignore from "ignore";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
-import { CONFIG_DIR_NAME, getAgentDir } from "../config.js";
+import { CONFIG_DIR_NAME, getAgentDir, getBuiltinSkillsDir } from "../config.js";
 import { parseFrontmatter } from "../utils/frontmatter.js";
 import { canonicalizePath } from "../utils/paths.js";
 import type { ResourceDiagnostic } from "./diagnostics.js";
@@ -447,6 +447,7 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 	if (includeDefaults) {
 		addSkills(loadSkillsFromDirInternal(join(resolvedAgentDir, "skills"), "user", true));
 		addSkills(loadSkillsFromDirInternal(resolve(cwd, CONFIG_DIR_NAME, "skills"), "project", true));
+		addSkills(loadSkillsFromDirInternal(getBuiltinSkillsDir(), "builtin", true));
 	}
 
 	const userSkillsDir = join(resolvedAgentDir, "skills");
@@ -461,10 +462,11 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 		return target.startsWith(prefix);
 	};
 
-	const getSource = (resolvedPath: string): "user" | "project" | "path" => {
+	const getSource = (resolvedPath: string): "user" | "project" | "path" | "builtin" => {
 		if (!includeDefaults) {
 			if (isUnderPath(resolvedPath, userSkillsDir)) return "user";
 			if (isUnderPath(resolvedPath, projectSkillsDir)) return "project";
+			if (isUnderPath(resolvedPath, getBuiltinSkillsDir())) return "builtin";
 		}
 		return "path";
 	};

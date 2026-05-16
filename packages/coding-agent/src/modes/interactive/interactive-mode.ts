@@ -55,11 +55,21 @@ import {
 	getAuthPath,
 	getDebugLogPath,
 	getDocsPath,
+	getModelsPath,
 	getShareViewerUrl,
 	VERSION,
 } from "../../config.js";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.js";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.js";
+import {
+	CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
+	saveCustomOpenAICompatibleProvider,
+} from "../../core/custom-openai-compatible.js";
+
+const CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL = "Custom OpenAI-compatible";
+const AERY_GATEWAY_PROVIDER_ID = "__aery-gateway__";
+const AERY_GATEWAY_BASE_URL = "https://aery-gateway.eminent337.workers.dev/v1";
+
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -4428,6 +4438,19 @@ export class InteractiveMode {
 			});
 		}
 
+		if (!authType || authType === "api_key") {
+			options.push({
+				id: AERY_GATEWAY_PROVIDER_ID,
+				name: "Aery Gateway",
+				authType: "api_key",
+			});
+			options.push({
+				id: CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
+				name: CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL,
+				authType: "api_key",
+			});
+		}
+
 		const filteredOptions = authType ? options.filter((option) => option.authType === authType) : options;
 		return filteredOptions.sort((a, b) => a.name.localeCompare(b.name));
 	}
@@ -4494,7 +4517,11 @@ export class InteractiveMode {
 						return;
 					}
 
-					if (providerOption.authType === "oauth") {
+					if (providerOption.id === AERY_GATEWAY_PROVIDER_ID) {
+						await this.showAeryGatewayLoginDialog();
+					} else if (providerOption.id === CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID) {
+						await this.showCustomOpenAICompatibleLoginDialog();
+					} else if (providerOption.authType === "oauth") {
 						await this.showLoginDialog(providerOption.id, providerOption.name);
 					} else if (providerOption.id === BEDROCK_PROVIDER_ID) {
 						this.showBedrockSetupDialog(providerOption.id, providerOption.name);
@@ -4681,6 +4708,159 @@ export class InteractiveMode {
 			const errorMsg = error instanceof Error ? error.message : String(error);
 			if (errorMsg !== "Login cancelled") {
 				this.showError(`Failed to save API key for ${providerName}: ${errorMsg}`);
+			}
+		}
+	}
+
+	private async showCustomOpenAICompatibleLoginDialog(): Promise<void> {
+		const previousModel = this.session.model;
+		const dialog = new LoginDialogComponent(
+			this.ui,
+			CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
+			(_success, _message) => {},
+			`Configure ${CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL}`,
+		);
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		try {
+			const baseUrl = (await dialog.showPrompt("Enter base URL:", "https://api.example.com/v1")).trim();
+			if (!baseUrl) {
+				throw new Error("Base URL cannot be empty.");
+			}
+
+			const modelId = (await dialog.showPrompt("Enter model ID:", "gpt-4o-mini")).trim();
+			if (!modelId) {
+				throw new Error("Model ID cannot be empty.");
+			}
+
+			const apiKey = (await dialog.showPrompt("Enter API key:", "sk-...")).trim();
+			if (!apiKey) {
+				throw new Error("API key cannot be empty.");
+			}
+
+			const saved = saveCustomOpenAICompatibleProvider({
+				modelsPath: getModelsPath(),
+				baseUrl,
+				modelId,
+			});
+			this.session.modelRegistry.authStorage.set(saved.providerId, { type: "api_key", key: apiKey });
+			this.session.modelRegistry.refresh();
+
+			restoreEditor();
+			await this.updateAvailableProviderCount();
+			this.footer.invalidate();
+			this.updateEditorBorderColor();
+
+			const model = this.session.modelRegistry.find(saved.providerId, saved.modelId);
+			let selectedModel = false;
+			if (model) {
+				try {
+					await this.session.setModel(model);
+					selectedModel = true;
+				} catch (error: unknown) {
+					this.showError(
+						`Saved ${saved.providerId}/${saved.modelId}, but selecting it failed: ${
+							error instanceof Error ? error.message : String(error)
+						}. Use /model to select it manually.`,
+					);
+				}
+			}
+
+			if (selectedModel) {
+				this.showStatus(
+					`Configured ${saved.providerId}/${saved.modelId}. Provider saved to ${saved.modelsPath}; API key saved to ${getAuthPath()}.`,
+				);
+			} else {
+				this.showStatus(
+					`Configured ${saved.providerId}/${saved.modelId}. Provider saved to ${saved.modelsPath}; API key saved to ${getAuthPath()}. Use /model to select it.`,
+				);
+			}
+
+			if (isUnknownModel(previousModel) && !selectedModel) {
+				this.showWarning(
+					`Custom provider ${saved.providerId} is available, but no model was selected automatically.`,
+				);
+			}
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.showError(`Failed to configure ${CUSTOM_OPENAI_COMPATIBLE_PROVIDER_LABEL}: ${errorMsg}`);
+			}
+		}
+	}
+
+	private async showAeryGatewayLoginDialog(): Promise<void> {
+		const dialog = new LoginDialogComponent(
+			this.ui,
+			AERY_GATEWAY_PROVIDER_ID,
+			(_success, _message) => {},
+			"Connect to Aery Gateway",
+		);
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		try {
+			const aeryKey = (await dialog.showPrompt("Enter your Aery key:", "aery_...")).trim();
+			if (!aeryKey) throw new Error("Aery key cannot be empty.");
+
+			const provider = (
+				await dialog.showPrompt("Provider to route through (e.g. anthropic, openai, openrouter):", "anthropic")
+			).trim();
+			if (!provider) throw new Error("Provider cannot be empty.");
+
+			const modelId = (await dialog.showPrompt("Model ID:", "claude-sonnet-4-5")).trim();
+			if (!modelId) throw new Error("Model ID cannot be empty.");
+
+			const baseUrl = `${AERY_GATEWAY_BASE_URL}/${provider}`;
+			const saved = saveCustomOpenAICompatibleProvider({
+				modelsPath: getModelsPath(),
+				baseUrl,
+				modelId,
+			});
+			this.session.modelRegistry.authStorage.set(saved.providerId, { type: "api_key", key: aeryKey });
+			this.session.modelRegistry.refresh();
+
+			restoreEditor();
+			await this.updateAvailableProviderCount();
+			this.footer.invalidate();
+			this.updateEditorBorderColor();
+
+			const model = this.session.modelRegistry.find(saved.providerId, saved.modelId);
+			if (model) {
+				try {
+					await this.session.setModel(model);
+					this.showStatus(`Connected to Aery Gateway → ${provider}/${modelId}.`);
+				} catch {
+					this.showStatus(`Aery Gateway configured. Use /model to select ${saved.providerId}/${modelId}.`);
+				}
+			}
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.showError(`Failed to connect to Aery Gateway: ${errorMsg}`);
 			}
 		}
 	}

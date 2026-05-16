@@ -20,7 +20,7 @@ import { createJiti } from "jiti/static";
 import * as _bundledTypebox from "typebox";
 import * as _bundledTypeboxCompile from "typebox/compile";
 import * as _bundledTypeboxValue from "typebox/value";
-import { CONFIG_DIR_NAME, getAgentDir, isBunBinary } from "../../config.js";
+import { CONFIG_DIR_NAME, getAgentDir, getBuiltinExtensionsDir, isBunBinary } from "../../config.js";
 // NOTE: This import works because loader.ts exports are NOT re-exported from index.ts,
 // avoiding a circular dependency. Extensions can import from @eminent337/aery.
 import * as _bundledPiCodingAgent from "../../index.js";
@@ -588,6 +588,9 @@ export async function discoverAndLoadExtensions(
 	// 2. Global extensions: agentDir/extensions/
 	const globalExtDir = path.join(agentDir, "extensions");
 	addPaths(discoverExtensionsInDir(globalExtDir));
+
+	// 2.5 Built-in extensions (bundled with aery)
+	addPaths(discoverExtensionsInDir(getBuiltinExtensionsDir()));
 
 	// 3. Explicitly configured paths
 	for (const p of configuredPaths) {
