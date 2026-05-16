@@ -13,9 +13,9 @@
  *   pi --extension examples/extensions/custom-compaction.ts
  */
 
-import { complete } from "@eminent337/aery-ai";
 import type { ExtensionAPI } from "@eminent337/aery";
 import { convertToLlm, serializeConversation } from "@eminent337/aery";
+import { complete } from "@eminent337/aery-ai";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_before_compact", async (event, ctx) => {

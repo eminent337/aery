@@ -40,9 +40,9 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Api, Model } from "@eminent337/aery-ai";
 import type { ExtensionAPI, ExtensionContext } from "@eminent337/aery";
 import { DynamicBorder, getAgentDir } from "@eminent337/aery";
+import type { Api, Model } from "@eminent337/aery-ai";
 import { Container, Key, type SelectItem, SelectList, Text } from "@eminent337/aery-tui";
 
 // Preset configuration
@@ -200,7 +200,10 @@ export default function presetExtension(pi: ExtensionAPI) {
 		const presetNames = Object.keys(presets);
 
 		if (presetNames.length === 0) {
-			ctx.ui.notify("No presets defined. Add presets to ~/.aery/agent/presets.json or .aery/presets.json", "warning");
+			ctx.ui.notify(
+				"No presets defined. Add presets to ~/.aery/agent/presets.json or .aery/presets.json",
+				"warning",
+			);
 			return;
 		}
 
@@ -308,7 +311,10 @@ export default function presetExtension(pi: ExtensionAPI) {
 	async function cyclePreset(ctx: ExtensionContext): Promise<void> {
 		const presetNames = getPresetOrder();
 		if (presetNames.length === 0) {
-			ctx.ui.notify("No presets defined. Add presets to ~/.aery/agent/presets.json or .aery/presets.json", "warning");
+			ctx.ui.notify(
+				"No presets defined. Add presets to ~/.aery/agent/presets.json or .aery/presets.json",
+				"warning",
+			);
 			return;
 		}
 

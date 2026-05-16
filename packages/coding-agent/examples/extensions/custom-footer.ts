@@ -8,8 +8,8 @@
  * Token stats come from ctx.sessionManager/ctx.model (already accessible).
  */
 
-import type { AssistantMessage } from "@eminent337/aery-ai";
 import type { ExtensionAPI } from "@eminent337/aery";
+import type { AssistantMessage } from "@eminent337/aery-ai";
 import { truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
 
 export default function (pi: ExtensionAPI) {
