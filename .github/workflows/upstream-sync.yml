@@ -379,6 +379,7 @@ jobs:
           # before a broken release is pushed to npm.
           mkdir -p /tmp/aery-e2e
           cd packages/coding-agent
+          npm run build
           npm pack
           npm install -g --prefix /tmp/aery-e2e ./eminent337-aery-*.tgz
           /tmp/aery-e2e/bin/aery --version || (echo "E2E publish test failed: aery binary not found or crashed" && exit 1)
