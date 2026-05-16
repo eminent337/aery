@@ -342,7 +342,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 					attributionHeaders || auth.headers || options?.headers
 						? { ...attributionHeaders, ...auth.headers, ...options?.headers }
 						: undefined,
-			});
+			}) as any;
 		},
 		onPayload: async (payload, _model) => {
 			const runner = extensionRunnerRef.current;
