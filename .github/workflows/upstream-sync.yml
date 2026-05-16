@@ -255,6 +255,11 @@ jobs:
               packages/coding-agent/test/package-manager-cli.test.ts \
               packages/coding-agent/test/provider-setup-check.test.ts \
               packages/coding-agent/test/slash-commands.test.ts \
+              packages/ai/package.json \
+              packages/agent/package.json \
+              packages/tui/package.json \
+              packages/web-ui/package.json \
+              packages/coding-agent/package.json \
               2>/dev/null || true
             perl -pi -e 's|\.pi/|.aery/|g; s|"\.pi"|".aery"|g; s|`\.pi`|`.aery`|g; s|\(\.pi/|\(.aery/|g' \
               packages/coding-agent/src/config.ts \
@@ -350,26 +355,53 @@ jobs:
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
           npm install --ignore-scripts 2>/dev/null || true
 
-          # Bump and publish aery-ai
+          # Bump and publish aery-ai (always 0.1.x)
           AI_NPM=$(npm view @eminent337/aery-ai version 2>/dev/null || echo "0.0.0")
           AI_CUR=$(node -p "require('./packages/ai/package.json').version")
-          AI_BASE=$(node -e "const a='$AI_NPM'.split('.').map(Number),b='$AI_CUR'.split('.').map(Number);const r=a[0]>b[0]||a[0]===b[0]&&a[1]>b[1]||a[0]===b[0]&&a[1]===b[1]&&a[2]>=b[2]?'$AI_NPM':'$AI_CUR';console.log(r)")
+          AI_BASE=$(node -e "const n='$AI_NPM',l='$AI_CUR';const ok=v=>v.startsWith('0.1.');const p=v=>parseInt(v.split('.')[2]);if(ok(n)&&ok(l)){console.log(p(n)>=p(l)?n:l)}else if(ok(n)){console.log(n)}else if(ok(l)){console.log(l)}else{console.log('0.1.117')}")
           IFS='.' read -r A B C <<< "$AI_BASE"; AI_NEW="$A.$B.$((C+1))"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/ai/package.json'));p.version='$AI_NEW';fs.writeFileSync('./packages/ai/package.json',JSON.stringify(p,null,2));"
           (cd packages/ai && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
           npm publish ./packages/ai --access public --ignore-scripts --tag latest || true
 
-          # Bump and publish aery-core
+          # Bump and publish aery-core (always 0.1.x)
           CORE_NPM=$(npm view @eminent337/aery-core version 2>/dev/null || echo "0.0.0")
           CORE_CUR=$(node -p "require('./packages/agent/package.json').version")
-          CORE_BASE=$(node -e "const a='$CORE_NPM'.split('.').map(Number),b='$CORE_CUR'.split('.').map(Number);const r=a[0]>b[0]||a[0]===b[0]&&a[1]>b[1]||a[0]===b[0]&&a[1]===b[1]&&a[2]>=b[2]?'$CORE_NPM':'$CORE_CUR';console.log(r)")
+          CORE_BASE=$(node -e "const n='$CORE_NPM',l='$CORE_CUR';const ok=v=>v.startsWith('0.1.');const p=v=>parseInt(v.split('.')[2]);if(ok(n)&&ok(l)){console.log(p(n)>=p(l)?n:l)}else if(ok(n)){console.log(n)}else if(ok(l)){console.log(l)}else{console.log('0.1.117')}")
           IFS='.' read -r A B C <<< "$CORE_BASE"; CORE_NEW="$A.$B.$((C+1))"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/agent/package.json'));p.version='$CORE_NEW';fs.writeFileSync('./packages/agent/package.json',JSON.stringify(p,null,2));"
           (cd packages/agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
           npm publish ./packages/agent --access public --ignore-scripts --tag latest || true
 
-          # Update aery-ai/aery-core deps in coding-agent only (web-ui uses * to always resolve workspace)
-          node -e "const fs=require('fs');const f='packages/coding-agent/package.json';const p=JSON.parse(fs.readFileSync(f));if(p.dependencies?.['@eminent337/aery-ai'])p.dependencies['@eminent337/aery-ai']='$AI_NEW';if(p.dependencies?.['@eminent337/aery-core'])p.dependencies['@eminent337/aery-core']='$CORE_NEW';fs.writeFileSync(f,JSON.stringify(p,null,2));"
+          # Bump and publish aery-tui (always 0.1.x)
+          TUI_NPM=$(npm view @eminent337/aery-tui version 2>/dev/null || echo "0.0.0")
+          TUI_CUR=$(node -p "require('./packages/tui/package.json').version")
+          TUI_BASE=$(node -e "const n='$TUI_NPM',l='$TUI_CUR';const ok=v=>v.startsWith('0.1.');const p=v=>parseInt(v.split('.')[2]);if(ok(n)&&ok(l)){console.log(p(n)>=p(l)?n:l)}else if(ok(n)){console.log(n)}else if(ok(l)){console.log(l)}else{console.log('0.1.117')}")
+          IFS='.' read -r A B C <<< "$TUI_BASE"; TUI_NEW="$A.$B.$((C+1))"
+          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/tui/package.json'));p.version='$TUI_NEW';fs.writeFileSync('./packages/tui/package.json',JSON.stringify(p,null,2));"
+          (cd packages/tui && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
+          npm publish ./packages/tui --access public --ignore-scripts --tag latest || true
+
+          # Bump and publish aery-web-ui (always 0.1.x)
+          WEBUI_NPM=$(npm view @eminent337/aery-web-ui version 2>/dev/null || echo "0.0.0")
+          WEBUI_CUR=$(node -p "require('./packages/web-ui/package.json').version")
+          WEBUI_BASE=$(node -e "const n='$WEBUI_NPM',l='$WEBUI_CUR';const ok=v=>v.startsWith('0.1.');const p=v=>parseInt(v.split('.')[2]);if(ok(n)&&ok(l)){console.log(p(n)>=p(l)?n:l)}else if(ok(n)){console.log(n)}else if(ok(l)){console.log(l)}else{console.log('0.1.117')}")
+          IFS='.' read -r A B C <<< "$WEBUI_BASE"; WEBUI_NEW="$A.$B.$((C+1))"
+          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/web-ui/package.json'));p.version='$WEBUI_NEW';fs.writeFileSync('./packages/web-ui/package.json',JSON.stringify(p,null,2));"
+          (cd packages/web-ui && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
+          npm publish ./packages/web-ui --access public --ignore-scripts --tag latest || true
+
+          # Pin all sibling dep versions in coding-agent to the freshly-bumped 0.1.x versions
+          node -e "
+            const fs=require('fs');
+            const f='packages/coding-agent/package.json';
+            const p=JSON.parse(fs.readFileSync(f,'utf-8'));
+            if(p.dependencies?.['@eminent337/aery-ai'])   p.dependencies['@eminent337/aery-ai']   = '$AI_NEW';
+            if(p.dependencies?.['@eminent337/aery-core'])  p.dependencies['@eminent337/aery-core']  = '$CORE_NEW';
+            if(p.dependencies?.['@eminent337/aery-tui'])   p.dependencies['@eminent337/aery-tui']   = '$TUI_NEW';
+            if(p.dependencies?.['@eminent337/aery-web-ui']) p.dependencies['@eminent337/aery-web-ui'] = '$WEBUI_NEW';
+            fs.writeFileSync(f, JSON.stringify(p,null,2));
+          "
           npm install --ignore-scripts 2>/dev/null || true
 
           # Install tsgo globally so builds succeed
@@ -388,16 +420,26 @@ jobs:
           (cd packages/coding-agent && npm run copy-assets 2>/dev/null || true)
 
           # Bump and publish coding-agent
+          # Always use Aery's 0.1.x version scheme — never follow upstream's version.
+          # Use npm's published 0.1.x version as base if available, else local 0.1.x.
           NPM_VERSION=$(npm view @eminent337/aery version 2>/dev/null || echo "0.0.0")
           LOCAL_VERSION=$(node -p "require('./packages/coding-agent/package.json').version")
-          # Use whichever is higher as the base to avoid 403 on re-publish
-          CURRENT=$(node -e "const a='$NPM_VERSION'.split('.').map(Number),b='$LOCAL_VERSION'.split('.').map(Number);const gt=(x,y)=>x[0]>y[0]||x[0]===y[0]&&x[1]>y[1]||x[0]===y[0]&&x[1]===y[1]&&x[2]>y[2];console.log(gt(a,b)?'$NPM_VERSION':'$LOCAL_VERSION')")
+          # Pick the higher 0.1.x version as base; ignore any non-0.1.x versions from upstream bleed
+          CURRENT=$(node -e "
+            const npm='$NPM_VERSION', local='$LOCAL_VERSION';
+            const isAery = v => v.startsWith('0.1.');
+            const patch = v => parseInt(v.split('.')[2]);
+            if (isAery(npm) && isAery(local)) { console.log(patch(npm)>=patch(local)?npm:local); }
+            else if (isAery(npm)) { console.log(npm); }
+            else if (isAery(local)) { console.log(local); }
+            else { console.log('0.1.117'); }
+          ")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$NEW_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,2));"
           npm install --package-lock-only --ignore-scripts
 
-          git add package-lock.json packages/ai/package.json packages/agent/package.json packages/coding-agent/package.json packages/web-ui/package.json
+          git add package-lock.json packages/ai/package.json packages/agent/package.json packages/tui/package.json packages/web-ui/package.json packages/coding-agent/package.json
           git pull --rebase origin main || true
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
           git push origin main

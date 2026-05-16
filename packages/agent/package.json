@@ -1,6 +1,6 @@
 {
   "name": "@eminent337/aery-core",
-  "version": "0.74.2",
+  "version": "0.1.118",
   "description": "General-purpose agent with transport abstraction, state management, and attachment support",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,7 +30,7 @@
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
-    "@eminent337/aery-ai": "^0.74.0",
+    "@eminent337/aery-ai": "0.1.118",
     "ignore": "^7.0.5",
     "typebox": "^1.1.24",
     "yaml": "^2.8.2"
@@ -42,7 +42,7 @@
     "transport",
     "state-management"
   ],
-  "author": "Mario Zechner",
+  "author": "eminent337",
   "license": "MIT",
   "repository": {
     "type": "git",

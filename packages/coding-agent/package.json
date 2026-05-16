@@ -1,13 +1,13 @@
 {
   "name": "@eminent337/aery",
-  "version": "0.74.2",
+  "version": "0.1.118",
   "description": "Coding agent CLI with read, bash, edit, write tools and session management",
   "type": "module",
   "aeryConfig": {
     "configDir": ".aery"
   },
   "bin": {
-    "pi": "dist/cli.js"
+    "aery": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -38,9 +38,9 @@
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
-    "@eminent337/aery-core": "0.74.2",
-    "@eminent337/aery-ai": "0.74.2",
-    "@eminent337/aery-tui": "^0.74.0",
+    "@eminent337/aery-core": "0.1.118",
+    "@eminent337/aery-ai": "0.1.118",
+    "@eminent337/aery-tui": "0.1.118",
     "@silvia-odwyer/photon-node": "^0.3.4",
     "chalk": "^5.5.0",
     "diff": "^8.0.2",
@@ -82,7 +82,7 @@
     "tui",
     "agent"
   ],
-  "author": "Mario Zechner",
+  "author": "eminent337",
   "license": "MIT",
   "repository": {
     "type": "git",

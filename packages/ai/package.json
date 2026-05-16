@@ -1,6 +1,6 @@
 {
   "name": "@eminent337/aery-ai",
-  "version": "0.74.2",
+  "version": "0.1.118",
   "description": "Unified LLM API with automatic model discovery and provider configuration",
   "type": "module",
   "main": "./dist/index.js",
@@ -90,7 +90,7 @@
     "unified",
     "api"
   ],
-  "author": "Mario Zechner",
+  "author": "eminent337",
   "license": "MIT",
   "repository": {
     "type": "git",
