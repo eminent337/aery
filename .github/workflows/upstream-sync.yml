@@ -419,6 +419,9 @@ jobs:
             if(p.dependencies?.['@eminent337/aery-web-ui']) p.dependencies['@eminent337/aery-web-ui'] = '$WEBUI_NEW';
             fs.writeFileSync(f, JSON.stringify(p,null,2));
           "
+          # Regenerate coding-agent lock file so npm publish gets clean deps
+          rm -f packages/coding-agent/package-lock.json
+          npm install --prefix packages/coding-agent --package-lock-only --ignore-scripts 2>/dev/null || true
           npm install --ignore-scripts 2>/dev/null || true
 
           # Install tsgo globally so builds succeed
