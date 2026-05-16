@@ -50,3 +50,25 @@ if (src !== orig) {
 } else {
 	console.log("proxy.ts: already clean");
 }
+
+const sdkPath = "packages/coding-agent/src/core/sdk.ts";
+if (!existsSync(sdkPath)) {
+	console.log("sdk.ts: not found, skipping");
+	process.exit(0);
+}
+
+let sdkSrc = readFileSync(sdkPath, "utf-8");
+const sdkOrig = sdkSrc;
+
+// Fix 4: StreamFn type mismatch when bundling between workspace packages
+sdkSrc = sdkSrc.replace(
+	/attributionHeaders \|\| auth\.headers \|\| options\?\.headers\s+\? \{ \.\.\.attributionHeaders, \.\.\.auth\.headers, \.\.\.options\?\.headers \}\s+: undefined,\s+\}\);/,
+	"attributionHeaders || auth.headers || options?.headers\n\t\t\t\t\t\t? { ...attributionHeaders, ...auth.headers, ...options?.headers }\n\t\t\t\t\t\t: undefined,\n\t\t\t}) as any;"
+);
+
+if (sdkSrc !== sdkOrig) {
+	writeFileSync(sdkPath, sdkSrc);
+	console.log("sdk.ts: patched (StreamFn type mismatch bypassed)");
+} else {
+	console.log("sdk.ts: already clean");
+}
