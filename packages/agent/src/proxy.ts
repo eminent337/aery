@@ -149,7 +149,7 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 		}
 
 		try {
-			const response = await fetch(`${options.proxyUrl}/api/stream`, {
+			const response = (await fetch(`${options.proxyUrl}/api/stream`, {
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${options.authToken}`,
@@ -161,7 +161,7 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 					options: buildProxyRequestOptions(options),
 				}),
 				signal: options.signal,
-			});
+			})) as Response;
 
 			if (!response.ok) {
 				let errorMessage = `Proxy error: ${response.status} ${response.statusText}`;
@@ -176,7 +176,9 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 				throw new Error(errorMessage);
 			}
 
-			reader = response.body!.getReader();
+			const rawBody = response.body;
+			if (!rawBody) throw new Error("Proxy response has no body");
+			reader = (rawBody as ReadableStream<Uint8Array>).getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
 
