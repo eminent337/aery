@@ -354,6 +354,8 @@ jobs:
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
         run: |
           npm ci --ignore-scripts
+          # Re-apply proxy.ts tsgo compatibility fix (upstream commits old version during sync)
+          node -e "const fs=require('fs'),p='packages/agent/src/proxy.ts';if(fs.existsSync(p)){let s=fs.readFileSync(p,'utf-8'),o=s;s=s.replace('const response = await fetch(','const response = (await fetch(').replace('signal: options.signal,\n\t\t\t\t});','signal: options.signal,\n\t\t\t\t})) as Response;').replace('reader = response.body!.getReader();','const _rb=response.body;if(!_rb)throw new Error(\"no body\");reader=_rb.getReader();');if(s!==o){fs.writeFileSync(p,s);console.log('proxy.ts: patched')}else{console.log('proxy.ts: ok')}}" || true
           npm run check
           # Commit any biome auto-fixes so git diff --exit-code passes
           git add -A
@@ -385,6 +387,7 @@ jobs:
           CORE_BASE=$(node -e "const n='$CORE_NPM',l='$CORE_CUR';const ok=v=>v.startsWith('0.1.');const p=v=>parseInt(v.split('.')[2]);if(ok(n)&&ok(l)){console.log(p(n)>=p(l)?n:l)}else if(ok(n)){console.log(n)}else if(ok(l)){console.log(l)}else{console.log('0.1.117')}")
           IFS='.' read -r A B C <<< "$CORE_BASE"; CORE_NEW="$A.$B.$((C+1))"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/agent/package.json'));p.version='$CORE_NEW';fs.writeFileSync('./packages/agent/package.json',JSON.stringify(p,null,2));"
+          node -e "const fs=require('fs'),p='packages/agent/src/proxy.ts';if(fs.existsSync(p)){let s=fs.readFileSync(p,'utf-8'),o=s;s=s.replace('const response = await fetch(','const response = (await fetch(').replace('signal: options.signal,\n\t\t\t\t});','signal: options.signal,\n\t\t\t\t})) as Response;').replace('reader = response.body!.getReader();','const _rb=response.body;if(!_rb)throw new Error(\"no body\");reader=_rb.getReader();');if(s!==o){fs.writeFileSync(p,s);console.log('proxy.ts: patched')}else{console.log('proxy.ts: ok')}}" || true
           (cd packages/agent && ../../node_modules/.bin/tsgo -p tsconfig.build.json 2>/dev/null || true)
           npm publish ./packages/agent --access public --ignore-scripts --tag latest || true
 
