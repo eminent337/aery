@@ -455,6 +455,7 @@ jobs:
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
           node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$NEW_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,2));"
+          node scripts/sync-versions.js || true
           npm install --package-lock-only --ignore-scripts
 
           git add package-lock.json packages/ai/package.json packages/agent/package.json packages/tui/package.json packages/web-ui/package.json packages/coding-agent/package.json
