@@ -36,7 +36,6 @@ export const CORE_EXTENSION_PATHS = [
 	"session-auto-name",
 	"upstream-notify",
 	"init-prompt",
-	"graphify",
 ] as const;
 
 export const DEPRECATED_CORE_EXTENSION_PATHS = ["provider-profiles"] as const;

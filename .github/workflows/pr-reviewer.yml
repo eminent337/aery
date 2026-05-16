@@ -1,0 +1,52 @@
+name: AI PR Reviewer
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+  pull_request_review_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code Review (Primary - OpenRouter)
+        id: review-openrouter
+        uses: anc95/ChatGPT-CodeReview@main
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_ENDPOINT: https://openrouter.ai/api/v1
+          MODEL: google/gemini-2.0-flash-lite-preview-02-05:free
+          LANGUAGE: English
+          PROMPT: |
+            You are an expert AI coding agent reviewing an upstream synchronization Pull Request. 
+            Compare the upstream changes against the main branch. Provide a full review, noting:
+            1. Any major architectural or breaking changes.
+            2. Any potential bugs or conflicts.
+            3. A high-level summary of the update to help the repository owner decide whether to accept or reject the merge.
+
+      - name: Code Review (Fallback - Google Gemini Direct API)
+        if: steps.review-openrouter.outcome == 'failure'
+        uses: anc95/ChatGPT-CodeReview@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_ENDPOINT: https://generativelanguage.googleapis.com/v1beta/openai/
+          MODEL: gemini-2.5-flash
+          LANGUAGE: English
+          PROMPT: |
+            You are an expert AI coding agent reviewing an upstream synchronization Pull Request. 
+            Compare the upstream changes against the main branch. Provide a full review, noting:
+            1. Any major architectural or breaking changes.
+            2. Any potential bugs or conflicts.
+            3. A high-level summary of the update to help the repository owner decide whether to accept or reject the merge.

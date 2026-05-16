@@ -5,6 +5,7 @@ import { getAgentDir } from "../config.js";
 import { AuthStorage } from "./auth-storage.js";
 import type { SessionStartEvent, ToolDefinition } from "./extensions/index.js";
 import { ModelRegistry } from "./model-registry.js";
+import graphify from "./plugins/graphify.js";
 import { DefaultResourceLoader, type DefaultResourceLoaderOptions, type ResourceLoader } from "./resource-loader.js";
 import { type CreateAgentSessionOptions, type CreateAgentSessionResult, createAgentSession } from "./sdk.js";
 import type { SessionManager } from "./session-manager.js";
@@ -139,6 +140,7 @@ export async function createAgentSessionServices(
 		cwd,
 		agentDir,
 		settingsManager,
+		extensionFactories: [...(options.resourceLoaderOptions?.extensionFactories ?? []), graphify],
 	});
 	await resourceLoader.reload();
 

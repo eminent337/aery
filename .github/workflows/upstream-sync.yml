@@ -320,8 +320,9 @@ jobs:
 
             **Instructions:**
             1. Review the changes below. You will see upstream's new logic automatically adapted to our codebase.
-            2. If GitHub indicates there are merge conflicts, it means upstream modified the exact same line of code that you heavily customized. You can resolve these conflicts natively in the GitHub UI or by pulling this branch locally.
-            3. Once tests pass and conflicts are resolved, click **Merge**.
+            2. **AI Review:** An AI code reviewer agent has been automatically triggered. It will post a full review of these changes as a comment on this PR shortly. Please wait for its review to ensure there are no breaking changes.
+            3. If GitHub indicates there are merge conflicts, resolve them in the UI or locally.
+            4. Once tests pass, the AI gives the green light, and conflicts are resolved, click **Merge**.
 
             *Note: Merging this PR will automatically trigger the \`publish.yml\` workflow to release the new version.*"
           else
@@ -329,3 +330,20 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # OPTIONAL: Custom Email Notification
+      # If you prefer a custom email over GitHub's native PR notifications, uncomment this block
+      # and add SMTP_USERNAME and SMTP_PASSWORD to your repository secrets.
+      # - name: Send Custom Email Notification
+      #   if: steps.check.outputs.has_updates == 'true'
+      #   uses: dawidd6/action-send-mail@v3
+      #   with:
+      #     server_address: smtp.gmail.com
+      #     server_port: 465
+      #     secure: true
+      #     username: ${{ secrets.SMTP_USERNAME }}
+      #     password: ${{ secrets.SMTP_PASSWORD }}
+      #     subject: Aery Upstream Sync PR Created
+      #     to: your-email@example.com
+      #     from: Aery Bot
+      #     body: A new upstream sync PR has been created. An AI review has been triggered. Please check your GitHub repository to review and merge the changes.

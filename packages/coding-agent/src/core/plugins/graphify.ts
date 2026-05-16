@@ -11,11 +11,11 @@
  *   - Triggers incremental graph update (AST-only for code, full for docs).
  */
 
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Type } from "typebox";
-import type { ExtensionAPI } from "@eminent337/aery";
+import type { ExtensionAPI } from "../extensions/types.js";
 
 const GRAPH_JSON = "graphify-out/graph.json";
 const GRAPH_REPORT = "graphify-out/GRAPH_REPORT.md";
@@ -54,8 +54,12 @@ function runPython(python: string, code: string): Promise<string> {
 		const proc = spawn(python, ["-c", code], { timeout: 30_000 });
 		let out = "";
 		let err = "";
-		proc.stdout.on("data", (d: Buffer) => { out += d.toString(); });
-		proc.stderr.on("data", (d: Buffer) => { err += d.toString(); });
+		proc.stdout.on("data", (d: Buffer) => {
+			out += d.toString();
+		});
+		proc.stderr.on("data", (d: Buffer) => {
+			err += d.toString();
+		});
 		proc.on("close", (code: number) => {
 			if (code === 0) resolve(out.trim());
 			else reject(new Error(err.trim() || `exit ${code}`));
@@ -67,7 +71,7 @@ export default function (aery: ExtensionAPI) {
 	let graphSummary: string | null = null;
 	let cwd = process.cwd();
 	let pendingUpdate: ReturnType<typeof setTimeout> | null = null;
-	let lastWrittenFiles = new Set<string>();
+	const lastWrittenFiles = new Set<string>();
 
 	// ── Session start: load graph summary and register tools ──────────────────
 	aery.on("session_start", async (_event, _ctx) => {
@@ -83,11 +87,16 @@ export default function (aery: ExtensionAPI) {
 		aery.registerTool({
 			name: "query_graph",
 			label: "Query Knowledge Graph",
-			description: "Query the project knowledge graph using BFS traversal. Returns nodes and edges relevant to the question.",
+			description:
+				"Query the project knowledge graph using BFS traversal. Returns nodes and edges relevant to the question.",
 			promptSnippet: "query_graph(question) — search the project knowledge graph",
 			parameters: Type.Object({
 				question: Type.String({ description: "The question or concept to search for in the graph" }),
-				mode: Type.Optional(Type.Union([Type.Literal("bfs"), Type.Literal("dfs")], { description: "bfs (broad context) or dfs (trace a path). Default: bfs" })),
+				mode: Type.Optional(
+					Type.Union([Type.Literal("bfs"), Type.Literal("dfs")], {
+						description: "bfs (broad context) or dfs (trace a path). Default: bfs",
+					}),
+				),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
 				const mode = params.mode ?? "bfs";
@@ -135,9 +144,9 @@ print('\\n'.join(lines[:200]))
 `;
 				try {
 					const result = await runPython(python, code);
-					return { type: "success", output: result };
+					return { content: [{ type: "text", text: result }], details: { type: "success", output: result } };
 				} catch (e) {
-					return { type: "error", output: String(e) };
+					return { content: [{ type: "text", text: String(e) }], details: { type: "error", output: String(e) } };
 				}
 			},
 		});
@@ -146,7 +155,8 @@ print('\\n'.join(lines[:200]))
 		aery.registerTool({
 			name: "god_nodes",
 			label: "Graph God Nodes",
-			description: "Returns the highest-degree nodes in the knowledge graph — the concepts everything else connects through.",
+			description:
+				"Returns the highest-degree nodes in the knowledge graph — the concepts everything else connects through.",
 			promptSnippet: "god_nodes() — get the most connected concepts in the codebase",
 			parameters: Type.Object({
 				limit: Type.Optional(Type.Number({ description: "Max nodes to return. Default: 10" })),
@@ -167,9 +177,9 @@ for n in gods:
 `;
 				try {
 					const result = await runPython(python, code);
-					return { type: "success", output: result };
+					return { content: [{ type: "text", text: result }], details: { type: "success", output: result } };
 				} catch (e) {
-					return { type: "error", output: String(e) };
+					return { content: [{ type: "text", text: String(e) }], details: { type: "error", output: String(e) } };
 				}
 			},
 		});
@@ -216,29 +226,38 @@ except nx.NetworkXNoPath:
 `;
 				try {
 					const result = await runPython(python, code);
-					return { type: "success", output: result };
+					return { content: [{ type: "text", text: result }], details: { type: "success", output: result } };
 				} catch (e) {
-					return { type: "error", output: String(e) };
+					return { content: [{ type: "text", text: String(e) }], details: { type: "error", output: String(e) } };
 				}
 			},
 		});
 	});
 
 	// ── Context injection: prepend graph summary to every LLM call ────────────
-	aery.on("context", (_event, _ctx) => {
+	aery.on("before_agent_start", (_event, _ctx) => {
 		if (!graphSummary) return undefined;
-		// Inject as a system-role message at the front of the context
 		return {
-			messages: [
-				{ role: "user" as const, content: graphSummary },
-				{ role: "assistant" as const, content: "Understood. I'll use the knowledge graph context when answering questions about this codebase." },
-				..._event.messages,
-			],
+			systemPrompt: `[Graphify Context]\n${graphSummary}\n[End Graphify Context]\nPlease use the knowledge graph context when answering questions about this codebase.`,
 		};
 	});
 
 	// ── File write watcher: trigger incremental graph update ─────────────────
-	const CODE_EXTS = new Set([".ts", ".js", ".mjs", ".py", ".go", ".rs", ".java", ".cpp", ".c", ".rb", ".swift", ".kt", ".cs"]);
+	const CODE_EXTS = new Set([
+		".ts",
+		".js",
+		".mjs",
+		".py",
+		".go",
+		".rs",
+		".java",
+		".cpp",
+		".c",
+		".rb",
+		".swift",
+		".kt",
+		".cs",
+	]);
 
 	aery.on("tool_result", (event, _ctx) => {
 		// Watch for file write/edit tool results
@@ -260,12 +279,14 @@ except nx.NetworkXNoPath:
 			const files = Array.from(lastWrittenFiles);
 			lastWrittenFiles.clear();
 
-			const allCode = files.every(f => CODE_EXTS.has(f.slice(f.lastIndexOf("."))));
+			const allCode = files.every((f) => CODE_EXTS.has(f.slice(f.lastIndexOf("."))));
 
 			try {
 				if (allCode) {
 					// AST-only update, no LLM needed
-					await runPython(python, `
+					await runPython(
+						python,
+						`
 import json
 from graphify.extract import collect_files, extract
 from graphify.build import build_from_json
@@ -300,7 +321,8 @@ report = generate(G, communities, cohesion, labels, gods, surprises, detection, 
 Path('${join(cwd, "graphify-out/GRAPH_REPORT.md").replace(/\\/g, "\\\\")}').write_text(report)
 to_json(G, communities, '${join(cwd, "graphify-out/graph.json").replace(/\\/g, "\\\\")}')
 print(f'Graph updated: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges')
-`);
+`,
+					);
 				} else {
 					// Write a flag for the user to run --update (semantic re-extraction needs LLM)
 					writeFileSync(join(cwd, "graphify-out/.needs_update"), files.join("\n"));
