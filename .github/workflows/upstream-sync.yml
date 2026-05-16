@@ -463,6 +463,9 @@ jobs:
           git push origin main
 
           # Bump and publish coding-agent
+          # Remove node_modules before publishing because earlier npm link commands
+          # create symlinks that crash NPM v10's Arborist with 'Cannot read properties of null'.
+          rm -rf packages/coding-agent/node_modules
           npm publish ./packages/coding-agent --access public --ignore-scripts --tag latest || true
 
           git tag "v$NEW_VERSION" || true
