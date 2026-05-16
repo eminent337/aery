@@ -4,7 +4,7 @@ import { APP_NAME, getAgentDir, VERSION } from "../config.js";
 import { type AuthStatus, AuthStorage } from "../core/auth-storage.js";
 import { ModelRegistry } from "../core/model-registry.js";
 import { type CoreExtensionDiagnostic, diagnoseCoreExtensions } from "../migrations.js";
-import { getLatestPiVersion, isNewerPackageVersion } from "../utils/version-check.js";
+import { getLatestAeryVersion, isNewerPackageVersion } from "../utils/version-check.js";
 
 function isTruthyEnvFlag(value: string | undefined): boolean {
 	return value === "1" || value === "true" || value === "yes";
@@ -66,7 +66,7 @@ export async function collectDoctorReport(options: DoctorReportOptions = {}): Pr
 		options.latestVersion ??
 		(isTruthyEnvFlag(process.env.AERY_OFFLINE) || isTruthyEnvFlag(process.env.AERY_SKIP_VERSION_CHECK)
 			? async () => undefined
-			: getLatestPiVersion);
+			: getLatestAeryVersion);
 	const providerIds = [...new Set([...DEFAULT_PROVIDER_CHECKS, ...authStorage.list()])].sort();
 
 	let latest: string | undefined;

@@ -3,7 +3,7 @@ import { getAeryUserAgent } from "./aery-user-agent.js";
 const LATEST_VERSION_URL = "https://eminent337.github.io/api/latest-version";
 const DEFAULT_VERSION_CHECK_TIMEOUT_MS = 10000;
 
-export interface LatestPiRelease {
+export interface LatestAeryRelease {
 	version: string;
 	packageName?: string;
 }
@@ -52,10 +52,10 @@ export function isNewerPackageVersion(candidateVersion: string, currentVersion: 
 	return candidateVersion.trim() !== currentVersion.trim();
 }
 
-export async function getLatestPiRelease(
+export async function getLatestAeryRelease(
 	currentVersion: string,
 	options: { timeoutMs?: number } = {},
-): Promise<LatestPiRelease | undefined> {
+): Promise<LatestAeryRelease | undefined> {
 	if (process.env.AERY_SKIP_VERSION_CHECK || process.env.AERY_OFFLINE) return undefined;
 
 	const response = await fetch(LATEST_VERSION_URL, {
@@ -76,16 +76,16 @@ export async function getLatestPiRelease(
 	return { version: data.version.trim(), packageName };
 }
 
-export async function getLatestPiVersion(
+export async function getLatestAeryVersion(
 	currentVersion: string,
 	options: { timeoutMs?: number } = {},
 ): Promise<string | undefined> {
-	return (await getLatestPiRelease(currentVersion, options))?.version;
+	return (await getLatestAeryRelease(currentVersion, options))?.version;
 }
 
-export async function checkForNewPiVersion(currentVersion: string): Promise<string | undefined> {
+export async function checkForNewAeryVersion(currentVersion: string): Promise<string | undefined> {
 	try {
-		const latestVersion = await getLatestPiVersion(currentVersion);
+		const latestVersion = await getLatestAeryVersion(currentVersion);
 		if (latestVersion && isNewerPackageVersion(latestVersion, currentVersion)) {
 			return latestVersion;
 		}

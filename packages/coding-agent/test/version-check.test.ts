@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	checkForNewPiVersion,
+	checkForNewAeryVersion,
 	comparePackageVersions,
-	getLatestPiRelease,
-	getLatestPiVersion,
+	getLatestAeryRelease,
+	getLatestAeryVersion,
 	isNewerPackageVersion,
 } from "../src/utils/version-check.js";
 
@@ -37,20 +37,20 @@ describe("version checks", () => {
 		const fetchMock = vi.fn(async () => Response.json({ version: "1.2.3" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(checkForNewPiVersion("1.2.3")).resolves.toBeUndefined();
-		await expect(checkForNewPiVersion("1.2.2")).resolves.toBe("1.2.3");
+		await expect(checkForNewAeryVersion("1.2.3")).resolves.toBeUndefined();
+		await expect(checkForNewAeryVersion("1.2.2")).resolves.toBe("1.2.3");
 	});
 
-	it("uses the eminent337.github.io version check api with a pi user agent", async () => {
+	it("uses the eminent337.github.io version check api with an aery user agent", async () => {
 		const fetchMock = vi.fn(async () => Response.json({ version: "1.2.4" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestPiVersion("1.2.3")).resolves.toBe("1.2.4");
+		await expect(getLatestAeryVersion("1.2.3")).resolves.toBe("1.2.4");
 		expect(fetchMock).toHaveBeenCalledWith(
 			"https://eminent337.github.io/api/latest-version",
 			expect.objectContaining({
 				headers: expect.objectContaining({
-					"User-Agent": expect.stringMatching(/^pi\/1\.2\.3 /),
+					"User-Agent": expect.stringMatching(/^aery\/1\.2\.3 /),
 					accept: "application/json",
 				}),
 			}),
@@ -61,7 +61,7 @@ describe("version checks", () => {
 		const fetchMock = vi.fn(async () => Response.json({ packageName: "@new-scope/pi", version: "1.2.4" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestPiRelease("1.2.3")).resolves.toEqual({ packageName: "@new-scope/pi", version: "1.2.4" });
+		await expect(getLatestAeryRelease("1.2.3")).resolves.toEqual({ packageName: "@new-scope/pi", version: "1.2.4" });
 	});
 
 	it("skips api calls when version checks are disabled", async () => {
@@ -69,7 +69,7 @@ describe("version checks", () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestPiVersion("1.2.3")).resolves.toBeUndefined();
+		await expect(getLatestAeryVersion("1.2.3")).resolves.toBeUndefined();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

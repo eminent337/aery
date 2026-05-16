@@ -20,10 +20,10 @@ export default defineConfig({
 		alias: [
 			{ find: /^@earendil-works\/aery-ai$/, replacement: aiSrcIndex },
 			{ find: /^@earendil-works\/aery-ai\/oauth$/, replacement: aiSrcOAuth },
-			{ find: /^@earendil-works\/aery-agent-core$/, replacement: agentSrcIndex },
+			{ find: /^@earendil-works\/aery-core$/, replacement: agentSrcIndex },
 			{ find: /^@eminent337\/aery-ai$/, replacement: aiSrcIndex },
 			{ find: /^@eminent337\/aery-ai\/oauth$/, replacement: aiSrcOAuth },
-			{ find: /^@eminent337\/aery-agent-core$/, replacement: agentSrcIndex },
+			{ find: /^@eminent337\/aery-core$/, replacement: agentSrcIndex },
 		],
 	},
 });
