@@ -257,6 +257,7 @@ jobs:
               packages/coding-agent/test/slash-commands.test.ts \
               packages/ai/package.json \
               packages/agent/package.json \
+              packages/agent/src/proxy.ts \
               packages/tui/package.json \
               packages/web-ui/package.json \
               packages/coding-agent/package.json \
