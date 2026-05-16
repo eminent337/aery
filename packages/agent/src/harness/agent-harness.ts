@@ -4,7 +4,7 @@ import {
 	type Model,
 	streamSimple,
 	type UserMessage,
-} from "@earendil-works/pi-ai";
+} from "@eminent337/aery-ai";
 import { runAgentLoop } from "../agent-loop.js";
 import type {
 	AgentContext,

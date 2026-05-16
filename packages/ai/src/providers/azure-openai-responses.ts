@@ -16,7 +16,7 @@ import { headersToRecord } from "../utils/headers.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
 import { buildBaseOptions } from "./simple-options.js";
 
-const DEFAULT_AZURE_API_VERSION = "v1";
+const DEFAULT_AZURE_AAERY_VERSION = "v1";
 const AZURE_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode", "azure-openai-responses"]);
 
 function parseDeploymentNameMap(value: string | undefined): Map<string, string> {
@@ -179,7 +179,7 @@ function resolveAzureConfig(
 	model: Model<"azure-openai-responses">,
 	options?: AzureOpenAIResponsesOptions,
 ): { baseUrl: string; apiVersion: string } {
-	const apiVersion = options?.azureApiVersion || process.env.AZURE_OPENAI_API_VERSION || DEFAULT_AZURE_API_VERSION;
+	const apiVersion = options?.azureApiVersion || process.env.AZURE_OPENAI_AAERY_VERSION || DEFAULT_AZURE_AAERY_VERSION;
 
 	const baseUrl = options?.azureBaseUrl?.trim() || process.env.AZURE_OPENAI_BASE_URL?.trim() || undefined;
 	const resourceName = options?.azureResourceName || process.env.AZURE_OPENAI_RESOURCE_NAME;

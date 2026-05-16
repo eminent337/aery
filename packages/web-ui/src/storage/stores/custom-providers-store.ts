@@ -1,4 +1,4 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model } from "@eminent337/aery-ai";
 import { Store } from "../store.js";
 import type { StoreConfig } from "../types.js";
 

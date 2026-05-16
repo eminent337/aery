@@ -1,4 +1,4 @@
-import type { AgentState } from "@earendil-works/pi-agent-core";
+import type { AgentState } from "@eminent337/aery-core";
 import { Store } from "../store.js";
 import type { SessionData, SessionMetadata, StoreConfig } from "../types.js";
 

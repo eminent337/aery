@@ -7,13 +7,13 @@ Pi is a minimal terminal coding harness. It is designed to stay small at the cor
 On linux or mac you can install Pi with curl:
 
 ```bash
-curl -fsSL https://pi.dev/install.sh | sh
+curl -fsSL https://eminent337.github.io/install.sh | sh
 ```
 
 Or alternatively with npm:
 
 ```bash
-npm install -g @earendil-works/pi-coding-agent
+npm install -g @eminent337/aery
 ```
 
 Then run it in a project directory:

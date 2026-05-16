@@ -14,7 +14,7 @@ import {
 	type SimpleStreamOptions,
 	type StopReason,
 	type ToolCall,
-} from "@earendil-works/pi-ai";
+} from "@eminent337/aery-ai";
 
 // Create stream class matching ProxyMessageEventStream
 class ProxyMessageEventStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
@@ -149,7 +149,7 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 		}
 
 		try {
-			const response = await fetch(`${options.proxyUrl}/api/stream`, {
+			const response = (await fetch(`${options.proxyUrl}/api/stream`, {
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${options.authToken}`,
@@ -176,7 +176,7 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 				throw new Error(errorMessage);
 			}
 
-			reader = response.body!.getReader();
+			const _rb = response.body; if (!_rb) throw new Error("no body"); reader = _rb.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
 

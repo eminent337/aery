@@ -5,7 +5,7 @@ See [AGENTS.md](../../../AGENTS.md) for additional guidelines.
 ## Setup
 
 ```bash
-git clone https://github.com/earendil-works/pi-mono
+git clone https://github.com/eminent337/aery
 cd pi-mono
 npm install
 npm run build
@@ -25,9 +25,9 @@ Configure via `package.json`:
 
 ```json
 {
-  "piConfig": {
+  "aeryConfig": {
     "name": "pi",
-    "configDir": ".pi"
+    "configDir": ".aery"
   }
 }
 ```
@@ -48,7 +48,7 @@ Never use `__dirname` directly for package assets.
 
 ## Debug Command
 
-`/debug` (hidden) writes to `~/.pi/agent/pi-debug.log`:
+`/debug` (hidden) writes to `~/.aery/agent/aery-debug.log`:
 - Rendered TUI lines with ANSI codes
 - Last messages sent to the LLM
 

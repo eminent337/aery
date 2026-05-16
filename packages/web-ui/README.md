@@ -1,6 +1,6 @@
 # @earendil-works/pi-web-ui
 
-Reusable web UI components for building AI chat interfaces powered by [@earendil-works/pi-ai](../ai) and [@earendil-works/pi-agent-core](../agent).
+Reusable web UI components for building AI chat interfaces powered by [@eminent337/aery-ai](../ai) and [@eminent337/aery-core](../agent).
 
 Built with [mini-lit](https://github.com/badlogic/mini-lit) web components and Tailwind CSS v4.
 
@@ -17,7 +17,7 @@ Built with [mini-lit](https://github.com/badlogic/mini-lit) web components and T
 ## Installation
 
 ```bash
-npm install @earendil-works/pi-web-ui @earendil-works/pi-agent-core @earendil-works/pi-ai
+npm install @earendil-works/pi-web-ui @eminent337/aery-core @eminent337/aery-ai
 ```
 
 ## Quick Start
@@ -25,8 +25,8 @@ npm install @earendil-works/pi-web-ui @earendil-works/pi-agent-core @earendil-wo
 See the [example](./example) directory for a complete working application.
 
 ```typescript
-import { Agent } from '@earendil-works/pi-agent-core';
-import { getModel } from '@earendil-works/pi-ai';
+import { Agent } from '@eminent337/aery-core';
+import { getModel } from '@eminent337/aery-ai';
 import {
   ChatPanel,
   AppStorage,
@@ -169,7 +169,7 @@ Properties:
 ### Agent (from pi-agent-core)
 
 ```typescript
-import { Agent } from '@earendil-works/pi-agent-core';
+import { Agent } from '@eminent337/aery-core';
 
 const agent = new Agent({
   initialState: {
@@ -259,7 +259,7 @@ interface SystemNotification {
   timestamp: string;
 }
 
-declare module '@earendil-works/pi-agent-core' {
+declare module '@eminent337/aery-core' {
   interface CustomAgentMessages {
     'system-notification': SystemNotification;
   }

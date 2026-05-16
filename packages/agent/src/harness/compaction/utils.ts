@@ -1,4 +1,4 @@
-import type { Message } from "@earendil-works/pi-ai";
+import type { Message } from "@eminent337/aery-ai";
 import type { AgentMessage } from "../../types.js";
 
 /** File paths touched by a session branch or compaction range. */
