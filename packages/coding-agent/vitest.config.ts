@@ -18,12 +18,12 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: [
-			{ find: /^@earendil-works\/pi-ai$/, replacement: aiSrcIndex },
-			{ find: /^@earendil-works\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
-			{ find: /^@earendil-works\/pi-agent-core$/, replacement: agentSrcIndex },
-			{ find: /^@mariozechner\/pi-ai$/, replacement: aiSrcIndex },
-			{ find: /^@mariozechner\/pi-ai\/oauth$/, replacement: aiSrcOAuth },
-			{ find: /^@mariozechner\/pi-agent-core$/, replacement: agentSrcIndex },
+			{ find: /^@earendil-works\/aery-ai$/, replacement: aiSrcIndex },
+			{ find: /^@earendil-works\/aery-ai\/oauth$/, replacement: aiSrcOAuth },
+			{ find: /^@earendil-works\/aery-agent-core$/, replacement: agentSrcIndex },
+			{ find: /^@eminent337\/aery-ai$/, replacement: aiSrcIndex },
+			{ find: /^@eminent337\/aery-ai\/oauth$/, replacement: aiSrcOAuth },
+			{ find: /^@eminent337\/aery-agent-core$/, replacement: agentSrcIndex },
 		],
 	},
 });

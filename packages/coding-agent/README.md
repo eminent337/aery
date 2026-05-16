@@ -398,11 +398,11 @@ pi install ssh://git@github.com/user/repo@v1    # tag or commit
 pi remove npm:@foo/pi-tools
 pi uninstall npm:@foo/pi-tools          # alias for remove
 pi list
-pi update                               # update pi and packages (skips pinned packages)
-pi update --extensions                  # update packages only
-pi update --self                        # update pi only
-pi update --self --force                # reinstall pi even if current
-pi update npm:@foo/pi-tools             # update one package
+aery update                               # update pi and packages (skips pinned packages)
+aery update --extensions                  # update packages only
+aery update --self                        # update pi only
+aery update --self --force                # reinstall pi even if current
+aery update npm:@foo/pi-tools             # update one package
 pi config                               # enable/disable extensions, skills, prompts, themes
 ```
 
@@ -469,7 +469,7 @@ See [docs/rpc.md](docs/rpc.md) for the protocol.
 
 Pi is aggressively extensible so it doesn't have to dictate your workflow. Features that other tools bake in can be built with [extensions](#extensions), [skills](#skills), or installed from third-party [pi packages](#pi-packages). This keeps the core minimal while letting you shape pi to fit how you work.
 
-**No MCP.** Build CLI tools with READMEs (see [Skills](#skills)), or build an extension that adds MCP support. [Why?](https://mariozechner.at/posts/2025-11-02-what-if-you-dont-need-mcp/)
+**No MCP.** Build CLI tools with READMEs (see [Skills](#skills)), or build an extension that adds MCP support. [Why?](https://eminent337.at/posts/2025-11-02-what-if-you-dont-need-mcp/)
 
 **No sub-agents.** There's many ways to do this. Spawn pi instances via tmux, or build your own with [extensions](#extensions), or install a package that does it your way.
 
@@ -481,7 +481,7 @@ Pi is aggressively extensible so it doesn't have to dictate your workflow. Featu
 
 **No background bash.** Use tmux. Full observability, direct interaction.
 
-Read the [blog post](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/) for the full rationale.
+Read the [blog post](https://eminent337.at/posts/2025-11-30-aery-coding-agent/) for the full rationale.
 
 ---
 
@@ -497,11 +497,11 @@ pi [options] [@files...] [messages...]
 pi install <source> [-l]     # Install package, -l for project-local
 pi remove <source> [-l]      # Remove package
 pi uninstall <source> [-l]   # Alias for remove
-pi update [source|self|pi]   # Update pi and packages (skips pinned packages)
-pi update --extensions       # Update packages only
-pi update --self             # Update pi only
-pi update --self --force     # Reinstall pi even if current
-pi update --extension <src>  # Update one package
+aery update [source|self|pi]   # Update pi and packages (skips pinned packages)
+aery update --extensions       # Update packages only
+aery update --self             # Update pi only
+aery update --self --force     # Reinstall pi even if current
+aery update --extension <src>  # Update one package
 pi list                      # List installed packages
 pi config                    # Enable/disable package resources
 ```

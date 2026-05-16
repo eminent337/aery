@@ -20,11 +20,11 @@
 
 ### Breaking Changes
 
-- Migrated the web UI's TypeBox-based tool definitions and runtime dependency from `@sinclair/typebox` 0.34.x to `typebox` 1.x. Install and import from `typebox` instead of `@sinclair/typebox` when embedding or extending `@mariozechner/pi-web-ui` with shared TypeBox schemas ([#3112](https://github.com/badlogic/pi-mono/issues/3112))
+- Migrated the web UI's TypeBox-based tool definitions and runtime dependency from `@sinclair/typebox` 0.34.x to `typebox` 1.x. Install and import from `typebox` instead of `@sinclair/typebox` when embedding or extending `@eminent337/pi-web-ui` with shared TypeBox schemas ([#3112](https://github.com/eminent337/aery/issues/3112))
 
 ### Fixed
 
-- Render SVG artifact previews through a blob-backed image instead of injecting untrusted SVG markup into the page DOM ([#3552](https://github.com/badlogic/pi-mono/issues/3552))
+- Render SVG artifact previews through a blob-backed image instead of injecting untrusted SVG markup into the page DOM ([#3552](https://github.com/eminent337/aery/issues/3552))
 
 ## [0.68.1] - 2026-04-22
 

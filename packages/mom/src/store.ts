@@ -13,7 +13,7 @@ export interface LoggedMessage {
 	ts: string; // slack timestamp or epoch ms
 	user: string; // user ID (or "bot" for bot responses)
 	userName?: string; // handle (e.g., "mario")
-	displayName?: string; // display name (e.g., "Mario Zechner")
+	displayName?: string; // display name (e.g., "eminent337")
 	text: string;
 	attachments: Attachment[];
 	isBot: boolean;

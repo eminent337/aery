@@ -97,7 +97,7 @@ document.body.appendChild(chatPanel);
                           │
                           ▼
 ┌─────────────────────────────────────────────────────┐
-│              Agent (from pi-agent-core)             │
+│              Agent (from aery-agent-core)             │
 │  - State management (messages, model, tools)        │
 │  - Event emission (agent_start, message_update, ...)│
 │  - Tool execution                                   │
@@ -166,7 +166,7 @@ Properties:
 - `enableThinkingSelector`: Show thinking level selector (default: true)
 - `showThemeToggle`: Show theme toggle (default: false)
 
-### Agent (from pi-agent-core)
+### Agent (from aery-agent-core)
 
 ```typescript
 import { Agent } from '@eminent337/aery-core';

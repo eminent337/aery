@@ -1,6 +1,6 @@
 # Extension Examples
 
-Example extensions for pi-coding-agent.
+Example extensions for aery-coding-agent.
 
 ## Usage
 
@@ -123,7 +123,7 @@ cp permission-gate.ts ~/.aery/agent/extensions/
 | Extension | Description |
 |-----------|-------------|
 | `custom-provider-anthropic/` | Custom Anthropic provider with OAuth support and custom streaming implementation |
-| `custom-provider-gitlab-duo/` | GitLab Duo provider using pi-ai's built-in Anthropic/OpenAI streaming via proxy |
+| `custom-provider-gitlab-duo/` | GitLab Duo provider using aery-ai's built-in Anthropic/OpenAI streaming via proxy |
 
 ### External Dependencies
 

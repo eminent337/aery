@@ -4,7 +4,7 @@ import { Container, Image, Spacer, Text } from "../../../tui/index.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 
-const BLOG_URL = "https://mariozechner.at/posts/2026-04-08-ive-sold-out/";
+const BLOG_URL = "https://eminent337.at/posts/2026-04-08-ive-sold-out/";
 const IMAGE_FILENAME = "clankolas.png";
 
 let cachedImageBase64: string | undefined;

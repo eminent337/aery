@@ -129,10 +129,10 @@ pi [options] [@files...] [messages...]
 pi install <source> [-l]     # Install package, -l for project-local
 pi remove <source> [-l]      # Remove package
 pi uninstall <source> [-l]   # Alias for remove
-pi update [source|self|pi]   # Update pi and packages; skips pinned packages
-pi update --extensions       # Update packages only
-pi update --self             # Update pi only
-pi update --extension <src>  # Update one package
+aery update [source|self|pi]   # Update pi and packages; skips pinned packages
+aery update --extensions       # Update packages only
+aery update --self             # Update pi only
+aery update --extension <src>  # Update one package
 pi list                      # List installed packages
 pi config                    # Enable/disable package resources
 ```
@@ -274,4 +274,4 @@ Pi keeps the core small and pushes workflow-specific behavior into extensions, s
 
 It intentionally does not include built-in MCP, sub-agents, permission popups, plan mode, to-dos, or background bash. You can build or install those workflows as extensions or packages, or use external tools such as containers and tmux.
 
-For the full rationale, read the [blog post](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/).
+For the full rationale, read the [blog post](https://eminent337.at/posts/2025-11-30-aery-coding-agent/).

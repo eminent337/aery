@@ -16,7 +16,7 @@
         "./packages/ai/src/*.ts",
         "./packages/ai/src/providers/*.ts"
       ],
-      "@mariozechner/pi-ai/dist/*": [
+      "@eminent337/aery-ai/dist/*": [
         "./packages/ai/src/*"
       ],
       "@eminent337/aery-core": [

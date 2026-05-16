@@ -69,7 +69,7 @@ interface ToolCall {
 }
 ```
 
-### Base Message Types (from pi-ai)
+### Base Message Types (from aery-ai)
 
 ```typescript
 interface UserMessage {
@@ -116,7 +116,7 @@ interface Usage {
 }
 ```
 
-### Extended Message Types (from pi-coding-agent)
+### Extended Message Types (from aery-coding-agent)
 
 ```typescript
 interface BashExecutionMessage {
