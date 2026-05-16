@@ -353,6 +353,7 @@ jobs:
       - name: Validate merged upstream state
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
         run: |
+          node scripts/sync-deps.mjs || true
           npm install --ignore-scripts
           node scripts/patch-upstream-code.mjs || true
           npm run check
