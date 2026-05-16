@@ -371,6 +371,20 @@ jobs:
           git diff --cached --quiet || git commit -m "chore(upstream-clean): apply biome formatting fixes"
           git diff --exit-code
 
+      - name: E2E Publish Verification
+        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
+        run: |
+          # Test that the package can be successfully packed and installed globally.
+          # This catches issues like missing bin commands or Arborist installation bugs
+          # before a broken release is pushed to npm.
+          mkdir -p /tmp/aery-e2e
+          cd packages/coding-agent
+          npm pack
+          npm install -g --prefix /tmp/aery-e2e ./eminent337-aery-*.tgz
+          /tmp/aery-e2e/bin/aery --version || (echo "E2E publish test failed: aery binary not found or crashed" && exit 1)
+          # Clean up
+          rm -rf /tmp/aery-e2e eminent337-aery-*.tgz
+
       - name: Bump version and publish to npm
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
         id: publish_package
