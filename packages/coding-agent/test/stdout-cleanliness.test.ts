@@ -2,12 +2,16 @@ import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { dirname } from "path";
+import { fileURLToPath } from "url";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.js";
 
-const cliPath = resolve(__dirname, "../src/cli.ts");
-const tsxPath = resolve(__dirname, "../../../node_modules/tsx/dist/cli.mjs");
+const __filenameStr = fileURLToPath(import.meta.url);
+const __dirnameStr = dirname(__filenameStr);
 
+const cliPath = resolve(__dirnameStr, "../src/cli.ts");
+const tsxPath = resolve(__dirnameStr, "../../../node_modules/tsx/dist/cli.mjs");
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -83,6 +87,8 @@ async function runCli(args: string[]): Promise<{ stdout: string; stderr: string;
 describe("stdout cleanliness in non-interactive modes", () => {
 	it("keeps stdout empty for --mode json --help while routing startup chatter to stderr", async () => {
 		const result = await runCli(["--mode", "json", "--help"]);
+		console.error("STDOUT:", result.stdout);
+		console.error("STDERR:", result.stderr);
 
 		expect(result.code).toBe(0);
 		expect(result.stdout).toBe("");

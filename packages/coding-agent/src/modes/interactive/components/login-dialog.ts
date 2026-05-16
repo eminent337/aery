@@ -15,6 +15,7 @@ export class LoginDialogComponent extends Container implements Focusable {
 	private abortController = new AbortController();
 	private inputResolver?: (value: string) => void;
 	private inputRejecter?: (error: Error) => void;
+	private hintsText?: Text;
 
 	// Focusable implementation - propagate to input for IME cursor positioning
 	private _focused = false;
@@ -132,14 +133,21 @@ export class LoginDialogComponent extends Container implements Focusable {
 		if (placeholder) {
 			this.contentContainer.addChild(new Text(theme.fg("dim", `e.g., ${placeholder}`), 1, 0));
 		}
+
+		// Remove existing input and hints if they exist, so they are always at the bottom
+		this.contentContainer.removeChild(this.input);
+		if (this.hintsText) {
+			this.contentContainer.removeChild(this.hintsText);
+		}
+
 		this.contentContainer.addChild(this.input);
-		this.contentContainer.addChild(
-			new Text(
-				`(${keyHint("tui.select.cancel", "to cancel,")} ${keyHint("tui.select.confirm", "to submit")})`,
-				1,
-				0,
-			),
+
+		this.hintsText = new Text(
+			`(${keyHint("tui.select.cancel", "to cancel,")} ${keyHint("tui.select.confirm", "to submit")})`,
+			1,
+			0,
 		);
+		this.contentContainer.addChild(this.hintsText);
 
 		this.input.setValue("");
 		this.tui.requestRender();

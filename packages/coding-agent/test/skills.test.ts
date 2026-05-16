@@ -354,7 +354,7 @@ describe("skills", () => {
 				agentDir: emptyAgentDir,
 				cwd: emptyCwd,
 				skillPaths: [join(fixturesDir, "valid-skill")],
-				includeDefaults: true,
+				includeDefaults: false,
 			});
 			expect(skills).toHaveLength(1);
 			expect(skills[0].sourceInfo.scope).toBe("temporary");
@@ -366,7 +366,7 @@ describe("skills", () => {
 				agentDir: emptyAgentDir,
 				cwd: emptyCwd,
 				skillPaths: ["/non/existent/path"],
-				includeDefaults: true,
+				includeDefaults: false,
 			});
 			expect(skills).toHaveLength(0);
 			expect(diagnostics.some((d: ResourceDiagnostic) => d.message.includes("does not exist"))).toBe(true);
@@ -378,13 +378,13 @@ describe("skills", () => {
 				agentDir: emptyAgentDir,
 				cwd: emptyCwd,
 				skillPaths: ["~/.aery/agent/skills"],
-				includeDefaults: true,
+				includeDefaults: false,
 			});
 			const { skills: withoutTilde } = loadSkills({
 				agentDir: emptyAgentDir,
 				cwd: emptyCwd,
 				skillPaths: [homeSkillsDir],
-				includeDefaults: true,
+				includeDefaults: false,
 			});
 			expect(withTilde.length).toBe(withoutTilde.length);
 		});
