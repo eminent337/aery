@@ -269,6 +269,20 @@ jobs:
               packages/tui/src/tui.ts \
               packages/coding-agent/package.json \
               2>/dev/null || true
+            # Fix proxy.ts: tsgo strict mode requires explicit 'as Response' on fetch() return.
+            # Applied after every upstream sync so the fix survives upstream rewrites.
+            node -e "
+              const fs = require('fs');
+              const p = 'packages/agent/src/proxy.ts';
+              if (!fs.existsSync(p)) process.exit(0);
+              let s = fs.readFileSync(p, 'utf-8');
+              const orig = s;
+              s = s.replace(/const response = await fetch\\(/, 'const response = (await fetch(');
+              s = s.replace(/signal: options\.signal,\n(\s*)\};/, 'signal: options.signal,\n$1})) as Response;');
+              s = s.replace(/reader = response\.body!\.getReader\(\);/, 'const _rb = response.body; if (!_rb) throw new Error(\"no body\"); reader = _rb.getReader();');
+              if (s !== orig) fs.writeFileSync(p, s);
+              console.log('proxy.ts patch:', s !== orig ? 'applied' : 'already clean');
+            " || true
             node -e "
               const fs = require('fs');
               const path = 'packages/coding-agent/src/core/extensions/loader.ts';
