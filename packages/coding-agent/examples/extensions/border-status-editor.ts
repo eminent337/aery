@@ -1,4 +1,9 @@
-import { CustomEditor, type ExtensionAPI, type ExtensionContext, type KeybindingsManager } from "@eminent337/aery";
+import {
+	CustomEditor,
+	type ExtensionAPI,
+	type ExtensionContext,
+	type KeybindingsManager,
+} from "@eminent337/aery";
 import type { Component, EditorTheme, TUI } from "@eminent337/aery-tui";
 import { truncateToWidth, visibleWidth } from "@eminent337/aery-tui";
 
