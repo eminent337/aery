@@ -1,4 +1,4 @@
-import { getPiUserAgent } from "./pi-user-agent.js";
+import { getAeryUserAgent } from "./aery-user-agent.js";
 
 const LATEST_VERSION_URL = "https://eminent337.github.io/api/latest-version";
 const DEFAULT_VERSION_CHECK_TIMEOUT_MS = 10000;
@@ -60,7 +60,7 @@ export async function getLatestPiRelease(
 
 	const response = await fetch(LATEST_VERSION_URL, {
 		headers: {
-			"User-Agent": getPiUserAgent(currentVersion),
+			"User-Agent": getAeryUserAgent(currentVersion),
 			accept: "application/json",
 		},
 		signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_VERSION_CHECK_TIMEOUT_MS),
