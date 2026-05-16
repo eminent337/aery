@@ -34,7 +34,6 @@ jobs:
 
       - name: Build
         run: |
-          npm run build --prefix packages/tui
           npm run build --prefix packages/ai
           npm run build --prefix packages/agent
           npm run build --prefix packages/coding-agent
