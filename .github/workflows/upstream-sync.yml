@@ -420,7 +420,6 @@ jobs:
             fs.writeFileSync(f, JSON.stringify(p,null,2));
           "
           # Regenerate coding-agent lock file so npm publish gets clean deps
-          rm -f packages/coding-agent/package-lock.json
           npm install --ignore-scripts 2>/dev/null || true
 
           # Install tsgo globally so builds succeed
@@ -463,6 +462,8 @@ jobs:
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
           git push origin main
 
+          # Ensure coding-agent has a fresh lock file for npm publish
+          (cd packages/coding-agent && npm install --ignore-scripts 2>/dev/null || true)
           npm publish ./packages/coding-agent --access public --ignore-scripts --tag latest
 
           git tag "v$NEW_VERSION" || true
