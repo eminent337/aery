@@ -72,3 +72,20 @@ if (sdkSrc !== sdkOrig) {
 } else {
 	console.log("sdk.ts: already clean");
 }
+
+// Fix 5: Ensure coding-agent/package.json has bin: { aery: "dist/cli.js" }
+// Upstream declares the binary as "pi" — we must rename it to "aery" so that
+// `npm install -g @eminent337/aery` installs the `aery` command, not `pi`.
+const pkgPath = "packages/coding-agent/package.json";
+if (existsSync(pkgPath)) {
+	const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+	const bin = pkg.bin ?? {};
+	const needsFix = !bin.aery || bin.pi;
+	if (needsFix) {
+		pkg.bin = { aery: bin.pi ?? bin.aery ?? "dist/cli.js" };
+		writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n");
+		console.log("coding-agent/package.json: patched bin pi → aery");
+	} else {
+		console.log("coding-agent/package.json: bin already set to aery");
+	}
+}
