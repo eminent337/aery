@@ -462,8 +462,6 @@ jobs:
           git commit -m "chore: bump version to $NEW_VERSION after upstream sync" || true
           git push origin main
 
-          # Ensure coding-agent has a fresh lock file for npm publish
-          (cd packages/coding-agent && npm install --ignore-scripts 2>/dev/null || true)
           # Workaround npm workspace bug by packing first and publishing the tarball
           (cd packages/coding-agent && rm -f *.tgz && npm pack && npm publish *.tgz --access public --ignore-scripts --tag latest)
 
