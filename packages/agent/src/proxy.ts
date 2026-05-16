@@ -161,7 +161,7 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 					options: buildProxyRequestOptions(options),
 				}),
 				signal: options.signal,
-			})) as Response;
+			})) as any;
 
 			if (!response.ok) {
 				let errorMessage = `Proxy error: ${response.status} ${response.statusText}`;
@@ -176,9 +176,7 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 				throw new Error(errorMessage);
 			}
 
-			const rawBody = response.body;
-			if (!rawBody) throw new Error("Proxy response has no body");
-			reader = (rawBody as ReadableStream<Uint8Array>).getReader();
+			reader = (response.body as ReadableStream<Uint8Array>).getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
 
