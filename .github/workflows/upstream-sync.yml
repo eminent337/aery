@@ -464,7 +464,7 @@ jobs:
 
           # Workaround npm workspace bug by copying out of workspace before packing
           cp -r packages/coding-agent /tmp/coding-agent-publish
-          (cd /tmp/coding-agent-publish && rm -f *.tgz && npm pack --ignore-scripts && npm publish *.tgz --access public --ignore-scripts --tag latest)
+          (cd /tmp/coding-agent-publish && rm -rf package-lock.json node_modules *.tgz && npm pack --ignore-scripts && npm publish *.tgz --access public --ignore-scripts --tag latest)
 
           git tag "v$NEW_VERSION" || true
           git push origin "v$NEW_VERSION" || true
