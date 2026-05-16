@@ -353,7 +353,7 @@ jobs:
       - name: Validate merged upstream state
         if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
         run: |
-          npm ci --ignore-scripts
+          npm install --ignore-scripts
           node scripts/patch-proxy-ts.mjs || true
           npm run check
           # Commit any biome auto-fixes so git diff --exit-code passes
