@@ -11,6 +11,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      pull-requests: write
 
     steps:
       - name: Checkout Aery
@@ -18,13 +19,6 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-          package-manager-cache: false
 
       - name: Configure git
         run: |
@@ -34,57 +28,30 @@ jobs:
       - name: Fetch upstreams
         run: |
           git remote add upstream https://github.com/badlogic/pi-mono.git || true
-          git remote add upstream-jiti https://github.com/badlogic/jiti.git || true
           git fetch upstream main
-          git fetch upstream-jiti main
-          git fetch origin upstream-clean || true
+          git fetch origin sync/upstream-rebranded || true
 
       - name: Check for new upstream commits
         id: check
         run: |
-          # Get the tip of our upstream-clean branch (last synced upstream state)
-          if git show-ref --verify --quiet refs/remotes/origin/upstream-clean; then
-            LAST_SYNCED=$(git merge-base remotes/origin/upstream-clean upstream/main)
-          else
-            # First run — use a known-good base
-            LAST_SYNCED=$(git log upstream/main --format="%H" | tail -1)
-          fi
-
-          NEW_COMMITS=$(git log upstream/main --format="%H" \
-            --ancestry-path ${LAST_SYNCED}..upstream/main \
-            -- packages/agent packages/ai packages/tui packages/coding-agent | tac)
-
-          JITI_COMMITS=$(git log upstream-jiti/main --format="%H" --since="1 day ago" | head -5)
-
-          if [ -z "$NEW_COMMITS" ] && [ -z "$JITI_COMMITS" ]; then
+          NEW_COMMITS=$(git rev-list origin/sync/upstream-rebranded..upstream/main)
+          if [ -z "$NEW_COMMITS" ]; then
             echo "has_updates=false" >> $GITHUB_OUTPUT
           else
             echo "has_updates=true" >> $GITHUB_OUTPUT
-            echo "NEW_COMMITS<<EOF" >> $GITHUB_OUTPUT
-            echo "$NEW_COMMITS" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-            echo "JITI_COMMITS<<EOF" >> $GITHUB_OUTPUT
-            echo "$JITI_COMMITS" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update upstream-clean branch
+      - name: Update Rebranded Channel
         if: steps.check.outputs.has_updates == 'true'
-        id: update_clean
         run: |
-          # upstream-clean tracks upstream package changes with pi->aery renames applied.
-          # Keep Aery-owned workflow files out of this branch because GITHUB_TOKEN
-          # cannot push commits that create or update workflow definitions.
+          # Checkout the persistent rebranded branch
+          git checkout sync/upstream-rebranded
 
-          if git show-ref --verify --quiet refs/remotes/origin/upstream-clean; then
-            git checkout -B upstream-clean origin/upstream-clean
-          else
-            git checkout -B upstream-clean origin/main
-          fi
+          # Merge upstream updates. If a renamed string conflicts with new upstream logic,
+          # we take upstream's logic (-X theirs). We will re-apply the renames in the next step.
+          git merge upstream/main -X theirs -m "chore: merge upstream updates" || true
 
-          git checkout upstream/main -- packages/agent packages/ai packages/tui packages/coding-agent
-
-          # Apply all pi->aery renames to the working tree
+          # Apply all pi->aery renames to ensure new upstream code is rebranded
           find packages -name "*.ts" -o -name "*.json" -o -name "*.md" | \
             grep -v "node_modules\|dist\|CHANGELOG" | \
             xargs sed -i \
@@ -168,300 +135,85 @@ jobs:
               -e 's|~/\.pi\b|~/.aery|g' \
               2>/dev/null || true
 
-          # Commit the renamed state if anything changed
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(upstream-clean): apply aery renames to upstream/main"
-          fi
-
-          # Push upstream-clean (force — it always tracks upstream/main + renames)
-          git push origin upstream-clean --force
-          echo "upstream_clean_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Merge upstream-clean into main
-        if: steps.check.outputs.has_updates == 'true'
-        id: merge
-        run: |
-          git checkout main
-
-          # Sync only the upstream-owned package directories. `git merge` cannot
-          # be limited with pathspecs, so checking out these paths avoids false
-          # "merged with conflicts" reports while keeping Aery-owned files intact.
-          SYNC_PATHS=(packages/agent packages/ai packages/tui packages/coding-agent)
-          if git diff --quiet HEAD upstream-clean -- "${SYNC_PATHS[@]}"; then
-            echo "No upstream package changes to apply."
-          else
-            git checkout upstream-clean -- "${SYNC_PATHS[@]}"
-
-            # Remove files that upstream previously had but has now deleted.
-            # Only remove files that exist in the previous upstream-clean state
-            # (meaning upstream owned them) but are gone from the new upstream-clean.
-            if git show-ref --verify --quiet refs/remotes/origin/upstream-clean; then
-              git diff --name-only --diff-filter=D origin/upstream-clean upstream-clean -- "${SYNC_PATHS[@]}" | while read -r deleted; do
-                [ -f "$deleted" ] && git rm -f "$deleted" 2>/dev/null || true
-              done
-            fi
-
-            # Explicitly remove known upstream-deleted files that cause type errors.
-            # These were removed in the harness refactor and Gemini CLI removal.
-            for stale in \
-              packages/agent/test/harness/factory.test.ts \
-              packages/agent/test/harness/resource-expansion.test.ts \
-              packages/agent/src/harness/execution-env.ts \
-              packages/agent/src/harness/factory.ts \
-              packages/agent/src/harness/session/repo/jsonl.ts \
-              packages/agent/src/harness/session/repo/memory.ts \
-              packages/agent/src/harness/session/repo/shared.ts \
-              packages/agent/src/harness/session/storage/jsonl.ts \
-              packages/agent/src/harness/session/storage/memory.ts \
-              packages/ai/src/providers/google-gemini-cli.ts \
-              packages/ai/src/utils/oauth/google-antigravity.ts \
-              packages/ai/src/utils/oauth/google-gemini-cli.ts \
-              packages/ai/test/google-gemini-cli-claude-thinking-header.test.ts \
-              packages/ai/test/google-gemini-cli-empty-stream.test.ts \
-              packages/ai/test/google-gemini-cli-retry-delay.test.ts \
-              packages/ai/test/google-tool-call-missing-args.test.ts; do
-              [ -f "$stale" ] && git rm -f "$stale" 2>/dev/null || true
-            done
-
-            # Reapply Aery-owned branding and config path guards after taking
-            # upstream package files. These are intentionally not upstreamed.
-            git checkout HEAD -- \
-              packages/ai/src/utils/oauth/oauth-page.ts \
-              packages/ai/src/providers/aery-error-formatting.ts \
-              packages/ai/src/aery-cloudflare-workers-ai-models.txt \
-              packages/coding-agent/src/cli/doctor.ts \
-              packages/coding-agent/src/cli/capabilities.ts \
-              packages/coding-agent/src/core/provider-setup-check.ts \
-              packages/coding-agent/src/core/auth-guidance.ts \
-              packages/coding-agent/src/core/custom-openai-compatible.ts \
-              packages/coding-agent/src/core/package-manager.ts \
-              packages/coding-agent/src/migrations.ts \
-              packages/coding-agent/src/utils/aery-user-agent.ts \
-              packages/coding-agent/src/utils/uuid.ts \
-              packages/coding-agent/src/modes/interactive/theme/aery.json \
-              packages/coding-agent/src/modes/interactive/theme/catppuccin-mocha.json \
-              packages/coding-agent/src/modes/interactive/theme/dracula.json \
-              packages/coding-agent/src/modes/interactive/theme/nord.json \
-              packages/coding-agent/src/modes/interactive/theme/tokyo-night.json \
-              packages/coding-agent/test/aery-user-agent.test.ts \
-              packages/coding-agent/test/auth-guidance.test.ts \
-              packages/coding-agent/test/capabilities.test.ts \
-              packages/coding-agent/test/compaction-thinking-model.test.ts \
-              packages/coding-agent/test/core-extensions-migration.test.ts \
-              packages/coding-agent/test/custom-openai-compatible.test.ts \
-              packages/coding-agent/test/doctor.test.ts \
-              packages/coding-agent/test/login-dialog.test.ts \
-              packages/coding-agent/test/package-manager-cli.test.ts \
-              packages/coding-agent/test/provider-setup-check.test.ts \
-              packages/coding-agent/test/slash-commands.test.ts \
-              packages/ai/package.json \
-              packages/agent/package.json \
-              packages/agent/src/proxy.ts \
-              packages/tui/package.json \
-              packages/web-ui/package.json \
-              packages/coding-agent/package.json \
-              2>/dev/null || true
-            perl -pi -e 's|\.pi/|.aery/|g; s|"\.pi"|".aery"|g; s|`\.pi`|`.aery`|g; s|\(\.pi/|\(.aery/|g' \
+          perl -pi -e 's|\.pi/|.aery/|g; s|"\.pi"|".aery"|g; s|`\.pi`|`.aery`|g; s|\(\.pi/|\(.aery/|g' \
               packages/coding-agent/src/config.ts \
               packages/coding-agent/src/core/package-manager.ts \
               packages/coding-agent/src/modes/interactive/components/config-selector.ts \
               packages/tui/src/tui.ts \
               packages/coding-agent/package.json \
               2>/dev/null || true
-            # Fix proxy.ts: tsgo strict mode requires explicit 'as Response' on fetch() return.
-            # Applied after every upstream sync so the fix survives upstream rewrites.
-            node -e "
-              const fs = require('fs');
-              const p = 'packages/agent/src/proxy.ts';
-              if (!fs.existsSync(p)) process.exit(0);
-              let s = fs.readFileSync(p, 'utf-8');
-              const orig = s;
-              s = s.replace(/const response = await fetch\\(/, 'const response = (await fetch(');
-              s = s.replace(/signal: options\.signal,\n(\s*)\};/, 'signal: options.signal,\n$1})) as Response;');
-              s = s.replace(/reader = response\.body!\.getReader\(\);/, 'const _rb = response.body; if (!_rb) throw new Error(\"no body\"); reader = _rb.getReader();');
-              if (s !== orig) fs.writeFileSync(p, s);
-              console.log('proxy.ts patch:', s !== orig ? 'applied' : 'already clean');
-            " || true
-            node -e "
-              const fs = require('fs');
-              const path = 'packages/coding-agent/src/core/extensions/loader.ts';
-              const lines = fs.readFileSync(path, 'utf-8').split('\n');
-              const out = [];
-              const seen = new Set();
-              let inDedupeObject = false;
-              for (const line of lines) {
-                if (line.includes('const VIRTUAL_MODULES') || line.includes('_aliases = {')) {
-                  inDedupeObject = true;
-                  seen.clear();
-                }
-                if (inDedupeObject) {
-                  const match = line.match(/^(\s*)(\"[^\"]+\"|typebox):/);
-                  if (match) {
-                    if (seen.has(match[2])) continue;
-                    seen.add(match[2]);
-                  }
-                }
-                out.push(line);
-                if (inDedupeObject && line.trim() === '};') inDedupeObject = false;
+              
+          node -e "
+            const fs = require('fs');
+            const path = 'packages/coding-agent/src/core/extensions/loader.ts';
+            if (!fs.existsSync(path)) process.exit(0);
+            const lines = fs.readFileSync(path, 'utf-8').split('\n');
+            const out = [];
+            const seen = new Set();
+            let inDedupeObject = false;
+            for (const line of lines) {
+              if (line.includes('const VIRTUAL_MODULES') || line.includes('_aliases = {')) {
+                inDedupeObject = true;
+                seen.clear();
               }
-              fs.writeFileSync(path, out.join('\n'));
-            "
-
-            # Restore Aery-kept providers that upstream dropped.
-            # cloudflare-workers-ai: upstream replaced with cloudflare-ai-gateway,
-            # but Aery users rely on Workers AI (direct Cloudflare hosted models).
-            node -e "
-              const fs = require('fs');
-              const path = 'packages/ai/src/models.generated.ts';
-              let content = fs.readFileSync(path, 'utf-8');
-              if (!content.includes('cloudflare-workers-ai')) {
-                const inject = fs.readFileSync('packages/ai/src/aery-cloudflare-workers-ai-models.txt', 'utf-8');
-                const marker = 'export const MODELS';
-                const idx = content.lastIndexOf('};');
-                content = content.slice(0, idx) + inject + '\n' + content.slice(idx);
-                fs.writeFileSync(path, content);
-                console.log('Restored cloudflare-workers-ai models');
-              } else {
-                console.log('cloudflare-workers-ai already present');
+              if (inDedupeObject) {
+                const match = line.match(/^(\s*)(\"[^\"]+\"|typebox):/);
+                if (match) {
+                  if (seen.has(match[2])) continue;
+                  seen.add(match[2]);
+                }
               }
-            " || true
+              out.push(line);
+              if (inDedupeObject && line.trim() === '};') inDedupeObject = false;
+            }
+            fs.writeFileSync(path, out.join('\n'));
+          " || true
 
-            git add "${SYNC_PATHS[@]}"
-          fi
-          echo "merged=1" >> $GITHUB_OUTPUT
+          node -e "
+            const fs = require('fs');
+            const p = 'packages/agent/src/proxy.ts';
+            if (!fs.existsSync(p)) process.exit(0);
+            let s = fs.readFileSync(p, 'utf-8');
+            const orig = s;
+            s = s.replace(/const response = await fetch\(/, 'const response = (await fetch(');
+            s = s.replace(/signal: options\.signal,\n(\s*)\};/, 'signal: options.signal,\n$1})) as Response;');
+            s = s.replace(/reader = response\.body!\.getReader\(\);/, 'const _rb = response.body; if (!_rb) throw new Error(\"no body\"); reader = _rb.getReader();');
+            if (s !== orig) fs.writeFileSync(p, s);
+          " || true
 
-          # Merge jiti commits (patch-based, small scope)
-          while IFS= read -r COMMIT; do
-            [ -z "$COMMIT" ] && continue
-            MSG=$(git log --format='%s' -1 "$COMMIT" 2>/dev/null)
-            git diff-tree -p "$COMMIT" 2>/dev/null > /tmp/upstream-jiti.patch
-            if git apply --check /tmp/upstream-jiti.patch 2>/dev/null; then
-              git apply /tmp/upstream-jiti.patch
-              git add -A
-              git commit -m "upstream(jiti): $MSG" || true
-            fi
-          done <<< "${{ steps.check.outputs.JITI_COMMITS }}"
-
-      - name: Check Aery customization ledger
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
-        run: |
-          node scripts/check-aery-customizations.mjs
-          node scripts/check-aery-branding.mjs
-
-      - name: Validate merged upstream state
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
-        run: |
-          # Normalize coding-agent version back to Aery's 0.1.x scheme.
-          # After upstream-clean is merged, packages/coding-agent/package.json gets
-          # reset to the upstream version (e.g., 0.74.0). This causes sync-deps to
-          # think 0.74.0 is the intended version for @eminent337/aery, so it won't
-          # fix sibling packages that depend on ^0.74.0.
-          # Solution: force coding-agent to use the same version as aery-ai (a sibling
-          # that is not overwritten by upstream), then run sync-deps to align everything.
-          SIBLING_VERSION=$(node -p "require('./packages/ai/package.json').version" 2>/dev/null || echo "0.1.118")
-          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('./packages/coding-agent/package.json'));p.version='$SIBLING_VERSION';fs.writeFileSync('./packages/coding-agent/package.json',JSON.stringify(p,null,'\t'));"
-          node scripts/sync-deps.mjs || true
-          npm install --ignore-scripts
-          node scripts/patch-upstream-code.mjs || true
-          npm run check
           git add -A
-          git diff --cached --quiet 
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: rebrand upstream updates" --no-verify
+            git push origin sync/upstream-rebranded
+          else
+            git push origin sync/upstream-rebranded
+          fi
 
-      - name: E2E Publish Verification
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
-        run: |
-          # Test that the package can be successfully packed and installed globally.
-          # This catches issues like missing bin commands or Arborist installation bugs
-          # before a broken release is pushed to npm.
-          mkdir -p /tmp/aery-e2e
-          cd packages/coding-agent
-          npm run build
-          npm pack
-          npm install -g --prefix /tmp/aery-e2e ./eminent337-aery-*.tgz
-          /tmp/aery-e2e/bin/aery --version || (echo "E2E publish test failed: aery binary not found or crashed" && exit 1)
-          # Clean up
-          rm -rf /tmp/aery-e2e eminent337-aery-*.tgz
       - name: Create Pull Request
-        if: steps.check.outputs.has_updates == 'true' && steps.merge.outputs.merged == '1'
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "upstream: sync upstream package updates"
-          title: "🚀 Upstream Sync: ${{ steps.check.outputs.has_updates == 'true' && 'Updates Available' || 'Check' }}"
-          body: |
-            This PR merges the latest updates from the upstream \`badlogic/pi-mono/main\` branch into Aery.
-            
-            - The changes have passed the E2E Publish Verification tests.
-            - The \`pi -> aery\` naming scripts have been applied.
-            - The NPM dependencies have been normalized for the local workspace.
-            
-            Please review the changes and merge if everything looks correct. After merging, the \`publish.yml\` workflow will handle bumping versions and releasing to npm.
-          branch: "sync/upstream-updates"
-          delete-branch: true
-          labels: "upstream-sync"
-
-      - name: Notify upstream sync failure
-        if: ${{ failure() }}
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const today = new Date().toISOString().split('T')[0];
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const title = `[Upstream Sync] ${today} - Failed`;
-            const body = [
-              `## Upstream Sync - ${today}`,
-              '',
-              '**Status:** Failed',
-              '',
-              '**Action needed:** Check the workflow run logs and fix the failing step.',
-              '',
-              `**Run:** ${runUrl}`,
-            ].join('\n');
-
-            try {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                labels: ['upstream-sync'],
-                body,
-              });
-            } catch (e) {
-              if (e.status !== 422) throw e;
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body,
-              });
-            }
-
-      - name: Notify via GitHub issue
         if: steps.check.outputs.has_updates == 'true'
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const merged = '${{ steps.merge.outputs.merged }}' === '1';
-            const hadConflicts = '${{ steps.merge.outputs.had_conflicts }}' === 'true';
-            const today = new Date().toISOString().split('T')[0];
+        run: |
+          PR_EXISTS=$(gh pr list --head sync/upstream-rebranded --state open --json number -q '.[0].number')
+          
+          if [ -z "$PR_EXISTS" ]; then
+            gh pr create \
+              --head sync/upstream-rebranded \
+              --base main \
+              --title "🚀 Upstream Sync: Rebranded Updates" \
+              --body "This PR merges the latest updates from the upstream \`badlogic/pi-mono/main\` branch into Aery.
 
-            let status, action;
-            if (merged && !hadConflicts) {
-              status = '✅ Auto-merged and pushed to main';
-              action = 'Nothing to do.';
-            } else if (merged && hadConflicts) {
-              status = '⚠️ Merged with conflicts — review needed';
-              action = 'Check the upstream-clean branch and resolve any remaining conflicts on main.';
-            } else {
-              status = 'ℹ️ No upstream changes';
-              action = 'Nothing to do.';
-            }
+            ✨ **Model C Rebranded Merge Channel**
+            The updates in this PR have already been pre-processed to intelligently rename all \`pi\` and \`mariozechner\` strings to \`aery\` and \`eminent337\`.
 
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `[Upstream Sync] ${today} — ${status}`,
-              labels: ['upstream-sync'],
-              body: `## Upstream Sync — ${today}\n\n**Status:** ${status}\n\n**Action needed:** ${action}\n\n**upstream-clean branch** tracks \`badlogic/pi-mono/main\` with aery renames applied. \`main\` merges from it daily.`
-            });
+            Because this branch natively shares history with \`main\`, GitHub will safely merge these updates without overwriting any of Aery's custom features!
+
+            **Instructions:**
+            1. Review the changes below. You will see upstream's new logic automatically adapted to our codebase.
+            2. If GitHub indicates there are merge conflicts, it means upstream modified the exact same line of code that you heavily customized. You can resolve these conflicts natively in the GitHub UI or by pulling this branch locally.
+            3. Once tests pass and conflicts are resolved, click **Merge**.
+
+            *Note: Merging this PR will automatically trigger the \`publish.yml\` workflow to release the new version.*"
+          else
+            echo "PR already exists: #$PR_EXISTS"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
