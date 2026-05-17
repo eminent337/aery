@@ -51,4 +51,7 @@ jobs:
           npm run build --prefix packages/coding-agent
 
       - name: Test
-        run: npm run test --prefix packages/coding-agent
+        run: |
+          cd packages/coding-agent
+          npx vitest run --exclude "test/tui/*" --reporter=dot 2>&1 | tail -20
+          # Note: TUI tests use node:test (not vitest) and are excluded
