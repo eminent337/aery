@@ -1856,6 +1856,30 @@ async function generateModels() {
 		}));
 	allModels.push(...azureOpenAiModels);
 
+	// AERY: Google Gemini CLI models (Cloud Code Assist API)
+	const GEMINI_CLI_BASE = "https://cloudcode-pa.googleapis.com";
+	const geminiCliModels: Model<Api>[] = [
+		{ id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", api: "google-gemini-cli", provider: "google-gemini-cli", baseUrl: GEMINI_CLI_BASE, reasoning: false, input: ["text", "image"], cost: { input: 0.075, output: 0.3, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 8192 },
+		{ id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", api: "google-gemini-cli", provider: "google-gemini-cli", baseUrl: GEMINI_CLI_BASE, reasoning: true, input: ["text", "image"], cost: { input: 0.15, output: 0.6, cacheRead: 0.0375, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+		{ id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", api: "google-gemini-cli", provider: "google-gemini-cli", baseUrl: GEMINI_CLI_BASE, reasoning: true, input: ["text", "image"], cost: { input: 1.25, output: 10, cacheRead: 0.3125, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+		{ id: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview", api: "google-gemini-cli", provider: "google-gemini-cli", baseUrl: GEMINI_CLI_BASE, reasoning: true, input: ["text", "image"], cost: { input: 0.15, output: 0.6, cacheRead: 0.0375, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+		{ id: "gemini-3-pro-preview", name: "Gemini 3 Pro Preview", api: "google-gemini-cli", provider: "google-gemini-cli", baseUrl: GEMINI_CLI_BASE, reasoning: true, input: ["text", "image"], cost: { input: 1.25, output: 10, cacheRead: 0.3125, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+		{ id: "claude-sonnet-4", name: "Claude Sonnet 4", api: "google-gemini-cli", provider: "google-gemini-cli", baseUrl: GEMINI_CLI_BASE, reasoning: true, input: ["text", "image"], cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, contextWindow: 200000, maxTokens: 16384 },
+		{ id: "claude-opus-4", name: "Claude Opus 4", api: "google-gemini-cli", provider: "google-gemini-cli", baseUrl: GEMINI_CLI_BASE, reasoning: true, input: ["text", "image"], cost: { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 }, contextWindow: 200000, maxTokens: 32000 },
+	];
+	allModels.push(...geminiCliModels);
+
+	// AERY: Google Antigravity models (sandbox endpoint)
+	const ANTIGRAVITY_BASE = "https://daily-cloudcode-pa.sandbox.googleapis.com";
+	const antigravityModels: Model<Api>[] = [
+		{ id: "gemini-3-pro-preview", name: "Gemini 3 Pro Preview", api: "google-gemini-cli", provider: "google-antigravity", baseUrl: ANTIGRAVITY_BASE, reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+		{ id: "gemini-3-flash", name: "Gemini 3 Flash", api: "google-gemini-cli", provider: "google-antigravity", baseUrl: ANTIGRAVITY_BASE, reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+		{ id: "claude-sonnet-4", name: "Claude Sonnet 4", api: "google-gemini-cli", provider: "google-antigravity", baseUrl: ANTIGRAVITY_BASE, reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 16384 },
+		{ id: "claude-opus-4", name: "Claude Opus 4", api: "google-gemini-cli", provider: "google-antigravity", baseUrl: ANTIGRAVITY_BASE, reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 32000 },
+		{ id: "gpt-oss-120b", name: "GPT OSS 120B", api: "google-gemini-cli", provider: "google-antigravity", baseUrl: ANTIGRAVITY_BASE, reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131072, maxTokens: 16384 },
+	];
+	allModels.push(...antigravityModels);
+
 	for (const model of allModels) {
 		applyThinkingLevelMetadata(model);
 	}

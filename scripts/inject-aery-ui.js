@@ -146,5 +146,71 @@ if (!content.includes('showAeryGatewayLoginDialog() {')) {
   );
 }
 
+// 5. Codex-style banner box (replaces ASCII art mascot)
+if (!content.includes('Codex-style info banner')) {
+  // Remove old ASCII art mascot if present
+  content = content.replace(
+    /\/\/ Aery ASCII art mascot\n[\s\S]*?this\.headerContainer\.addChild\(new Spacer\(1\)\);/,
+    `// Codex-style info banner (always shown, re-reads state on each render)
+\t\tconst version = this.version;
+\t\tconst accent = (t: string) => theme.fg("accent", t);
+\t\tconst dim = (t: string) => theme.fg("dim", t);
+\t\tconst borderMuted = (t: string) => theme.fg("borderMuted", t);
+\t\tconst boxLine = (content: string, inner: number, rawLen: number): string => {
+\t\t\tconst pad = Math.max(0, inner - rawLen);
+\t\t\treturn \`\${borderMuted("│")} \${content}\${" ".repeat(pad)} \${borderMuted("│")}\`;
+\t\t};
+\t\tconst tips = [
+\t\t\t"/model to change model",
+\t\t\t"/settings to configure",
+\t\t\t"/login to authenticate",
+\t\t\t"/new to start fresh",
+\t\t\t"/tree to browse history",
+\t\t\t"/share to export session",
+\t\t\t"/hotkeys for shortcuts",
+\t\t\t"Ctrl+O to expand output",
+\t\t\t"Shift+Tab: cycle thinking",
+\t\t\t"! to run bash commands",
+\t\t];
+\t\tlet lastTipEntryCount = 0;
+\t\tlet tipIndex = 0;
+\t\tconst session = this.session;
+\t\tconst sessionMgr = this.sessionManager;
+\t\tthis.bannerLogo = {
+\t\t\tinvalidate() {},
+\t\t\trender(width: number): string[] {
+\t\t\t\tconst model = session.model;
+\t\t\t\tconst modelName = model?.name || model?.id || "";
+\t\t\t\tconst thinkingLevel = session.thinkingLevel || "off";
+\t\t\t\tconst modelStr = modelName ? \`\${modelName}\${thinkingLevel !== "off" ? \` \${thinkingLevel}\` : ""}\` : "not set";
+\t\t\t\tconst cwd = sessionMgr.getCwd();
+\t\t\t\tconst cwdDisplay = cwd.replace(/^\\/$/, "~");
+\t\t\t\tconst entryCount = sessionMgr.getEntries().length;
+\t\t\t\tif (entryCount !== lastTipEntryCount) {
+\t\t\t\t\ttipIndex = (tipIndex + 1) % tips.length;
+\t\t\t\t\tlastTipEntryCount = entryCount;
+\t\t\t\t}
+\t\t\t\tconst inner = width - 4;
+\t\t\t\tconst top = \`\${borderMuted("╭")}\${borderMuted("─".repeat(inner))}\${borderMuted("╮")}\`;
+\t\t\t\tconst bottom = \`\${borderMuted("╰")}\${borderMuted("─".repeat(inner))}\${borderMuted("╰")}\`;
+\t\t\t\tconst titleRaw = \`>_ \${APP_TITLE} (v\${version})\`;
+\t\t\t\tconst tip = tips[tipIndex];
+\t\t\t\tconst modelRaw = \`model:     \${modelStr}   \${dim(tip)}\`;
+\t\t\t\tconst dirRaw = \`directory: \${cwdDisplay}\`;
+\t\t\t\treturn [
+\t\t\t\t\ttop,
+\t\t\t\t\tboxLine(accent(titleRaw), inner, titleRaw.length),
+\t\t\t\t\tboxLine("", inner, 0),
+\t\t\t\t\tboxLine(dim(modelRaw), inner, modelRaw.length),
+\t\t\t\t\tboxLine(dim(dirRaw), inner, dirRaw.length),
+\t\t\t\t\tbottom,
+\t\t\t\t];
+\t\t\t},
+\t\t};
+\t\tthis.headerContainer.addChild(this.bannerLogo);
+\t\tthis.headerContainer.addChild(new Spacer(1));`
+  );
+}
+
 fs.writeFileSync(target, content);
 console.log("Injected aery-gateway to interactive-mode.ts");

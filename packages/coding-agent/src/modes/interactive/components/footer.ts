@@ -109,7 +109,7 @@ export class FooterComponent implements Component {
 		}
 
 		// Build stats line
-		const statsParts = [];
+		const statsParts = [theme.fg("accent", "aery")];
 		if (totalInput) statsParts.push(`↑${formatTokens(totalInput)}`);
 		if (totalOutput) statsParts.push(`↓${formatTokens(totalOutput)}`);
 		if (totalCacheRead) statsParts.push(`R${formatTokens(totalCacheRead)}`);
@@ -140,9 +140,6 @@ export class FooterComponent implements Component {
 
 		let statsLeft = statsParts.join(" ");
 
-		// Add model name on the right side, plus thinking level if model supports it
-		const modelName = state.model?.id || "no-model";
-
 		let statsLeftWidth = visibleWidth(statsLeft);
 
 		// If statsLeft is too wide, truncate it
@@ -151,25 +148,18 @@ export class FooterComponent implements Component {
 			statsLeftWidth = visibleWidth(statsLeft);
 		}
 
-		// Calculate available space for padding (minimum 2 spaces between stats and model)
+		// Calculate available space for padding (minimum 2 spaces between stats and keybindings)
 		const minPadding = 2;
 
-		// Add thinking level indicator if model supports reasoning
-		let rightSideWithoutProvider = modelName;
-		if (state.model?.reasoning) {
+		// Context-sensitive keybindings based on current state
+		let rightSide: string;
+		if (this.session.isCompacting) {
+			rightSide = "compacting...";
+		} else if (this.session.isStreaming) {
+			rightSide = "Esc: interrupt";
+		} else {
 			const thinkingLevel = state.thinkingLevel || "off";
-			rightSideWithoutProvider =
-				thinkingLevel === "off" ? `${modelName} • thinking off` : `${modelName} • ${thinkingLevel}`;
-		}
-
-		// Prepend the provider in parentheses if there are multiple providers and there's enough room
-		let rightSide = rightSideWithoutProvider;
-		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
-			rightSide = `(${state.model!.provider}) ${rightSideWithoutProvider}`;
-			if (statsLeftWidth + minPadding + visibleWidth(rightSide) > width) {
-				// Too wide, fall back
-				rightSide = rightSideWithoutProvider;
-			}
+			rightSide = thinkingLevel === "off" ? "Shift+Tab: thinking" : `Shift+Tab: ${thinkingLevel}`;
 		}
 
 		const rightSideWidth = visibleWidth(rightSide);
@@ -177,7 +167,7 @@ export class FooterComponent implements Component {
 
 		let statsLine: string;
 		if (totalNeeded <= width) {
-			// Both fit - add padding to right-align model
+			// Both fit - add padding to right-align keybindings
 			const padding = " ".repeat(width - statsLeftWidth - rightSideWidth);
 			statsLine = statsLeft + padding + rightSide;
 		} else {

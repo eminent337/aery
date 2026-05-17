@@ -1,7 +1,7 @@
 {
 	"name": "@eminent337/aery-mom",
 	"version": "0.1.118",
-	"description": "Slack bot that delegates messages to the pi coding agent",
+	"description": "Slack bot that delegates messages to the aery coding agent",
 	"type": "module",
 	"bin": {
 		"mom": "dist/main.js"

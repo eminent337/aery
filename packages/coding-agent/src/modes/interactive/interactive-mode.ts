@@ -341,6 +341,9 @@ export class InteractiveMode {
 	// Built-in header (logo + keybinding hints + changelog)
 	private builtInHeader: Component | undefined = undefined;
 
+	// Banner logo shown above the built-in header
+	private bannerLogo: Component | undefined = undefined;
+
 	// Custom header from extension (undefined = use built-in header)
 	private customHeader: (Component & { dispose?(): void }) | undefined = undefined;
 
@@ -574,8 +577,10 @@ export class InteractiveMode {
 
 		this.registerSignalHandlers();
 
-		// Load changelog (only show new entries, skip for resumed sessions)
-		this.changelogMarkdown = this.getChangelogForDisplay();
+		// Load changelog (only show new entries, skip for resumed sessions and quiet startup)
+		if (!this.settingsManager.getQuietStartup()) {
+			this.changelogMarkdown = this.getChangelogForDisplay();
+		}
 
 		// Ensure fd and rg are available (downloads if missing, adds to PATH via getBinDir)
 		// Both are needed: fd for autocomplete, rg for grep tool and bash commands
@@ -585,19 +590,75 @@ export class InteractiveMode {
 		// Add header container as first child
 		this.ui.addChild(this.headerContainer);
 
-		// Add header with keybindings from config (unless silenced)
-		if (this.options.verbose || !this.settingsManager.getQuietStartup()) {
-			// Aery ASCII art mascot
-			const ac = (t: string) => theme.fg("accent", t);
-			const dm = (t: string) => theme.fg("dim", t);
-			const bold = (t: string) => theme.bold(t);
-			const asciiLogo = [
-				bold(ac(" █▀█  █▀▀  █▀█  █  █")),
-				bold(ac(" █▀█  █▀   █▀▄  ▀▄▄█")),
-				bold(ac(" ▀  ▀ ▀▀▀  ▀  ▀    ▀")),
-			].join("\n");
-			const logo = `${asciiLogo}  ${dm(`v${this.version}`)}`;
+		// Codex-style info banner (always shown, re-reads state on each render)
+		const version = this.version;
+		const accent = (t: string) => theme.fg("accent", t);
+		const dim = (t: string) => theme.fg("dim", t);
+		const borderMuted = (t: string) => theme.fg("borderMuted", t);
+		const visibleLen = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").length;
+		const boxLine = (rawText: string, styledText: string, inner: number): string => {
+			let text = styledText;
+			let raw = rawText;
+			if (raw.length > inner) {
+				raw = raw.slice(0, inner - 1) + "…";
+				text = raw; // truncate styled text to raw length
+			}
+			const pad = Math.max(0, inner - raw.length);
+			return `${borderMuted("│")} ${text}${" ".repeat(pad)} ${borderMuted("│")}`;
+		};
+		const tips = [
+			"/model to change model",
+			"/settings to configure",
+			"/login to authenticate",
+			"/new to start fresh",
+			"/tree to browse history",
+			"/share to export session",
+			"/hotkeys for shortcuts",
+			"Ctrl+O to expand output",
+			"Shift+Tab: cycle thinking",
+			"! to run bash commands",
+		];
+		let lastTipEntryCount = 0;
+		let tipIndex = 0;
+		const session = this.session;
+		const sessionMgr = this.sessionManager;
+		this.bannerLogo = {
+			invalidate() {},
+			render(width: number): string[] {
+				const model = session.model;
+				const modelName = model?.name || model?.id || "";
+				const thinkingLevel = session.thinkingLevel || "off";
+				const modelStr = modelName ? `${modelName}${thinkingLevel !== "off" ? ` ${thinkingLevel}` : ""}` : "not set";
+				const cwd = sessionMgr.getCwd();
+				const cwdDisplay = cwd.replace(/^\/$/, "~");
+				const entryCount = sessionMgr.getEntries().length;
+				if (entryCount !== lastTipEntryCount) {
+					tipIndex = (tipIndex + 1) % tips.length;
+					lastTipEntryCount = entryCount;
+				}
+				const inner = width - 4;
+				const top = `${borderMuted("╭")}${borderMuted("─".repeat(inner))}${borderMuted("╮")}`;
+				const bottom = `${borderMuted("╰")}${borderMuted("─".repeat(inner))}${borderMuted("╰")}`;
+				const titleRaw = `>_ ${APP_TITLE} (v${version})`;
+				const tip = tips[tipIndex];
+				const modelRaw = `model:     ${modelStr}   ${tip}`;
+				const modelStyled = `model:     ${modelStr}   ${dim(tip)}`;
+				const dirRaw = `directory: ${cwdDisplay}`;
+				return [
+					top,
+					boxLine(titleRaw, accent(titleRaw), inner),
+					boxLine("", "", inner),
+					boxLine(modelRaw, modelStyled, inner),
+					boxLine(dirRaw, dim(dirRaw), inner),
+					bottom,
+				];
+			},
+		};
+		this.headerContainer.addChild(this.bannerLogo);
+		this.headerContainer.addChild(new Spacer(1));
 
+		// Add keybinding hints (unless silenced by quietStartup)
+		if (this.options.verbose || !this.settingsManager.getQuietStartup()) {
 			// Build startup instructions using keybinding hint helpers
 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
 
@@ -638,8 +699,8 @@ export class InteractiveMode {
 				`${APP_NAME} can explain its own features and look up its docs. Ask it how to use or extend ${APP_NAME}.`,
 			);
 			this.builtInHeader = new ExpandableText(
-				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
-				() => `${logo}\n${expandedInstructions}\n\n${onboarding}`,
+				() => `${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
+				() => `${expandedInstructions}\n\n${onboarding}`,
 				this.getStartupExpansionState(),
 				1,
 				0,
@@ -1581,12 +1642,29 @@ export class InteractiveMode {
 	private async rebindCurrentSession(): Promise<void> {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
+		this.restoreCloudflareAccountId();
 		this.applyRuntimeSettings();
 		await this.bindCurrentSessionExtensions();
 		this.subscribeToAgent();
 		await this.updateAvailableProviderCount();
 		this.updateEditorBorderColor();
 		this.updateTerminalTitle();
+	}
+
+	/** Restore CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_GATEWAY_ID from auth storage metadata if not already set. */
+	private restoreCloudflareAccountId(): void {
+		for (const provider of ["cloudflare-workers-ai", "cloudflare-ai-gateway"]) {
+			const cred = this.session.modelRegistry.authStorage.get(provider);
+			if (cred?.type === "api_key" && cred.metadata) {
+				if (!process.env.CLOUDFLARE_ACCOUNT_ID && cred.metadata.CLOUDFLARE_ACCOUNT_ID) {
+					process.env.CLOUDFLARE_ACCOUNT_ID = cred.metadata.CLOUDFLARE_ACCOUNT_ID;
+				}
+				if (!process.env.CLOUDFLARE_GATEWAY_ID && cred.metadata.CLOUDFLARE_GATEWAY_ID) {
+					process.env.CLOUDFLARE_GATEWAY_ID = cred.metadata.CLOUDFLARE_GATEWAY_ID;
+				}
+				if (process.env.CLOUDFLARE_ACCOUNT_ID) return;
+			}
+		}
 	}
 
 	private async handleFatalRuntimeError(prefix: string, error: unknown): Promise<never> {
@@ -3440,6 +3518,7 @@ export class InteractiveMode {
 		if (newLevel === undefined) {
 			this.showStatus("Current model does not support thinking");
 		} else {
+			this.headerContainer.invalidate();
 			this.footer.invalidate();
 			this.updateEditorBorderColor();
 			this.showStatus(`Thinking level: ${newLevel}`);
@@ -3453,6 +3532,7 @@ export class InteractiveMode {
 				const msg = this.session.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
 				this.showStatus(msg);
 			} else {
+				this.headerContainer.invalidate();
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
 				const thinkingStr =
@@ -4708,7 +4788,28 @@ export class InteractiveMode {
 				throw new Error("API key cannot be empty.");
 			}
 
-			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
+			// Cloudflare Workers AI also needs an account ID
+			let metadata: Record<string, string> | undefined;
+			if (providerId === "cloudflare-workers-ai" || providerId === "cloudflare-ai-gateway") {
+				const accountId = (await dialog.showPrompt("Enter Cloudflare account ID:")).trim();
+				if (!accountId) {
+					throw new Error("Cloudflare account ID cannot be empty.");
+				}
+				metadata = { CLOUDFLARE_ACCOUNT_ID: accountId };
+				process.env.CLOUDFLARE_ACCOUNT_ID = accountId;
+
+				// AI Gateway also needs a gateway ID
+				if (providerId === "cloudflare-ai-gateway") {
+					const gatewayId = (await dialog.showPrompt("Enter Cloudflare AI Gateway ID:")).trim();
+					if (!gatewayId) {
+						throw new Error("Cloudflare AI Gateway ID cannot be empty.");
+					}
+					metadata.CLOUDFLARE_GATEWAY_ID = gatewayId;
+					process.env.CLOUDFLARE_GATEWAY_ID = gatewayId;
+				}
+			}
+
+			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey, metadata });
 
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);

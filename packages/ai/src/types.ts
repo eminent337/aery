@@ -24,6 +24,8 @@ export type KnownProvider =
 	| "amazon-bedrock"
 	| "anthropic"
 	| "google"
+	| "google-gemini-cli"
+	| "google-antigravity"
 	| "google-vertex"
 	| "openai"
 	| "azure-openai-responses"

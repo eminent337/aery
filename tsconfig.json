@@ -46,23 +46,11 @@
       "@eminent337/aery-pods/*": [
         "./packages/pods/src/*"
       ],
-      "@eminent337/aery-tui": [
-        "./packages/tui/src/index.ts"
-      ],
-      "@eminent337/aery-tui/*": [
-        "./packages/tui/src/*"
-      ],
       "@eminent337/aery-web-ui": [
         "./packages/web-ui/src/index.ts"
       ],
       "@eminent337/aery-web-ui/*": [
         "./packages/web-ui/src/*"
-      ],
-      "@eminent337/aery-agent-old": [
-        "./packages/agent-old/src/index.ts"
-      ],
-      "@eminent337/aery-agent-old/*": [
-        "./packages/agent-old/src/*"
       ],
       "typebox": [
         "./node_modules/typebox/build/index.d.mts"

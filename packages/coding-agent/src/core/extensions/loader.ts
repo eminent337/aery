@@ -27,6 +27,7 @@ import { CONFIG_DIR_NAME, getAgentDir, getBuiltinExtensionsDir, isBunBinary } fr
 import * as _bundledPiCodingAgent from "../../index.js";
 import type { KeyId } from "../../tui/index.js";
 import * as _bundledPiTui from "../../tui/index.js";
+import * as _bundledPiTuiEntry from "../../tui-entry.js";
 import { createEventBus, type EventBus } from "../event-bus.js";
 import type { ExecOptions } from "../exec.js";
 import { execCommand } from "../exec.js";
@@ -52,7 +53,7 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@sinclair/typebox/compile": _bundledTypeboxCompile,
 	"@sinclair/typebox/value": _bundledTypeboxValue,
 	"@eminent337/aery-core": _bundledPiAgentCore,
-	"../../tui/index.js": _bundledPiTui,
+	"@eminent337/aery/tui": _bundledPiTuiEntry,
 	"@eminent337/aery-ai": _bundledPiAi,
 	"@eminent337/aery-ai/oauth": _bundledPiAiOauth,
 	"@eminent337/aery": _bundledPiCodingAgent,
@@ -91,14 +92,14 @@ function getAliases(): Record<string, string> {
 
 	const piCodingAgentEntry = packageIndex;
 	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@eminent337/aery-core");
-	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "../../tui/index.js");
+	const piTuiEntry = path.resolve(__dirname, "../..", "tui-entry.js");
 	const piAiEntry = resolveWorkspaceOrImport("ai/dist/index.js", "@eminent337/aery-ai");
 	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@eminent337/aery-ai/oauth");
 
 	_aliases = {
 		"@eminent337/aery": piCodingAgentEntry,
 		"@eminent337/aery-core": piAgentCoreEntry,
-		"../../tui/index.js": piTuiEntry,
+		"@eminent337/aery/tui": piTuiEntry,
 		"@eminent337/aery-ai": piAiEntry,
 		"@eminent337/aery-ai/oauth": piAiOauthEntry,
 		typebox: typeboxEntry,

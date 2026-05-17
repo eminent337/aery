@@ -37,7 +37,7 @@ aery/
 **`packages/tui`**
 - Terminal UI built with Ink
 - Keybindings: `DEFAULT_EDITOR_KEYBINDINGS`, `DEFAULT_APP_KEYBINDINGS`
-- Test with tmux: `tmux new-session -d -s pi-test -x 80 -y 24`
+- Test with tmux: `tmux new-session -d -s aery-test -x 80 -y 24`
 
 **`packages/mom`**
 - Slack bot powered by an LLM (self-managing)

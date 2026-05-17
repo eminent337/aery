@@ -23,6 +23,7 @@ import { resolveConfigValue } from "./resolve-config-value.js";
 export type ApiKeyCredential = {
 	type: "api_key";
 	key: string;
+	metadata?: Record<string, string>;
 };
 
 export type OAuthCredential = {

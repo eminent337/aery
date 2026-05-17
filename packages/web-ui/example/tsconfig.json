@@ -8,7 +8,6 @@
 			"*": ["./*"],
 			"@eminent337/aery-core": ["../../agent/src/index.ts"],
 			"@eminent337/aery-ai": ["../../ai/src/index.ts"],
-			"@eminent337/aery-tui": ["../../tui/src/index.ts"],
 			"@eminent337/aery-web-ui": ["../src/index.ts"]
 		},
 		"strict": true,

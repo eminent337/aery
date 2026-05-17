@@ -121,17 +121,17 @@ aery agent <name> -i                        # Interactive chat mode
 aery agent <name> -i -c                     # Continue previous session
 
 # Standalone OpenAI-compatible agent (works with any API)
-pi-agent --base-url http://localhost:8000/v1 --model llama-3.1 "Hello"
-pi-agent --api-key sk-... "What is 2+2?"  # Uses OpenAI by default
-pi-agent --json "What is 2+2?"            # Output event stream as JSONL
-pi-agent -i                                # Interactive mode
+aery --base-url http://localhost:8000/v1 --model llama-3.1 "Hello"
+aery --api-key sk-... "What is 2+2?"  # Uses OpenAI by default
+aery --json "What is 2+2?"            # Output event stream as JSONL
+aery -i                                # Interactive mode
 ```
 
 The agent includes tools for file operations (read, list, bash, glob, rg) to test agentic capabilities, particularly useful for code navigation and analysis tasks.
 
 ## Predefined Model Configurations
 
-`pi` includes predefined configurations for popular agentic models, so you do not have to specify `--vllm` arguments manually. `pi` will also check if the model you selected can actually run on your pod with respect to the number of GPUs and available VRAM. Run `aery start` without additional arguments to see a list of predefined models that can run on the active pod.
+`aery` includes predefined configurations for popular agentic models, so you do not have to specify `--vllm` arguments manually. `aery` will also check if the model you selected can actually run on your pod with respect to the number of GPUs and available VRAM. Run `aery start` without additional arguments to see a list of predefined models that can run on the active pod.
 
 ### Qwen Models
 ```bash
@@ -198,7 +198,7 @@ DataCrunch offers the best experience with shared NFS storage across pods:
 - Share the SFS with the instance
 - Get SSH command from dashboard
 
-### 3. Setup with pi
+### 3. Setup with aery
 ```bash
 # Get mount command from DataCrunch dashboard
 aery pods setup dc1 "ssh root@instance.datacrunch.io" \
@@ -226,7 +226,7 @@ RunPod offers good persistent storage with network volumes:
 - Attach your volume to `/runpod-volume`
 - Get SSH command from pod details
 
-### 3. Setup with pi
+### 3. Setup with aery
 ```bash
 # With network volume
 aery pods setup runpod "ssh root@pod.runpod.io" --models-path /runpod-volume
@@ -239,7 +239,7 @@ aery pods setup runpod "ssh root@pod.runpod.io" --models-path /workspace
 ## Multi-GPU Support
 
 ### Automatic GPU Assignment
-When running multiple models, pi automatically assigns them to different GPUs:
+When running multiple models, aery automatically assigns them to different GPUs:
 ```bash
 aery start model1 --name m1  # Auto-assigns to GPU 0
 aery start model2 --name m2  # Auto-assigns to GPU 1
@@ -279,7 +279,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://your-pod-ip:8001/v1",
-    api_key="your-pi-api-key"
+    api_key="your-aery-api-key"
 )
 
 # Chat completion with tool calling
@@ -311,29 +311,29 @@ response = client.chat.completions.create(
 `pi` includes a standalone OpenAI-compatible agent that can work with any API:
 
 ```bash
-# Install globally to get pi-agent command
+# Install globally to get aery command
 npm install -g @eminent337/aery-pods
 
 # Use with OpenAI
-pi-agent --api-key sk-... "What is machine learning?"
+aery --api-key sk-... "What is machine learning?"
 
 # Use with local vLLM
-pi-agent --base-url http://localhost:8000/v1 \
+aery --base-url http://localhost:8000/v1 \
          --model meta-llama/Llama-3.1-8B-Instruct \
          --api-key dummy \
          "Explain quantum computing"
 
 # Interactive mode
-pi-agent -i
+aery -i
 
 # Continue previous session
-pi-agent --continue "Follow up question"
+aery --continue "Follow up question"
 
 # Custom system prompt
-pi-agent --system-prompt "You are a Python expert" "Write a web scraper"
+aery --system-prompt "You are a Python expert" "Write a web scraper"
 
 # Use responses API (for GPT-OSS models)
-pi-agent --api responses --model openai/gpt-oss-20b "Hello"
+aery --api responses --model openai/gpt-oss-20b "Hello"
 ```
 
 The agent supports:
@@ -345,7 +345,7 @@ The agent supports:
 
 ## Tool Calling Support
 
-`pi` automatically configures appropriate tool calling parsers for known models:
+\`aery\` automatically configures appropriate tool calling parsers for known models:
 
 - **Qwen models**: `hermes` parser (Qwen3-Coder uses `qwen3_coder`)
 - **GLM models**: `glm4_moe` parser with reasoning support
@@ -411,7 +411,7 @@ Events are automatically converted to the appropriate API format (Chat Completio
 
 Use `--json` flag to output the event stream as JSONL (JSON Lines) for programmatic consumption:
 ```bash
-pi-agent --api-key sk-... --json "What is 2+2?"
+aery --api-key sk-... --json "What is 2+2?"
 ```
 
 Each line is a complete JSON object representing an event:
@@ -502,9 +502,9 @@ ls -la ~/.aery/sessions/
 ## Environment Variables
 
 - `HF_TOKEN` - HuggingFace token for model downloads
-- `PI_API_KEY` - API key for vLLM endpoints
+- `AERY_API_KEY` - API key for vLLM endpoints
 - `AERY_CONFIG_DIR` - Config directory (default: `~/.aery`)
-- `OPENAI_API_KEY` - Used by `pi-agent` when no `--api-key` provided
+- `OPENAI_API_KEY` - Used by `aery` when no `--api-key` provided
 
 ## License
 

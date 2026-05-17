@@ -590,7 +590,7 @@ console.log(i18n('Loading...')); // "Laden..."
 ## Examples
 
 - [example/](./example) - Complete web app with sessions, artifacts, custom messages
-- [sitegeist](https://sitegeist.ai) - Browser extension using pi-web-ui
+- [sitegeist](https://sitegeist.ai) - Browser extension using aery-web-ui
 
 ## Known Issues
 
