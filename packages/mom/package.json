@@ -1,6 +1,6 @@
 {
 	"name": "@eminent337/aery-mom",
-	"version": "0.1.144",
+	"version": "0.1.146",
 	"description": "Slack bot that delegates messages to the aery coding agent",
 	"type": "module",
 	"bin": {
