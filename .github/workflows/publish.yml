@@ -108,6 +108,16 @@ jobs:
           git pull --ff-only origin main
           npm install --ignore-scripts 2>/dev/null || true
 
+          # Ensure workspace links use local packages
+          if [ ! -L "packages/coding-agent/node_modules/@eminent337/aery-ai" ]; then
+            rm -rf packages/coding-agent/node_modules/@eminent337/aery-ai
+            ln -s ../../../ai packages/coding-agent/node_modules/@eminent337/aery-ai
+          fi
+          if [ ! -L "packages/coding-agent/node_modules/@eminent337/aery-core" ]; then
+            rm -rf packages/coding-agent/node_modules/@eminent337/aery-core
+            ln -s ../../../agent packages/coding-agent/node_modules/@eminent337/aery-core
+          fi
+
           CURRENT=$(node -p "require('./packages/coding-agent/package.json').version")
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
