@@ -32,12 +32,6 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Build
-        run: |
-          npm run build --prefix packages/ai
-          npm run build --prefix packages/agent
-          npm run build --prefix packages/coding-agent
-
       - name: Verify workspace links
         run: |
           # Ensure coding-agent uses local aery-ai (not npm published)
@@ -49,6 +43,12 @@ jobs:
             rm -rf packages/coding-agent/node_modules/@eminent337/aery-core
             ln -s ../../../agent packages/coding-agent/node_modules/@eminent337/aery-core
           fi
+
+      - name: Build
+        run: |
+          npm run build --prefix packages/ai
+          npm run build --prefix packages/agent
+          npm run build --prefix packages/coding-agent
 
       - name: Test
         run: npm run test --prefix packages/coding-agent
