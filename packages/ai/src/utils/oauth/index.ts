@@ -13,12 +13,19 @@ export { anthropicOAuthProvider, loginAnthropic, refreshAnthropicToken } from ".
 export {
 	getGitHubCopilotBaseUrl,
 	githubCopilotOAuthProvider,
+	geminiCliOAuthProvider,
+	antigravityOAuthProvider,
 	loginGitHubCopilot,
 	normalizeDomain,
 	refreshGitHubCopilotToken,
 } from "./github-copilot.js";
 // OpenAI Codex (ChatGPT OAuth)
 export { loginOpenAICodex, openaiCodexOAuthProvider, refreshOpenAICodexToken } from "./openai-codex.js";
+
+// Google Antigravity
+export { antigravityOAuthProvider, loginAntigravity, refreshAntigravityToken } from "./google-antigravity.js";
+// Google Gemini CLI
+export { geminiCliOAuthProvider, loginGeminiCli, refreshGoogleCloudToken } from "./google-gemini-cli.js";
 
 export * from "./types.js";
 
@@ -28,6 +35,8 @@ export * from "./types.js";
 
 import { anthropicOAuthProvider } from "./anthropic.js";
 import { githubCopilotOAuthProvider } from "./github-copilot.js";
+import { antigravityOAuthProvider } from "./google-antigravity.js";
+import { geminiCliOAuthProvider } from "./google-gemini-cli.js";
 import { openaiCodexOAuthProvider } from "./openai-codex.js";
 import type { OAuthCredentials, OAuthProviderId, OAuthProviderInfo, OAuthProviderInterface } from "./types.js";
 
