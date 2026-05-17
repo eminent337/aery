@@ -44,8 +44,8 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@eminent337/aery-core": "^0.1.144",
-		"@eminent337/aery-ai": "^0.1.144",
+		"@eminent337/aery-core": "*",
+		"@eminent337/aery-ai": "*",
 		"@silvia-odwyer/photon-node": "^0.3.4",
 		"chalk": "^5.5.0",
 		"diff": "^8.0.2",

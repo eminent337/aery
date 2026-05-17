@@ -33,7 +33,7 @@
 		"node": ">=20.0.0"
 	},
 	"dependencies": {
-		"@eminent337/aery-core": "^0.1.144",
+		"@eminent337/aery-core": "*",
 		"chalk": "^5.5.0"
 	},
 	"devDependencies": {}
