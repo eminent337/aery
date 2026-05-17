@@ -628,7 +628,9 @@ export class InteractiveMode {
 				const model = session.model;
 				const modelName = model?.name || model?.id || "";
 				const thinkingLevel = session.thinkingLevel || "off";
-				const modelStr = modelName ? `${modelName}${thinkingLevel !== "off" ? ` ${thinkingLevel}` : ""}` : "not set";
+				const modelStr = modelName
+					? `${modelName}${thinkingLevel !== "off" ? ` ${thinkingLevel}` : ""}`
+					: "not set";
 				const cwd = sessionMgr.getCwd();
 				const cwdDisplay = cwd.replace(/^\/$/, "~");
 				const entryCount = sessionMgr.getEntries().length;
