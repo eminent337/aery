@@ -1,6 +1,6 @@
 {
   "name": "@eminent337/aery-pods",
-  "version": "0.1.118",
+  "version": "0.1.144",
   "description": "CLI tool for managing vLLM deployments on GPU pods",
   "type": "module",
   "bin": {
