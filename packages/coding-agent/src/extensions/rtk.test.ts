@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { getBashCommandForDisplay, isRtkPassthrough, rewriteWithRtk } from "./rtk";
 
 // ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ describe("isRtkPassthrough", () => {
 		"pnpm exec eslint .",
 		"bunx tsx script.ts",
 		"  pnpm run lint",
-	])("returns true for %s", cmd => {
+	])("returns true for %s", (cmd: string) => {
 		expect(isRtkPassthrough(cmd)).toBe(true);
 	});
 
@@ -28,7 +28,7 @@ describe("isRtkPassthrough", () => {
 		"npm install",
 		"pnpm add react",
 		"echo pnpm run lint",
-	])("returns false for %s", cmd => {
+	])("returns false for %s", (cmd: string) => {
 		expect(isRtkPassthrough(cmd)).toBe(false);
 	});
 });

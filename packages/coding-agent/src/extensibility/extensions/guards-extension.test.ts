@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { createGuardsExtension } from "./guards-extension";
 import type { ExtensionAPI, ToolExecutionEndEvent, TurnEndEvent, TurnStartEvent } from "./types";
 
@@ -12,7 +12,7 @@ function createMockApi(): ExtensionAPI & {
 	return {
 		emitted,
 		handlers,
-		logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+		logger: { info: mock(), warn: mock(), debug: mock(), error: mock() },
 		typebox: {} as never,
 		zod: {} as never,
 		aery: {} as never,
@@ -26,10 +26,10 @@ function createMockApi(): ExtensionAPI & {
 		) {
 			emitted.push({ customType: message.customType, text: message.content[0]?.text ?? "" });
 		},
-		sendUserMessage: vi.fn(),
-		registerTool: vi.fn(),
-		registerCommand: vi.fn(),
-		exec: vi.fn(),
+		sendUserMessage: mock(),
+		registerTool: mock(),
+		registerCommand: mock(),
+		exec: mock(),
 		sessionId: "test-session",
 		extensionName: "guards",
 	} as unknown as ExtensionAPI & {

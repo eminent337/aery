@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { containsThinkTags, filterTaggableText } from "./hide-thinking-text";
 
 describe("containsThinkTags", () => {

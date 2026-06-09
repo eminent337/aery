@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, mock } from "bun:test";
 import { ExplorationGuard } from "./exploration-guard";
 
 describe("ExplorationGuard", () => {
@@ -46,7 +46,7 @@ describe("ExplorationGuard", () => {
 	});
 
 	it("sends hypothesis reminder at threshold", () => {
-		const steerFn = vi.fn();
+		const steerFn = mock();
 		const guard = new ExplorationGuard({ hypothesisThreshold: 2, steerThreshold: 5 });
 		for (let i = 0; i < 2; i++) {
 			guard.turnStart();
@@ -59,7 +59,7 @@ describe("ExplorationGuard", () => {
 	});
 
 	it("sends mandatory steer at steerThreshold and resets", () => {
-		const steerFn = vi.fn();
+		const steerFn = mock();
 		const guard = new ExplorationGuard({ hypothesisThreshold: 3, steerThreshold: 4 });
 		for (let i = 0; i < 4; i++) {
 			guard.turnStart();
