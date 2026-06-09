@@ -3317,9 +3317,14 @@ export class AuthStorage {
 		// OAuth credentials. The user redirected a provider at a custom baseUrl
 		// (e.g. an auth-gateway) and supplied the bearer for that endpoint —
 		// honor it instead of forwarding an upstream OAuth token that the proxy
-		// won't accept.
 		const configKey = this.#configOverrides.get(provider);
 		if (configKey) {
+			if (configKey === "auth-json") {
+				logger.warn(
+					'AuthStorage.getApiKey: config override for provider is the deprecated "auth-json" sentinel. This will be sent as the literal API key and authentication will fail. Regenerate the provider with a real key in models.yml.',
+					{ provider },
+				);
+			}
 			return configKey;
 		}
 

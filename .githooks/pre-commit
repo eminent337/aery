@@ -1,0 +1,4 @@
+#!/bin/sh
+# To activate: git config core.hooksPath .githooks
+set -e
+bunx lint-staged

@@ -1,3 +1,4 @@
+import { logger } from "@aryee337/aery-utils";
 import { resolveOpenAICompat } from "./providers/openai-completions-compat";
 import type { Api, Model as ApiModel, ThinkingConfig } from "./types";
 
@@ -607,6 +608,16 @@ function inferFallbackEfforts<TApi extends Api>(model: ApiModel<TApi>): readonly
 	}
 	if (model.api === "openai-completions") {
 		const compat = resolveOpenAICompat(model as ApiModel<"openai-completions">);
+		if (
+			compat.reasoningEffortMap &&
+			Object.keys(compat.reasoningEffortMap).length === 0 &&
+			!isWellKnownOpenAIProvider(model.provider)
+		) {
+			logger.warn(
+				`Model ${model.provider}/${model.id} has reasoning enabled with no reasoningEffortMap. Unknown openai-completions providers may reject effort levels like "minimal" or "xhigh". Consider adding a compat.reasoningEffortMap in models.yml to map Aery effort levels to provider-specific values.`,
+				{ provider: model.provider, modelId: model.id },
+			);
+		}
 		if (compat.thinkingFormat === "openai" && compat.supportsReasoningEffort) {
 			return DEFAULT_REASONING_EFFORTS_WITH_XHIGH;
 		}
@@ -750,6 +761,21 @@ function compareSemVer(left: SemVer | string | null, right: SemVer | string | nu
 	return left.patch - right.patch;
 }
 
+const WELL_KNOWN_OPENAI_PROVIDERS = new Set([
+	"openai",
+	"azure-openai",
+	"groq",
+	"deepseek",
+	"fireworks",
+	"perplexity",
+	"together",
+	"openrouter",
+	"moonshot",
+]);
+
+function isWellKnownOpenAIProvider(provider: string): boolean {
+	return WELL_KNOWN_OPENAI_PROVIDERS.has(provider);
+}
 function getCanonicalModelId(modelId: string): string {
 	const p = modelId.lastIndexOf("/");
 	return p !== -1 ? modelId.slice(p + 1) : modelId;
