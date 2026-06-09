@@ -42,7 +42,7 @@ export default function customOpenAIExtension(api: ExtensionAPI) {
 						try {
 							await (ctx.sessionManager as any)?.session?.setModel(model);
 							selectedModel = true;
-						} catch (error: unknown) {
+} catch {
 							const msg = `Saved ${saved.providerId}/${saved.modelId}, but selecting it failed.`;
 							ctx.ui.setStatus("provider", msg);
 						}

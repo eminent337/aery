@@ -22,6 +22,7 @@ export interface SaveCustomOpenAICompatibleProviderInput {
 	baseUrl: string;
 	modelId: string;
 	api?: string;
+	apiKey?: string;
 }
 
 export interface SavedCustomOpenAICompatibleProvider {
@@ -132,10 +133,9 @@ export function saveCustomOpenAICompatibleProvider(
 	removeLegacyBlankCustomOpenAICompatibleProviders(providers);
 	const providerId = getProviderIdForBaseUrl(providers, baseUrl, api);
 
-	providers[providerId] = {
+	const providerConfig: Record<string, unknown> = {
 		baseUrl,
 		api,
-		apiKey: "auth-json",
 		compat: DEFAULT_COMPAT,
 		models: [
 			{
@@ -145,6 +145,13 @@ export function saveCustomOpenAICompatibleProvider(
 			},
 		],
 	};
+	// Write the real API key to models.yml so ModelRegistry resolves it
+	// via setConfigApiKey() → getApiKey() chain. Using the real key directly
+	// avoids the old "auth-json" sentinel that shadows stored credentials.
+	if (input.apiKey) {
+		providerConfig.apiKey = input.apiKey;
+	}
+	providers[providerId] = providerConfig;
 
 	mkdirSync(dirname(input.modelsPath), { recursive: true, mode: 0o700 });
 	if (input.modelsPath.endsWith(".yml") || input.modelsPath.endsWith(".yaml")) {

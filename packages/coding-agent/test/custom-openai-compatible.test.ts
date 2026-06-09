@@ -9,13 +9,11 @@ import { AuthStorage } from "../src/session/auth-storage";
 describe("custom OpenAI-compatible provider setup", () => {
 	let tempDir: string;
 	let modelsPath: string;
-	let authPath: string;
 
 	beforeEach(() => {
 		tempDir = join(tmpdir(), `aery-test-custom-provider-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		mkdirSync(tempDir, { recursive: true });
 		modelsPath = join(tempDir, "models.json");
-		authPath = join(tempDir, "auth.json");
 	});
 
 	afterEach(() => {
@@ -42,7 +40,6 @@ describe("custom OpenAI-compatible provider setup", () => {
 		expect(json.providers[saved.providerId]).toEqual({
 			baseUrl: "https://api.example.com/v1",
 			api: "openai-completions",
-			apiKey: "auth-json",
 			compat: {
 				supportsDeveloperRole: false,
 				supportsReasoningEffort: false,
@@ -135,7 +132,29 @@ describe("custom OpenAI-compatible provider setup", () => {
 		expect(providers["custom-api-example-com-v1"]).toBeDefined();
 	});
 
-	test("custom providers defined in models.json can authenticate via auth.json", async () => {
+	test("custom providers without apiKey in models.yml fail validation as expected", async () => {
+		const modelsPath = join(tempDir, "models.yml");
+		const authPath = join(tempDir, "auth.json");
+
+		// ModelRegistry requires apiKey or auth:"none" for providers with models.
+		// The old "auth-json" sentinel masked this; the new flow always passes
+		// the real apiKey, so this test documents the validation guard.
+		const saved = saveCustomOpenAICompatibleProvider({
+			modelsPath,
+			baseUrl: "https://api.example.com/v1",
+			modelId: "gpt-4o-mini",
+		});
+		const authStorage = await AuthStorage.create(authPath);
+
+		const registry = new ModelRegistry(authStorage, modelsPath);
+		const model = registry.find(saved.providerId, saved.modelId);
+
+		// Without apiKey, the model is not found due to validation error
+		expect(registry.getError()).toBeDefined();
+		expect(model).toBeUndefined();
+	});
+
+	test("custom providers with apiKey in models.yml resolve via setConfigApiKey", async () => {
 		const modelsPath = join(tempDir, "models.yml");
 		const authPath = join(tempDir, "auth.json");
 
@@ -143,9 +162,9 @@ describe("custom OpenAI-compatible provider setup", () => {
 			modelsPath,
 			baseUrl: "https://api.example.com/v1",
 			modelId: "gpt-4o-mini",
+			apiKey: "sk-real-key",
 		});
 		const authStorage = await AuthStorage.create(authPath);
-		await authStorage.set(saved.providerId, { type: "api_key", key: "sk-test" });
 
 		const registry = new ModelRegistry(authStorage, modelsPath);
 		const model = registry.find(saved.providerId, saved.modelId);
@@ -154,5 +173,28 @@ describe("custom OpenAI-compatible provider setup", () => {
 		expect(model).toBeDefined();
 		expect(model?.baseUrl).toBe("https://api.example.com/v1");
 		expect(model && registry.hasConfiguredAuth(model)).toBe(true);
+	});
+
+	test("writes apiKey to models.yml only when provided", () => {
+		const saved = saveCustomOpenAICompatibleProvider({
+			modelsPath,
+			baseUrl: "https://api.example.com/v1",
+			modelId: "gpt-4o-mini",
+			apiKey: "sk-secret",
+		});
+
+		const json = readModelsJson();
+		expect(json.providers[saved.providerId].apiKey).toBe("sk-secret");
+	});
+
+	test("omits apiKey from models.yml when not provided", () => {
+		const saved = saveCustomOpenAICompatibleProvider({
+			modelsPath,
+			baseUrl: "https://api.example.com/v1",
+			modelId: "gpt-4o-mini",
+		});
+
+		const json = readModelsJson();
+		expect(json.providers[saved.providerId].apiKey).toBeUndefined();
 	});
 });

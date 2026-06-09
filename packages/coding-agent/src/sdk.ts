@@ -51,12 +51,12 @@ import { loadPromptTemplates as loadPromptTemplatesInternal, type PromptTemplate
 import { Settings, type SkillsSettings } from "./config/settings";
 import { CursorExecHandlers } from "./cursor";
 import { createGuardsExtension } from "./extensibility/extensions/guards-extension.js";
+import { createCoordinatorExtension } from "./extensions/coordinator.js";
 import { createEvalBenchmarkExtension } from "./extensions/eval-benchmark.js";
 import createMarketplaceLoaderExtension from "./extensions/marketplace/loader.js";
 import { createRtkExtension } from "./extensions/rtk.js";
 import { createThinkingStepsExtension } from "./extensions/thinking-steps.js";
 import { createFermentExtension } from "./ferment/extension/extension.js";
-import { createCoordinatorExtension } from "./extensions/coordinator.js";
 import "./discovery";
 import { resolveConfigValue } from "./config/resolve-config-value";
 import { initializeWithSettings } from "./discovery";

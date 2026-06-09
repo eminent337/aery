@@ -80,7 +80,7 @@ export function createFermentExtension(_options?: FermentExtensionOptions) {
 				ctx.ui.notify(`Ferment continuation: ${next}`, "info");
 				// If turning on automated mode and a ferment is active, trigger a wake-up
 				if (next === "automated" && getActive()) {
-					scheduleFermentWakeUp(api, getActive()!.id);
+					scheduleFermentWakeUp(api);
 				}
 			},
 		});

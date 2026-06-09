@@ -8,7 +8,7 @@ async function getPage() {
 		let playwright;
 		try {
 			playwright = await import("playwright");
-		} catch (e) {
+		} catch {
 			throw new Error("Playwright is not installed. Please run `npm i playwright` to use the browser extension.");
 		}
 		browser = await playwright.chromium.launch({ headless: true });

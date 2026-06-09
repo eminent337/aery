@@ -1061,15 +1061,10 @@ export class SelectorController {
 		existing: { providerId: string; baseUrl: string; models: { id: string; name: string }[] }[],
 		modelsPath: string,
 	): Promise<void> {
-		// First level: Select, Add, or Delete
+		// First level: Add or Delete
 		const action = await new Promise<string | null>(resolve => {
 			this.showSelector(done => {
 				const items = [
-					{
-						id: "__select__",
-						name: "Select provider",
-						description: `Switch to an existing provider (${existing.length} configured)`,
-					},
 					{
 						id: "__add__",
 						name: "Add new provider",
@@ -1097,105 +1092,10 @@ export class SelectorController {
 			});
 		});
 
-		if (action === "__select__") {
-			await this.#showSelectProviderMenu(existing);
-		} else if (action === "__add__") {
+		if (action === "__add__") {
 			await this.#addCustomOpenAICompatibleProvider(modelsPath);
 		} else if (action === "__delete__") {
 			await this.#showDeleteProviderMenu(existing, modelsPath);
-		}
-	}
-
-	async #showSelectProviderMenu(
-		existing: { providerId: string; baseUrl: string; models: { id: string; name: string }[] }[],
-	): Promise<void> {
-		const selectedId = await new Promise<string | null>(resolve => {
-			this.showSelector(done => {
-				const items = existing.map(p => ({
-					id: p.providerId,
-					name: p.baseUrl,
-					description: `models: ${p.models.map(m => m.id).join(", ")}`,
-				}));
-				const menu = new CustomOpenAICompatibleMenuComponent(
-					"Select provider to use",
-					items,
-					selected => {
-						done();
-						resolve(selected.id);
-					},
-					() => {
-						done();
-						resolve(null);
-					},
-				);
-				return { component: menu, focus: menu };
-			});
-		});
-
-		if (selectedId) {
-			const provider = existing.find(p => p.providerId === selectedId);
-			if (provider && provider.models.length > 0) {
-				// If only one model, select it directly
-				if (provider.models.length === 1) {
-					const model = this.ctx.session.modelRegistry.find(provider.providerId, provider.models[0].id);
-					if (model) {
-						try {
-							await this.ctx.session.setModel(model);
-							this.ctx.showStatus(`Switched to ${provider.providerId}/${provider.models[0].id}`);
-						} catch {
-							this.ctx.showError(
-								`Found ${provider.providerId}/${provider.models[0].id} but selecting it failed. Use /model to select it.`,
-							);
-						}
-					} else {
-						this.ctx.showError("Model not found in registry. Use /model to select it.");
-					}
-				} else {
-					// Multiple models — show model picker
-					await this.#showSelectModelMenu(provider.providerId, provider.models);
-				}
-			}
-		}
-	}
-
-	async #showSelectModelMenu(providerId: string, models: { id: string; name: string }[]): Promise<void> {
-		const selectedModelId = await new Promise<string | null>(resolve => {
-			this.showSelector(done => {
-				const items = models.map(m => ({
-					id: m.id,
-					name: m.name,
-					description: `${providerId}/${m.id}`,
-				}));
-				const menu = new CustomOpenAICompatibleMenuComponent(
-					"Select model",
-					items,
-					selected => {
-						done();
-						resolve(selected.id);
-					},
-					() => {
-						done();
-						resolve(null);
-					},
-				);
-				return { component: menu, focus: menu };
-			});
-		});
-
-		if (selectedModelId) {
-			const model = this.ctx.session.modelRegistry.find(providerId, selectedModelId);
-			if (model) {
-				try {
-					await this.ctx.session.setModel(model);
-					this.ctx.showStatus(`Switched to ${providerId}/${selectedModelId}`);
-				} catch {
-					this.ctx.showError(
-						`Found ${providerId}/${selectedModelId} but selecting it failed. Use /model to select it.`,
-					);
-				}
-			} else {
-				this.ctx.showError("Model not found in registry. Use /model to select it.");
-			}
 		}
 	}
 
@@ -1259,9 +1159,12 @@ export class SelectorController {
 				throw new Error("API key cannot be empty.");
 			}
 
-			const saved = saveCustomOpenAICompatibleProvider({ modelsPath, baseUrl, modelId });
+			const saved = saveCustomOpenAICompatibleProvider({ modelsPath, baseUrl, modelId, apiKey });
 
-			this.ctx.session.modelRegistry.authStorage.set(saved.providerId, { type: "api_key", key: apiKey });
+			// API key is now written to models.yml directly. ModelRegistry will
+			// resolve it via setConfigApiKey() during refresh(). No need for a
+			// separate authStorage.set() — the "auth-json" sentinel used to shadow
+			// the real key because config overrides take priority over stored creds.
 			await this.ctx.session.modelRegistry.refresh();
 
 			restoreEditor();
@@ -1312,7 +1215,10 @@ export class SelectorController {
 
 			const removed = removeCustomOpenAICompatibleProvider(modelsPath, provider.providerId);
 			if (removed) {
-				// Also remove the API key from auth storage
+				// Clear any stored credentials and config overrides for this provider.
+				// The API key lived in models.yml (setConfigApiKey path), so
+				// clearConfigApiKeys on the next refresh handles it. Also clear
+				// any legacy authStorage entries for clean deletion.
 				this.ctx.session.modelRegistry.authStorage.remove(provider.providerId);
 				await this.ctx.session.modelRegistry.refresh();
 				restoreEditor();

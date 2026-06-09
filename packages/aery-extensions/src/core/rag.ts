@@ -43,7 +43,7 @@ export default function ragExtension(aery: ExtensionAPI) {
 		let xenova;
 		try {
 			xenova = await import("@xenova/transformers");
-		} catch (e) {
+		} catch {
 			throw new Error("Missing dependencies. Run `npm i @xenova/transformers glob` to enable RAG.");
 		}
 
@@ -78,7 +78,7 @@ export default function ragExtension(aery: ExtensionAPI) {
 					});
 					chunksIndexed++;
 				}
-			} catch (e) {} // Skip unreadable
+			} catch {} // Skip unreadable
 		}
 		return `Successfully indexed ${chunksIndexed} code chunks from ${files.length} files.`;
 	}
