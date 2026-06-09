@@ -57,7 +57,7 @@ export function registerFermentEvents(
 
 	// ── turn_end ─────────────────────────────────────────────────────────────
 	api.on("turn_end", async (event, _ctx: ExtensionContext) => {
-		const content = event.message?.content;
+		const content = (event.message as { content?: unknown })?.content;
 		const hasToolCall =
 			Array.isArray(content) && content.some((c: { type: string; name?: string }) => c.type === "toolCall");
 
