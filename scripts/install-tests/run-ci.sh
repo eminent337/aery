@@ -110,7 +110,7 @@ mnemopi_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-mnemopi-*.tgz)"
 agent_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-core-*.tgz)"
 tui_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-tui-*.tgz)"
 stats_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-stats-*.tgz)"
-coding_agent_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-coding-agent-*.tgz)"
+coding_agent_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-[0-9]*.tgz)"
 
 TARBALL_APP_DIR="$WORK_DIR/tarball-install"
 mkdir -p "$TARBALL_APP_DIR"
@@ -132,7 +132,7 @@ mkdir -p "$TARBALL_APP_DIR"
 			'@aryee337/aery-core': '$agent_tgz',
 			'@aryee337/aery-tui': '$tui_tgz',
 			'@aryee337/aery-stats': '$stats_tgz',
-			'@aryee337/aery-coding-agent': '$coding_agent_tgz'
+			'@aryee337/aery': '$coding_agent_tgz'
 		};
 		require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
 	"
