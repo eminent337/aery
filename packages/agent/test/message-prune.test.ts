@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import type { SessionEntry } from "../src/compaction/entries";
 import { pruneMessages } from "../src/compaction/pruning";
 

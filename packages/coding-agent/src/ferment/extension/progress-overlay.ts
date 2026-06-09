@@ -99,10 +99,6 @@ function buildChoices(ferment: Ferment): {
 
 /* ── Persistent widget ─────────────────────────────────────────────────── */
 
-function getStepDescription(step: Step): string {
-	return step.description ?? "(no description)";
-}
-
 export function setProgressWidget(ui: ExtensionUIContext): void {
 	const ferment = getActive();
 	if (!ferment) return;
