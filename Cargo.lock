@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aery-ast"
-version = "0.1.10"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "ast-grep-core",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "aery-engine"
-version = "0.1.10"
+version = "0.2.0"
 dependencies = [
  "aery-ast",
  "aery-iso",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "aery-iso"
-version = "0.1.10"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "libc",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "aery-shell"
-version = "0.1.10"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "brush-builtins",
@@ -4129,9 +4129,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.23.2"
+version = "1.23.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d258b83ceec21034727ecee8c382cfa6c3e133699b0742c64571814fb420c9f7"
+checksum = "144d6b123cef80b301b8f72a9e2ca4370ddec21950d0a103dd22c437006d2db7"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
