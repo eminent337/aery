@@ -94,7 +94,7 @@ cp "$natives_pkg_backup" "$ROOT_DIR/packages/aery-engine/package.json"
 [ "$core_rc" -eq 0 ] || exit "$core_rc"
 
 # 3. Pack the remaining workspace packages (natives core handled above).
-for pkg in utils hashline ai mnemopi agent tui stats sdk extensions coding-agent; do
+for pkg in utils hashline ai mnemopi agent tui stats aery-sdk aery-extensions coding-agent; do
    (
       cd "$ROOT_DIR/packages/$pkg"
       bun pm pack --destination "$TARBALL_DIR" --quiet >/dev/null
