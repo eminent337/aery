@@ -24,23 +24,7 @@ function createMinimalFerment(goal: string, cwd: string): Ferment {
 		scoping: {
 			goal: { answer: goal, confirmedAt: now },
 		},
-		phases: [
-			{
-				id: `phase-${Date.now()}`,
-				index: 1,
-				name: "Work",
-				goal,
-				status: "active",
-				steps: [
-					{
-						id: `step-${Date.now()}`,
-						index: 1,
-						description: goal,
-						status: "pending",
-					},
-				],
-			},
-		],
+		phases: [],
 		decisions: [],
 		memories: [],
 		createdAt: now,
@@ -113,8 +97,12 @@ export function registerFermentCommands(api: ExtensionAPI): void {
 					setActive(ferment);
 					setContinuationPolicy("automated");
 					ctx.ui.notify(
-						`🍺  Ferment "${ferment.name}" started. The agent will now scope and plan the work.`,
+						`🍺  Ferment "${ferment.name}" started. Scoping...`,
 						"info",
+					);
+					api.sendMessage(
+						{ content: `Ferment "${ferment.name}" started. Goal: ${goal.trim()}. Scope the work by defining success criteria, constraints, and a phase breakdown.`, customType: "ferment_start", display: false },
+						{ triggerTurn: true },
 					);
 					break;
 				}
