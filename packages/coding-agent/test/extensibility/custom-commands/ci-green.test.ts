@@ -3,7 +3,7 @@ import * as z from "zod/v4";
 import { GreenCommand } from "../../../src/extensibility/custom-commands/bundled/ci-green";
 import type { CustomCommandAPI } from "../../../src/extensibility/custom-commands/types";
 import type { HookCommandContext } from "../../../src/extensibility/hooks/types";
-import * as piCodingAgent from "../../../src/index";
+import * as aery from "../../../src/index";
 import * as git from "../../../src/utils/git";
 
 afterEach(() => {
@@ -21,7 +21,7 @@ function createApi(): CustomCommandAPI {
 		}),
 		typebox: {} as unknown as typeof import("../../../src/extensibility/typebox"),
 		zod: z,
-		aery: piCodingAgent,
+		aery,
 	};
 }
 

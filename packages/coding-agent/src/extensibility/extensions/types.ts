@@ -8,7 +8,7 @@
  * - Interact with the user via UI primitives
  */
 
-import type * as piCodingAgent from "@aryee337/aery";
+import type * as aery from "@aryee337/aery";
 import type {
 	Api,
 	AssistantMessageEvent,
@@ -870,7 +870,7 @@ export interface ExtensionAPI {
 	zod: typeof Zod;
 
 	/** Injected aery-coding-agent exports for accessing SDK utilities */
-	aery: typeof piCodingAgent;
+	aery: typeof aery;
 
 	// =========================================================================
 	// Event Subscription

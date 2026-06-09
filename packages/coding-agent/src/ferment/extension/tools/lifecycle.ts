@@ -244,4 +244,70 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 			return success(`Draft ferment "${draft.name}" created. Use ferment_scope to plan phases.`);
 		},
 	});
+	// ── request_ferment_workflow ──────────────────────────────────────────────
+	// The primary way the agent initiates a ferment. Asks the user for
+	// confirmation before creating, like Aery's request_ferment_workflow.
+	api.registerTool({
+		name: "request_ferment_workflow",
+		label: "Request Ferment Workflow",
+		description:
+			"Request the ferment workflow for substantive multi-step work. Provide a concise title and the full original user intent. The host asks the user for confirmation before creating the draft. Refuses if another ferment is already active.",
+		parameters: z.object({
+			title: z.string().describe("Concise 3-5 word title for the ferment (e.g. 'Rewrite login flow')."),
+			intent: z.string().describe("Full original user request, preserving all constraints and scope details."),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			const title = params.title.trim();
+			if (!title) return error('Field "title" must be a non-empty string.');
+			const intent = params.intent.trim();
+			if (!intent) return error('Field "intent" must be the full non-empty user request.');
+
+			// Refuse if a ferment is already active
+			if (getActive()) {
+				return error(
+					"request_ferment_workflow refused — another ferment is already active. Continue that ferment or ask the user before starting a separate workflow.",
+				);
+			}
+
+			// Ask the user for confirmation
+			let approved = true;
+			if (_ctx?.ui?.confirm) {
+				try {
+					approved = await _ctx.ui.confirm(
+						"Start Ferment Workflow",
+						`Start a Ferment workflow for "${title}"?\n\n${intent}`,
+					);
+				} catch {
+					// confirm not available — assume approved
+				}
+			}
+
+			if (!approved) {
+				return error(
+					"request_ferment_workflow cancelled — the user declined. Continue inline or ask only decision-blocking clarification.",
+				);
+			}
+
+			// Create the ferment
+			const now = new Date().toISOString();
+			const ferment: Ferment = {
+				id: `ferment-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+				name: title !== intent ? title : intent.slice(0, 40),
+				status: "draft",
+				goal: intent,
+				worktree: { path: process.cwd() },
+				scoping: {
+					goal: { answer: intent, confirmedAt: now },
+				},
+				phases: [],
+				decisions: [],
+				memories: [],
+				createdAt: now,
+				updatedAt: now,
+			};
+			FermentStore.open().save(ferment);
+			setActive(ferment);
+			return success(`Ferment "${ferment.name}" created. Follow the scoping instructions the host will inject.`);
+		},
+	});
 }

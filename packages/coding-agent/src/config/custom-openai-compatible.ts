@@ -160,3 +160,47 @@ export function saveCustomOpenAICompatibleProvider(
 		modelsPath: input.modelsPath,
 	};
 }
+
+export interface CustomOpenAICompatibleProviderInfo {
+	providerId: string;
+	baseUrl: string;
+	models: { id: string; name: string }[];
+}
+
+export function listCustomOpenAICompatibleProviders(modelsPath: string): CustomOpenAICompatibleProviderInfo[] {
+	const config = loadModelsConfig(modelsPath);
+	const providers = config.providers as Record<string, unknown>;
+	removeLegacyBlankCustomOpenAICompatibleProviders(providers);
+	const results: CustomOpenAICompatibleProviderInfo[] = [];
+	for (const [providerId, providerValue] of Object.entries(providers)) {
+		if (!providerValue || typeof providerValue !== "object" || Array.isArray(providerValue)) continue;
+		const provider = providerValue as {
+			baseUrl?: unknown;
+			models?: unknown;
+		};
+		if (!provider.baseUrl || typeof provider.baseUrl !== "string") continue;
+		if (!Array.isArray(provider.models)) continue;
+		const models = provider.models
+			.filter((m): m is { id: string; name?: string } => isJsonObject(m) && typeof m.id === "string")
+			.map(m => ({ id: m.id, name: m.name || m.id }));
+		if (models.length > 0) {
+			results.push({ providerId, baseUrl: provider.baseUrl, models });
+		}
+	}
+	return results;
+}
+
+export function removeCustomOpenAICompatibleProvider(modelsPath: string, providerId: string): boolean {
+	const config = loadModelsConfig(modelsPath);
+	const providers = config.providers as Record<string, unknown>;
+	if (!(providerId in providers)) return false;
+	delete providers[providerId];
+	mkdirSync(dirname(modelsPath), { recursive: true, mode: 0o700 });
+	if (modelsPath.endsWith(".yml") || modelsPath.endsWith(".yaml")) {
+		const { YAML } = require("bun");
+		writeFileSync(modelsPath, YAML.stringify(config, null, 2), "utf-8");
+	} else {
+		writeFileSync(modelsPath, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
+	}
+	return true;
+}

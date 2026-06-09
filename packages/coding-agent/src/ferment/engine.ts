@@ -46,7 +46,7 @@ function buildScopeProse(f: Ferment): string {
 		return `All scoping fields collected for ferment "${f.name}".`;
 	}
 
-	return `Collect: ${missing.join(", ")}.`;
+	return `Define the ferment plan. Missing: ${missing.join(", ")}.`;
 }
 
 // ─── Main Entry Point ──────────────────────────────────────────────────────────

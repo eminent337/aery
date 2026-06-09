@@ -2,10 +2,10 @@
  * Footer status display for the active ferment.
  *
  * Formats the current ferment state into a compact status string
- * shown in the UI status bar.
+ * shown in the UI status bar. Modeled after Aery's footer: name, status,
+ * continuation policy — clean and simple.
  */
 
-import { whatNext } from "../engine.js";
 import { getActive, getContinuationPolicy } from "./state.js";
 
 export interface FermentFooterDisplay {
@@ -13,24 +13,30 @@ export interface FermentFooterDisplay {
 	visible: boolean;
 }
 
+const STATUS_LABELS: Record<string, string> = {
+	draft: "Draft",
+	planned: "Planned",
+	running: "Running",
+	paused: "Paused",
+	complete: "Complete",
+	abandoned: "Abandoned",
+};
+
+export function canToggleFermentStopPolicy(fermentStatus?: string): boolean {
+	return fermentStatus === "planned" || fermentStatus === "running" || fermentStatus === "paused";
+}
+
 export function formatFermentFooter(): FermentFooterDisplay {
 	const f = getActive();
-	if (!f) return { text: "", visible: false };
+	if (!f || f.status === "complete" || f.status === "abandoned") return { text: "", visible: false };
 
-	const action = whatNext(f);
 	const policy = getContinuationPolicy();
-	const phaseIdx = f.activePhaseId ? f.phases.findIndex(p => p.id === f.activePhaseId) + 1 : 0;
-	const totalPhases = f.phases.length;
-	const stepsDone = f.phases.reduce(
-		(acc, p) => acc + p.steps.filter(s => s.status === "done" || s.status === "verified").length,
-		0,
-	);
-	const totalSteps = f.phases.reduce((acc, p) => acc + p.steps.length, 0);
+	const statusLabel = STATUS_LABELS[f.status] ?? f.status;
+	const parts = [`Ferment: ${f.name}`, statusLabel];
 
-	const parts = [`Ferment: ${f.name}`, `${f.status}`, action ? `${action.kind}` : "complete"];
-	if (totalPhases > 0) parts.push(`Phase ${phaseIdx}/${totalPhases}`);
-	if (totalSteps > 0) parts.push(`Steps ${stepsDone}/${totalSteps}`);
-	parts.push(policy === "automated" ? "auto" : "manual");
+	if (canToggleFermentStopPolicy(f.status)) {
+		parts.push(policy === "automated" ? "Auto" : "Stop: Phase Boundary");
+	}
 
 	return { text: parts.join(" · "), visible: true };
 }

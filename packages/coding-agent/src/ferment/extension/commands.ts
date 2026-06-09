@@ -18,7 +18,7 @@ function createMinimalFerment(goal: string, cwd: string): Ferment {
 	return {
 		id,
 		name: goal.slice(0, 40),
-		status: "running",
+		status: "draft",
 		goal,
 		worktree: { path: cwd },
 		scoping: {
@@ -95,7 +95,7 @@ export function registerFermentCommands(api: ExtensionAPI): void {
 					const ferment = createMinimalFerment(goal.trim(), ctx.cwd);
 					store.save(ferment);
 					setActive(ferment);
-					setContinuationPolicy("automated");
+					// Default to manual policy — user can switch to auto via /ferment auto
 					ctx.ui.notify(`🍺  Ferment "${ferment.name}" started. Scoping...`, "info");
 					api.sendMessage(
 						{

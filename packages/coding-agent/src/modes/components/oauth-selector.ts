@@ -27,6 +27,7 @@ export class OAuthSelectorComponent extends Container {
 	#spinnerFrame: number = 0;
 	#spinnerInterval?: NodeJS.Timeout;
 	#validationGeneration: number = 0;
+	#extraProviders?: { id: string; name: string }[];
 	constructor(
 		mode: "login" | "logout",
 		authStorage: AuthStorage,
@@ -35,6 +36,7 @@ export class OAuthSelectorComponent extends Container {
 		options?: {
 			validateAuth?: (providerId: string) => Promise<boolean>;
 			requestRender?: () => void;
+			extraProviders?: { id: string; name: string }[];
 		},
 	) {
 		super();
@@ -44,6 +46,7 @@ export class OAuthSelectorComponent extends Container {
 		this.#onCancelCallback = onCancel;
 		this.#validateAuthCallback = options?.validateAuth;
 		this.#requestRenderCallback = options?.requestRender;
+		this.#extraProviders = options?.extraProviders;
 		// Load all OAuth providers
 		this.#loadProviders();
 		this.addChild(new DynamicBorder());
@@ -70,11 +73,11 @@ export class OAuthSelectorComponent extends Container {
 	#hasSelectableAuth(providerId: string): boolean {
 		return this.#mode === "logout" ? this.#authStorage.has(providerId) : this.#authStorage.hasAuth(providerId);
 	}
-
 	#loadProviders(): void {
 		const providers = getOAuthProviders();
-		this.#allProviders =
-			this.#mode === "logout" ? providers.filter(provider => this.#hasSelectableAuth(provider.id)) : providers;
+		const extra = this.#extraProviders ?? [];
+		const all = [...providers, ...extra.map(p => ({ id: p.id, name: p.name, available: true }))];
+		this.#allProviders = this.#mode === "logout" ? all.filter(provider => this.#hasSelectableAuth(provider.id)) : all;
 		this.#filteredProviders = this.#allProviders;
 	}
 

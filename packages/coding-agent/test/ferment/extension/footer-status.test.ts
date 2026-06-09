@@ -49,9 +49,7 @@ describe("formatFermentFooter", () => {
 		const result = formatFermentFooter();
 		expect(result.visible).toBe(true);
 		expect(result.text).toContain("Ferment: My Ferment");
-		expect(result.text).toContain("draft");
-		expect(result.text).toContain("scope");
-		expect(result.text).toContain("manual");
+		expect(result.text).toContain("Draft");
 	});
 
 	it("active ferment with phases and steps → correct text", () => {
@@ -66,13 +64,11 @@ describe("formatFermentFooter", () => {
 		const result = formatFermentFooter();
 		expect(result.visible).toBe(true);
 		expect(result.text).toContain("Ferment: StepFerment");
-		expect(result.text).toContain("running");
-		expect(result.text).toContain("Phase 1/1");
-		expect(result.text).toContain("Steps 1/2");
-		expect(result.text).toContain("auto");
+		expect(result.text).toContain("Running");
+		expect(result.text).toContain("Auto");
 	});
 
-	it("all steps done → shows complete instead of action kind", () => {
+	it("all steps done → footer shows running with manual policy", () => {
 		const step1 = makeStep("s1", 1, "Do the thing", "done");
 		const step2 = makeStep("s2", 2, "Check the thing", "verified");
 		const phase1 = makePhase("p1", 1, "Implementation", "active", [step1, step2]);
@@ -83,10 +79,12 @@ describe("formatFermentFooter", () => {
 
 		const result = formatFermentFooter();
 		expect(result.visible).toBe(true);
-		expect(result.text).toContain("complete");
+		expect(result.text).toContain("Ferment: DoneFerment");
+		expect(result.text).toContain("Running");
+		expect(result.text).toContain("Stop: Phase Boundary");
 	});
 
-	it("multiple phases → phase counter reflects active phase", () => {
+	it("multiple phases → footer shows running status", () => {
 		const phase1 = makePhase("p1", 1, "Planning", "completed", []);
 		const phase2 = makePhase("p2", 2, "Implementation", "active", []);
 		const f = makeFerment("f1", "MultiPhase", "running", [phase1, phase2]);
@@ -94,6 +92,28 @@ describe("formatFermentFooter", () => {
 		setContinuationPolicy("manual");
 
 		const result = formatFermentFooter();
-		expect(result.text).toContain("Phase 2/2");
+		expect(result.text).toContain("Ferment: MultiPhase");
+		expect(result.text).toContain("Running");
+	});
+
+	it("complete ferment → not visible", () => {
+		const f = makeFerment("f1", "CompleteFerment", "complete", []);
+		setActive(f);
+		setContinuationPolicy("manual");
+
+		const result = formatFermentFooter();
+		expect(result.visible).toBe(false);
+	});
+
+	it("paused ferment → shows Paused status", () => {
+		const f = makeFerment("f1", "PausedFerment", "paused", []);
+		setActive(f);
+		setContinuationPolicy("manual");
+
+		const result = formatFermentFooter();
+		expect(result.visible).toBe(true);
+		expect(result.text).toContain("Ferment: PausedFerment");
+		expect(result.text).toContain("Paused");
+		expect(result.text).toContain("Stop: Phase Boundary");
 	});
 });

@@ -15,7 +15,7 @@ import type {
 	ExtensionUISelectItem,
 } from "../../extensibility/extensions/types.js";
 import { whatNext } from "../engine.js";
-import type { Ferment, Step } from "../types.js";
+import type { Ferment } from "../types.js";
 import { getActive } from "./state.js";
 
 /* ── Icons ─────────────────────────────────────────────────────────────── */
@@ -99,23 +99,21 @@ function buildChoices(ferment: Ferment): {
 
 /* ── Persistent widget ─────────────────────────────────────────────────── */
 
+const STATUS_LABELS: Record<string, string> = {
+	draft: "Draft",
+	planned: "Planned",
+	running: "Running",
+	paused: "Paused",
+	complete: "Complete",
+	abandoned: "Abandoned",
+};
+
 export function setProgressWidget(ui: ExtensionUIContext): void {
 	const ferment = getActive();
 	if (!ferment) return;
 
-	const action = whatNext(ferment);
-	const phaseIdx = ferment.activePhaseId ? ferment.phases.findIndex(p => p.id === ferment.activePhaseId) + 1 : 0;
-	const totalPhases = ferment.phases.length;
-	const stepsDone = ferment.phases.reduce(
-		(acc, p) => acc + p.steps.filter(s => s.status === "done" || s.status === "verified").length,
-		0,
-	);
-	const totalSteps = ferment.phases.reduce((acc, p) => acc + p.steps.length, 0);
-
-	const parts: string[] = [`${ferment.name} · ${ferment.status}`];
-	if (totalPhases > 0) parts.push(`Phase ${phaseIdx}/${totalPhases}`);
-	if (totalSteps > 0) parts.push(`Steps ${stepsDone}/${totalSteps}`);
-	if (action) parts.push(`Next: ${action.kind}`);
+	const status = STATUS_LABELS[ferment.status] ?? ferment.status;
+	const parts: string[] = [`Ferment: ${ferment.name}`, status];
 
 	ui.setWidget("ferment-progress", parts, { placement: "belowEditor" });
 }

@@ -3,7 +3,7 @@
 import type { AgentToolResult } from "@aryee337/aery-core";
 import * as z from "zod/v4";
 import type { CustomTool, CustomToolContext } from "../extensibility/custom-tools/types";
-import { ohMyPiXAIUserAgent, resolveXAIHttpCredentials } from "../lib/xai-http";
+import { aeryXAIUserAgent, resolveXAIHttpCredentials } from "../lib/xai-http";
 import { formatPathRelativeToCwd, resolveToCwd } from "./path-utils";
 
 // Hermes tts_tool.py L167-171
@@ -101,7 +101,7 @@ export const ttsTool: CustomTool<typeof ttsSchema, TtsToolDetails> = {
 			headers: {
 				Authorization: `Bearer ${creds.apiKey}`,
 				"Content-Type": "application/json",
-				"User-Agent": ohMyPiXAIUserAgent(),
+				"User-Agent": aeryXAIUserAgent(),
 			},
 			body: JSON.stringify(payload),
 			signal: combinedSignal,

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { loadExtensions } from "@aryee337/aery/extensibility/extensions/loader";
 import { TempDir } from "@aryee337/aery-utils";
 
-const currentPiCodingAgentPath = Bun.resolveSync("@aryee337/aery", import.meta.dir);
+const currentAeryPath = Bun.resolveSync("@aryee337/aery", import.meta.dir);
 const currentPiExtensionsPath = Bun.resolveSync("@aryee337/aery/extensibility/extensions", import.meta.dir);
 
 describe("issue #973: legacy Aery plugin imports", () => {
@@ -31,7 +31,7 @@ describe("issue #973: legacy Aery plugin imports", () => {
 			[
 				'import { isToolCallEventType as legacyRoot } from "@eminent337/aery-coding-agent";',
 				'import { isToolCallEventType as legacyExtensions } from "@eminent337/aery-coding-agent/extensibility/extensions";',
-				`import { isToolCallEventType as modernRoot } from ${JSON.stringify(currentPiCodingAgentPath)};`,
+				`import { isToolCallEventType as modernRoot } from ${JSON.stringify(currentAeryPath)};`,
 				`import { isToolCallEventType as modernExtensions } from ${JSON.stringify(currentPiExtensionsPath)};`,
 				"",
 				'if (legacyRoot !== modernRoot) throw new Error("legacy root import did not remap");',

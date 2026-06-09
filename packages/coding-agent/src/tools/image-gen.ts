@@ -22,7 +22,7 @@ import * as z from "zod/v4";
 import packageJson from "../../package.json" with { type: "json" };
 import { isAuthenticated, type ModelRegistry } from "../config/model-registry";
 import type { CustomTool } from "../extensibility/custom-tools/types";
-import { ohMyPiXAIUserAgent, resolveXAIHttpCredentials } from "../lib/xai-http";
+import { aeryXAIUserAgent, resolveXAIHttpCredentials } from "../lib/xai-http";
 import imageGenDescription from "../prompts/tools/image-gen.md" with { type: "text" };
 import { resolveReadPath } from "./path-utils";
 
@@ -1197,7 +1197,7 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 					headers: {
 						Authorization: `Bearer ${xaiCreds.apiKey}`,
 						"Content-Type": "application/json",
-						"User-Agent": ohMyPiXAIUserAgent(),
+						"User-Agent": aeryXAIUserAgent(),
 					},
 					body: JSON.stringify(xaiBody),
 					signal: requestSignal,

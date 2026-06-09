@@ -75,7 +75,7 @@ function makeFerment() {
 	return {
 		id: "f-1",
 		name: "Test",
-		status: "active",
+		status: "running",
 		activePhaseId: "p1",
 		goal: "Build API",
 		worktree: { path: "/tmp" },
@@ -139,13 +139,13 @@ describe("showProgressOverlay", () => {
 });
 
 describe("setProgressWidget", () => {
-	test("renders widget with phase/step counts and next action", () => {
+	test("renders widget with ferment name and status", () => {
 		setActive(makeFerment() as any);
 		const ui = makeMockUI();
 		setProgressWidget(ui);
 		expect(ui.setWidget).toHaveBeenCalledWith(
 			"ferment-progress",
-			expect.arrayContaining(["Test · active", "Phase 1/1", "Steps 1/2", "Next: complete_step"]),
+			["Ferment: Test", "Running"],
 			{ placement: "belowEditor" },
 		);
 	});

@@ -1,9 +1,16 @@
+import * as path from "node:path";
 import { getOAuthProviders } from "@aryee337/aery-ai/utils/oauth";
 import type { OAuthProvider } from "@aryee337/aery-ai/utils/oauth/types";
 import { ThinkingLevel } from "@aryee337/aery-core";
 import type { Component, OverlayHandle } from "@aryee337/aery-tui";
 import { Input, Loader, Spacer, Text } from "@aryee337/aery-tui";
-import { getAgentDbPath, getProjectDir, normalizePathForComparison } from "@aryee337/aery-utils";
+import { getAgentDbPath, getAgentDir, getProjectDir, normalizePathForComparison } from "@aryee337/aery-utils";
+import {
+	CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID,
+	listCustomOpenAICompatibleProviders,
+	removeCustomOpenAICompatibleProvider,
+	saveCustomOpenAICompatibleProvider,
+} from "../../config/custom-openai-compatible";
 import { getRoleInfo } from "../../config/model-registry";
 import { formatModelSelectorValue } from "../../config/model-resolver";
 import { settings } from "../../config/settings";
@@ -40,6 +47,7 @@ import { shortenPath } from "../../tools/render-utils";
 import { setSessionTerminalTitle } from "../../utils/title-generator";
 import { AgentDashboard } from "../components/agent-dashboard";
 import { AssistantMessageComponent } from "../components/assistant-message";
+import { CustomOpenAICompatibleMenuComponent } from "../components/custom-openai-menu";
 import { ExtensionDashboard } from "../components/extensions";
 import { HistorySearchComponent } from "../components/history-search";
 import { ModelSelectorComponent } from "../components/model-selector";
@@ -997,6 +1005,7 @@ export class SelectorController {
 		}
 
 		this.showSelector(done => {
+			const customOpenAIEntry = { id: CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID, name: "Custom OpenAI Compatible" };
 			let selector: OAuthSelectorComponent;
 			selector = new OAuthSelectorComponent(
 				mode,
@@ -1004,7 +1013,9 @@ export class SelectorController {
 				async (selectedProviderId: string) => {
 					selector.stopValidation();
 					done();
-					if (mode === "login") {
+					if (selectedProviderId === CUSTOM_OPENAI_COMPATIBLE_PROVIDER_ID) {
+						await this.#handleCustomOpenAICompatibleLogin();
+					} else if (mode === "login") {
 						await this.#handleOAuthLogin(selectedProviderId);
 					} else {
 						await this.#handleOAuthLogout(selectedProviderId);
@@ -1026,10 +1037,328 @@ export class SelectorController {
 					requestRender: () => {
 						this.ctx.ui.requestRender();
 					},
+					extraProviders: mode === "login" ? [customOpenAIEntry] : [],
 				},
 			);
 			return { component: selector, focus: selector };
 		});
+	}
+
+	async #handleCustomOpenAICompatibleLogin(): Promise<void> {
+		const modelsPath = path.join(getAgentDir(), "models.yml");
+		const existing = listCustomOpenAICompatibleProviders(modelsPath);
+
+		if (existing.length > 0) {
+			// Show submenu: Add or Delete
+			await this.#showCustomOpenAISubmenu(existing, modelsPath);
+		} else {
+			// No providers yet — go straight to add
+			await this.#addCustomOpenAICompatibleProvider(modelsPath);
+		}
+	}
+
+	async #showCustomOpenAISubmenu(
+		existing: { providerId: string; baseUrl: string; models: { id: string; name: string }[] }[],
+		modelsPath: string,
+	): Promise<void> {
+		// First level: Select, Add, or Delete
+		const action = await new Promise<string | null>(resolve => {
+			this.showSelector(done => {
+				const items = [
+					{
+						id: "__select__",
+						name: "Select provider",
+						description: `Switch to an existing provider (${existing.length} configured)`,
+					},
+					{
+						id: "__add__",
+						name: "Add new provider",
+						description: "Configure a new OpenAI-compatible endpoint",
+					},
+					{
+						id: "__delete__",
+						name: "Delete provider",
+						description: "Remove an existing provider",
+					},
+				];
+				const menu = new CustomOpenAICompatibleMenuComponent(
+					"Custom OpenAI Compatible",
+					items,
+					selected => {
+						done();
+						resolve(selected.id);
+					},
+					() => {
+						done();
+						resolve(null);
+					},
+				);
+				return { component: menu, focus: menu };
+			});
+		});
+
+		if (action === "__select__") {
+			await this.#showSelectProviderMenu(existing);
+		} else if (action === "__add__") {
+			await this.#addCustomOpenAICompatibleProvider(modelsPath);
+		} else if (action === "__delete__") {
+			await this.#showDeleteProviderMenu(existing, modelsPath);
+		}
+	}
+
+	async #showSelectProviderMenu(
+		existing: { providerId: string; baseUrl: string; models: { id: string; name: string }[] }[],
+	): Promise<void> {
+		const selectedId = await new Promise<string | null>(resolve => {
+			this.showSelector(done => {
+				const items = existing.map(p => ({
+					id: p.providerId,
+					name: p.baseUrl,
+					description: `models: ${p.models.map(m => m.id).join(", ")}`,
+				}));
+				const menu = new CustomOpenAICompatibleMenuComponent(
+					"Select provider to use",
+					items,
+					selected => {
+						done();
+						resolve(selected.id);
+					},
+					() => {
+						done();
+						resolve(null);
+					},
+				);
+				return { component: menu, focus: menu };
+			});
+		});
+
+		if (selectedId) {
+			const provider = existing.find(p => p.providerId === selectedId);
+			if (provider && provider.models.length > 0) {
+				// If only one model, select it directly
+				if (provider.models.length === 1) {
+					const model = this.ctx.session.modelRegistry.find(provider.providerId, provider.models[0].id);
+					if (model) {
+						try {
+							await this.ctx.session.setModel(model);
+							this.ctx.showStatus(`Switched to ${provider.providerId}/${provider.models[0].id}`);
+						} catch {
+							this.ctx.showError(
+								`Found ${provider.providerId}/${provider.models[0].id} but selecting it failed. Use /model to select it.`,
+							);
+						}
+					} else {
+						this.ctx.showError("Model not found in registry. Use /model to select it.");
+					}
+				} else {
+					// Multiple models — show model picker
+					await this.#showSelectModelMenu(provider.providerId, provider.models);
+				}
+			}
+		}
+	}
+
+	async #showSelectModelMenu(providerId: string, models: { id: string; name: string }[]): Promise<void> {
+		const selectedModelId = await new Promise<string | null>(resolve => {
+			this.showSelector(done => {
+				const items = models.map(m => ({
+					id: m.id,
+					name: m.name,
+					description: `${providerId}/${m.id}`,
+				}));
+				const menu = new CustomOpenAICompatibleMenuComponent(
+					"Select model",
+					items,
+					selected => {
+						done();
+						resolve(selected.id);
+					},
+					() => {
+						done();
+						resolve(null);
+					},
+				);
+				return { component: menu, focus: menu };
+			});
+		});
+
+		if (selectedModelId) {
+			const model = this.ctx.session.modelRegistry.find(providerId, selectedModelId);
+			if (model) {
+				try {
+					await this.ctx.session.setModel(model);
+					this.ctx.showStatus(`Switched to ${providerId}/${selectedModelId}`);
+				} catch {
+					this.ctx.showError(
+						`Found ${providerId}/${selectedModelId} but selecting it failed. Use /model to select it.`,
+					);
+				}
+			} else {
+				this.ctx.showError("Model not found in registry. Use /model to select it.");
+			}
+		}
+	}
+
+	async #showDeleteProviderMenu(
+		existing: { providerId: string; baseUrl: string; models: { id: string; name: string }[] }[],
+		modelsPath: string,
+	): Promise<void> {
+		// Second level: pick which provider to delete
+		const selectedId = await new Promise<string | null>(resolve => {
+			this.showSelector(done => {
+				const items = existing.map(p => ({
+					id: p.providerId,
+					name: p.baseUrl,
+					description: `models: ${p.models.map(m => m.id).join(", ")}`,
+				}));
+				const menu = new CustomOpenAICompatibleMenuComponent(
+					"Select provider to delete",
+					items,
+					selected => {
+						done();
+						resolve(selected.id);
+					},
+					() => {
+						done();
+						resolve(null);
+					},
+				);
+				return { component: menu, focus: menu };
+			});
+		});
+
+		if (selectedId) {
+			const provider = existing.find(p => p.providerId === selectedId);
+			if (provider) {
+				await this.#deleteCustomOpenAICompatibleProvider(modelsPath, provider);
+			}
+		}
+	}
+
+	async #addCustomOpenAICompatibleProvider(modelsPath: string): Promise<void> {
+		const restoreEditor = () => {
+			this.ctx.editorContainer.clear();
+			this.ctx.editorContainer.addChild(this.ctx.editor);
+			this.ctx.ui.setFocus(this.ctx.editor);
+			this.ctx.ui.requestRender();
+		};
+
+		try {
+			const baseUrl = (await this.#promptInput("Enter base URL:", "https://api.example.com/v1")).trim();
+			if (!baseUrl) {
+				throw new Error("Base URL cannot be empty.");
+			}
+
+			const modelId = (await this.#promptInput("Enter model ID:", "gpt-4o-mini")).trim();
+			if (!modelId) {
+				throw new Error("Model ID cannot be empty.");
+			}
+
+			const apiKey = (await this.#promptInput("Enter API key:", "sk-...")).trim();
+			if (!apiKey) {
+				throw new Error("API key cannot be empty.");
+			}
+
+			const saved = saveCustomOpenAICompatibleProvider({ modelsPath, baseUrl, modelId });
+
+			this.ctx.session.modelRegistry.authStorage.set(saved.providerId, { type: "api_key", key: apiKey });
+			await this.ctx.session.modelRegistry.refresh();
+
+			restoreEditor();
+
+			const model = this.ctx.session.modelRegistry.find(saved.providerId, saved.modelId);
+			if (model) {
+				try {
+					await this.ctx.session.setModel(model);
+				} catch {
+					this.ctx.showError(
+						`Saved ${saved.providerId}/${saved.modelId}, but selecting it failed. Use /model to select it.`,
+					);
+				}
+			}
+
+			this.ctx.showStatus(`Configured ${saved.providerId}/${saved.modelId}. Use /model to select it.`);
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.ctx.showError(`Failed to configure Custom OpenAI Compatible: ${errorMsg}`);
+			}
+		}
+	}
+
+	async #deleteCustomOpenAICompatibleProvider(
+		modelsPath: string,
+		provider: { providerId: string; baseUrl: string; models: { id: string; name: string }[] },
+	): Promise<void> {
+		const restoreEditor = () => {
+			this.ctx.editorContainer.clear();
+			this.ctx.editorContainer.addChild(this.ctx.editor);
+			this.ctx.ui.setFocus(this.ctx.editor);
+			this.ctx.ui.requestRender();
+		};
+
+		try {
+			// Confirm deletion
+			const confirm = (await this.#promptInput(`Delete ${provider.providerId} (${provider.baseUrl})? (y/n):`, ""))
+				.trim()
+				.toLowerCase();
+
+			if (confirm !== "y" && confirm !== "yes") {
+				restoreEditor();
+				this.ctx.showStatus("Deletion cancelled.");
+				return;
+			}
+
+			const removed = removeCustomOpenAICompatibleProvider(modelsPath, provider.providerId);
+			if (removed) {
+				// Also remove the API key from auth storage
+				this.ctx.session.modelRegistry.authStorage.remove(provider.providerId);
+				await this.ctx.session.modelRegistry.refresh();
+				restoreEditor();
+				this.ctx.showStatus(`Removed ${provider.providerId} and its API key.`);
+			} else {
+				restoreEditor();
+				this.ctx.showError(`Provider ${provider.providerId} not found.`);
+			}
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.ctx.showError(`Failed to delete provider: ${errorMsg}`);
+			}
+		}
+	}
+
+	async #promptInput(prompt: string, placeholder: string): Promise<string> {
+		const { promise, resolve, reject } = Promise.withResolvers<string>();
+		const input = new Input();
+		const restore = () => {
+			this.ctx.editorContainer.clear();
+			this.ctx.editorContainer.addChild(this.ctx.editor);
+			this.ctx.ui.setFocus(this.ctx.editor);
+			this.ctx.ui.requestRender();
+		};
+		input.onSubmit = () => {
+			const value = input.getValue();
+			restore();
+			resolve(value);
+		};
+		input.onEscape = () => {
+			restore();
+			reject(new Error("Login cancelled"));
+		};
+		this.ctx.editorContainer.clear();
+		this.ctx.editorContainer.addChild(new Text(theme.fg("warning", prompt), 1, 0));
+		if (placeholder) {
+			this.ctx.editorContainer.addChild(new Text(theme.fg("dim", placeholder), 1, 0));
+		}
+		this.ctx.editorContainer.addChild(new Text(theme.fg("dim", "Press Escape to cancel"), 1, 0));
+		this.ctx.editorContainer.addChild(new Spacer(1));
+		this.ctx.editorContainer.addChild(input);
+		this.ctx.ui.setFocus(input);
+		this.ctx.ui.requestRender();
+		return promise;
 	}
 
 	showDebugSelector(): void {

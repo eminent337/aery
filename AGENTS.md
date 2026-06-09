@@ -244,3 +244,50 @@ Location: `packages/*/CHANGELOG.md` (per package).
 2. Run `bun run release`.
 
 The script handles version bump, CHANGELOG finalization, commit, tag, publish, and adding new `[Unreleased]` sections.
+
+## Agent Tool Usage Reference
+
+When using agent delegation tools, follow these schemas exactly. Mixing up parameter names or shapes causes failures.
+
+### invoke_subagent
+**Schema:** `Subagents: [{Role, Prompt}]`
+**Example:**
+```
+invoke_subagent(Subagents: [{Role: "explore", Prompt: "find X"}, {Role: "task", Prompt: "compute Y"}])
+```
+**Role values:** explore, task, librarian, reviewer, oracle, plan, designer, quick_task
+
+### task
+**Schema:** `tasks: [{agent, assignment}]`
+**Example:**
+```
+task(tasks: [{agent: "explore", assignment: "find X"}])
+```
+**Agent values:** explore, task, librarian, reviewer, oracle, plan, designer, quick_task
+
+### job
+**Operations:** `poll: [id...]` | `cancel: [id...]` | `list: true`
+**Example:**
+```
+job(poll: ["subagent:explore-1"])
+job(list: true)
+job(cancel: ["subagent:task-2"])
+```
+
+### irc
+**Operations:** `op: "send"` with `to: "id"`, `message: "..."` | `op: "list"`
+**Example:**
+```
+irc(op: "send", to: "subagent:explore-1", message: "status update?")
+irc(op: "list")
+```
+**Note:** Only send IRC to agents that are already running. Check with `job(list: true)` first.
+
+### Common Mistakes
+| Mistake | Why it fails | Fix |
+|---------|-------------|-----|
+| `task(agent: "explore", prompt: "...")` | `task` expects `tasks: [{agent, assignment}]` array | Use `task(tasks: [{agent: "explore", assignment: "..."}])` |
+| `invoke_subagent(Role: "...", Prompt: "...")` | Must be wrapped in `Subagents: [...]` array | Use `invoke_subagent(Subagents: [{Role: "...", Prompt: "..."}])` |
+| `irc(to: "explore", message: "...")` | Missing `op` field | Use `irc(op: "send", to: "id", message: "...")` |
+| Sending IRC to finished agent | Agent no longer exists | Check `job(list: true)` before sending |
+| Using `task` for background | `task` runs inline (no background) | Use `invoke_subagent` for background execution |

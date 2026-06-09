@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { discoverAndLoadExtensions } from "@aryee337/aery/extensibility/extensions/loader";
 import { getAgentDir, getPluginsDir, setAgentDir, TempDir } from "@aryee337/aery-utils";
 
-const currentPiCodingAgentPath = Bun.resolveSync("@aryee337/aery", import.meta.dir);
+const currentAeryPath = Bun.resolveSync("@aryee337/aery", import.meta.dir);
 const currentPiExtensionsPath = Bun.resolveSync("@aryee337/aery/extensibility/extensions", import.meta.dir);
 
 describe("plugin extension discovery", () => {
@@ -109,7 +109,7 @@ describe("plugin extension discovery", () => {
 				'if (false) import("./optional-missing.js");',
 				'import { isToolCallEventType as legacyRoot } from "@eminent337/aery-coding-agent";',
 				'import { isToolCallEventType as legacyExtensions } from "@eminent337/aery-coding-agent/extensibility/extensions";',
-				`import { isToolCallEventType as modernRoot } from ${JSON.stringify(currentPiCodingAgentPath)};`,
+				`import { isToolCallEventType as modernRoot } from ${JSON.stringify(currentAeryPath)};`,
 				`import { isToolCallEventType as modernExtensions } from ${JSON.stringify(currentPiExtensionsPath)};`,
 				"",
 				'if (legacyRoot !== modernRoot) throw new Error("legacy root import did not remap");',

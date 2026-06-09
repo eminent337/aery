@@ -4,7 +4,7 @@
 import type * as fs1 from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as PiCodingAgent from "@aryee337/aery";
+import * as Aery from "@aryee337/aery";
 import type { ImageContent, Model, TextContent, TSchema } from "@aryee337/aery-ai";
 import type { ThinkingLevel } from "@aryee337/aery-core";
 import type { KeyId } from "@aryee337/aery-tui";
@@ -130,7 +130,7 @@ class ConcreteExtensionAPI implements ExtensionAPI, IExtensionRuntime {
 	}> = [];
 
 	constructor(
-		public readonly aery: typeof PiCodingAgent,
+		public readonly aery: typeof Aery,
 		private readonly extension: Extension,
 		private readonly runtime: IExtensionRuntime,
 		private readonly cwd: string,
@@ -297,7 +297,7 @@ async function loadExtension(
 		}
 
 		const extension = createExtension(extensionPath, resolvedPath);
-		const api = new ConcreteExtensionAPI(PiCodingAgent, extension, runtime, cwd, eventBus);
+		const api = new ConcreteExtensionAPI(Aery, extension, runtime, cwd, eventBus);
 		await factory(api);
 
 		return { extension, error: null };
@@ -318,7 +318,7 @@ export async function loadExtensionFromFactory(
 	name = "<inline>",
 ): Promise<Extension> {
 	const extension = createExtension(name, name);
-	const api = new ConcreteExtensionAPI(PiCodingAgent, extension, runtime, cwd, eventBus);
+	const api = new ConcreteExtensionAPI(Aery, extension, runtime, cwd, eventBus);
 	await factory(api);
 	return extension;
 }
