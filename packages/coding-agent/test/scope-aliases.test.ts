@@ -31,7 +31,12 @@ const CASES: readonly AliasCase[] = [
 	// @aery self-import — canonical scope must still flow through the shim
 	// so a duplicate copy is never dragged in from a plugin's own node_modules.
 	{ id: "aery-utils", aliasSpecifier: "@aryee337/aery-utils", canonicalPath: canonicalUtils, symbol: "logger" },
-	{ id: "aery-coding-agent", aliasSpecifier: "@aryee337/aery", canonicalPath: canonicalCodingAgent, symbol: "isToolCallEventType" },
+	{
+		id: "aery-coding-agent",
+		aliasSpecifier: "@aryee337/aery",
+		canonicalPath: canonicalCodingAgent,
+		symbol: "isToolCallEventType",
+	},
 	// @eminent337 — defends the original remap (regression: issue #973).
 	{
 		id: "eminent337-extensions",

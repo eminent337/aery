@@ -143,11 +143,9 @@ describe("setProgressWidget", () => {
 		setActive(makeFerment() as any);
 		const ui = makeMockUI();
 		setProgressWidget(ui);
-		expect(ui.setWidget).toHaveBeenCalledWith(
-			"ferment-progress",
-			["Ferment: Test", "Running"],
-			{ placement: "belowEditor" },
-		);
+		expect(ui.setWidget).toHaveBeenCalledWith("ferment-progress", ["Ferment: Test", "Running"], {
+			placement: "belowEditor",
+		});
 	});
 
 	test("returns silently when no active ferment", () => {
