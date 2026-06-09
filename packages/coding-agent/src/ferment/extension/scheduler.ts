@@ -17,7 +17,12 @@ export function scheduleFermentWakeUp(api: ExtensionAPI, _fermentId?: string): v
 	const action = whatNext(f);
 	if (!action) return;
 
-	const msg = `The ferment "${f.name}" is active. ` + `Next action: ${action.kind}. ${action.message}`;
+	// Build a directive nudge — the agent must execute this action, not discuss it
+	const prefix =
+		f.status === "running"
+			? `RESUMING ferment "${f.name}" — the previous session was interrupted. Pick up the work immediately. Do NOT explain or summarize — execute the next action below.\n\n`
+			: "";
+	const msg = `${prefix}CONTINUING ferment "${f.name}". Action: ${action.kind}. ${action.message}`;
 
 	api.sendMessage(
 		{ content: msg, customType: "ferment_continue", display: false },

@@ -96,12 +96,28 @@ export function registerFermentCommands(api: ExtensionAPI): void {
 					store.save(ferment);
 					setActive(ferment);
 					setContinuationPolicy("automated");
-					ctx.ui.notify(
-						`🍺  Ferment "${ferment.name}" started. Scoping...`,
-						"info",
-					);
+					ctx.ui.notify(`🍺  Ferment "${ferment.name}" started. Scoping...`, "info");
 					api.sendMessage(
-						{ content: `Ferment "${ferment.name}" started. Goal: ${goal.trim()}. Scope the work by defining success criteria, constraints, and a phase breakdown.`, customType: "ferment_start", display: false },
+						{
+							content: `The ferment "${ferment.name}" has been created. You MUST now scope the work by calling \`ferment_scope\` with a complete plan.
+
+Work through these steps in order:
+1. ORIENT — Quickly scan the project: file listing, README, config files. Build an initial mental model.
+2. IDENTIFY unknowns — What assumptions are you making? What could you be wrong about?
+3. Define success criteria — What does "done" look like in specific, testable terms?
+4. Define constraints — Known constraints, non-negotiables, technology choices.
+5. Create phases — Break the work into logical phases. Each phase needs a name, goal, and concrete steps.
+
+Then call \`ferment_scope\` with:
+- goal: "${goal.trim()}"
+- successCriteria: concrete, testable criteria for completion
+- constraints: any non-negotiables or known limitations
+- phases: array of { name, goal, steps: [{ description }] }
+
+Call \`ferment_scope\` NOW. Do not explain — just call it with a complete plan.`,
+							customType: "ferment_start",
+							display: false,
+						},
 						{ triggerTurn: true },
 					);
 					break;

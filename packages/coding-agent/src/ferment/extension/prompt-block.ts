@@ -49,29 +49,34 @@ function buildFermentPromptBlock(): string {
 
 	if (action) {
 		lines.push(`Next Action: ${action.kind}`, `Instructions: ${action.message}`);
+
+		// Directive hints for critical actions — tell the agent EXACTLY what to do
+		if (action.kind === "scope") {
+			lines.push(
+				"",
+				"Call `ferment_scope` NOW with: goal, successCriteria, constraints, and phases (each with name, goal, and steps).",
+				"Do not explain — just call it.",
+			);
+		} else if (action.kind === "start_step") {
+			lines.push(
+				"",
+				`Call \`ferment_start_step\` with phaseId "${action.phaseId}" and stepId "${action.stepId}", then execute the step.`,
+			);
+		} else if (action.kind === "complete_step") {
+			lines.push(
+				"",
+				`Call \`ferment_complete_step\` with phaseId "${action.phaseId}", stepId "${action.stepId}", and a summary of what was done.`,
+			);
+		} else if (action.kind === "complete_phase") {
+			lines.push("", `Call \`ferment_complete_phase\` with phaseId "${action.phaseId}".`);
+		} else if (action.kind === "complete_ferment") {
+			lines.push("", "Call `ferment_complete_ferment` with a final summary.");
+		}
 	} else {
 		lines.push("All phases are complete. Ferment is terminal.");
 	}
 
-	lines.push(
-		"",
-		"Available ferment tools:",
-		"- `ferment_new` — create a new draft ferment",
-		"- `ferment_scope` — define goal, phases, and steps",
-		"- `ferment_activate_phase` — activate a specific phase",
-		"- `ferment_complete_ferment` — mark the ferment as complete",
-		"- `ferment_pause` — pause the ferment",
-		"- `ferment_resume` — resume a paused ferment",
-		"- `ferment_start_step` — mark a step as running",
-		"- `ferment_complete_step` — mark a step as complete",
-		"- `ferment_verify_step` — run verification on a step",
-		"- `ferment_fail_step` — mark a step as failed",
-		"- `ferment_complete_phase` — mark a phase as complete",
-		"- `ferment_skip_phase` / `ferment_fail_phase` — skip or fail a phase",
-		"- `ferment_add_decision` — record an architectural decision",
-		"- `ferment_add_memory` — record a pattern, gotcha, or convention",
-		"- Use these tools to progress the ferment.",
-	);
+	lines.push("", "State machine: read the next-action hint, then execute that action directly.");
 
 	return lines.join("\n");
 }

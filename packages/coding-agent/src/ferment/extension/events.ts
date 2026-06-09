@@ -6,6 +6,8 @@
  * - Save state and clear timers on session_shutdown
  * - Send a follow-up nudge to the agent when an active ferment
  *   exists and continuation policy is "automated" (turn_end)
+ * - Inject reactive continuation nudges when the agent stalls
+ *   without tool calls (turn_end)
  * - Update footer status bar with current ferment state (turn_end)
  * - Trigger plan review when the agent finishes (agent_end)
  */
@@ -14,6 +16,7 @@ import type { ExtensionAPI, ExtensionContext } from "../../extensibility/extensi
 import { FermentStore } from "../store.js";
 import type { Ferment } from "../types.js";
 import { formatFermentFooter } from "./footer-status.js";
+import { maybeInjectReactiveContinuationNudge, resetReactiveContinuationNudgeCount } from "./nudge.js";
 import { clearProgressWidget, setProgressWidget } from "./progress-overlay.js";
 import { scheduleFermentWakeUp } from "./scheduler.js";
 import { getActive, getActiveId, type getContinuationPolicy, setActive } from "./state.js";
@@ -53,9 +56,24 @@ export function registerFermentEvents(
 	});
 
 	// ── turn_end ─────────────────────────────────────────────────────────────
-	api.on("turn_end", async (_event, _ctx: ExtensionContext) => {
-		// Automated continuation nudge
+	api.on("turn_end", async (event, _ctx: ExtensionContext) => {
+		const content = event.message?.content;
+		const hasToolCall =
+			Array.isArray(content) && content.some((c: { type: string; name?: string }) => c.type === "toolCall");
+
+		if (hasToolCall && getActive()) {
+			// Agent made tool calls — reset the stall counter
+			const f = getActive();
+			if (f) resetReactiveContinuationNudgeCount(f.id);
+		}
+
+		// Automated continuation nudge (scheduled)
 		scheduleFermentWakeUp(api);
+
+		// Reactive continuation nudge — if the agent stalled without tool calls
+		if (!hasToolCall) {
+			maybeInjectReactiveContinuationNudge(api);
+		}
 
 		// Footer status bar update
 		const footer = formatFermentFooter();
