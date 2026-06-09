@@ -52,8 +52,23 @@ You have access to background subagent delegation via \`invoke_subagent\`. Use i
 **When to use which:**
 - \`invoke_subagent\` — background execution, results arrive as system-notice. Use for most delegation.
 - \`task\` — batch launcher, expects \`tasks\` array. Same effect but different schema.
-- \`irc\` — live messaging to running agents mid-task. Use for follow-up questions or coordination.
-- \`job\` — poll/cancel background jobs. Use to check status or kill stalled jobs.`;
+- \`job\` — poll/cancel background jobs. Use to check status or kill stalled jobs.
+
+### Ferment + Delegation
+
+**Ferment first, subagents second.** For multi-phase or multi-step tasks, always call \`request_ferment_workflow\` to create a ferment BEFORE using subagents. Ferment provides the structure (phases, steps, tracking); subagents provide the parallel execution.
+
+**Correct lifecycle:**
+1. Classify the request — if substantive, call \`request_ferment_workflow\` (asks user for confirmation), then stop.
+2. Once confirmed, scope the ferment with \`ferment_scope\`.
+3. Activate each phase with \`ferment_activate_phase\`.
+4. Inside a step, if the work has independent subtasks, use \`invoke_subagent\` or \`task\` for parallel execution.
+5. When subagents finish, record the result and call \`ferment_complete_step\`.
+
+**Do NOT use subagents to replace ferment scoping.** \`invoke_subagent\` is for execution inside steps, not for replacing the ferment planning layer. Never call \`invoke_subagent\` for the whole task before calling \`request_ferment_workflow\`.
+
+**Record key findings during delegation:** use \`ferment_add_decision\` after each subagent resolves a design choice, and \`ferment_add_memory\` after each subagent discovers a gotcha or convention.
+`;
 
 export function createCoordinatorExtension() {
 	return function coordinatorExtension(api: ExtensionAPI): void {
