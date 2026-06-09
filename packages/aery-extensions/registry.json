@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "packs": {
+    "lsp": {
+      "description": "Language Server Protocol — inline errors, completions, go-to-def in Aery",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/lsp-client.ts",
+      "type": "extension",
+      "tier": "verified",
+      "capabilities": {
+        "tools": ["lsp_hover", "lsp_completion", "lsp_definition"],
+        "events": ["session_start", "session_shutdown", "tool_call"],
+        "requires": []
+      },
+      "version": "1.0.0",
+      "changelog": "src/core/CHANGELOG.md"
+    },
+    "brave-search": {
+      "description": "Brave Search API — private, fast, no tracking. Better than AERY's web-search.",
+      "source": "eminent337/aery-extensions",
+      "file": "src/community/brave-search.ts",
+      "type": "extension",
+      "tier": "verified",
+      "capabilities": {
+        "tools": ["brave_search", "brave_news"],
+        "requires": ["BRAVE_API_KEY"]
+      },
+      "version": "1.0.0"
+    }
+  }
+}

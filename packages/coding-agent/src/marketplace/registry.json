@@ -1,0 +1,278 @@
+{
+  "version": "2.0.0",
+  "packs": {
+    "core": {
+      "description": "Essential extensions — auto-installed with Aery",
+      "auto": true,
+      "tier": "core",
+      "type": "extension",
+      "extensions": [
+        "damage-control",
+        "model-failover",
+        "marketplace",
+        "session-auto-name",
+        "upstream-notify",
+        "init-prompt",
+        "hooks-enhanced",
+        "tool-deferral",
+        "auto-fix",
+        "file-history"
+      ],
+      "source": "eminent337/aery-extensions",
+      "version": "2.0.0"
+    },
+    "lsp": {
+      "description": "Language Server Protocol — inline errors, go-to-definition, completions inside Aery",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/lsp-client.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["lsp_hover", "lsp_completion", "lsp_definition", "lsp_references"],
+        "events": ["session_start", "session_shutdown", "tool_call"],
+        "requires": []
+      },
+      "tags": ["code", "ide", "language-server"]
+    },
+    "mcp": {
+      "description": "Model Context Protocol client — connect Aery to any MCP server",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/mcp-client.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["mcp_connect", "mcp_list_tools", "mcp_call"],
+        "events": ["session_start", "session_shutdown"]
+      },
+      "tags": ["mcp", "integration", "protocol"]
+    },
+    "rag": {
+      "description": "Retrieval-Augmented Generation — vector search over your codebase using fastembed",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/rag.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["rag_index", "rag_search", "rag_ask"],
+        "events": ["session_start"],
+        "env": ["AERY_RAG_MODEL"]
+      },
+      "tags": ["rag", "search", "embeddings"]
+    },
+    "docker": {
+      "description": "Docker tool integration — build, run, exec, inspect containers from Aery",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/docker.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["docker_build", "docker_run", "docker_exec", "docker_ps", "docker_logs"]
+      },
+      "tags": ["docker", "containers", "devops"]
+    },
+    "loop": {
+      "description": "Loop agent — repeat a task until a condition is met or manually stopped",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/loop.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["loop_start", "loop_stop", "loop_status"]
+      },
+      "tags": ["automation", "loop", "agent"]
+    },
+    "worktree": {
+      "description": "Git worktree manager — parallel development in isolated branches with tmux",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/worktree.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["worktree_create", "worktree_list", "worktree_switch", "worktree_delete"]
+      },
+      "tags": ["git", "worktree", "branches"]
+    },
+    "checkpoint": {
+      "description": "Checkpoint — save and restore full session state at any point. Better than AERY (AERY has no equivalent).",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/checkpoint.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["checkpoint_save", "checkpoint_restore", "checkpoint_list"],
+        "events": ["session_shutdown"]
+      },
+      "tags": ["session", "recovery", "state"]
+    },
+    "session-timeline": {
+      "description": "Session timeline — visual history of all agent actions in a session",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/session-timeline.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "events": ["tool_call", "tool_result", "turn_start", "turn_end"]
+      },
+      "tags": ["session", "history", "debugging"]
+    },
+    "operational-learning": {
+      "description": "Operational learning — agent learns from past sessions and improves over time",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/operational-learning.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "events": ["session_shutdown", "agent_end"]
+      },
+      "tags": ["learning", "memory", "improvement"]
+    },
+    "user-model": {
+      "description": "User model — Aery remembers your preferences, working style, and recurring patterns",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/user-model.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "events": ["before_agent_start", "session_shutdown"]
+      },
+      "tags": ["personalization", "preferences", "memory"]
+    },
+    "health": {
+      "description": "Health check — run linters, tests, and type checks on your project with one command",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/health.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["health_check", "health_lint", "health_test", "health_types"]
+      },
+      "tags": ["testing", "linting", "quality"]
+    },
+    "skill-autocreate": {
+      "description": "Skill autocreate — automatically saves reusable skills from your sessions in the background",
+      "source": "eminent337/aery-extensions",
+      "file": "src/core/skill-autocreate.ts",
+      "type": "skills",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "events": ["session_shutdown", "agent_end"]
+      },
+      "tags": ["skills", "automation", "reuse"]
+    },
+    "brave-search": {
+      "description": "Brave Search — private, fast, no tracking. Direct API (no proxy unlike AERY's version). Supports news + web.",
+      "source": "eminent337/aery-extensions",
+      "file": "src/community/brave-search.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["brave_search", "brave_news", "brave_summarize"],
+        "env": ["BRAVE_API_KEY"]
+      },
+      "tags": ["search", "web", "news", "privacy"]
+    },
+    "gmail": {
+      "description": "Gmail integration — read, send, search, and label emails from Aery",
+      "source": "eminent337/aery-extensions",
+      "file": "src/community/gmail.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["gmail_read", "gmail_send", "gmail_search", "gmail_label"],
+        "env": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
+      },
+      "tags": ["gmail", "google", "email"]
+    },
+    "google-drive": {
+      "description": "Google Drive — list, read, write, and share files. Better than AERY: supports binary files + folder navigation.",
+      "source": "eminent337/aery-extensions",
+      "file": "src/community/google-drive.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["drive_list", "drive_read", "drive_write", "drive_share"],
+        "env": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
+      },
+      "tags": ["google", "drive", "files", "storage"]
+    },
+    "youtube-transcript": {
+      "description": "YouTube Transcript — fetch full transcripts from any YouTube video",
+      "source": "eminent337/aery-extensions",
+      "file": "src/community/youtube-transcript.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["youtube_transcript", "youtube_chapters", "youtube_summary"]
+      },
+      "tags": ["youtube", "video", "transcript"]
+    },
+    "stitch": {
+      "description": "Google Stitch design integration — list projects/screens, fetch code/images, generate new screens",
+      "source": "eminent337/aery-extensions",
+      "file": "src/community/stitch.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["stitch_list", "stitch_fetch", "stitch_generate"],
+        "env": ["STITCH_MCP_AUTH"]
+      },
+      "tags": ["design", "stitch", "google", "ui"]
+    },
+    "interactive-shell": {
+      "description": "Interactive shell — full PTY embedded directly in Aery's FlexBox TUI pane. Better than AERY: native TUI rendering.",
+      "source": "eminent337/aery-extensions",
+      "file": "src/community/interactive-shell.ts",
+      "type": "extension",
+      "tier": "verified",
+      "version": "1.0.0",
+      "capabilities": {
+        "tools": ["shell_open", "shell_send", "shell_close"],
+        "swarm": true
+      },
+      "tags": ["shell", "pty", "terminal", "interactive"]
+    },
+    "superpowers": {
+      "description": "Structured development methodology — brainstorm, plan, TDD, debug, review. Aery-native skills system.",
+      "source": "eminent337/aery-superpowers",
+      "type": "skills",
+      "tier": "verified",
+      "version": "1.0.0",
+      "tags": ["skills", "methodology", "tdd", "planning"]
+    },
+    "geospatial": {
+      "description": "Geospatial tools — GDAL, coordinate systems, GIS workflows",
+      "source": "eminent337/aery-extensions",
+      "extensions": [],
+      "type": "extension",
+      "tier": "verified",
+      "coming_soon": true,
+      "tags": ["gis", "maps", "geospatial"]
+    },
+    "data-science": {
+      "description": "Data science tools — Jupyter, pandas, numpy helpers with inline output in TUI",
+      "source": "eminent337/aery-extensions",
+      "extensions": [],
+      "type": "extension",
+      "tier": "verified",
+      "coming_soon": true,
+      "tags": ["data", "jupyter", "python", "pandas"]
+    }
+  }
+}

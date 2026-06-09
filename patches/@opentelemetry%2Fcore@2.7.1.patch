@@ -1,0 +1,18 @@
+diff --git a/package.json b/package.json
+index 340cda96d7a107c5a7e464b59342805e47527344..ad3c49c8a5e6ef50be7c6b16d1415dc57555e4f9 100644
+--- a/package.json
++++ b/package.json
+@@ -4,6 +4,13 @@
+   "description": "OpenTelemetry Core provides constants and utilities shared by all OpenTelemetry SDK packages.",
+   "main": "build/src/index.js",
+   "module": "build/esm/index.js",
++  "exports": {
++    ".": {
++      "import": "./build/esm/index.js",
++      "require": "./build/src/index.js"
++    },
++    "./package.json": "./package.json"
++  },
+   "esnext": "build/esnext/index.js",
+   "browser": {
+     "./src/platform/index.ts": "./src/platform/browser/index.ts",

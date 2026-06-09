@@ -1,0 +1,8 @@
+{
+  "name": "hello-extension",
+  "version": "1.0.0",
+  "description": "Minimal aery extension example",
+  "aery": {
+    "extensions": ["./index.ts"]
+  }
+}

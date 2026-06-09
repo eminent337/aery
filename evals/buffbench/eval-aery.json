@@ -1,0 +1,32 @@
+[
+  {
+    "id": "ferment-state-machine",
+    "repository": "https://github.com/eminent337/aery.git",
+    "sha": "HEAD",
+    "parentSha": "HEAD~1",
+    "prompt": "Add a new 'suspended' status to the ferment state machine. It should be a valid transition from 'running' and allow resuming back to 'running'. Update the types, state machine transitions, and engine accordingly.",
+    "spec": "Add 'suspended' as a new FermentStatus. Add 'suspend' and 'resume-from-suspended' commands. Update whatNext() to handle suspended state. Add tests for the new transitions.",
+    "supplementalFiles": [],
+    "fileDiffs": []
+  },
+  {
+    "id": "web-search-cache",
+    "repository": "https://github.com/eminent337/aery.git",
+    "sha": "HEAD",
+    "parentSha": "HEAD~1",
+    "prompt": "Add a simple in-memory cache to the web search provider. Cache search results for 5 minutes keyed by query+provider. Cache hits should skip the API call entirely.",
+    "spec": "Create a SearchCache class with get/set/has methods. Use a Map with TTL expiry. Wire into the executeCascade function to check cache before calling providers.",
+    "supplementalFiles": [],
+    "fileDiffs": []
+  },
+  {
+    "id": "tool-approval-warning",
+    "repository": "https://github.com/eminent337/aery.git",
+    "sha": "HEAD",
+    "parentSha": "HEAD~1",
+    "prompt": "When a tool call requires approval and the user denies it, show a warning message in the TUI explaining that the tool was denied and the agent should try a different approach.",
+    "spec": "Modify the approval flow in tools/approval.ts to emit a warning message when denied. The warning should include the tool name and a suggestion to try an alternative.",
+    "supplementalFiles": [],
+    "fileDiffs": []
+  }
+]

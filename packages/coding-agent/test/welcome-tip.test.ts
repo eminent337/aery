@@ -1,0 +1,20 @@
+import { describe, expect, it } from "bun:test";
+import { renderWelcomeTip } from "@aryee337/aery/modes/components/welcome";
+import { visibleWidth } from "@aryee337/aery-tui";
+
+describe("renderWelcomeTip", () => {
+	it("wraps long tips under the label instead of truncating", () => {
+		const tip = "Next time you see spaghetti try creating a TTSR rule that prevents this pattern before it spreads";
+		const width = 44;
+		const lines = renderWelcomeTip(tip, width);
+		const plain = lines.map(line => Bun.stripANSI(line));
+
+		expect(plain.length).toBeGreaterThan(1);
+		expect(plain.join(" ")).not.toContain("…");
+		expect(plain[0]).toStartWith(" Tip: Next time");
+		expect(plain[1]).toStartWith("      ");
+		for (const line of plain) {
+			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
+	});
+});

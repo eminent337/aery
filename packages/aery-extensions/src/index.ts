@@ -1,0 +1,15 @@
+export { default as braveSearchExtension } from "./community/brave-search";
+export { default as autoFixExtension } from "./core/auto-fix";
+export { default as browserExtension } from "./core/browser";
+export { default as damageControlExtension } from "./core/damage-control";
+export { default as dockerExtension } from "./core/docker";
+export { default as fileHistoryExtension } from "./core/file-history";
+export { default as hooksEnhancedExtension } from "./core/hooks-enhanced";
+export { default as memoryBehaviorsExtension } from "./core/memory-behaviors";
+export { default as modelFailoverExtension } from "./core/model-failover";
+export { default as monitorToolExtension } from "./core/monitor-tool";
+export { default as ragExtension } from "./core/rag";
+export { default as sessionAutoNameExtension } from "./core/session-auto-name";
+export { default as toolDeferralExtension } from "./core/tool-deferral";
+export { default as workflowBehaviorsExtension } from "./core/workflow-behaviors";
+export { default as marketplaceExtension } from "./marketplace/engine";

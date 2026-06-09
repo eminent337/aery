@@ -1,0 +1,67 @@
+{
+  "name": "aery-vscode",
+  "displayName": "Aery",
+  "description": "Aery Unified Coding Agent Integration",
+  "version": "0.1.10",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aery-sidebar",
+          "title": "Aery",
+          "icon": "$(hubot)"
+        }
+      ]
+    },
+    "views": {
+      "aery-sidebar": [
+        {
+          "type": "webview",
+          "id": "aery.chatView",
+          "name": "Aery Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "aery.helloWorld",
+        "title": "Hello World"
+      },
+      {
+        "command": "aery.explainCode",
+        "title": "Aery: Explain Code"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "aery.explainCode",
+          "group": "aery"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "build": "npm run package",
+    "package:vsix": "vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@types/node": "20.x",
+    "typescript": "^5.4.5",
+    "esbuild": "^0.21.5"
+  },
+  "author": "aryee337"
+}
