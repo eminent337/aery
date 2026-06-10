@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { discoverAndLoadExtensions } from "@aryee337/aery/extensibility/extensions/loader";
+import { loadExtensions } from "@aryee337/aery/extensibility/extensions/loader";
 
 const TOOL_NAME = "legacy-multi-file-tool";
 
@@ -41,7 +41,7 @@ describe("issue #983: multi-file legacy Aery extensions", () => {
 				"",
 				"export default function(aery) {",
 				"\tconst { Type } = aery.typebox;",
-				"\tpi.registerTool({",
+				"\taery.registerTool({",
 				"\t\tname: foo,",
 				'\t\tdescription: "Issue #983 regression test",',
 				"\t\tparameters: Type.Object({}),",
@@ -51,11 +51,10 @@ describe("issue #983: multi-file legacy Aery extensions", () => {
 			].join("\n"),
 		);
 
-		const result = await discoverAndLoadExtensions([extensionDir], projectDir);
-		const extension = result.extensions.find(ext => ext.path === path.join(extensionDir, "index.ts"));
-
-		expect(result.errors).toHaveLength(0);
+		const result = await loadExtensions([extensionDir], projectDir);
+		const extension = result.extensions.find(ext => ext.path === extensionDir);
 		expect(extension).toBeDefined();
+		expect(result.errors).toHaveLength(0);
 		expect(extension?.tools.has(TOOL_NAME)).toBe(true);
 	});
 });

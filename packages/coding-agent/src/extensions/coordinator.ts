@@ -8,7 +8,11 @@
  * that benefit from parallel execution. Simple tasks are handled inline.
  */
 
-import type { BeforeAgentStartEventResult, ExtensionAPI } from "../extensibility/extensions/types";
+import type {
+	BeforeAgentStartEvent,
+	BeforeAgentStartEventResult,
+	ExtensionAPI,
+} from "../extensibility/extensions/types";
 
 const COORDINATOR_PROMPT = `## Parallel Delegation
 
@@ -72,8 +76,15 @@ You have access to background subagent delegation via \`invoke_subagent\`. Use i
 
 export function createCoordinatorExtension() {
 	return function coordinatorExtension(api: ExtensionAPI): void {
-		api.on("before_agent_start", async (): Promise<BeforeAgentStartEventResult | undefined> => {
-			return { systemPrompt: [COORDINATOR_PROMPT] };
-		});
+		api.on(
+			"before_agent_start",
+			async (event: BeforeAgentStartEvent): Promise<BeforeAgentStartEventResult | undefined> => {
+				// Merge with existing system prompt instead of replacing it.
+				// The ferment prompt-block extension runs before this one and may have
+				// set an active-ferment status block or the idle ferment hint. Replacing
+				// that would cause the agent to lose visibility of ferment state.
+				return { systemPrompt: [...event.systemPrompt, COORDINATOR_PROMPT] };
+			},
+		);
 	};
 }

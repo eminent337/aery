@@ -118,7 +118,7 @@ describe("plugin extension discovery", () => {
 				"",
 				"export default function(aery) {",
 				"\tconst { Type } = aery.typebox;",
-				"\tpi.registerTool({",
+				"\taery.registerTool({",
 				'\t\tname: "legacy-aery-ext",',
 				'\t\tdescription: "Legacy Aery extension smoke test",',
 				"\t\tparameters: Type.Object({}),",
@@ -171,7 +171,7 @@ describe("plugin extension discovery", () => {
 			extensionPath,
 			[
 				"export default function(aery) {",
-				'\tpi.registerCommand("dir-entry-ext", { handler: async () => {} });',
+				'\taery.registerCommand("dir-entry-ext", { handler: async () => {} });',
 				"}",
 			].join("\n"),
 		);

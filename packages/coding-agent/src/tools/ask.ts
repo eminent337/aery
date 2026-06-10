@@ -355,7 +355,7 @@ async function askSingleQuestion(
 			if (!timedOut) {
 				return { selectedOptions, customInput, timedOut, cancelled: true };
 			}
-		} else if (choice === `${radioPrefix}${OTHER_OPTION}`) {
+		} else if (choice === `${radioPrefix}${OTHER_OPTION}` || choice === OTHER_OPTION) {
 			if (!selectTimedOut) {
 				const customResult = await promptForCustomInput();
 				if (customResult.input !== undefined) {

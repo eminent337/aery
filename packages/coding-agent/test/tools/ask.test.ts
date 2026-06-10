@@ -401,11 +401,11 @@ describe("AskTool option descriptions", () => {
 		const tool = new AskTool(createSession());
 		const select = vi.fn(async (_prompt: string, options: ExtensionUISelectItem[]) => {
 			expect(options[0]).toEqual({
-				label: "Use local credentials",
+				label: "◯ Use local credentials",
 				description: "Authenticate with provider keys already configured under ~/.aery.",
 			});
 			expect(options[1]).toEqual({
-				label: "Set up in terminal",
+				label: "◯ Set up in terminal",
 				description: "Launch the terminal setup flow to add credentials before continuing.",
 			});
 			const selected = options[1];

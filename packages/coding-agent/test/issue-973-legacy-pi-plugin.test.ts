@@ -38,7 +38,7 @@ describe("issue #973: legacy Aery plugin imports", () => {
 				'if (legacyExtensions !== modernExtensions) throw new Error("legacy extension import did not remap");',
 				"",
 				"export default function(aery) {",
-				'\tpi.registerCommand("legacy-aery-ext", { handler: async () => {} });',
+				'\taery.registerCommand("legacy-aery-ext", { handler: async () => {} });',
 				"}",
 			].join("\n"),
 		);

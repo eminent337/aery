@@ -14,10 +14,12 @@ const CANONICAL_UPSTREAM_SCOPE = "@aery";
 // Scope aliases that are redirected to the canonical scope. Direct imports
 // using these aliases pass through the host-bundled package resolution path
 // instead of pulling a duplicate copy from plugin node_modules.
-const LEGACY_SCOPE_ALIASES = ["aery"] as const;
+const LEGACY_SCOPE_ALIASES = ["aery", "aryee337"] as const;
 
 // Aery-native package basenames bundled inside the aery binary.
+// "aery" is the shorthand for the main @aryee337/aery (coding-agent) package.
 const AERY_PACKAGE_NAMES = [
+	"aery",
 	"aery-core",
 	"aery-ai",
 	"aery-coding-agent",
@@ -211,14 +213,32 @@ function rewriteAeryModuleImports(source: string): string {
 			return match;
 		}
 
+		// Primary: resolve the canonical @aery/* specifier. Works in compiled
+		// binary mode when the override exists and in dev mode when the
+		// canonical specifier happens to resolve through node_modules.
 		try {
 			return `${prefix}${toImportSpecifier(resolveCanonicalAerySpecifier(remappedSpecifier))}${suffix}`;
 		} catch {
-			// Resolution failed — typically in compiled binary mode where
-			// Bun.resolveSync cannot walk up from /$bunfs/root to find the
-			// bundled node_modules. Leave the specifier unchanged so Bun
-			// resolves it natively against the extension's own peer deps.
-			return match;
+			// Fallback for dev mode: the canonical @aery/* scoped specifier
+			// doesn't exist on disk. Try resolving the original scope with
+			// the subpath-remapped package path (e.g. @aryee337/aery-ai/utils/oauth),
+			// then fall back to the original specifier.
+			const slashIdx = specifier.indexOf("/", 1);
+			const scope = specifier.slice(0, slashIdx); // e.g. "@aryee337"
+			const rest = specifier.slice(slashIdx + 1); // e.g. "aery-ai/oauth"
+			const remappedRest = AERY_SUBPATH_REMAPS.get(rest) ?? rest;
+			const scopedRemapped = `${scope}/${remappedRest}`;
+			try {
+				return `${prefix}${toImportSpecifier(getResolvedSpecifier(scopedRemapped))}${suffix}`;
+			} catch {
+				try {
+					return `${prefix}${toImportSpecifier(getResolvedSpecifier(specifier))}${suffix}`;
+				} catch {
+					// Last resort: leave the specifier unchanged so Bun resolves
+					// it natively against the extension's own peer deps.
+					return match;
+				}
+			}
 		}
 	});
 }
@@ -244,10 +264,32 @@ const TYPEBOX_IMPORT_SPECIFIER_REGEX = /((?:from\s+|import\s*\(\s*)["'])(@sincla
 function rewriteLegacyExtensionSource(source: string): string {
 	// Rewrite old npm-scope package references first, before the scope-alias
 	// regex runs, so the output feeds cleanly into the next rewrite stage.
-	const withOldScopes = source.replace(/@(?:aryee337)\/aery-(?:core|ai|coding-agent|tui|utils)/g, match => {
-		const pkg = match.split("/")[1].replace("aery-", "aery-");
-		return `@aryee337/${pkg}`;
-	});
+	// This converts all legacy scopes (eminent337, etc.) to the current
+	// @aryee337 scope, and remaps legacy package names (aery-coding-agent)
+	// to the current shorthand (aery).
+	const withOldScopes = source.replace(
+		/@(?:aryee337|eminent337|aery)\/aery(?:-(?:core|ai|coding-agent|engine|tui|utils|sdk))?(?:\/[^"']*)?/g,
+		(match: string) => {
+			// Extract the scope, package name, and optional subpath
+			const atIndex = match.indexOf("/");
+			const remaining = match.slice(atIndex + 1); // e.g. "aery-coding-agent/extensions/extensions"
+			const slashAfterPkg = remaining.indexOf("/");
+			let pkg: string;
+			let subpath = "";
+			if (slashAfterPkg === -1) {
+				pkg = remaining; // just the package name
+			} else {
+				pkg = remaining.slice(0, slashAfterPkg);
+				subpath = remaining.slice(slashAfterPkg);
+			}
+			// Remap legacy package names to current ^0.2 package names
+			const PKG_REMAP: Record<string, string> = {
+				"aery-coding-agent": "aery",
+			};
+			const mappedPkg = PKG_REMAP[pkg] ?? pkg;
+			return `@aryee337/${mappedPkg}${subpath}`;
+		},
+	);
 
 	const withAery = rewriteAeryModuleImports(withOldScopes);
 	const withTypebox = withAery.replace(
@@ -394,16 +436,17 @@ function resolveAeryModuleSpecifier(args: { path: string; importer: string }): {
 		return undefined;
 	}
 
-	// Primary: resolve the canonical @aryee337/* specifier from the host binary
-	// location. Works in dev mode and in source-link installs.
+	// Primary: resolve the canonical @aery/* specifier from the host binary
+	// location. Works in dev mode when the remapped specifier has a registered
+	// override; falls through for bundled packages without an override.
 	try {
 		return { path: resolveCanonicalAerySpecifier(remappedSpecifier) };
 	} catch {
-		// Fallback for compiled binary mode: the bundled packages live inside
-		// /$bunfs/root and aren't reachable by filesystem resolution. Prefer the
-		// canonical specifier against the importing file's directory when the
-		// plugin installed @aery peer deps, then try the original specifier for
-		// plugins that still vendor older scope peer deps.
+		// Fallback chain for compiled binary mode and dev mode:
+		//   1. canonical specifier from the importer's directory
+		//   2. original specifier from the importer's directory
+		//   3. original specifier from the host binary directory (works in dev
+		//      mode where workspace packages are resolvable from coding-agent)
 		const importerDir = path.dirname(args.importer);
 		try {
 			return { path: Bun.resolveSync(remappedSpecifier, importerDir) };
@@ -411,7 +454,11 @@ function resolveAeryModuleSpecifier(args: { path: string; importer: string }): {
 			try {
 				return { path: Bun.resolveSync(args.path, importerDir) };
 			} catch {
-				return undefined;
+				try {
+					return { path: Bun.resolveSync(args.path, import.meta.dir) };
+				} catch {
+					return undefined;
+				}
 			}
 		}
 	}

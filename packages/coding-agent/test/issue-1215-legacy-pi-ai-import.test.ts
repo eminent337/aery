@@ -26,7 +26,7 @@ describe("issue #1215: legacy @eminent337/aery-ai imports survive getResolvedSpe
 				'import { z } from "@eminent337/aery-ai";',
 				"",
 				"export default function(aery) {",
-				"\tpi.registerTool({",
+				"\taery.registerTool({",
 				`\t\tname: ${JSON.stringify(TOOL_NAME)},`,
 				'\t\tdescription: "Issue #1215 regression test",',
 				"\t\tparameters: z.object({ text: z.string() }),",
