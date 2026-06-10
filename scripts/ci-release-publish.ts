@@ -211,7 +211,7 @@ async function packAndPublish(dir: string, name: string): Promise<void> {
 		const tarball = (await fs.readdir(packDir)).find(entry => entry.endsWith(".tgz"));
 		if (!tarball) throw new Error(`bun pm pack produced no tarball for ${name} (${path.relative(repoRoot, dir)})`);
 		const result = await $`npm publish ${path.join(packDir, tarball)} --access public`.quiet().nothrow();
-		const output = `${result.stdout.toString()}${result.stderr.toString()}`.trim();
+		let output = `${result.stdout.toString()}${result.stderr.toString()}`.trim();
 		if (output) console.log(output);
 		if (result.exitCode !== 0) {
 			// Idempotent re-runs: tolerate this exact version already being on the
@@ -220,6 +220,20 @@ async function packAndPublish(dir: string, name: string): Promise<void> {
 			if (isVersionAlreadyPublished(output)) {
 				console.log(`Skipping ${name} (version already published)`);
 				return;
+			}
+			// Retry with an explicit tag when the registry already has a higher
+			// "latest" version and npm refuses to implicitly downgrade it.
+			if (/previously published version.*is higher.*specify a tag/i.test(output)) {
+				console.log(`Retrying ${name} with explicit --tag=release…`);
+				const retryResult = await $`npm publish ${path.join(packDir, tarball)} --access public --tag=release`.quiet().nothrow();
+				const retryOutput = `${retryResult.stdout.toString()}${retryResult.stderr.toString()}`.trim();
+				if (retryOutput) console.log(retryOutput);
+				if (retryResult.exitCode === 0) return;
+				if (isVersionAlreadyPublished(retryOutput)) {
+					console.log(`Skipping ${name} (version already published)`);
+					return;
+				}
+				process.exit(retryResult.exitCode ?? 1);
 			}
 			process.exit(result.exitCode ?? 1);
 		}
