@@ -5,10 +5,10 @@
 
 import type { ExtensionAPI } from "@aryee337/aery";
 import type { AgentToolResult } from "@aryee337/aery-core";
-import type { Ferment, FermentCommand, StepResult } from "../../types.js";
 import { whatNext } from "../../engine.js";
 import { applyTransition } from "../../state-machine.js";
 import { FermentStore } from "../../store.js";
+import type { Ferment, FermentCommand, StepResult } from "../../types.js";
 import { getActive, setActive } from "../state.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

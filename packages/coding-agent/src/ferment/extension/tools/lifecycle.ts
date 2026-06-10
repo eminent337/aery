@@ -49,7 +49,8 @@ function listPhases(f: Ferment): string {
 function recoveryHint(err: string): string {
 	if (err.includes("No active ferment")) return "\n💡 Call request_ferment_workflow first to create a ferment.";
 	if (err.includes("already active")) return "\n💡 A ferment is already active. Complete or abandon it first.";
-	if (err.includes("not found")) return "\n💡 Check the phaseId/stepId — call the previous tool and use the IDs from its response.";
+	if (err.includes("not found"))
+		return "\n💡 Check the phaseId/stepId — call the previous tool and use the IDs from its response.";
 	return "";
 }
 
@@ -269,9 +270,7 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			// Refuse if a ferment is already active
 			if (getActive()) {
-				return error(
-					"ferment_new refused — a ferment is already active. Complete or abandon it first.",
-				);
+				return error("ferment_new refused — a ferment is already active. Complete or abandon it first.");
 			}
 			const now = new Date().toISOString();
 			const draft: Ferment = {
@@ -291,7 +290,7 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 			FermentStore.open().save(draft);
 			return success(
 				`⚠️ DEPRECATED: Use request_ferment_workflow next time.\n` +
-				`Draft ferment "${draft.name}" created. Use ferment_scope to plan phases.`,
+					`Draft ferment "${draft.name}" created. Use ferment_scope to plan phases.`,
 			);
 		},
 	});

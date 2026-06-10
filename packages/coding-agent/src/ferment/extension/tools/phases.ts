@@ -5,10 +5,10 @@
 
 import type { ExtensionAPI } from "@aryee337/aery";
 import type { AgentToolResult } from "@aryee337/aery-core";
-import type { Ferment, FermentCommand } from "../../types.js";
 import { whatNext } from "../../engine.js";
 import { applyTransition } from "../../state-machine.js";
 import { FermentStore } from "../../store.js";
+import type { Ferment, FermentCommand } from "../../types.js";
 import { getActive, setActive } from "../state.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -35,7 +35,8 @@ function hintNext(f: Ferment): string {
 
 function recoveryHint(err: string): string {
 	if (err.includes("No active ferment")) return "\n💡 Call request_ferment_workflow first to create a ferment.";
-	if (err.includes("not found")) return "\n💡 Check the phaseId — use the ID from ferment_scope or the previous tool response.";
+	if (err.includes("not found"))
+		return "\n💡 Check the phaseId — use the ID from ferment_scope or the previous tool response.";
 	return "";
 }
 

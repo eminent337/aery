@@ -1068,8 +1068,16 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		acpInputHint: "[help|install|uninstall|discover|list]",
 		subcommands: [
 			{ name: "help", description: "Show marketplace usage information" },
-			{ name: "install", description: "Install a marketplace extension (TUI-only interactive picker)", usage: "[name@marketplace]" },
-			{ name: "uninstall", description: "Uninstall a marketplace extension (TUI-only interactive picker)", usage: "[name@marketplace]" },
+			{
+				name: "install",
+				description: "Install a marketplace extension (TUI-only interactive picker)",
+				usage: "[name@marketplace]",
+			},
+			{
+				name: "uninstall",
+				description: "Uninstall a marketplace extension (TUI-only interactive picker)",
+				usage: "[name@marketplace]",
+			},
 			{ name: "discover", description: "Discover available marketplace extensions" },
 			{ name: "list", description: "List installed marketplace extensions" },
 		],
