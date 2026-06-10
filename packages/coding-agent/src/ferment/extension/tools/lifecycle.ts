@@ -392,4 +392,189 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 			}
 		},
 	});
+
+	// ── ferment_rename ────────────────────────────────────────────────────────
+	api.registerTool({
+		name: "ferment_rename",
+		label: "Ferment Rename",
+		description: "Rename the active ferment.",
+		parameters: z.object({
+			name: z.string().min(1).describe("New name for the ferment"),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			try {
+				const ferment = requireActive(getActive());
+				const cmd: Extract<FermentCommand, { type: "rename" }> = {
+					type: "rename",
+					name: params.name,
+				};
+				const result = applyTransition(ferment, cmd);
+				if ("error" in result) return errorWithRecovery(result.error);
+
+				FermentStore.open().save(result);
+				setActive(result);
+				return successWithHint(`Ferment renamed to "${result.name}".`, result);
+			} catch (err) {
+				return errorWithRecovery(String(err));
+			}
+		},
+	});
+
+	// ── ferment_set_phase_grade ───────────────────────────────────────────────
+	api.registerTool({
+		name: "ferment_set_phase_grade",
+		label: "Ferment Set Phase Grade",
+		description: "Set a grade on a phase (A–F).",
+		parameters: z.object({
+			phaseId: z.string().describe("Phase ID or name"),
+			grade: z.enum(["A", "B", "C", "D", "F"]).describe("Grade to assign"),
+			rationale: z.string().optional().describe("Optional rationale for the grade"),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			try {
+				const ferment = requireActive(getActive());
+				// Use resolvePhaseId-style lookup inline
+				const phase =
+					ferment.phases.find(p => p.id === params.phaseId) ??
+					ferment.phases.find(p => p.name.toLowerCase() === params.phaseId.toLowerCase());
+				if (!phase) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
+				const cmd: Extract<FermentCommand, { type: "set_phase_grade" }> = {
+					type: "set_phase_grade",
+					phaseId: phase.id,
+					grade: {
+						grade: params.grade as any,
+						rationale: params.rationale ?? "",
+						gradedAt: new Date().toISOString(),
+					},
+				};
+				const result = applyTransition(ferment, cmd);
+				if ("error" in result) return errorWithRecovery(result.error);
+
+				FermentStore.open().save(result);
+				setActive(result);
+				return successWithHint(`Phase "${phase.name}" graded ${params.grade}.`, result);
+			} catch (err) {
+				return errorWithRecovery(String(err));
+			}
+		},
+	});
+
+	// ── ferment_set_step_grade ────────────────────────────────────────────────
+	api.registerTool({
+		name: "ferment_set_step_grade",
+		label: "Ferment Set Step Grade",
+		description: "Set a grade on a step (A–F).",
+		parameters: z.object({
+			phaseId: z.string().describe("Phase ID or name"),
+			stepId: z.string().describe("Step ID or description prefix"),
+			grade: z.enum(["A", "B", "C", "D", "F"]).describe("Grade to assign"),
+			rationale: z.string().optional().describe("Optional rationale for the grade"),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			try {
+				const ferment = requireActive(getActive());
+				// Resolve phase
+				const phase =
+					ferment.phases.find(p => p.id === params.phaseId) ??
+					ferment.phases.find(p => p.name.toLowerCase() === params.phaseId.toLowerCase());
+				if (!phase) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
+				// Resolve step by ID or description prefix
+				const step =
+					phase.steps.find(s => s.id === params.stepId) ??
+					phase.steps.find(s => s.description.toLowerCase().startsWith(params.stepId.toLowerCase()));
+				if (!step) return errorWithRecovery(`Step "${params.stepId}" not found in phase "${phase.name}".`);
+				const cmd: Extract<FermentCommand, { type: "set_step_grade" }> = {
+					type: "set_step_grade",
+					phaseId: phase.id,
+					stepId: step.id,
+					grade: {
+						grade: params.grade as any,
+						rationale: params.rationale ?? "",
+						gradedAt: new Date().toISOString(),
+					},
+				};
+				const result = applyTransition(ferment, cmd);
+				if ("error" in result) return errorWithRecovery(result.error);
+
+				FermentStore.open().save(result);
+				setActive(result);
+				return successWithHint(`Step "${step.description}" graded ${params.grade}.`, result);
+			} catch (err) {
+				return errorWithRecovery(String(err));
+			}
+		},
+	});
+
+	// ── ferment_set_ferment_grade ─────────────────────────────────────────────
+	api.registerTool({
+		name: "ferment_set_ferment_grade",
+		label: "Ferment Set Ferment Grade",
+		description: "Set a grade on the entire ferment (A–F).",
+		parameters: z.object({
+			grade: z.enum(["A", "B", "C", "D", "F"]).describe("Grade to assign"),
+			rationale: z.string().optional().describe("Optional rationale for the grade"),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			try {
+				const ferment = requireActive(getActive());
+				const cmd: Extract<FermentCommand, { type: "set_ferment_grade" }> = {
+					type: "set_ferment_grade",
+					grade: {
+						grade: params.grade as any,
+						rationale: params.rationale ?? "",
+						gradedAt: new Date().toISOString(),
+					},
+				};
+				const result = applyTransition(ferment, cmd);
+				if ("error" in result) return errorWithRecovery(result.error);
+
+				FermentStore.open().save(result);
+				setActive(result);
+				return successWithHint(`Ferment "${result.name}" graded ${params.grade}.`, result);
+			} catch (err) {
+				return errorWithRecovery(String(err));
+			}
+		},
+	});
+
+	// ── ferment_update_step_description ───────────────────────────────────────
+	api.registerTool({
+		name: "ferment_update_step_description",
+		label: "Ferment Update Step Description",
+		description: "Update the description of a step in the active ferment.",
+		parameters: z.object({
+			phaseId: z.string().describe("Phase ID or name"),
+			stepId: z.string().describe("Step ID or description prefix"),
+			description: z.string().min(1).describe("New description for the step"),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			try {
+				const ferment = requireActive(getActive());
+				// Resolve phase
+				const phase =
+					ferment.phases.find(p => p.id === params.phaseId) ??
+					ferment.phases.find(p => p.name.toLowerCase() === params.phaseId.toLowerCase());
+				if (!phase) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
+				// Resolve step by ID or description prefix
+				const step =
+					phase.steps.find(s => s.id === params.stepId) ??
+					phase.steps.find(s => s.description.toLowerCase().startsWith(params.stepId.toLowerCase()));
+				if (!step) return errorWithRecovery(`Step "${params.stepId}" not found in phase "${phase.name}".`);
+				const cmd: Extract<FermentCommand, { type: "update_step_description" }> = {
+					type: "update_step_description",
+					phaseId: phase.id,
+					stepId: step.id,
+					description: params.description,
+				};
+				const result = applyTransition(ferment, cmd);
+				if ("error" in result) return errorWithRecovery(result.error);
+
+				FermentStore.open().save(result);
+				setActive(result);
+				return successWithHint(`Step "${step.description}" updated to "${params.description}".`, result);
+			} catch (err) {
+				return errorWithRecovery(String(err));
+			}
+		},
+	});
 }

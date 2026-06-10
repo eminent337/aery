@@ -4,6 +4,7 @@
 import type {
 	Ferment,
 	FermentCommand,
+	JudgeGrade,
 	Phase,
 	PhaseStatus,
 	ScopingAnswer,
@@ -64,6 +65,16 @@ export function applyTransition(ferment: Ferment, cmd: FermentCommand): Ferment 
 			return hAddMemory(ferment, cmd.category, cmd.content, cmd.phaseId, cmd.stepId, now);
 		case "update_scope_field":
 			return hUpdateScopeField(ferment, cmd, now);
+		case "rename":
+			return hRename(ferment, cmd.name, now);
+		case "set_phase_grade":
+			return hSetPhaseGrade(ferment, cmd.phaseId, cmd.grade, now);
+		case "set_step_grade":
+			return hSetStepGrade(ferment, cmd.phaseId, cmd.stepId, cmd.grade, now);
+		case "set_ferment_grade":
+			return hSetFermentGrade(ferment, cmd.grade, now);
+		case "update_step_description":
+			return hUpdateStepDescription(ferment, cmd.phaseId, cmd.stepId, cmd.description, now);
 	}
 }
 
@@ -551,4 +562,60 @@ function hAddMemory(
 		createdAt: now,
 	};
 	return touch(f, now, { memories: [...f.memories, memory] });
+}
+
+// ─── Rename ────────────────────────────────────────────────────────────────────
+
+function hRename(f: Ferment, name: string, now: string): Ferment | { error: string } {
+	if (!name.trim()) return { error: "Name cannot be empty." };
+	return touch(f, now, { name: name.trim() });
+}
+
+// ─── Grade commands ────────────────────────────────────────────────────────────
+
+function hSetPhaseGrade(f: Ferment, phaseId: string, grade: JudgeGrade, now: string): Ferment | { error: string } {
+	const found = findPhase(f, phaseId);
+	if ("error" in found) return found;
+	const phases = f.phases.map((p, i) => (i === found.index ? { ...p, grade } : p));
+	return touch(f, now, { phases });
+}
+
+function hSetStepGrade(
+	f: Ferment,
+	phaseId: string,
+	stepId: string,
+	grade: JudgeGrade,
+	now: string,
+): Ferment | { error: string } {
+	const found = findPhase(f, phaseId);
+	if ("error" in found) return found;
+	const sf = found.phase.steps.find(s => s.id === stepId);
+	if (!sf) return { error: `Step "${stepId}" not found in phase "${phaseId}".` };
+	const sIdx = found.phase.steps.indexOf(sf);
+	const steps = found.phase.steps.map((s, i) => (i === sIdx ? { ...s, grade } : s));
+	const phases = f.phases.map((p, i) => (i === found.index ? { ...p, steps } : p));
+	return touch(f, now, { phases });
+}
+
+function hSetFermentGrade(f: Ferment, grade: JudgeGrade, now: string): Ferment | { error: string } {
+	return touch(f, now, { grade });
+}
+// ─── Update step description ──────────────────────────────────────────────────
+
+function hUpdateStepDescription(
+	f: Ferment,
+	phaseId: string,
+	stepId: string,
+	description: string,
+	now: string,
+): Ferment | { error: string } {
+	if (!description.trim()) return { error: "Step description cannot be empty." };
+	const found = findPhase(f, phaseId);
+	if ("error" in found) return found;
+	const sf = found.phase.steps.find(s => s.id === stepId);
+	if (!sf) return { error: `Step "${stepId}" not found in phase "${phaseId}".` };
+	const sIdx = found.phase.steps.indexOf(sf);
+	const steps = found.phase.steps.map((s, i) => (i === sIdx ? { ...s, description: description.trim() } : s));
+	const phases = f.phases.map((p, i) => (i === found.index ? { ...p, steps } : p));
+	return touch(f, now, { phases });
 }

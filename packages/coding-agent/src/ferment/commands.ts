@@ -1,4 +1,4 @@
-import type { MemoryCategory, StepResult } from "./types.js";
+import type { JudgeGrade, MemoryCategory, StepResult } from "./types.js";
 
 export interface ScopePhaseStepInput {
 	description: string;
@@ -43,4 +43,9 @@ export type FermentCommand =
 	| { type: "abandon"; reason?: string }
 	| { type: "add_decision"; title: string; description: string; phaseId?: string; stepId?: string }
 	| { type: "add_memory"; category: MemoryCategory; content: string; phaseId?: string; stepId?: string }
-	| { type: "update_scope_field"; field: "goal" | "criteria" | "constraints"; value: string };
+	| { type: "update_scope_field"; field: "goal" | "criteria" | "constraints"; value: string }
+	| { type: "rename"; name: string }
+	| { type: "set_phase_grade"; phaseId: string; grade: JudgeGrade }
+	| { type: "set_step_grade"; phaseId: string; stepId: string; grade: JudgeGrade }
+	| { type: "set_ferment_grade"; grade: JudgeGrade }
+	| { type: "update_step_description"; phaseId: string; stepId: string; description: string };
