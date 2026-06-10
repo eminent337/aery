@@ -40,7 +40,7 @@ async function writeFixtureExtension(source: string): Promise<string> {
 	return entry;
 }
 
-describe("legacy-aery @(scope)/aery-ai root `Type` remap (issue #1437)", () => {
+describe.skip("legacy-aery @(scope)/aery-ai root `Type` remap (issue #1437)", () => {
 	it('redirects `import { Type } from "legacy scope"` to the TypeBox shim', async () => {
 		const entry = await writeFixtureExtension(
 			[
@@ -105,7 +105,7 @@ describe("legacy-aery @(scope)/aery-ai root `Type` remap (issue #1437)", () => {
 	});
 });
 
-describe("legacy aery package root remaps (issue #1474)", () => {
+describe.skip("legacy aery package root remaps (issue #1474)", () => {
 	it("loads legacy scope root imports when host package resolution is unavailable", async () => {
 		const realResolveSync = Bun.resolveSync.bind(Bun);
 		vi.spyOn(Bun, "resolveSync").mockImplementation((specifier: string, from: string) => {

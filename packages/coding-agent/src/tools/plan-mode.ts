@@ -10,6 +10,7 @@ export class EnterPlanModeTool implements AgentTool<typeof enterPlanModeSchema, 
 	readonly approval = "read";
 	readonly label = "Enter Plan Mode";
 	readonly description = "Requests permission to enter plan mode for complex tasks requiring exploration and design";
+	readonly summary = "Requests permission to enter plan mode for complex tasks requiring exploration and design";
 	readonly parameters = enterPlanModeSchema;
 
 	constructor(private session: ToolSession) {}
@@ -44,6 +45,7 @@ export class ExitPlanModeTool implements AgentTool<typeof exitPlanModeSchema, { 
 	readonly approval = "read";
 	readonly label = "Exit Plan Mode";
 	readonly description = "Exit plan mode and present the planned approach";
+	readonly summary = "Exit plan mode and present the planned approach";
 	readonly parameters = exitPlanModeSchema;
 
 	async execute(

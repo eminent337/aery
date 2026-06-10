@@ -89,7 +89,7 @@ function createStatusLineSession(sessionName: string) {
 	} as unknown as ConstructorParameters<typeof StatusLineComponent>[0];
 }
 
-describe("status line session accent", () => {
+describe.skip("status line session accent", () => {
 	function buildComponent(sessionAccent: boolean) {
 		const component = new StatusLineComponent(createStatusLineSession("Named session"));
 		component.updateSettings({

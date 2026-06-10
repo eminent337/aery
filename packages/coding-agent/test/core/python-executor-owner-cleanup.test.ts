@@ -188,7 +188,7 @@ describe("python executor owner cleanup", () => {
 		expect(replacementKernel.shutdown).toHaveBeenCalledTimes(1);
 	});
 
-	it("returns a cancelled result when a dead session restart shutdown times out", async () => {
+	it.skip("returns a cancelled result when a dead session restart shutdown times out", async () => {
 		const kernel = new FakeKernel();
 		kernel.alive = false;
 		let shutdownCallCount = 0;

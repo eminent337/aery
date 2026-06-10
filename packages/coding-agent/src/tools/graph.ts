@@ -19,6 +19,7 @@ export class GraphTool implements AgentTool<typeof graphSchema, GraphToolDetails
 	readonly approval = "read" as const;
 	readonly label = "Graph Tool";
 	readonly description = "Builds a dependency graph by recursively parsing imports from an entry file.";
+	readonly summary = "Builds a dependency graph by recursively parsing imports from an entry file.";
 	readonly parameters = graphSchema;
 
 	async execute(

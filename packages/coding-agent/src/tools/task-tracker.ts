@@ -63,6 +63,7 @@ export class TaskCreateTool implements AgentTool<typeof taskCreateSchema, { task
 	readonly name = "task_create";
 	readonly label = "Create Task";
 	readonly description = "Create a new task in the task tracker.";
+	readonly summary = "Create a new task in the task tracker.";
 	readonly parameters = taskCreateSchema;
 
 	async execute(
@@ -105,6 +106,7 @@ export class TaskUpdateTool implements AgentTool<typeof taskUpdateSchema, { task
 	readonly approval = "read";
 	readonly label = "Update Task";
 	readonly description = "Update an existing task in the task tracker.";
+	readonly summary = "Update an existing task in the task tracker.";
 	readonly parameters = taskUpdateSchema;
 
 	async execute(
@@ -138,6 +140,7 @@ export class TaskStopTool implements AgentTool<typeof taskStopSchema, { task: Ta
 	readonly approval = "read";
 	readonly label = "Stop Task";
 	readonly description = "Stop/Cancel an existing task.";
+	readonly summary = "Stop/Cancel an existing task.";
 	readonly parameters = taskStopSchema;
 
 	async execute(
@@ -168,6 +171,7 @@ export class TaskGetTool implements AgentTool<typeof taskGetSchema, { task: Task
 	readonly approval = "read";
 	readonly label = "Get Task";
 	readonly description = "Get details of a specific task.";
+	readonly summary = "Get details of a specific task.";
 	readonly parameters = taskGetSchema;
 
 	async execute(_toolCallId: string, params: z.infer<typeof taskGetSchema>): Promise<AgentToolResult<{ task: Task }>> {
@@ -191,6 +195,7 @@ export class TaskListTool implements AgentTool<typeof taskListSchema, { tasks: T
 	readonly approval = "read";
 	readonly label = "List Tasks";
 	readonly description = "List all tasks in the task tracker.";
+	readonly summary = "List all tasks in the task tracker.";
 	readonly parameters = taskListSchema;
 
 	async execute(
