@@ -27,6 +27,26 @@ function requireActive(): Ferment {
 	return f;
 }
 
+/** Resolve a phase identifier — try by ID first, then by name. */
+function resolvePhaseId(f: Ferment, phaseIdOrName: string): string | undefined {
+	const byId = f.phases.find(p => p.id === phaseIdOrName);
+	if (byId) return byId.id;
+	const byName = f.phases.find(p => p.name.toLowerCase() === phaseIdOrName.toLowerCase());
+	if (byName) return byName.id;
+	return undefined;
+}
+
+/** Resolve a step identifier — try by ID first, then by description (case-insensitive prefix match). */
+function resolveStepId(f: Ferment, phaseId: string, stepIdOrDesc: string): string | undefined {
+	const phase = f.phases.find(p => p.id === phaseId);
+	if (!phase) return undefined;
+	const byId = phase.steps.find(s => s.id === stepIdOrDesc);
+	if (byId) return byId.id;
+	const byDesc = phase.steps.find(s => s.description.toLowerCase().startsWith(stepIdOrDesc.toLowerCase()));
+	if (byDesc) return byDesc.id;
+	return undefined;
+}
+
 function buildStepResult(raw: { success: boolean; stdout?: string; stderr?: string; exitCode?: number }): StepResult {
 	return { ...raw, completedAt: new Date().toISOString() };
 }
@@ -39,7 +59,7 @@ function hintNext(f: Ferment): string {
 
 function recoveryHint(err: string): string {
 	if (err.includes("No active ferment")) return "\n💡 Call request_ferment_workflow first to create a ferment.";
-	if (err.includes("not found")) return "\n💡 Check the phaseId/stepId — use the IDs from the previous tool response.";
+	if (err.includes("not found")) return "\n💡 Check the phaseId/stepId or use a phase name / step description.";
 	if (err.includes("STUCK_LOOP") || err.includes("started 3 times without completing"))
 		return "\n💡 Ask the user how to proceed: retry with a revised approach, skip this step, or pause the ferment.";
 	return "";
@@ -61,32 +81,34 @@ function successWithHint(content: string, f: Ferment): AgentToolResult {
 
 export function registerStepTools(api: ExtensionAPI): void {
 	const { z } = api.zod;
-
-	// ── ferment_start_step ────────────────────────────────────────────────────
 	api.registerTool({
 		name: "ferment_start_step",
 		label: "Ferment Start Step",
-		description: "Mark a step as running.",
+		description: "Mark a step as running. Accepts phase name and step description or ID.",
 		parameters: z.object({
-			phaseId: z.string().describe("ID of the phase containing the step"),
-			stepId: z.string().describe("ID of the step to start"),
+			phaseId: z.string().describe("Phase name or ID"),
+			stepId: z.string().describe("Step ID or description prefix"),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const ferment = requireActive();
+				const pid = resolvePhaseId(ferment, params.phaseId);
+				if (!pid) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
+				const sid = resolveStepId(ferment, pid, params.stepId);
+				if (!sid) return errorWithRecovery(`Step "${params.stepId}" not found.`);
 				const cmd: Extract<FermentCommand, { type: "start_step" }> = {
 					type: "start_step",
-					phaseId: params.phaseId,
-					stepId: params.stepId,
+					phaseId: pid,
+					stepId: sid,
 				};
 				const result = applyTransition(ferment, cmd);
-				if ("error" in result) return errorWithCode(result.error, (result as any).code);
+				if ("error" in result) return errorWithCode(result.error, result.code);
 
 				FermentStore.open().save(result);
 				setActive(result);
 
-				const phase = result.phases.find(p => p.id === params.phaseId);
-				const step = phase?.steps.find(s => s.id === params.stepId);
+				const phase = result.phases.find(p => p.id === pid);
+				const step = phase?.steps.find(s => s.id === sid);
 				const msg = step ? `Step ${step.index}: "${step.description}" started.` : `Step started.`;
 				return successWithHint(msg, result);
 			} catch (err) {
@@ -99,10 +121,10 @@ export function registerStepTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_complete_step",
 		label: "Ferment Complete Step",
-		description: "Mark a step as complete (done, not verified).",
+		description: "Mark a step as complete (done, not verified). Accepts phase name and step description or ID.",
 		parameters: z.object({
-			phaseId: z.string().describe("ID of the phase containing the step"),
-			stepId: z.string().describe("ID of the step to complete"),
+			phaseId: z.string().describe("Phase name or ID"),
+			stepId: z.string().describe("Step ID or description prefix"),
 			summary: z.string().optional().describe("Step completion summary"),
 			result: z
 				.object({
@@ -117,12 +139,16 @@ export function registerStepTools(api: ExtensionAPI): void {
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const ferment = requireActive();
+				const pid = resolvePhaseId(ferment, params.phaseId);
+				if (!pid) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
+				const sid = resolveStepId(ferment, pid, params.stepId);
+				if (!sid) return errorWithRecovery(`Step "${params.stepId}" not found.`);
 				const stepResult: StepResult | undefined = params.result ? buildStepResult(params.result) : undefined;
 
 				const cmd: Extract<FermentCommand, { type: "complete_step" }> = {
 					type: "complete_step",
-					phaseId: params.phaseId,
-					stepId: params.stepId,
+					phaseId: pid,
+					stepId: sid,
 					result: stepResult,
 					summary: params.summary,
 				};
@@ -132,8 +158,8 @@ export function registerStepTools(api: ExtensionAPI): void {
 				FermentStore.open().save(result);
 				setActive(result);
 
-				const phase = result.phases.find(p => p.id === params.phaseId);
-				const step = phase?.steps.find(s => s.id === params.stepId);
+				const phase = result.phases.find(p => p.id === pid);
+				const step = phase?.steps.find(s => s.id === sid);
 				const status = step?.status === "verified" ? "verified" : "done";
 				const msg = step ? `Step ${step.index} "${step.description}" marked ${status}.` : `Step marked ${status}.`;
 				return successWithHint(msg, result);
@@ -142,7 +168,6 @@ export function registerStepTools(api: ExtensionAPI): void {
 			}
 		},
 	});
-
 	// ── ferment_verify_step ───────────────────────────────────────────────────
 	api.registerTool({
 		name: "ferment_verify_step",

@@ -27,6 +27,15 @@ function requireActive(): Ferment {
 	return f;
 }
 
+/** Resolve a phase identifier — try by ID first, then by name. Returns the resolved ID or undefined. */
+function resolvePhaseId(f: Ferment, phaseIdOrName: string): string | undefined {
+	const byId = f.phases.find(p => p.id === phaseIdOrName);
+	if (byId) return byId.id;
+	const byName = f.phases.find(p => p.name.toLowerCase() === phaseIdOrName.toLowerCase());
+	if (byName) return byName.id;
+	return undefined;
+}
+
 function hintNext(f: Ferment): string {
 	const action = whatNext(f);
 	if (!action) return "";
@@ -57,16 +66,18 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_activate_phase",
 		label: "Ferment Activate Phase",
-		description: "Activate a specific phase within the active ferment.",
+		description: "Activate a specific phase within the active ferment. Accepts phase name or ID.",
 		parameters: z.object({
-			phaseId: z.string().describe("ID of the phase to activate"),
+			phaseId: z.string().describe("Phase name or ID to activate"),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const ferment = requireActive();
+				const resolved = resolvePhaseId(ferment, params.phaseId);
+				if (!resolved) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
 				const cmd: Extract<FermentCommand, { type: "activate_phase" }> = {
 					type: "activate_phase",
-					phaseId: params.phaseId,
+					phaseId: resolved,
 				};
 				const result = applyTransition(ferment, cmd);
 				if ("error" in result) return errorWithRecovery(result.error);
@@ -74,7 +85,7 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 				FermentStore.open().save(result);
 				setActive(result);
 
-				const phase = result.phases.find(p => p.id === params.phaseId);
+				const phase = result.phases.find(p => p.id === resolved);
 				const msg = phase ? `Phase ${phase.index} "${phase.name}" activated.` : `Phase activated.`;
 				return successWithHint(msg, result);
 			} catch (err) {
@@ -87,17 +98,19 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_complete_phase",
 		label: "Ferment Complete Phase",
-		description: "Mark the active phase as complete.",
+		description: "Mark the active phase as complete. Accepts phase name or ID.",
 		parameters: z.object({
-			phaseId: z.string().describe("ID of the phase to complete"),
+			phaseId: z.string().describe("Phase name or ID to complete"),
 			summary: z.string().optional().describe("Phase completion summary"),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const ferment = requireActive();
+				const resolved = resolvePhaseId(ferment, params.phaseId);
+				if (!resolved) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
 				const cmd: Extract<FermentCommand, { type: "complete_phase" }> = {
 					type: "complete_phase",
-					phaseId: params.phaseId,
+					phaseId: resolved,
 					summary: params.summary ?? "",
 				};
 				const result = applyTransition(ferment, cmd);
@@ -124,17 +137,19 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_skip_phase",
 		label: "Ferment Skip Phase",
-		description: "Skip a planned phase.",
+		description: "Skip a planned phase. Accepts phase name or ID.",
 		parameters: z.object({
-			phaseId: z.string().describe("ID of the phase to skip"),
+			phaseId: z.string().describe("Phase name or ID to skip"),
 			reason: z.string().optional().describe("Reason for skipping"),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const ferment = requireActive();
+				const resolved = resolvePhaseId(ferment, params.phaseId);
+				if (!resolved) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
 				const cmd: Extract<FermentCommand, { type: "skip_phase" }> = {
 					type: "skip_phase",
-					phaseId: params.phaseId,
+					phaseId: resolved,
 					reason: params.reason,
 				};
 				const result = applyTransition(ferment, cmd);
@@ -143,7 +158,7 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 				FermentStore.open().save(result);
 				setActive(result);
 
-				const skipped = result.phases.find(p => p.id === params.phaseId);
+				const skipped = result.phases.find(p => p.id === resolved);
 				const msg = skipped ? `Phase ${skipped.index} "${skipped.name}" skipped.` : `Phase skipped.`;
 				return successWithHint(msg, result);
 			} catch (err) {
@@ -156,17 +171,19 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_fail_phase",
 		label: "Ferment Fail Phase",
-		description: "Mark a phase as failed.",
+		description: "Mark a phase as failed. Accepts phase name or ID.",
 		parameters: z.object({
-			phaseId: z.string().describe("ID of the phase to fail"),
+			phaseId: z.string().describe("Phase name or ID to fail"),
 			reason: z.string().describe("Reason for failure"),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const ferment = requireActive();
+				const resolved = resolvePhaseId(ferment, params.phaseId);
+				if (!resolved) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
 				const cmd: Extract<FermentCommand, { type: "fail_phase" }> = {
 					type: "fail_phase",
-					phaseId: params.phaseId,
+					phaseId: resolved,
 					reason: params.reason,
 				};
 				const result = applyTransition(ferment, cmd);
@@ -175,7 +192,7 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 				FermentStore.open().save(result);
 				setActive(result);
 
-				const failed = result.phases.find(p => p.id === params.phaseId);
+				const failed = result.phases.find(p => p.id === resolved);
 				const msg = failed ? `Phase ${failed.index} "${failed.name}" marked failed.` : `Phase marked failed.`;
 				return successWithHint(msg, result);
 			} catch (err) {
