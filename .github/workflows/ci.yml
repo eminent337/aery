@@ -271,13 +271,12 @@ jobs:
               merge-multiple: true
               run-id: ${{ steps.source.outputs.run-id }}
               github-token: ${{ secrets.GITHUB_TOKEN }}
-        - name: Test workspace (TS)
-          # `test:ts` sets GITHUB_ACTIONS=0 inline so `bun test` skips its
-          # per-file `::group::`/`::endgroup::` annotations. Under `--workspaces`
-          # every line is prefixed with `<pkg> test: `, which breaks GHA's
-          # column-0 parsing and would leak those markers as literal log spam.
-          run: bun run test:ts
-          timeout-minutes: 25
+         - name: Test workspace (TS)
+           # `test:ts` sets GITHUB_ACTIONS=0 inline so `bun test` skips its
+           # per-file `::group::`/`::endgroup::` annotations. Under `--workspaces`
+           # every line is prefixed with `<pkg> test: `, which breaks GHA's
+           # column-0 parsing and would leak those markers as literal log spam.
+           run: bun run test:ts
          - name: CLI smoke test
            run: bun run ci:test:smoke
 
