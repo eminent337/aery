@@ -19,6 +19,9 @@ import {
 	getPluginsCacheDir,
 	MarketplaceManager,
 } from "../extensibility/plugins/marketplace";
+import { applyTransition } from "../ferment/state-machine.js";
+import { FermentStore } from "../ferment/store.js";
+import type { Ferment } from "../ferment/types.js";
 import { resolveMemoryBackend } from "../memory-backend";
 import type { InteractiveModeContext } from "../modes/types";
 import { formatShakeSummary, type ShakeMode } from "../session/shake-types";
@@ -1326,6 +1329,98 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 
 			// If a prompt was provided, pass it through as input
 			if (prompt) return { prompt };
+		},
+	},
+	{
+		name: "ferment",
+		description: "Ferment workflow commands",
+		subcommands: [
+			{ name: "one-shot", description: "Create and auto-execute a single task ferment", usage: "<goal>" },
+		],
+		allowArgs: true,
+		handle: async (command, runtime) => {
+			const args = command.args.trim();
+			if (!args.startsWith("one-shot")) {
+				return usage("Usage: /ferment one-shot <goal>", runtime);
+			}
+			const goal = args.slice("one-shot".length).trim();
+			if (!goal) {
+				return usage("Usage: /ferment one-shot <goal>", runtime);
+			}
+
+			// Create a draft ferment and use the state machine for proper lifecycle
+			const now = new Date().toISOString();
+			const draft: Ferment = {
+				id: crypto.randomUUID(),
+				name: "One-shot",
+				status: "draft",
+				goal,
+				worktree: { path: runtime.cwd },
+				scoping: {},
+				phases: [],
+				decisions: [],
+				memories: [],
+				createdAt: now,
+				updatedAt: now,
+			};
+			const result = applyTransition(draft, {
+				type: "oneShot",
+				title: "One-shot",
+				goal,
+			});
+
+			if ("error" in result) {
+				return usage(`Failed to start one-shot ferment: ${result.error}`, runtime);
+			}
+
+			FermentStore.open().save(result);
+			await runtime.output(`One-shot ferment started: "${goal}"`);
+			return commandConsumed();
+		},
+		handleTui: async (command, runtime) => {
+			const args = command.args.trim();
+			if (!args.startsWith("one-shot")) {
+				runtime.ctx.showStatus("Usage: /ferment one-shot <goal>");
+				runtime.ctx.editor.setText("");
+				return;
+			}
+			const goal = args.slice("one-shot".length).trim();
+			if (!goal) {
+				runtime.ctx.showStatus("Usage: /ferment one-shot <goal>");
+				runtime.ctx.editor.setText("");
+				return;
+			}
+
+			// Create a draft ferment and use the state machine for proper lifecycle
+			const now = new Date().toISOString();
+			const draft: Ferment = {
+				id: crypto.randomUUID(),
+				name: "One-shot",
+				status: "draft",
+				goal,
+				worktree: { path: process.cwd() },
+				scoping: {},
+				phases: [],
+				decisions: [],
+				memories: [],
+				createdAt: now,
+				updatedAt: now,
+			};
+			const result = applyTransition(draft, {
+				type: "oneShot",
+				title: "One-shot",
+				goal,
+			});
+
+			if ("error" in result) {
+				runtime.ctx.showStatus(`Failed to start one-shot ferment: ${result.error}`);
+				runtime.ctx.editor.setText("");
+				return;
+			}
+
+			FermentStore.open().save(result);
+			runtime.ctx.showStatus(`One-shot ferment started: "${goal}"`);
+			runtime.ctx.editor.setText("");
 		},
 	},
 	{

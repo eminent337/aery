@@ -1,7 +1,16 @@
 // Ferment state machine — pure transition logic, zero I/O.
 // Aery ferment state machine — pure transition logic, zero I/O.
 
-import type { Ferment, FermentCommand, Phase, PhaseStatus, Step, StepResult, StepStatus } from "./types.js";
+import type {
+	Ferment,
+	FermentCommand,
+	Phase,
+	PhaseStatus,
+	ScopingAnswer,
+	Step,
+	StepResult,
+	StepStatus,
+} from "./types.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -11,10 +20,12 @@ const VALID_MEMORY_CATEGORIES = ["architecture", "convention", "gotcha", "patter
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-export function applyTransition(ferment: Ferment, cmd: FermentCommand): Ferment | { error: string } {
+export function applyTransition(ferment: Ferment, cmd: FermentCommand): Ferment | { error: string; code?: string } {
 	const now = new Date().toISOString();
 
 	switch (cmd.type) {
+		case "oneShot":
+			return hOneShot(ferment, cmd, now);
 		case "scope":
 			return hScope(ferment, cmd, now);
 		case "activate_phase":
@@ -51,6 +62,8 @@ export function applyTransition(ferment: Ferment, cmd: FermentCommand): Ferment 
 			return hAddDecision(ferment, cmd.title, cmd.description, cmd.phaseId, cmd.stepId, now);
 		case "add_memory":
 			return hAddMemory(ferment, cmd.category, cmd.content, cmd.phaseId, cmd.stepId, now);
+		case "update_scope_field":
+			return hUpdateScopeField(ferment, cmd, now);
 	}
 }
 
@@ -200,6 +213,45 @@ function buildPhases(
 
 // ─── Command handlers ─────────────────────────────────────────────────────────
 
+/**
+ * One-shot transition: creates a fully-scoped, activated, and started ferment
+ * from a draft. Combines scope → activate_phase → start_step into one step.
+ */
+function hOneShot(
+	f: Ferment,
+	cmd: Extract<FermentCommand, { type: "oneShot" }>,
+	now: string,
+): Ferment | { error: string; code?: string } {
+	// 1. Scope the draft with a single phase/step
+	const scoped = hScope(
+		f,
+		{
+			type: "scope",
+			title: cmd.title,
+			goal: cmd.goal,
+			phases: [
+				{
+					name: "Work",
+					goal: cmd.goal,
+					steps: [{ description: cmd.goal }],
+				},
+			],
+		},
+		now,
+	);
+	if ("error" in scoped) return scoped;
+
+	// 2. Activate the first (and only) phase
+	const activated = hActivatePhase(scoped, "phase-1", now);
+	if ("error" in activated) return activated;
+
+	// 3. Start the first (and only) step
+	const started = hStartStep(activated, "phase-1", "step-1", now);
+	if ("error" in started) return started;
+
+	return started;
+}
+
 function hScope(f: Ferment, cmd: Extract<FermentCommand, { type: "scope" }>, now: string): Ferment | { error: string } {
 	const bad = requireFermentStatus(f, ["draft"]);
 	if (bad) return bad;
@@ -263,11 +315,27 @@ function hRefinePhase(
 	return setPhase(f, found.index, { steps: newSteps });
 }
 
-function hStartStep(f: Ferment, phaseId: string, stepId: string, now: string): Ferment | { error: string } {
+function hStartStep(
+	f: Ferment,
+	phaseId: string,
+	stepId: string,
+	now: string,
+): Ferment | { error: string; code?: string } {
 	const pf = findPhase(f, phaseId);
 	if ("error" in pf) return pf;
 	const sf = findStep(pf.phase, stepId);
 	if ("error" in sf) return sf;
+
+	const currentStartCount = sf.step.startCount ?? 0;
+	const newStartCount = currentStartCount + 1;
+
+	if (newStartCount >= 3) {
+		return {
+			error: `Step has been started ${newStartCount} times without completing. Ask the user: should we retry with a revised approach, skip this step, or pause the ferment?`,
+			code: "STUCK_LOOP",
+		};
+	}
+
 	const alreadyRunning = pf.phase.steps.find(s => s.status === "running" && s.id !== stepId);
 	if (
 		alreadyRunning &&
@@ -277,7 +345,7 @@ function hStartStep(f: Ferment, phaseId: string, stepId: string, now: string): F
 			error: `Cannot start step ${sf.step.index} — step ${alreadyRunning.index} ("${alreadyRunning.description}") is already running and is not in the same parallel group.`,
 		};
 	}
-	return setStep(f, pf.index, sf.index, { status: "running", startedAt: now });
+	return setStep(f, pf.index, sf.index, { status: "running", startedAt: now, startCount: newStartCount });
 }
 
 function hCompleteStep(
@@ -293,7 +361,7 @@ function hCompleteStep(
 	const sf = findStep(pf.phase, stepId);
 	if ("error" in sf) return sf;
 	const status: StepStatus = result?.success ? "verified" : "done";
-	return setStep(f, pf.index, sf.index, { status, completedAt: now, result, summary });
+	return setStep(f, pf.index, sf.index, { status, completedAt: now, result, summary, startCount: 0 });
 }
 
 function hVerifyStep(
@@ -314,6 +382,7 @@ function hVerifyStep(
 		completedAt: now,
 		result: { ...result, completedAt: now },
 		summary,
+		startCount: 0,
 	});
 }
 
@@ -322,7 +391,7 @@ function hSkipStep(f: Ferment, phaseId: string, stepId: string, now: string): Fe
 	if ("error" in pf) return pf;
 	const sf = findStep(pf.phase, stepId);
 	if ("error" in sf) return sf;
-	return setStep(f, pf.index, sf.index, { status: "skipped", completedAt: now });
+	return setStep(f, pf.index, sf.index, { status: "skipped", completedAt: now, startCount: 0 });
 }
 
 function hFailStep(
@@ -337,7 +406,7 @@ function hFailStep(
 	const sf = findStep(pf.phase, stepId);
 	if ("error" in sf) return sf;
 	const result: StepResult | undefined = error ? { success: false, stderr: error, completedAt: now } : undefined;
-	return setStep(f, pf.index, sf.index, { status: "failed", completedAt: now, result });
+	return setStep(f, pf.index, sf.index, { status: "failed", completedAt: now, result, startCount: 0 });
 }
 
 function hCompletePhase(f: Ferment, phaseId: string, summary: string, now: string): Ferment | { error: string } {
@@ -396,6 +465,43 @@ function hResume(f: Ferment, now: string): Ferment | { error: string } {
 
 function hAbandon(f: Ferment, _reason: string | undefined, now: string): Ferment | { error: string } {
 	return touch(f, now, { status: "abandoned" });
+}
+
+function hUpdateScopeField(
+	f: Ferment,
+	cmd: Extract<FermentCommand, { type: "update_scope_field" }>,
+	now: string,
+): Ferment | { error: string } {
+	const bad = requireFermentStatus(f, ["draft", "planned"]);
+	if (bad) return bad;
+
+	const scoping = { ...f.scoping };
+	const answer: ScopingAnswer = { answer: cmd.value, confirmedAt: now };
+
+	switch (cmd.field) {
+		case "goal": {
+			scoping.goal = answer;
+			return touch(f, now, { goal: cmd.value, scoping });
+		}
+		case "criteria": {
+			scoping.criteria = answer;
+			const criteria = cmd.value
+				.split(/\r?\n/)
+				.map(s => s.replace(/^[-*]\s+/, "").trim())
+				.filter(Boolean);
+			return touch(f, now, { successCriteria: criteria, scoping });
+		}
+		case "constraints": {
+			scoping.constraints = answer;
+			const constraints = cmd.value
+				.split(/\r?\n/)
+				.map(s => s.replace(/^[-*]\s+/, "").trim())
+				.filter(Boolean);
+			return touch(f, now, { constraints, scoping });
+		}
+		default:
+			return { error: `Invalid field "${cmd.field}". Use "goal", "criteria", or "constraints".` };
+	}
 }
 
 function hAddDecision(

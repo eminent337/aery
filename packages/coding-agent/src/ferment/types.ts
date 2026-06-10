@@ -69,6 +69,7 @@ export interface Step {
 	verification?: Verification;
 	result?: StepResult;
 	summary?: string;
+	startCount?: number;
 	startedAt?: string;
 	completedAt?: string;
 	parallel?: boolean;

@@ -334,8 +334,26 @@ describe("/ferment one-shot", () => {
 		expect(active?.status).toBe("running");
 		expect(active?.phases).toHaveLength(1);
 		expect(active?.phases[0].name).toBe("Work");
+		expect(active?.phases[0].status).toBe("active");
+		expect(active?.activePhaseId).toBeDefined();
 		expect(getContinuationPolicy()).toBe("automated");
 		expect(ctx.ui.notify).toHaveBeenCalledWith(`One-shot ferment started.`, "info");
+
+		// Verify step is started (running, not pending)
+		const step = active?.phases[0].steps[0];
+		expect(step).toBeDefined();
+		expect(step?.status).toBe("running");
+		expect(step?.startedAt).toBeDefined();
+		expect(step?.description).toBe("Fix the login bug");
+
+		// Verify a nudge message was sent to trigger the agent
+		expect(api.sendMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				customType: "ferment_one_shot",
+				display: false,
+			}),
+			{ triggerTurn: true },
+		);
 	});
 
 	test("notifies usage when goal is empty", async () => {
@@ -349,6 +367,49 @@ describe("/ferment one-shot", () => {
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Usage: /ferment one-shot <goal>", "info");
 		expect(getActive()).toBeUndefined();
+	});
+
+	test("sets step status to running and includes goal in description", async () => {
+		clearActive();
+		const api = makeMockAPI();
+		const ctx = makeMockContext();
+		registerFermentCommands(api);
+
+		const handler = (api.registerCommand as any).mock.calls[0][1].handler;
+		await handler("one-shot Refactor database layer", ctx);
+
+		const active = getActive();
+		expect(active).not.toBeUndefined();
+		expect(active?.phases[0].steps).toHaveLength(1);
+
+		const step = active!.phases[0].steps[0];
+		expect(step.id).toBe("step-1");
+		expect(step.index).toBe(1);
+		expect(step.description).toBe("Refactor database layer");
+		expect(step.status).toBe("running");
+		expect(step.startedAt).toBeDefined();
+	});
+
+	test("creates ferment with expected phase structure", async () => {
+		clearActive();
+		const api = makeMockAPI();
+		const ctx = makeMockContext();
+		registerFermentCommands(api);
+
+		const handler = (api.registerCommand as any).mock.calls[0][1].handler;
+		await handler("one-shot Add unit tests", ctx);
+
+		const active = getActive();
+		expect(active).not.toBeUndefined();
+
+		const phase = active!.phases[0];
+		expect(phase.id).toBe("phase-1");
+		expect(phase.index).toBe(1);
+		expect(phase.name).toBe("Work");
+		expect(phase.goal).toBe("Add unit tests");
+		expect(phase.status).toBe("active");
+		expect(phase.startedAt).toBeDefined();
+		expect(phase.steps).toHaveLength(1);
 	});
 });
 

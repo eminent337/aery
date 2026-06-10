@@ -10,7 +10,7 @@
 import type { BeforeAgentStartEventResult, ExtensionAPI } from "../../extensibility/extensions/types.js";
 import { whatNext } from "../engine.js";
 import type { Ferment } from "../types.js";
-import { getActive } from "./state.js";
+import { getActive, getTurnCount } from "./state.js";
 
 /**
  * Directive hint injected when no ferment is active.
@@ -37,6 +37,7 @@ Use the /ferment slash command to manage active ferments (pause, resume, progres
 - NEVER call \`ferment_new\` — it is deprecated. Always use \`request_ferment_workflow\` to start a ferment.
 - NEVER guess phase or step IDs — they are returned by tool results. Call the previous tool and use the IDs from its response.
 - NEVER abandon the ferment on error — instead call \`ferment_add_memory\` or \`ferment_add_decision\` to record the issue, then continue.
+- NEVER retry a step that has failed 3+ times (STUCK_LOOP) without checking with the user first — ask whether to retry with a revised approach, skip, or pause.
 - NEVER skip steps or phases unless explicitly instructed by the user. Follow the lifecycle sequentially.`;
 /**
  * Format decisions and memories for the planner supplement.
@@ -122,6 +123,7 @@ You are the PLANNER for ferment "${f.name}". Your job is to manage the task grap
 - Capture gotchas, conventions, and reusable patterns via \`ferment_add_memory\`
 - Surface blockers only when you cannot proceed without human input
 - Use the /ferment slash command for status, pause, resume, or abandon
+- **Stuck-loop recovery:** If a step errors with STUCK_LOOP (started 3+ times without completing), ask the user: retry with a revised approach, skip the step, or pause the ferment. Do NOT keep retrying the same step — escalate to the user.
 
 **Upfront Contract:**
 Treat the Ferment Specification (goal, success criteria, constraints) as the agreed plan. Proceed with your highest-confidence interpretation and capture uncertainty via \`ferment_add_decision\` or \`ferment_add_memory\`. Surface blockers only when you cannot proceed without human input.
@@ -167,6 +169,24 @@ Ferment "${f.name}" has been scoped with ${f.phases.length} phase(s).
 Call \`ferment_activate_phase\` with phaseId "${f.phases[0]?.id}" to begin.`;
 }
 
+/**
+ * Build the context budget warning line based on the current turn count.
+ *
+ * Thresholds (matching Kimchi's context budget indicators):
+ * - < 30 turns:  "Context: ${turns} turns" (normal)
+ * - 30-49 turns: "Context: ${turns} turns — growing" (warning)
+ * - 50+ turns:   "⚠ Context: ${turns} turns — consider /compact" (alert)
+ */
+function buildContextBudgetLine(turns: number): string {
+	if (turns >= 50) {
+		return `⚠ Context: ${turns} turns — consider /compact`;
+	}
+	if (turns >= 30) {
+		return `Context: ${turns} turns — growing`;
+	}
+	return `Context: ${turns} turns`;
+}
+
 function getCurrentPhaseName(f: Ferment): string {
 	if (!f.activePhaseId) return "none";
 	const phase = f.phases.find(p => p.id === f.activePhaseId);
@@ -179,13 +199,14 @@ function buildFermentPromptBlock(): string {
 
 	switch (f.status) {
 		case "draft":
-			return buildPlanningSupplement(f);
 		case "planned":
 			return buildPlanningSupplement(f);
 		case "running": {
 			const action = whatNext(f);
+			const turns = getTurnCount();
 			const header = `## Active Ferment: ${f.name}\nStatus: ${f.status}\nPhase: ${getCurrentPhaseName(f)}\nProgress: ${buildScopingSummary(f)}\nNext Action: ${action?.kind ?? "none"}`;
-			return `${header}\n\n${buildPlannerRole(f)}`;
+			const contextLine = buildContextBudgetLine(turns);
+			return `${header}\n${contextLine}\n\n${buildPlannerRole(f)}`;
 		}
 		case "paused":
 			return buildPausedWarning(f);
@@ -205,3 +226,6 @@ export function registerFermentPromptBlock(api: ExtensionAPI): void {
 		return { systemPrompt: [block] };
 	});
 }
+
+/** Export for testing. */
+export { buildFermentPromptBlock };

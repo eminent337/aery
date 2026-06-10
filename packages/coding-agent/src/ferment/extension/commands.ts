@@ -295,33 +295,39 @@ Call \`ferment_scope\` NOW. Do not explain — just call it with a complete plan
 						ctx.ui.notify("Usage: /ferment one-shot <goal>", "info");
 						return;
 					}
-					const id = crypto.randomUUID();
-					const ferment: Ferment = {
-						id,
-						name: "One-shot",
-						status: "running",
+
+					const draft = createMinimalFerment(goal, ctx.cwd);
+					// Rename to "One-shot" for consistent display (hScope uses title ?? f.name)
+					const namedDraft = { ...draft, name: "One-shot" };
+					const result = applyTransition(namedDraft, {
+						type: "oneShot",
+						title: "One-shot",
 						goal,
-						worktree: { path: ctx.cwd },
-						scoping: { goal: { answer: goal, confirmedAt: new Date().toISOString() } },
-						phases: [
-							{
-								id: "p-1",
-								index: 1,
-								name: "Work",
-								goal,
-								status: "active",
-								steps: [{ id: "s-1", index: 1, description: goal, status: "pending" }],
-							},
-						],
-						decisions: [],
-						memories: [],
-						createdAt: new Date().toISOString(),
-						updatedAt: new Date().toISOString(),
-					};
-					FermentStore.open().save(ferment);
-					setActive(ferment);
+					});
+
+					if ("error" in result) {
+						ctx.ui.notify(`Failed to start one-shot ferment: ${result.error}`, "error");
+						return;
+					}
+
+					const store = FermentStore.open();
+					store.save(result);
+					setActive(result);
 					setContinuationPolicy("automated");
 					ctx.ui.notify(`One-shot ferment started.`, "info");
+
+					// Nudge the agent to execute the task inline
+					api.sendMessage(
+						{
+							content: `You are running a one-shot ferment: "${result.name}" (ID: ${result.id}).
+User intent: "${goal}"
+Your task — execute the task autonomously. The ferment has been pre-configured with a single phase and step. Follow the ferment lifecycle tools to execute the step, then complete the phase and ferment when done.
+Do not ask for confirmation or narrate progress. Execute until completion.`,
+							customType: "ferment_one_shot",
+							display: false,
+						},
+						{ triggerTurn: true },
+					);
 					break;
 				}
 

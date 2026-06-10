@@ -17,6 +17,7 @@ export interface ScopePhaseInput {
 }
 
 export type FermentCommand =
+	| { type: "oneShot"; goal: string; title?: string }
 	| {
 			type: "scope";
 			title?: string;
@@ -27,28 +28,12 @@ export type FermentCommand =
 	  }
 	| { type: "activate_phase"; phaseId: string }
 	| { type: "activate_phase_group"; groupIndex: number }
-	| {
-			type: "refine_phase";
-			phaseId: string;
-			steps: ScopePhaseStepInput[];
-	  }
+	| { type: "refine_phase"; phaseId: string; steps: ScopePhaseStepInput[] }
 	| { type: "complete_phase"; phaseId: string; summary: string }
 	| { type: "skip_phase"; phaseId: string; reason?: string }
 	| { type: "fail_phase"; phaseId: string; reason: string }
-	| {
-			type: "complete_step";
-			phaseId: string;
-			stepId: string;
-			result?: StepResult;
-			summary?: string;
-	  }
-	| {
-			type: "verify_step";
-			phaseId: string;
-			stepId: string;
-			result: StepResult;
-			summary?: string;
-	  }
+	| { type: "complete_step"; phaseId: string; stepId: string; result?: StepResult; summary?: string }
+	| { type: "verify_step"; phaseId: string; stepId: string; result: StepResult; summary?: string }
 	| { type: "skip_step"; phaseId: string; stepId: string }
 	| { type: "fail_step"; phaseId: string; stepId: string; error?: string }
 	| { type: "start_step"; phaseId: string; stepId: string }
@@ -56,17 +41,6 @@ export type FermentCommand =
 	| { type: "pause" }
 	| { type: "resume" }
 	| { type: "abandon"; reason?: string }
-	| {
-			type: "add_decision";
-			title: string;
-			description: string;
-			phaseId?: string;
-			stepId?: string;
-	  }
-	| {
-			type: "add_memory";
-			category: MemoryCategory;
-			content: string;
-			phaseId?: string;
-			stepId?: string;
-	  };
+	| { type: "add_decision"; title: string; description: string; phaseId?: string; stepId?: string }
+	| { type: "add_memory"; category: MemoryCategory; content: string; phaseId?: string; stepId?: string }
+	| { type: "update_scope_field"; field: "goal" | "criteria" | "constraints"; value: string };

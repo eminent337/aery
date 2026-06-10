@@ -168,6 +168,101 @@ describe("happy path lifecycle", () => {
 	});
 });
 
+// ─── One-shot lifecycle ──────────────────────────────────────────────────────
+
+describe("one-shot lifecycle", () => {
+	it("oneShot transitions draft → running with a single phase and step", () => {
+		const f = makeDraft();
+		const result = applyTransition(f, {
+			type: "oneShot",
+			goal: "Fix the login bug",
+		});
+		expect("error" in result).toBe(false);
+		if ("error" in result) return;
+
+		// Ferment status
+		expect(result.status).toBe("running");
+		expect(result.goal).toBe("Fix the login bug");
+		expect(result.name).toBe("Test Ferment"); // inherits from draft since no title
+
+		// Phase structure
+		expect(result.phases).toHaveLength(1);
+		expect(result.phases[0].id).toBe("phase-1");
+		expect(result.phases[0].name).toBe("Work");
+		expect(result.phases[0].goal).toBe("Fix the login bug");
+		expect(result.phases[0].status).toBe("active");
+		expect(result.activePhaseId).toBe("phase-1");
+
+		// Step structure
+		const step = result.phases[0].steps[0];
+		expect(step).toBeDefined();
+		expect(step.id).toBe("step-1");
+		expect(step.description).toBe("Fix the login bug");
+		expect(step.status).toBe("running");
+		expect(step.startedAt).toBeDefined();
+	});
+
+	it("oneShot with title sets ferment name", () => {
+		const f = makeDraft();
+		const result = applyTransition(f, {
+			type: "oneShot",
+			title: "My One-shot",
+			goal: "Refactor the API",
+		});
+		expect("error" in result).toBe(false);
+		if ("error" in result) return;
+		expect(result.name).toBe("My One-shot");
+	});
+
+	it("oneShot fails on non-draft ferment", () => {
+		const f: Ferment = { ...makeDraft(), status: "running" };
+		const result = applyTransition(f, {
+			type: "oneShot",
+			goal: "Won't work",
+		});
+		expect("error" in result).toBe(true);
+	});
+
+	it("oneShot ferment can complete the full lifecycle", () => {
+		const f = makeDraft();
+		const started = applyTransition(f, {
+			type: "oneShot",
+			goal: "Build feature X",
+		});
+		expect("error" in started).toBe(false);
+		if ("error" in started) return;
+
+		// Complete the step
+		const stepDone = applyTransition(started, {
+			type: "complete_step",
+			phaseId: "phase-1",
+			stepId: "step-1",
+			result: { success: true, completedAt: "2026-01-01T00:01:00.000Z" },
+		});
+		expect("error" in stepDone).toBe(false);
+		if ("error" in stepDone) return;
+		expect(stepDone.phases[0].steps[0].status).toBe("verified");
+
+		// Complete the phase
+		const phaseDone = applyTransition(stepDone, {
+			type: "complete_phase",
+			phaseId: "phase-1",
+			summary: "All done",
+		});
+		expect("error" in phaseDone).toBe(false);
+		if ("error" in phaseDone) return;
+		expect(phaseDone.phases[0].status).toBe("completed");
+
+		// Complete the ferment
+		const complete = applyTransition(phaseDone, {
+			type: "complete_ferment",
+		});
+		expect("error" in complete).toBe(false);
+		if ("error" in complete) return;
+		expect(complete.status).toBe("complete");
+	});
+});
+
 // ─── Phase activation / deactivation ─────────────────────────────────────────
 
 describe("phase activation", () => {
@@ -439,5 +534,213 @@ describe("immutability", () => {
 		const original = f.phases[0].status;
 		applyTransition(f, { type: "activate_phase", phaseId: "phase-1" });
 		expect(f.phases[0].status).toBe(original);
+	});
+});
+
+// ─── Update scope field ───────────────────────────────────────────────────────
+
+describe("update_scope_field", () => {
+	it("updates goal on a draft ferment", () => {
+		const f = makeDraft();
+		const result = applyTransition(f, {
+			type: "update_scope_field",
+			field: "goal",
+			value: "New goal",
+		});
+		expect("error" in result).toBe(false);
+		if ("error" in result) return;
+		expect(result.goal).toBe("New goal");
+		expect(result.scoping.goal?.answer).toBe("New goal");
+		expect(result.status).toBe("draft");
+	});
+
+	it("updates criteria on a draft ferment", () => {
+		const f = makeDraft();
+		const result = applyTransition(f, {
+			type: "update_scope_field",
+			field: "criteria",
+			value: "Criterion A",
+		});
+		expect("error" in result).toBe(false);
+		if ("error" in result) return;
+		expect(result.successCriteria).toEqual(["Criterion A"]);
+		expect(result.scoping.criteria?.answer).toBe("Criterion A");
+	});
+
+	it("updates constraints on a draft ferment", () => {
+		const f = makeDraft();
+		const result = applyTransition(f, {
+			type: "update_scope_field",
+			field: "constraints",
+			value: "Constraint X",
+		});
+		expect("error" in result).toBe(false);
+		if ("error" in result) return;
+		expect(result.constraints).toEqual(["Constraint X"]);
+		expect(result.scoping.constraints?.answer).toBe("Constraint X");
+	});
+
+	it("updates a field on a planned ferment", () => {
+		const f: Ferment = {
+			...makeDraft(),
+			status: "planned",
+			goal: "Original goal",
+			scoping: { goal: { answer: "Original goal", confirmedAt: "2026-01-01T00:00:00.000Z" } },
+		};
+		const result = applyTransition(f, {
+			type: "update_scope_field",
+			field: "goal",
+			value: "Updated goal",
+		});
+		expect("error" in result).toBe(false);
+		if ("error" in result) return;
+		expect(result.goal).toBe("Updated goal");
+		expect(result.scoping.goal?.answer).toBe("Updated goal");
+		expect(result.status).toBe("planned");
+	});
+
+	it("rejects update on running ferment", () => {
+		const f: Ferment = {
+			...makeDraft(),
+			status: "running",
+			phases: [{ ...makePhase("phase-1", 1, "P1", []), status: "active" as const }],
+		};
+		const result = applyTransition(f, {
+			type: "update_scope_field",
+			field: "goal",
+			value: "Should not work",
+		});
+		expect("error" in result).toBe(true);
+	});
+
+	it("rejects update on complete ferment", () => {
+		const f: Ferment = { ...makeDraft(), status: "complete" };
+		const result = applyTransition(f, {
+			type: "update_scope_field",
+			field: "goal",
+			value: "Should not work",
+		});
+		expect("error" in result).toBe(true);
+	});
+
+	it("rejects invalid field name via TypeScript (runtime)", () => {
+		const f = makeDraft();
+		const result = applyTransition(f, {
+			type: "update_scope_field",
+			field: "assumptions" as any,
+			value: "Should fail",
+		});
+		expect("error" in result).toBe(true);
+	});
+
+	it("updates criteria with multi-line value", () => {
+		const f = makeDraft();
+		const result = applyTransition(f, {
+			type: "update_scope_field",
+			field: "criteria",
+			value: "Criterion A\n- Criterion B\n* Criterion C",
+		});
+		expect("error" in result).toBe(false);
+		if ("error" in result) return;
+		expect(result.successCriteria).toEqual(["Criterion A", "Criterion B", "Criterion C"]);
+		expect(result.scoping.criteria?.answer).toBe("Criterion A\n- Criterion B\n* Criterion C");
+	});
+
+	it("does not mutate original ferment", () => {
+		const f = makeDraft();
+		const before = JSON.stringify(f);
+		applyTransition(f, {
+			type: "update_scope_field",
+			field: "goal",
+			value: "New goal",
+		});
+		expect(JSON.stringify(f)).toBe(before);
+	});
+});
+
+// ─── Stuck-loop detection ────────────────────────────────────────────────────
+
+describe("stuck-loop detection", () => {
+	function runningFerment(step: Step): Ferment {
+		return {
+			...makeDraft(),
+			status: "running",
+			phases: [{ ...makePhase("phase-1", 1, "P1", [step]), status: "active" }],
+			activePhaseId: "phase-1",
+		};
+	}
+
+	it("start_step 3 times without completing returns STUCK_LOOP error", () => {
+		const step = makeStep("step-1", 1, "Stuck step");
+		let f = runningFerment(step);
+
+		// Start once -> startCount = 1
+		f = applyTransition(f, { type: "start_step", phaseId: "phase-1", stepId: "step-1" }) as Ferment;
+		expect(f.phases[0].steps[0].startCount).toBe(1);
+		expect(f.phases[0].steps[0].status).toBe("running");
+
+		// Start again (step is still running) -> startCount = 2
+		f = applyTransition(f, { type: "start_step", phaseId: "phase-1", stepId: "step-1" }) as Ferment;
+		expect(f.phases[0].steps[0].startCount).toBe(2);
+		expect(f.phases[0].steps[0].status).toBe("running");
+
+		// Start a third time -> STUCK_LOOP error
+		const result = applyTransition(f, { type: "start_step", phaseId: "phase-1", stepId: "step-1" });
+		expect("error" in result).toBe(true);
+		if ("error" in result) {
+			expect((result as any).code).toBe("STUCK_LOOP");
+			expect(result.error).toContain("started 3 times");
+		}
+	});
+
+	it("completing a step resets the start counter", () => {
+		const step = makeStep("step-1", 1, "Reset step");
+		let f = runningFerment(step);
+
+		// Start twice (step stays running)
+		f = applyTransition(f, { type: "start_step", phaseId: "phase-1", stepId: "step-1" }) as Ferment;
+		expect(f.phases[0].steps[0].startCount).toBe(1);
+		f = applyTransition(f, { type: "start_step", phaseId: "phase-1", stepId: "step-1" }) as Ferment;
+		expect(f.phases[0].steps[0].startCount).toBe(2);
+
+		// Complete it (terminal status) -> resets startCount
+		f = applyTransition(f, {
+			type: "complete_step",
+			phaseId: "phase-1",
+			stepId: "step-1",
+			result: { success: true, completedAt: new Date().toISOString() },
+		}) as Ferment;
+		expect(f.phases[0].steps[0].startCount).toBe(0);
+		expect(f.phases[0].steps[0].status).toBe("verified");
+
+		// Start again — should work fine (counter was reset)
+		const result = applyTransition(f, { type: "start_step", phaseId: "phase-1", stepId: "step-1" });
+		expect("error" in result).toBe(false);
+		if (!("error" in result)) {
+			expect(result.phases[0].steps[0].startCount).toBe(1);
+		}
+	});
+
+	it("skipping a step resets the start counter, allowing fresh start", () => {
+		const step = makeStep("step-1", 1, "Skip reset step");
+		let f = runningFerment(step);
+
+		// Start twice
+		f = applyTransition(f, { type: "start_step", phaseId: "phase-1", stepId: "step-1" }) as Ferment;
+		expect(f.phases[0].steps[0].startCount).toBe(1);
+		f = applyTransition(f, { type: "start_step", phaseId: "phase-1", stepId: "step-1" }) as Ferment;
+		expect(f.phases[0].steps[0].startCount).toBe(2);
+
+		// Skip -> resets startCount to 0
+		f = applyTransition(f, { type: "skip_step", phaseId: "phase-1", stepId: "step-1" }) as Ferment;
+		expect(f.phases[0].steps[0].startCount).toBe(0);
+		expect(f.phases[0].steps[0].status).toBe("skipped");
+
+		// Start again after skip (counter was reset to 0)
+		const result = applyTransition(f, { type: "start_step", phaseId: "phase-1", stepId: "step-1" });
+		expect("error" in result).toBe(false);
+		if (!("error" in result)) {
+			expect(result.phases[0].steps[0].startCount).toBe(1);
+		}
 	});
 });

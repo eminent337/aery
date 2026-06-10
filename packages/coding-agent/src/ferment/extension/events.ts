@@ -19,7 +19,14 @@ import { formatFermentFooter } from "./footer-status.js";
 import { maybeInjectReactiveContinuationNudge, resetReactiveContinuationNudgeCount } from "./nudge.js";
 import { clearProgressWidget, setProgressWidget } from "./progress-overlay.js";
 import { scheduleFermentWakeUp } from "./scheduler.js";
-import { getActive, getActiveId, type getContinuationPolicy, setActive } from "./state.js";
+import {
+	getActive,
+	getActiveId,
+	type getContinuationPolicy,
+	incrementTurnCount,
+	resetTurnCount,
+	setActive,
+} from "./state.js";
 
 /**
  * Register all ferment event handlers on the ExtensionAPI.
@@ -34,6 +41,7 @@ export function registerFermentEvents(
 ): void {
 	// ── session_start ────────────────────────────────────────────────────────
 	api.on("session_start", async () => {
+		resetTurnCount();
 		const store = FermentStore.open();
 		const activeId = getActiveId();
 		if (!activeId) return;
@@ -57,6 +65,8 @@ export function registerFermentEvents(
 
 	// ── turn_end ─────────────────────────────────────────────────────────────
 	api.on("turn_end", async (event, _ctx: ExtensionContext) => {
+		// Track session turn count
+		incrementTurnCount();
 		const content = (event.message as { content?: unknown })?.content;
 		const hasToolCall =
 			Array.isArray(content) && content.some((c: { type: string; name?: string }) => c.type === "toolCall");

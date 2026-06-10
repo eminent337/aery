@@ -32,3 +32,22 @@ export function getActiveId(): string | undefined {
 export function clearActive(): void {
 	activeFerment = undefined;
 }
+
+/** Number of completed turns in the current session. */
+let turnCount = 0;
+
+export function getTurnCount(): number {
+	return turnCount;
+}
+
+export function setTurnCount(count: number): void {
+	turnCount = count;
+}
+
+export function incrementTurnCount(): void {
+	turnCount++;
+}
+
+export function resetTurnCount(): void {
+	turnCount = 0;
+}

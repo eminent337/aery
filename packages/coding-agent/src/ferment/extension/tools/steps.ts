@@ -40,11 +40,17 @@ function hintNext(f: Ferment): string {
 function recoveryHint(err: string): string {
 	if (err.includes("No active ferment")) return "\n💡 Call request_ferment_workflow first to create a ferment.";
 	if (err.includes("not found")) return "\n💡 Check the phaseId/stepId — use the IDs from the previous tool response.";
+	if (err.includes("STUCK_LOOP") || err.includes("started 3 times without completing"))
+		return "\n💡 Ask the user how to proceed: retry with a revised approach, skip this step, or pause the ferment.";
 	return "";
 }
 
 function errorWithRecovery(msg: string): AgentToolResult {
 	return error(msg + recoveryHint(msg));
+}
+
+function errorWithCode(msg: string, code: string | undefined): AgentToolResult {
+	return error(msg + recoveryHint(code ? `STUCK_LOOP: ${code}` : msg));
 }
 
 function successWithHint(content: string, f: Ferment): AgentToolResult {
@@ -74,7 +80,7 @@ export function registerStepTools(api: ExtensionAPI): void {
 					stepId: params.stepId,
 				};
 				const result = applyTransition(ferment, cmd);
-				if ("error" in result) return errorWithRecovery(result.error);
+				if ("error" in result) return errorWithCode(result.error, (result as any).code);
 
 				FermentStore.open().save(result);
 				setActive(result);

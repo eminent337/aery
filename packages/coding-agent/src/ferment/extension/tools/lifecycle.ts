@@ -360,4 +360,36 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 			return success(`Ferment "${ferment.name}" created. Follow the scoping instructions the host will inject.`);
 		},
 	});
+
+	// ── update_ferment_scope_field ────────────────────────────────────────────
+	api.registerTool({
+		name: "update_ferment_scope_field",
+		label: "Update Ferment Scope Field",
+		description:
+			"Update a single scoping field (goal, criteria, or constraints) on the active ferment. " +
+			"The ferment must be in 'draft' or 'planned' status.",
+		parameters: z.object({
+			field: z.enum(["goal", "criteria", "constraints"]).describe("The scoping field to update"),
+			value: z.string().describe("The new value for the field"),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			try {
+				const ferment = requireActive(getActive());
+				const cmd: Extract<FermentCommand, { type: "update_scope_field" }> = {
+					type: "update_scope_field",
+					field: params.field,
+					value: params.value,
+				};
+				const result = applyTransition(ferment, cmd);
+				if ("error" in result) return errorWithRecovery(result.error);
+
+				FermentStore.open().save(result);
+				setActive(result);
+
+				return successWithHint(`Updated "${params.field}" on ferment "${result.name}".`, result);
+			} catch (err) {
+				return errorWithRecovery(String(err));
+			}
+		},
+	});
 }
