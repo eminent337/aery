@@ -191,12 +191,16 @@ export function registerStepTools(api: ExtensionAPI): void {
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const ferment = requireActive();
+				const pid = resolvePhaseId(ferment, params.phaseId);
+				if (!pid) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
+				const sid = resolveStepId(ferment, pid, params.stepId);
+				if (!sid) return errorWithRecovery(`Step "${params.stepId}" not found.`);
 				const stepResult = buildStepResult(params.result);
 
 				const cmd: Extract<FermentCommand, { type: "verify_step" }> = {
 					type: "verify_step",
-					phaseId: params.phaseId,
-					stepId: params.stepId,
+					phaseId: pid,
+					stepId: sid,
 					result: stepResult,
 					summary: params.summary,
 				};
@@ -206,8 +210,8 @@ export function registerStepTools(api: ExtensionAPI): void {
 				FermentStore.open().save(result);
 				setActive(result);
 
-				const phase = result.phases.find(p => p.id === params.phaseId);
-				const step = phase?.steps.find(s => s.id === params.stepId);
+				const phase = result.phases.find(p => p.id === pid);
+				const step = phase?.steps.find(s => s.id === sid);
 				const status = step?.status === "verified" ? "verified" : "done (verification failed)";
 				const msg = step ? `Step ${step.index} "${step.description}" — ${status}.` : `Verification recorded.`;
 				return successWithHint(msg, result);
@@ -221,18 +225,22 @@ export function registerStepTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_skip_step",
 		label: "Ferment Skip Step",
-		description: "Skip a step.",
+		description: "Skip a step. Accepts phase name and step description or ID.",
 		parameters: z.object({
-			phaseId: z.string().describe("ID of the phase containing the step"),
-			stepId: z.string().describe("ID of the step to skip"),
+			phaseId: z.string().describe("Phase name or ID"),
+			stepId: z.string().describe("Step ID or description prefix"),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const ferment = requireActive();
+				const pid = resolvePhaseId(ferment, params.phaseId);
+				if (!pid) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
+				const sid = resolveStepId(ferment, pid, params.stepId);
+				if (!sid) return errorWithRecovery(`Step "${params.stepId}" not found.`);
 				const cmd: Extract<FermentCommand, { type: "skip_step" }> = {
 					type: "skip_step",
-					phaseId: params.phaseId,
-					stepId: params.stepId,
+					phaseId: pid,
+					stepId: sid,
 				};
 				const result = applyTransition(ferment, cmd);
 				if ("error" in result) return errorWithRecovery(result.error);
@@ -240,8 +248,8 @@ export function registerStepTools(api: ExtensionAPI): void {
 				FermentStore.open().save(result);
 				setActive(result);
 
-				const phase = result.phases.find(p => p.id === params.phaseId);
-				const step = phase?.steps.find(s => s.id === params.stepId);
+				const phase = result.phases.find(p => p.id === pid);
+				const step = phase?.steps.find(s => s.id === sid);
 				const msg = step ? `Step ${step.index} "${step.description}" skipped.` : `Step skipped.`;
 				return successWithHint(msg, result);
 			} catch (err) {
@@ -254,19 +262,23 @@ export function registerStepTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_fail_step",
 		label: "Ferment Fail Step",
-		description: "Mark a step as failed.",
+		description: "Mark a step as failed. Accepts phase name and step description or ID.",
 		parameters: z.object({
-			phaseId: z.string().describe("ID of the phase containing the step"),
-			stepId: z.string().describe("ID of the step to fail"),
+			phaseId: z.string().describe("Phase name or ID"),
+			stepId: z.string().describe("Step ID or description prefix"),
 			error: z.string().optional().describe("Error message"),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const ferment = requireActive();
+				const pid = resolvePhaseId(ferment, params.phaseId);
+				if (!pid) return errorWithRecovery(`Phase "${params.phaseId}" not found.`);
+				const sid = resolveStepId(ferment, pid, params.stepId);
+				if (!sid) return errorWithRecovery(`Step "${params.stepId}" not found.`);
 				const cmd: Extract<FermentCommand, { type: "fail_step" }> = {
 					type: "fail_step",
-					phaseId: params.phaseId,
-					stepId: params.stepId,
+					phaseId: pid,
+					stepId: sid,
 					error: params.error,
 				};
 				const result = applyTransition(ferment, cmd);
@@ -275,8 +287,8 @@ export function registerStepTools(api: ExtensionAPI): void {
 				FermentStore.open().save(result);
 				setActive(result);
 
-				const phase = result.phases.find(p => p.id === params.phaseId);
-				const step = phase?.steps.find(s => s.id === params.stepId);
+				const phase = result.phases.find(p => p.id === pid);
+				const step = phase?.steps.find(s => s.id === sid);
 				const msg = step ? `Step ${step.index} "${step.description}" marked failed.` : `Step marked failed.`;
 				return successWithHint(msg, result);
 			} catch (err) {

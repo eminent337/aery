@@ -30,15 +30,15 @@
     "@babel/parser": "catalog:",
     "@babel/traverse": "catalog:",
     "@babel/types": "catalog:",
-    "@aryee337/hashline": "catalog:",
-    "@aryee337/aery-core": "catalog:",
-    "@aryee337/aery": "catalog:",
-    "@aryee337/aery-utils": "catalog:",
+    "@aryee337/hashline": "workspace:*",
+    "@aryee337/aery-core": "workspace:*",
+    "@aryee337/aery": "workspace:*",
+    "@aryee337/aery-utils": "workspace:*",
     "diff": "catalog:",
     "prettier": "catalog:",
     "regexp-tree": "catalog:",
-    "@aryee337/aery-ai": "catalog:",
-    "@aryee337/aery-tui": "catalog:"
+    "@aryee337/aery-ai": "workspace:*",
+    "@aryee337/aery-tui": "workspace:*"
   },
   "devDependencies": {
     "@types/babel__generator": "catalog:",
