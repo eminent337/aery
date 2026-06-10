@@ -1,7 +1,7 @@
 {
 	"type": "module",
 	"name": "@aryee337/hashline",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Hashline: a compact, line-anchored patch language and applier. Pluggable FS/IO so it works over disk, in-memory, or any custom backend.",
 	"homepage": "https://aery.dev",
 	"author": "aryee337",
