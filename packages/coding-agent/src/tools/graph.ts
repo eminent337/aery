@@ -13,8 +13,8 @@ export interface GraphToolDetails {
 	nodes: { id: string; file: string }[];
 	edges: { source: string; target: string }[];
 }
-
 export class GraphTool implements AgentTool<typeof graphSchema, GraphToolDetails> {
+	readonly loadMode = "discoverable";
 	readonly name = "graph";
 	readonly approval = "read" as const;
 	readonly label = "Graph Tool";

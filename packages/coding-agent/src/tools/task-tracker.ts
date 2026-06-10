@@ -59,8 +59,8 @@ const taskCreateSchema = z.object({
 });
 
 export class TaskCreateTool implements AgentTool<typeof taskCreateSchema, { task: Task }> {
+	readonly loadMode = "discoverable";
 	readonly name = "task_create";
-	readonly approval = "read";
 	readonly label = "Create Task";
 	readonly description = "Create a new task in the task tracker.";
 	readonly parameters = taskCreateSchema;
@@ -100,6 +100,7 @@ const taskUpdateSchema = z.object({
 });
 
 export class TaskUpdateTool implements AgentTool<typeof taskUpdateSchema, { task: Task }> {
+	readonly loadMode = "discoverable";
 	readonly name = "task_update";
 	readonly approval = "read";
 	readonly label = "Update Task";
@@ -132,6 +133,7 @@ const taskStopSchema = z.object({
 });
 
 export class TaskStopTool implements AgentTool<typeof taskStopSchema, { task: Task }> {
+	readonly loadMode = "discoverable";
 	readonly name = "task_stop";
 	readonly approval = "read";
 	readonly label = "Stop Task";
@@ -161,6 +163,7 @@ const taskGetSchema = z.object({
 });
 
 export class TaskGetTool implements AgentTool<typeof taskGetSchema, { task: Task }> {
+	readonly loadMode = "discoverable";
 	readonly name = "task_get";
 	readonly approval = "read";
 	readonly label = "Get Task";
@@ -183,6 +186,7 @@ const taskListSchema = z.object({
 });
 
 export class TaskListTool implements AgentTool<typeof taskListSchema, { tasks: Task[] }> {
+	readonly loadMode = "discoverable";
 	readonly name = "task_list";
 	readonly approval = "read";
 	readonly label = "List Tasks";

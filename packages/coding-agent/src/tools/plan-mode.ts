@@ -5,6 +5,7 @@ import type { ToolSession } from ".";
 const enterPlanModeSchema = z.object({});
 
 export class EnterPlanModeTool implements AgentTool<typeof enterPlanModeSchema, { message: string }> {
+	readonly loadMode = "discoverable";
 	readonly name = "enter_plan_mode";
 	readonly approval = "read";
 	readonly label = "Enter Plan Mode";
@@ -38,6 +39,7 @@ const exitPlanModeSchema = z.object({
 });
 
 export class ExitPlanModeTool implements AgentTool<typeof exitPlanModeSchema, { message: string }> {
+	readonly loadMode = "discoverable";
 	readonly name = "exit_plan_mode";
 	readonly approval = "read";
 	readonly label = "Exit Plan Mode";
