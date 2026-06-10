@@ -161,8 +161,8 @@ describe("Ferment Extension Integration", () => {
 
 		// 9. Complete ferment
 		const completeFermentResult = await callTool(tools, "ferment_complete_ferment", {});
-		expect(completeFermentResult.isError).toBeFalsy();
-		expect(getActive()?.status).toBe("complete");
+		expect(getActive()).toBeUndefined();
+		expect(completeFermentResult.content[0].text).toContain("complete");
 	});
 
 	test("automated continuation sends nudge on turn_end", async () => {

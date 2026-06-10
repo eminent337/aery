@@ -31,8 +31,13 @@ Call \`request_ferment_workflow\` with a concise \`title\` and an \`intent\` con
 
 Lifecycle: \`request_ferment_workflow\` → \`ferment_scope\` → \`ferment_activate_phase\` → \`ferment_start_step\` → \`ferment_complete_step\` → \`ferment_complete_phase\` → \`ferment_complete_ferment\`.
 Use \`ferment_add_decision\` and \`ferment_add_memory\` to record key findings during execution.
-Use the /ferment slash command to manage active ferments (pause, resume, progress, switch).`;
+Use the /ferment slash command to manage active ferments (pause, resume, progress, switch).
 
+**Anti-patterns:**
+- NEVER call \`ferment_new\` — it is deprecated. Always use \`request_ferment_workflow\` to start a ferment.
+- NEVER guess phase or step IDs — they are returned by tool results. Call the previous tool and use the IDs from its response.
+- NEVER abandon the ferment on error — instead call \`ferment_add_memory\` or \`ferment_add_decision\` to record the issue, then continue.
+- NEVER skip steps or phases unless explicitly instructed by the user. Follow the lifecycle sequentially.`;
 /**
  * Format decisions and memories for the planner supplement.
  */

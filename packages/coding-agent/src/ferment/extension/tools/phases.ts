@@ -5,7 +5,8 @@
 
 import type { ExtensionAPI } from "@aryee337/aery";
 import type { AgentToolResult } from "@aryee337/aery-core";
-import type { FermentCommand } from "../../commands.js";
+import type { Ferment, FermentCommand } from "../../types.js";
+import { whatNext } from "../../engine.js";
 import { applyTransition } from "../../state-machine.js";
 import { FermentStore } from "../../store.js";
 import { getActive, setActive } from "../state.js";
@@ -20,10 +21,30 @@ function error(content: string): AgentToolResult {
 	return { content: [{ type: "text", text: content }], isError: true };
 }
 
-function requireActive() {
+function requireActive(): Ferment {
 	const f = getActive();
 	if (!f) throw new Error("No active ferment. Use ferment_scope first.");
 	return f;
+}
+
+function hintNext(f: Ferment): string {
+	const action = whatNext(f);
+	if (!action) return "";
+	return `\n→ Next action: ${action.kind} — ${action.message}`;
+}
+
+function recoveryHint(err: string): string {
+	if (err.includes("No active ferment")) return "\n💡 Call request_ferment_workflow first to create a ferment.";
+	if (err.includes("not found")) return "\n💡 Check the phaseId — use the ID from ferment_scope or the previous tool response.";
+	return "";
+}
+
+function errorWithRecovery(msg: string): AgentToolResult {
+	return error(msg + recoveryHint(msg));
+}
+
+function successWithHint(content: string, f: Ferment): AgentToolResult {
+	return success(content + hintNext(f));
 }
 
 // ─── Tool registration ────────────────────────────────────────────────────────
@@ -47,16 +68,16 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 					phaseId: params.phaseId,
 				};
 				const result = applyTransition(ferment, cmd);
-				if ("error" in result) return error(result.error);
+				if ("error" in result) return errorWithRecovery(result.error);
 
 				FermentStore.open().save(result);
 				setActive(result);
 
 				const phase = result.phases.find(p => p.id === params.phaseId);
 				const msg = phase ? `Phase ${phase.index} "${phase.name}" activated.` : `Phase activated.`;
-				return success(msg);
+				return successWithHint(msg, result);
 			} catch (err) {
-				return error(String(err));
+				return errorWithRecovery(String(err));
 			}
 		},
 	});
@@ -79,7 +100,7 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 					summary: params.summary ?? "",
 				};
 				const result = applyTransition(ferment, cmd);
-				if ("error" in result) return error(result.error);
+				if ("error" in result) return errorWithRecovery(result.error);
 
 				FermentStore.open().save(result);
 				setActive(result);
@@ -90,10 +111,10 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 				);
 				let msg = `Phase marked complete.`;
 				if (nextPhase) msg += ` Next: phase ${nextPhase.index} "${nextPhase.name}".`;
-				if (allDone) msg += ` All phases done — call ferment_complete_ferment.`;
-				return success(msg);
+				if (allDone) msg += ` All phases done.`;
+				return successWithHint(msg, result);
 			} catch (err) {
-				return error(String(err));
+				return errorWithRecovery(String(err));
 			}
 		},
 	});
@@ -116,16 +137,16 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 					reason: params.reason,
 				};
 				const result = applyTransition(ferment, cmd);
-				if ("error" in result) return error(result.error);
+				if ("error" in result) return errorWithRecovery(result.error);
 
 				FermentStore.open().save(result);
 				setActive(result);
 
 				const skipped = result.phases.find(p => p.id === params.phaseId);
 				const msg = skipped ? `Phase ${skipped.index} "${skipped.name}" skipped.` : `Phase skipped.`;
-				return success(msg);
+				return successWithHint(msg, result);
 			} catch (err) {
-				return error(String(err));
+				return errorWithRecovery(String(err));
 			}
 		},
 	});
@@ -148,16 +169,16 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 					reason: params.reason,
 				};
 				const result = applyTransition(ferment, cmd);
-				if ("error" in result) return error(result.error);
+				if ("error" in result) return errorWithRecovery(result.error);
 
 				FermentStore.open().save(result);
 				setActive(result);
 
 				const failed = result.phases.find(p => p.id === params.phaseId);
 				const msg = failed ? `Phase ${failed.index} "${failed.name}" marked failed.` : `Phase marked failed.`;
-				return success(msg);
+				return successWithHint(msg, result);
 			} catch (err) {
-				return error(String(err));
+				return errorWithRecovery(String(err));
 			}
 		},
 	});
