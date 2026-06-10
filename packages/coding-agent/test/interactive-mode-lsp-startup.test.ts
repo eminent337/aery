@@ -21,8 +21,8 @@ describe("InteractiveMode LSP startup welcome banner", () => {
 	let session: AgentSession;
 	let tempDir: TempDir;
 
-	beforeAll(() => {
-		initTheme();
+	beforeAll(async () => {
+		await initTheme();
 	});
 
 	beforeEach(async () => {

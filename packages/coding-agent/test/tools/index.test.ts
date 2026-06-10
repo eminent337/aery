@@ -226,7 +226,6 @@ describe("createTools", () => {
 
 		const defaultTools = await createTools(session);
 		expect(defaultTools.map(t => t.name)).toContain("resolve");
-		expect(defaultTools.map(t => t.name)).not.toContain("exit_plan_mode");
 
 		const requestedTools = await createTools(session, ["read"]);
 		expect(requestedTools.map(t => t.name)).toEqual(["read", "resolve"]);

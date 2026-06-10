@@ -1,8 +1,13 @@
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
 import { renderWelcomeTip } from "@aryee337/aery/modes/components/welcome";
+import { initTheme } from "@aryee337/aery/modes/theme/theme";
 import { visibleWidth } from "@aryee337/aery-tui";
 
 describe("renderWelcomeTip", () => {
+	beforeAll(async () => {
+		await initTheme();
+	});
+
 	it("wraps long tips under the label instead of truncating", () => {
 		const tip = "Next time you see spaghetti try creating a TTSR rule that prevents this pattern before it spreads";
 		const width = 44;

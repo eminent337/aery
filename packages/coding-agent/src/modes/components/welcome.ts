@@ -127,8 +127,26 @@ export class WelcomeComponent implements Component {
 				border("│"),
 		);
 
-		out.push(border(`╰${"─".repeat(contentWidth)}╯`));
+		out.push(border("│") + padding(contentWidth) + border("│"));
 
+		for (const server of this.lspServers) {
+			const statusIcon =
+				server.status === "ready"
+					? theme.status.success
+					: server.status === "error"
+						? theme.status.error
+						: theme.status.pending;
+			const serverLine = ` ${server.name}   ${statusIcon} ${server.status}`;
+			const truncServer = truncateToWidth(serverLine, contentWidth, Ellipsis.Unicode);
+			out.push(
+				border("│") +
+					theme.fg("headerValue", truncServer) +
+					padding(Math.max(0, contentWidth - visibleWidth(truncServer))) +
+					border("│"),
+			);
+		}
+
+		out.push(border(`╰${"─".repeat(contentWidth)}╯`));
 		return out;
 	}
 }

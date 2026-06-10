@@ -1062,6 +1062,70 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		handleTui: shutdownHandlerTui,
 	},
 	{
+		name: "marketplace",
+		description: "Browse, install, and manage marketplace extensions",
+		acpDescription: "Browse and install marketplace extensions",
+		acpInputHint: "[help|install|uninstall|discover|list]",
+		subcommands: [
+			{ name: "help", description: "Show marketplace usage information" },
+			{ name: "install", description: "Install a marketplace extension (TUI-only interactive picker)", usage: "[name@marketplace]" },
+			{ name: "uninstall", description: "Uninstall a marketplace extension (TUI-only interactive picker)", usage: "[name@marketplace]" },
+			{ name: "discover", description: "Discover available marketplace extensions" },
+			{ name: "list", description: "List installed marketplace extensions" },
+		],
+		allowArgs: true,
+		handle: async (command, runtime) => {
+			const { verb } = parseSubcommand(command.args);
+			const lines: string[] = [];
+			switch (verb) {
+				case "install":
+				case "uninstall": {
+					lines.push(`${verb}: TUI-only interactive picker. Use the TUI to ${verb} marketplace extensions.`);
+					break;
+				}
+				case "discover": {
+					const manager = await createMarketplaceManager(runtime);
+					const discovered = await manager.listAvailablePlugins();
+					if (discovered.length === 0) {
+						lines.push("No marketplace extensions available.");
+					} else {
+						for (const ext of discovered) {
+							lines.push(`  - ${ext.name}@${ext.version}: ${ext.description ?? ""}`);
+						}
+					}
+					break;
+				}
+				case "list": {
+					const manager = await createMarketplaceManager(runtime);
+					const installed = await manager.listInstalledPlugins();
+					if (installed.length === 0) {
+						lines.push("No marketplace plugins installed.");
+					} else {
+						for (const plugin of installed) {
+							const scope = plugin.scope === "project" ? " [project]" : "";
+							const shadowed = plugin.shadowedBy ? " (shadowed)" : "";
+							const disabled = plugin.entries.some(e => e.enabled === false) ? " (disabled)" : "";
+							lines.push(`  ${plugin.id}${scope}${shadowed}${disabled}`);
+						}
+					}
+					break;
+				}
+				default: {
+					lines.push("Marketplace commands: help, install, uninstall, discover, list");
+					lines.push("Usage: /marketplace [command]");
+					lines.push("  help       Show this help text");
+					lines.push("  install    Install a marketplace extension (TUI-only)");
+					lines.push("  uninstall  Uninstall a marketplace extension (TUI-only)");
+					lines.push("  discover   Discover available marketplace extensions");
+					lines.push("  list       List installed marketplace extensions");
+					break;
+				}
+			}
+			for (const line of lines) runtime.output(line);
+			return commandConsumed();
+		},
+	},
+	{
 		name: "plugins",
 		description: "View and manage installed plugins",
 		acpDescription: "Manage plugins",
