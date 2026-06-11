@@ -76,7 +76,7 @@ async function createSession(tools: AgentTool[], bridge?: ClientBridge): Promise
 	const model = getBundledModel("anthropic", "claude-sonnet-4-5");
 	if (!model) throw new Error("Expected claude-sonnet-4-5 model to exist");
 
-	const settings = Settings.isolated({ "compaction.enabled": false });
+	const settings = Settings.isolated({ "compaction.enabled": false, "tools.approvalMode": "always-ask" });
 	const sessionManager = SessionManager.inMemory(tempDir.path());
 
 	const agent = new Agent({
@@ -109,7 +109,7 @@ async function createSessionWithMockModel(
 	responses: NonNullable<MockModelOptions["responses"]>,
 ): Promise<AgentSession> {
 	const mock = createMockModel({ responses });
-	const settings = Settings.isolated({ "compaction.enabled": false });
+	const settings = Settings.isolated({ "compaction.enabled": false, "tools.approvalMode": "always-ask" });
 	const sessionManager = SessionManager.inMemory(tempDir.path());
 	const agent = new Agent({
 		getApiKey: () => "test-key",
