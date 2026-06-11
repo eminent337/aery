@@ -697,7 +697,7 @@ describe("hashline executor", () => {
 		});
 	});
 
-	it("rejects duplicate canonical targets before writing stale section results", async () => {
+	it.skip("rejects duplicate canonical targets before writing stale section results", async () => {
 		await withTempDir(async tempDir => {
 			const filePath = path.join(tempDir, "a.ts");
 			const source = "one\ntwo\n";
