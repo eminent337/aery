@@ -34,7 +34,7 @@ import {
 	Snowflake,
 } from "@aryee337/aery-utils";
 import chalk from "chalk";
-import { type AsyncJob, AsyncJobManager, isBackgroundJobSupportEnabled } from "./async";
+import { type AsyncJob, AsyncJobManager } from "./async";
 import { createAutoresearchExtension } from "./autoresearch";
 import { loadCapability } from "./capability";
 import { type Rule, ruleCapability, setActiveRules } from "./capability/rule";
@@ -97,12 +97,14 @@ import { discoverAndLoadMCPTools, MCPManager, type MCPToolsLoadResult } from "./
 import { resolveMemoryBackend } from "./memory-backend";
 import { getMnemopiSessionState, type MnemopiSessionState } from "./mnemopi/state";
 import asyncResultTemplate from "./prompts/tools/async-result.md" with { type: "text" };
+import { AgentLifecycleManager } from "./registry/agent-lifecycle";
 import { AgentRegistry, MAIN_AGENT_ID } from "./registry/agent-registry";
 import {
 	collectEnvSecrets,
 	deobfuscateSessionContext,
 	loadSecrets,
 	obfuscateMessages,
+	obfuscateProviderContext,
 	SecretObfuscator,
 } from "./secrets";
 import { AgentSession } from "./session/agent-session";
@@ -1173,7 +1175,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	let hasSession = false;
 	let hasRegistered = false;
 	const enableLsp = options.enableLsp ?? true;
-	const backgroundJobsEnabled = isBackgroundJobSupportEnabled(settings);
 	const asyncMaxJobs = Math.min(100, Math.max(1, settings.get("async.maxJobs") ?? 100));
 	const ASYNC_INLINE_RESULT_MAX_CHARS = 12_000;
 	const ASYNC_PREVIEW_MAX_CHARS = 4_000;
@@ -1201,30 +1202,40 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	// parent's manager via `AsyncJobManager.instance()` (set below), so creating
 	// a second instance here just to leave it orphaned wastes a constructor and
 	// risks accidental disposal of the parent's manager on subagent teardown.
-	const asyncJobManager =
-		backgroundJobsEnabled && !options.parentTaskPrefix
-			? new AsyncJobManager({
-					maxRunningJobs: asyncMaxJobs,
-					onJobComplete: async (jobId, result, job) => {
-						if (!session || asyncJobManager!.isDeliverySuppressed(jobId)) return;
-						const formattedResult = await formatAsyncResultForFollowUp(result);
-						if (asyncJobManager!.isDeliverySuppressed(jobId)) return;
+	const asyncJobManager = !options.parentTaskPrefix
+		? new AsyncJobManager({
+				maxRunningJobs: asyncMaxJobs,
+				onJobComplete: async (jobId, result, job) => {
+					if (!session || asyncJobManager!.isDeliverySuppressed(jobId)) return;
+					const formattedResult = await formatAsyncResultForFollowUp(result);
+					if (asyncJobManager!.isDeliverySuppressed(jobId)) return;
 
-						const durationMs = job ? Math.max(0, Date.now() - job.startTime) : undefined;
-						session.yieldQueue.enqueue<AsyncResultEntry>("async-result", {
-							jobId,
-							result: formattedResult,
-							job,
-							durationMs,
-						});
-					},
-				})
-			: undefined;
+					const durationMs = job ? Math.max(0, Date.now() - job.startTime) : undefined;
+					session.yieldQueue.enqueue<AsyncResultEntry>("async-result", {
+						jobId,
+						result: formattedResult,
+						job,
+						durationMs,
+					});
+				},
+			})
+		: undefined;
 
 	const agentRegistry = options.agentRegistry ?? AgentRegistry.global();
 	const resolvedAgentId = options.agentId ?? options.parentTaskPrefix ?? MAIN_AGENT_ID;
 	const resolvedAgentDisplayName =
 		options.agentDisplayName ?? ((options.taskDepth ?? 0) > 0 || options.parentTaskPrefix ? "sub" : "main");
+	const agentKind = (options.taskDepth ?? 0) > 0 || options.parentTaskPrefix ? ("sub" as const) : ("main" as const);
+	/**
+	 * Forget the agent ref on teardown — unless the agent is being parked (or is
+	 * already parked). Parking disposes the session but keeps the ref addressable
+	 * (history://, revive); only process teardown / explicit kill unregisters.
+	 */
+	const unregisterUnlessParked = (): void => {
+		if (agentRegistry.get(resolvedAgentId)?.status === "parked") return;
+		if (AgentLifecycleManager.global().isParking(resolvedAgentId)) return;
+		agentRegistry.unregister(resolvedAgentId);
+	};
 	const evalKernelOwnerId = `agent-session:${Snowflake.next()}`;
 
 	try {
@@ -1266,7 +1277,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			getMnemopiSessionState: () => getMnemopiSessionState(session),
 			getAgentId: () => resolvedAgentId,
 			getToolByName: name => session?.getToolByName(name),
-			agentRegistry,
 			getSessionSpawns: () => options.spawns ?? "*",
 			getModelString: () => (hasExplicitModel && model ? formatModelString(model) : undefined),
 			getActiveModelString,
@@ -1277,7 +1287,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			getTurnBudget: () => sessionManager.getTurnBudget(),
 			recordEvalSubagentUsage: output => sessionManager.recordEvalSubagentOutput(output),
 			getClientBridge: () => session?.clientBridge,
-			getCompactContext: () => session.formatCompactContext(),
 			getTodoPhases: () => session.getTodoPhases(),
 			setTodoPhases: phases => session.setTodoPhases(phases),
 			isMCPDiscoveryEnabled: () => session.isMCPDiscoveryEnabled(),
@@ -1866,7 +1875,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		agentRegistry.register({
 			id: resolvedAgentId,
 			displayName: resolvedAgentDisplayName,
-			kind: (options.taskDepth ?? 0) > 0 || options.parentTaskPrefix ? "sub" : "main",
+			kind: agentKind,
 			parentId: options.parentTaskPrefix,
 			session: null,
 			sessionFile: sessionManager.getSessionFile() ?? null,
@@ -1965,6 +1974,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			onResponse,
 			sessionId: providerSessionId,
 			transformContext,
+			transformProviderContext: obfuscator ? context => obfuscateProviderContext(obfuscator, context) : undefined,
 			steeringMode: settings.get("steeringMode") ?? "one-at-a-time",
 			followUpMode: settings.get("followUpMode") ?? "one-at-a-time",
 			interruptMode: settings.get("interruptMode") ?? "immediate",
@@ -2079,6 +2089,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			thinkingLevel: autoThinking ? AUTO_THINKING : effectiveThinkingLevel,
 			sessionManager,
 			settings,
+			autoApprove: options.autoApprove,
 			evalKernelOwnerId,
 			// Defined only for top-level sessions (creation is gated above).
 			// AgentSession uses this to decide whether it may dispose the global
@@ -2124,7 +2135,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			ttsrManager,
 			obfuscator,
 			agentId: resolvedAgentId,
-			agentRegistry,
 			providerSessionId: options.providerSessionId,
 			parentEvalSessionId: options.parentEvalSessionId,
 		});
@@ -2141,15 +2151,26 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 		// Attach the live session to the pre-registered ref so peers can route IRC
 		// messages here. Refresh sessionFile in case it was unavailable at pre-register
-		// time. The dispose wrapper below unregisters on teardown.
+		// time. The dispose wrapper below unregisters on teardown (unless parked).
 		agentRegistry.attachSession(resolvedAgentId, session, sessionManager.getSessionFile() ?? null);
 		{
 			const originalDispose = session.dispose.bind(session);
 			session.dispose = async () => {
 				try {
+					// Reject new session work (Python/eval starts) the moment disposal
+					// begins — the lifecycle await below opens an async gap before
+					// AgentSession.dispose() would otherwise set its guards.
+					session.beginDispose();
+					if (agentKind === "main") {
+						// Top-level teardown owns the global agent lifecycle: park timers,
+						// adopted subagent sessions, revivers. Tear it down while shared
+						// resources (kernels, MCP, LSP) are still live. Subagent disposal
+						// must NOT touch the global lifecycle.
+						await AgentLifecycleManager.global().dispose();
+					}
 					await originalDispose();
 				} finally {
-					agentRegistry.unregister(resolvedAgentId);
+					unregisterUnlessParked();
 					unsubscribeCredentialDisabled?.();
 				}
 			};
@@ -2297,7 +2318,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			if (hasSession) {
 				await session.dispose();
 			} else {
-				if (hasRegistered) agentRegistry.unregister(resolvedAgentId);
+				if (hasRegistered) unregisterUnlessParked();
 				await disposeKernelSessionsByOwner(evalKernelOwnerId);
 			}
 		} catch (cleanupError) {

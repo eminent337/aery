@@ -1,0 +1,55 @@
+src/autoresearch/tools/run-experiment.ts(9,10): error TS2724: '"../../session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/commit/agentic/tools/analyze-file.ts(81,5): error TS2353: Object literal may only specify known properties, and 'schema' does not exist in type 'TaskParams'.
+src/eval/js/executor.ts(1,10): error TS2724: '"../../session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/internal-urls/history-protocol.ts(15,10): error TS2305: Module '"../session/session-manager"' has no exported member 'loadSessionMessagesReadOnly'.
+src/session/streaming-output.ts(262,39): error TS2552: Cannot find name 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/session/streaming-output.ts(366,39): error TS2552: Cannot find name 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/session/streaming-output.ts(486,39): error TS2552: Cannot find name 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/session/streaming-output.ts(681,21): error TS2552: Cannot find name 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/session/streaming-output.ts(1102,39): error TS2552: Cannot find name 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/task/index.ts(227,49): error TS2304: Cannot find name 'TaskItem'.
+src/task/index.ts(234,51): error TS2304: Cannot find name 'TaskItem'.
+src/task/index.ts(275,42): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/task/index.ts(276,49): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/task/index.ts(372,5): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/task/index.ts(601,36): error TS2345: Argument of type '"task.batch"' is not assignable to parameter of type '"temperature" | "topP" | "serviceTier" | "topK" | "minP" | "presencePenalty" | "repetitionPenalty" | "interruptMode" | "disabledExtensions" | "lastChangelogVersion" | "setupVersion" | ... 294 more ... | "thinkingBudgets.xhigh"'.
+src/task/index.ts(607,15): error TS2304: Cannot find name 'TaskItem'.
+src/task/index.ts(670,76): error TS2339: Property 'text' does not exist on type 'TextContent | ImageContent'.
+  Property 'text' does not exist on type 'ImageContent'.
+src/task/index.ts(698,43): error TS2339: Property 'schema' does not exist on type 'TaskParams'.
+src/task/index.ts(907,48): error TS18048: 'params.tasks' is possibly 'undefined'.
+src/task/index.ts(975,51): error TS2345: Argument of type '(string | undefined)[]' is not assignable to parameter of type 'string[]'.
+  Type 'string | undefined' is not assignable to type 'string'.
+    Type 'undefined' is not assignable to type 'string'.
+src/task/index.ts(997,24): error TS18048: 'taskItem.assignment' is possibly 'undefined'.
+src/task/index.ts(1023,38): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/task/index.ts(1024,19): error TS18048: 'task.assignment' is possibly 'undefined'.
+src/task/index.ts(1080,38): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/task/index.ts(1081,19): error TS18048: 'task.assignment' is possibly 'undefined'.
+src/tools/bash.ts(22,10): error TS2724: '"../session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/tools/bash.ts(478,4): error TS2353: Object literal may only specify known properties, and 'content' does not exist in type 'Promise<AgentToolResult<BashToolDetails, unknown>>'.
+src/tools/browser.ts(277,26): error TS2304: Cannot find name 'saveBrowserOutputArtifact'.
+src/tools/eval.ts(12,10): error TS2724: '"../session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/tools/fetch.ts(15,10): error TS2724: '"../session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/tools/read.ts(23,2): error TS2724: '"../session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/tools/ssh.ts(12,10): error TS2724: '"../session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+src/utils/file-mentions.ts(19,2): error TS2724: '"../session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+test/bash-executor.test.ts(7,10): error TS2724: '"@aryee337/aery/session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+test/core/python-executor-streaming.test.ts(3,10): error TS2724: '"@aryee337/aery/session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+test/core/python-executor.test.ts(4,10): error TS2724: '"@aryee337/aery/session/streaming-output"' has no exported member named 'DEFAULT_MAX_BYTES'. Did you mean 'DEFAULT_MAX_LINES'?
+test/internal-urls/history-protocol.test.ts(15,35): error TS2307: Cannot find module '@aryee337/aery-coding-agent/internal-urls' or its corresponding type declarations.
+test/internal-urls/history-protocol.test.ts(16,31): error TS2307: Cannot find module '@aryee337/aery-coding-agent/registry/agent-registry' or its corresponding type declarations.
+test/internal-urls/history-protocol.test.ts(17,35): error TS2307: Cannot find module '@aryee337/aery-coding-agent/session/agent-session' or its corresponding type declarations.
+test/internal-urls/history-protocol.test.ts(18,41): error TS2307: Cannot find module '@aryee337/aery-coding-agent/session/session-manager' or its corresponding type declarations.
+test/internal-urls/history-protocol.test.ts(162,5): error TS7006: Parameter 'err' implicitly has an 'any' type.
+test/internal-urls/history-protocol.test.ts(184,5): error TS7006: Parameter 'err' implicitly has an 'any' type.
+test/session/session-history-format.test.ts(12,46): error TS2307: Cannot find module '@aryee337/aery-coding-agent/session/session-history-format' or its corresponding type declarations.
+test/session/session-history-format.test.ts(78,47): error TS7006: Parameter 'line' implicitly has an 'any' type.
+test/tools/output-caps.test.ts(9,57): error TS2307: Cannot find module '@aryee337/aery-coding-agent/session/streaming-output' or its corresponding type declarations.
+test/tools/output-caps.test.ts(58,37): error TS7006: Parameter 'line' implicitly has an 'any' type.
+test/tools/output-caps.test.ts(106,18): error TS7006: Parameter 'full' implicitly has an 'any' type.

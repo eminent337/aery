@@ -208,6 +208,20 @@ async function getEnvironmentInfo(): Promise<Array<{ label: string; value: strin
 }
 
 /** Resolve input as file path or literal string */
+/** Discover TITLE_SYSTEM.md file for automatic session-title prompt overrides */
+import { findConfigFile } from "./config";
+export function discoverTitleSystemPromptFile(cwd?: string): string | undefined {
+	const projectPath = findConfigFile("TITLE_SYSTEM.md", { user: false, cwd });
+	if (projectPath) {
+		return projectPath;
+	}
+	const globalPath = findConfigFile("TITLE_SYSTEM.md", { user: true, cwd });
+	if (globalPath) {
+		return globalPath;
+	}
+	return undefined;
+}
+
 export async function resolvePromptInput(input: string | undefined, description: string): Promise<string | undefined> {
 	if (!input) {
 		return undefined;

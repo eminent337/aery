@@ -325,3 +325,17 @@ function stringifyReturnValue(value: unknown): string {
 		return String(value);
 	}
 }
+
+async function saveBrowserOutputArtifact(
+	session: import("../tools").ToolSession,
+	originalText: string,
+): Promise<string | undefined> {
+	try {
+		const alloc = await session.allocateOutputArtifact?.("browser-original");
+		if (!alloc?.path || !alloc.id) return undefined;
+		await Bun.write(alloc.path, originalText);
+		return alloc.id;
+	} catch (e) {
+		return undefined;
+	}
+}

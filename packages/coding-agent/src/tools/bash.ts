@@ -447,7 +447,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		return resultBuilder.done();
 	}
 
-	#buildBackgroundStartResult(
+	async #buildBackgroundStartResult(
 		jobId: string,
 		label: string,
 		previewText: string,

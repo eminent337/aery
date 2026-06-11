@@ -34,6 +34,7 @@ import {
 	type AgentProgress,
 	getTaskSchema,
 	type SingleResult,
+	type TaskItem,
 	type TaskParams,
 	type TaskToolDetails,
 	type TaskToolSchemaInstance,
@@ -41,10 +42,13 @@ import {
 // Import review tools for side effects (registers subagent tool handlers)
 import "../tools/review";
 import type { LocalProtocolOptions } from "../internal-urls";
+import { AgentLifecycleManager } from "../registry/agent-lifecycle";
+import { AgentRegistry } from "../registry/agent-registry";
+import type { AgentSession } from "../session/agent-session";
 import { generateCommitMessage } from "../utils/commit-message-generator";
 import * as git from "../utils/git";
 import { discoverAgents, getAgent } from "./discovery";
-import { runSubprocess } from "./executor";
+import { resumeSubprocess, runSubprocess } from "./executor";
 import { AgentOutputManager } from "./output-manager";
 import { mapWithConcurrencyLimit, Semaphore } from "./parallel";
 import { renderResult, renderCall as renderTaskCall } from "./render";
@@ -166,13 +170,87 @@ function renderDescription(
 	});
 }
 
+function validateShapeParams(batchEnabled: boolean, params: TaskParams): string | undefined {
+	if ((params as Record<string, unknown>).schema !== undefined) {
+		return "The task tool does not accept `schema`. Rely on the selected agent definition's `output` schema or the inherited session schema; workflows needing ad-hoc structured output use eval `agent(prompt, schema)`.";
+	}
+	if (!batchEnabled) {
+		const disallowed = (["tasks", "context"] as const).filter(field => params[field] !== undefined);
+		if (disallowed.length > 0) {
+			return `task.batch is disabled, so the task tool does not accept ${disallowed.map(f => `\`${f}\``).join(" or ")}. Spawn one agent per call with \`assignment\`, or enable the task.batch setting.`;
+		}
+	}
+	return undefined;
+}
+
+function validateSpawnParams(params: TaskParams, batchEnabled: boolean): string | undefined {
+	const agent = typeof params.agent === "string" ? params.agent.trim() : "";
+	if (!agent) {
+		return "Missing `agent`. Provide an agent type to spawn.";
+	}
+	const hasAssignment = typeof params.assignment === "string" && params.assignment.trim() !== "";
+	const tasks = params.tasks;
+	if (batchEnabled && tasks !== undefined) {
+		if (!Array.isArray(tasks) || tasks.length === 0) {
+			return "Missing `tasks`. Provide at least one task item ({ id?, description?, assignment }).";
+		}
+		if (hasAssignment) {
+			return "Top-level `assignment` is not part of the batch shape. Put the work in `tasks[]` items.";
+		}
+		for (let i = 0; i < tasks.length; i++) {
+			const item = tasks[i];
+			if (!item || typeof item.assignment !== "string" || item.assignment.trim() === "") {
+				return `Task ${i + 1}${item?.id ? ` (\`${item.id}\`)` : ""} is missing \`assignment\`. Every task needs complete, self-contained instructions.`;
+			}
+		}
+		const seen = new Map<string, string>();
+		for (const item of tasks) {
+			const id = item.id?.trim();
+			if (!id) continue;
+			const key = id.toLowerCase();
+			const existing = seen.get(key);
+			if (existing !== undefined) {
+				return `Duplicate task id ${existing === id ? `\`${id}\`` : `\`${existing}\` / \`${id}\``}. Provided ids must be unique within a call (case-insensitive).`;
+			}
+			seen.set(key, id);
+		}
+		if (typeof params.context !== "string" || params.context.trim() === "") {
+			return "Missing `context`. Provide the shared background for this batch — goal, constraints, and any contract the tasks share.";
+		}
+		return undefined;
+	}
+	if (!hasAssignment) {
+		return batchEnabled
+			? "Missing `tasks`. Provide a `tasks` array (one subagent per item) with a shared `context`."
+			: "Missing `assignment`. Provide complete, self-contained instructions for the agent.";
+	}
+	return undefined;
+}
+
+function resolveSpawnItems(params: TaskParams): TaskItem[] {
+	if (Array.isArray(params.tasks) && params.tasks.length > 0) {
+		return params.tasks;
+	}
+	return [{ id: params.id, description: params.description, assignment: params.assignment }];
+}
+
+function spawnParamsFor(params: TaskParams, item: TaskItem): TaskParams {
+	const spawn: TaskParams = { agent: params.agent };
+	if (item.id !== undefined) spawn.id = item.id;
+	if (item.description !== undefined) spawn.description = item.description;
+	if (item.assignment !== undefined) spawn.assignment = item.assignment;
+	if (params.context !== undefined) spawn.context = params.context;
+	if (params.isolated !== undefined) spawn.isolated = params.isolated;
+	if (item.isolated !== undefined) spawn.isolated = item.isolated;
+	return spawn;
+}
+
 function createTaskModeError(text: string): AgentToolResult<TaskToolDetails> {
 	return {
 		content: [{ type: "text", text }],
 		details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
 	};
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Tool Class
@@ -196,8 +274,8 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		const tasks = Array.isArray(params.tasks) ? params.tasks : [];
 		const firstTask = tasks[0];
 		if (firstTask) {
-			lines.push(`Task: ${truncateForPrompt(firstTask.id)}`);
-			lines.push(`Assignment:\n${truncateForPrompt(firstTask.assignment)}`);
+			lines.push(`Task: ${truncateForPrompt(firstTask.id ?? "")}`);
+			lines.push(`Assignment:\n${truncateForPrompt(firstTask.assignment ?? "")}`);
 			if (tasks.length > 1) {
 				lines.push(`+${tasks.length - 1} more task${tasks.length === 2 ? "" : "s"}`);
 			}
@@ -245,10 +323,6 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		this.#discoveredAgents = discoveredAgents;
 	}
 
-	#isBatchEnabled(): boolean {
-		return this.session.settings.get("task.batch");
-	}
-
 	/**
 	 * Create a TaskTool instance with async agent discovery.
 	 */
@@ -286,17 +360,17 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 
 		const outputManager =
 			this.session.agentOutputManager ?? new AgentOutputManager(this.session.getArtifactsDir ?? (() => null));
-		const uniqueIds = await outputManager.allocateBatch(taskItems.map(t => t.id));
+		const uniqueIds = await outputManager.allocateBatch(taskItems.map(t => t.id ?? ""));
 		const fallbackAgentSource =
 			this.#discoveredAgents.find(agent => agent.name === params.agent)?.source ?? "bundled";
 		const progressByTaskId = new Map<string, AgentProgress>();
 		for (let index = 0; index < taskItems.length; index++) {
 			const taskItem = taskItems[index];
-			const assignment = taskItem.assignment.trim();
-			progressByTaskId.set(taskItem.id, {
+			const assignment = (taskItem.assignment ?? "").trim();
+			progressByTaskId.set(taskItem.id ?? "", {
 				index,
-				id: taskItem.id,
-				agent: params.agent,
+				id: taskItem.id ?? "",
+				agent: params.agent ?? "",
 				agentSource: fallbackAgentSource,
 				status: "pending",
 				task: renderSubagentUserPrompt(assignment),
@@ -344,8 +418,8 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		for (let i = 0; i < taskItems.length; i++) {
 			const taskItem = taskItems[i];
 			if (signal?.aborted) {
-				failedSchedules.push(`${taskItem.id}: cancelled before scheduling`);
-				const progress = progressByTaskId.get(taskItem.id);
+				failedSchedules.push(`${taskItem.id ?? ""}: cancelled before scheduling`);
+				const progress = progressByTaskId.get(taskItem.id ?? "");
 				if (progress) {
 					progress.status = "aborted";
 				}
@@ -361,7 +435,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					label,
 					async ({ signal: runSignal, reportProgress }) => {
 						const startedAt = Date.now();
-						const progress = progressByTaskId.get(taskItem.id);
+						const progress = progressByTaskId.get(taskItem.id ?? "");
 						await semaphore.acquire();
 						if (runSignal.aborted) {
 							semaphore.release();
@@ -374,13 +448,11 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 							progress.status = "running";
 						}
 						await reportProgress(
-							`Running background task ${taskItem.id}...`,
+							`Running background task ${taskItem.id ?? ""}...`,
 							buildAsyncDetails("running", startedJobs[0]?.jobId ?? label) as unknown as Record<string, unknown>,
 						);
 						try {
-							const result = await this.#executeSync(_toolCallId, singleParams, runSignal, undefined, [
-								uniqueId,
-							]);
+							const result = await this.#executeSync(toolCallId, singleParams, runSignal, undefined, [uniqueId]);
 							const finalText = result.content.find(part => part.type === "text")?.text ?? "(no output)";
 							const singleResult = result.details?.results[0];
 							if (progress) {
@@ -460,11 +532,11 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						},
 					},
 				);
-				startedJobs.push({ jobId, taskId: taskItem.id });
+				startedJobs.push({ jobId, taskId: taskItem.id ?? "" });
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				failedSchedules.push(`${taskItem.id}: ${message}`);
-				const progress = progressByTaskId.get(taskItem.id);
+				failedSchedules.push(`${taskItem.id ?? ""}: ${message}`);
+				const progress = progressByTaskId.get(taskItem.id ?? "");
 				if (progress) {
 					progress.status = "failed";
 				}
@@ -492,7 +564,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		const ircEnabled = this.session.settings.get("irc.enabled") === true;
 		const taskIdByItemId = new Map<string, string>();
 		for (let i = 0; i < taskItems.length; i++) {
-			taskIdByItemId.set(taskItems[i].id, uniqueIds[i]);
+			taskIdByItemId.set(taskItems[i].id ?? "", uniqueIds[i]);
 		}
 		const startedListing = startedJobs
 			.map(({ taskId, jobId }) => {
@@ -523,6 +595,96 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		};
 	}
 
+	#isBatchEnabled(): boolean {
+		return this.session.settings.get("task.batch");
+	}
+
+	async #executeSyncFanout(
+		toolCallId: string,
+		params: TaskParams,
+		spawnItems: TaskItem[],
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback<TaskToolDetails>,
+	): Promise<AgentToolResult<TaskToolDetails>> {
+		const maxConcurrency = this.session.settings.get("task.maxConcurrency");
+		const semaphore = new Semaphore(maxConcurrency);
+
+		if (spawnItems.length === 1) {
+			await semaphore.acquire();
+			try {
+				return await this.#executeSync(toolCallId, spawnParamsFor(params, spawnItems[0]), signal, onUpdate);
+			} finally {
+				semaphore.release();
+			}
+		}
+
+		const startTime = Date.now();
+		const latestProgress = new Map<number, AgentProgress>();
+		const emitCombined = () => {
+			onUpdate?.({
+				content: [{ type: "text", text: `Running ${spawnItems.length} agents...` }],
+				details: {
+					projectAgentsDir: null,
+					results: [],
+					totalDurationMs: Date.now() - startTime,
+					progress: Array.from(latestProgress.entries())
+						.sort((a, b) => a[0] - b[0])
+						.map(([, progress]) => progress),
+				},
+			});
+		};
+
+		const payloads = await Promise.all(
+			spawnItems.map(async (item, index) => {
+				await semaphore.acquire();
+				try {
+					const itemOnUpdate: AgentToolUpdateCallback<TaskToolDetails> | undefined = onUpdate
+						? update => {
+								const progress = update.details?.progress?.[0];
+								if (progress) {
+									latestProgress.set(index, { ...progress, index });
+									emitCombined();
+								}
+							}
+						: undefined;
+					return await this.#executeSync(toolCallId, spawnParamsFor(params, item), signal, itemOnUpdate);
+				} finally {
+					semaphore.release();
+				}
+			}),
+		);
+
+		const results: SingleResult[] = [];
+		const contentParts: string[] = [];
+		const outputPaths: string[] = [];
+		let projectAgentsDir: string | null = null;
+		for (let index = 0; index < spawnItems.length; index++) {
+			const payload = payloads[index];
+			if (!payload) {
+				contentParts.push(`Task ${spawnItems[index].id?.trim() || `#${index + 1}`}: cancelled before start.`);
+				continue;
+			}
+			projectAgentsDir = projectAgentsDir ?? payload.details?.projectAgentsDir ?? null;
+			const textPart = payload.content.find((part: any) => part.type === "text") as any;
+			const text = textPart?.text;
+			if (text) contentParts.push(text);
+			for (const result of payload.details?.results ?? []) {
+				results.push({ ...result, index });
+				if (result.outputPath) outputPaths.push(result.outputPath);
+			}
+		}
+
+		return {
+			content: [{ type: "text", text: contentParts.join("\n\n") }],
+			details: {
+				projectAgentsDir,
+				results,
+				totalDurationMs: Date.now() - startTime,
+				outputPaths: outputPaths.length > 0 ? outputPaths : undefined,
+			},
+		};
+	}
+
 	async #executeSync(
 		_toolCallId: string,
 		params: TaskParams,
@@ -532,7 +694,8 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 	): Promise<AgentToolResult<TaskToolDetails>> {
 		const startTime = Date.now();
 		const { agents, projectAgentsDir } = await discoverAgents(this.session.cwd);
-		const { agent: agentName = "", context, schema: outputSchema } = params;
+		const { agent: agentName = "", context } = params;
+		const outputSchema = (params as any).schema;
 		const sharedContext = this.#isBatchEnabled() ? context?.trim() : undefined;
 		const isolationMode = this.session.settings.get("task.isolation.mode");
 		const isolationRequested = "isolated" in params ? params.isolated === true : false;
@@ -741,7 +904,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		const emitProgress = () => {
 			const progress = Array.from(progressMap.values()).sort((a, b) => a.index - b.index);
 			onUpdate?.({
-				content: [{ type: "text", text: `Running ${params.tasks.length} agents...` }],
+				content: [{ type: "text", text: `Running ${(params.tasks || []).length} agents...` }],
 				details: {
 					projectAgentsDir,
 					results: [],
@@ -809,7 +972,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			} else {
 				const outputManager =
 					this.session.agentOutputManager ?? new AgentOutputManager(this.session.getArtifactsDir ?? (() => null));
-				uniqueIds = await outputManager.allocateBatch(tasks.map(t => t.id));
+				uniqueIds = await outputManager.allocateBatch(tasks.map(t => t.id ?? ""));
 			}
 			const tasksWithUniqueIds = tasks.map((t, i) => ({ ...t, id: uniqueIds[i] }));
 
@@ -831,10 +994,10 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			// Initialize progress for all tasks
 			for (let i = 0; i < tasksWithUniqueIds.length; i++) {
 				const taskItem = tasksWithUniqueIds[i];
-				const assignment = taskItem.assignment.trim();
+				const assignment = (taskItem.assignment ?? "").trim();
 				progressMap.set(i, {
 					index: i,
-					id: taskItem.id,
+					id: taskItem.id ?? "",
 					agent: agentName || "",
 					agentSource: agent.source,
 					status: "pending",
@@ -853,14 +1016,57 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			emitProgress();
 
 			const runTask = async (task: (typeof tasksWithUniqueIds)[number], index: number) => {
+				const resumeSessionId = typeof task.resume === "string" ? task.resume.trim() : "";
+
+				let effectiveAgentTask = effectiveAgent;
+				let liveSession: AgentSession | undefined;
+				if (resumeSessionId) {
+					try {
+						liveSession = await AgentLifecycleManager.global().ensureLive(resumeSessionId);
+					} catch (err) {
+						const message = err instanceof Error ? err.message : String(err);
+						throw new Error(`Cannot resume "${resumeSessionId}": ${message}`);
+					}
+					const agentName = AgentRegistry.global().get(resumeSessionId)?.displayName ?? "task";
+					effectiveAgentTask = getAgent(agents, agentName) ?? {
+						name: agentName,
+						description: "",
+						systemPrompt: "",
+						source: "bundled",
+					};
+				}
+
 				if (!isIsolated) {
+					if (liveSession && resumeSessionId) {
+						return resumeSubprocess({
+							session: liveSession,
+							id: resumeSessionId,
+							agent: effectiveAgentTask,
+							task: renderSubagentUserPrompt(task.assignment ?? ""),
+							assignment: (task.assignment ?? "").trim(),
+							description: task.description ?? "",
+							index,
+							signal,
+							eventBus: this.session.eventBus,
+							onProgress: progress => {
+								progressMap.set(index, {
+									...structuredClone(progress),
+								});
+								emitProgress();
+							},
+							artifactsDir: effectiveArtifactsDir,
+							settings: this.session.settings,
+							parentToolCallId: _toolCallId,
+							outputSchema: effectiveOutputSchema,
+						});
+					}
 					return runSubprocess({
 						cwd: this.session.cwd,
 						agent: effectiveAgent,
-						task: renderSubagentUserPrompt(task.assignment),
-						assignment: task.assignment.trim(),
+						task: renderSubagentUserPrompt(task.assignment ?? ""),
+						assignment: (task.assignment ?? "").trim(),
 						context: sharedContext,
-						description: task.description,
+						description: task.description ?? "",
 						index,
 						id: task.id,
 						taskDepth,
@@ -913,11 +1119,11 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					const result = await runSubprocess({
 						cwd: this.session.cwd,
 						worktree: isolationDir,
-						agent: effectiveAgent,
-						task: renderSubagentUserPrompt(task.assignment),
-						assignment: task.assignment.trim(),
+						agent: effectiveAgentTask,
+						task: renderSubagentUserPrompt(task.assignment ?? ""),
+						assignment: (task.assignment ?? "").trim(),
 						context: sharedContext,
-						description: task.description,
+						description: task.description ?? "",
 						index,
 						id: task.id,
 						taskDepth,
@@ -1005,7 +1211,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					return result;
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
-					const assignment = task.assignment?.trim() || "";
+					const assignment = (task.assignment ?? "")?.trim() || "";
 					return {
 						index,
 						id: task.id,
@@ -1013,7 +1219,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						agentSource: agent.source,
 						task: renderSubagentUserPrompt(assignment),
 						assignment,
-						description: task.description,
+						description: task.description ?? "",
 						exitCode: 1,
 						output: "",
 						stderr: message,
@@ -1044,7 +1250,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					return result;
 				}
 				const task = tasksWithUniqueIds[index];
-				const assignment = task.assignment?.trim() || "";
+				const assignment = (task.assignment ?? "")?.trim() || "";
 				return {
 					index,
 					id: task.id,
@@ -1052,7 +1258,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					agentSource: agent.source,
 					task: renderSubagentUserPrompt(assignment),
 					assignment,
-					description: task.description,
+					description: task.description ?? "",
 					exitCode: 1,
 					output: "",
 					stderr: "Skipped (cancelled before start)",

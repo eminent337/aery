@@ -3456,3 +3456,16 @@ export class SessionManager {
 		}
 	}
 }
+
+/** Load session messages for read-only preview/history rendering without holding a lock. */
+export async function loadSessionMessagesReadOnly(sessionFile: string): Promise<AgentMessage[]> {
+	const storage = new FileSessionStorage();
+	const entries = await loadEntriesFromFile(sessionFile, storage);
+	const messages: AgentMessage[] = [];
+	for (const entry of entries) {
+		if (entry.type === "message") {
+			messages.push(entry.message);
+		}
+	}
+	return messages;
+}

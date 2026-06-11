@@ -6,7 +6,7 @@
  * bounded-output paths (bash sink/minimizer) see zero behavior change.
  */
 import { describe, expect, it } from "bun:test";
-import { DEFAULT_MAX_BYTES, enforceInlineByteCap } from "@aryee337/aery-coding-agent/session/streaming-output";
+import { DEFAULT_MAX_BYTES, enforceInlineByteCap } from "../../src/session/streaming-output";
 
 const MARKER_PATTERN = /\[… elided \d+ bytes of test output …\]/;
 

@@ -889,6 +889,17 @@ export class SelectorController {
 		this.ctx.showStatus(`Logging in to ${providerId}…`);
 		const manualInput = this.ctx.oauthManualInput;
 		const useManualInput = CALLBACK_SERVER_PROVIDERS.has(providerId as OAuthProvider);
+
+		if (useManualInput && manualInput.hasPending()) {
+			const pendingProvider = manualInput.pendingProviderId ?? "another provider";
+			this.ctx.showError(
+				`OAuth login already in progress for ${pendingProvider}. Complete or cancel it before starting a new login.`,
+			);
+			return;
+		}
+
+		let manualInputClaim: { promise: Promise<string>; clear: (reason?: string) => void } | undefined;
+
 		try {
 			await this.ctx.session.modelRegistry.authStorage.login(providerId as OAuthProvider, {
 				onAuth: (info: { url: string; instructions?: string }) => {
@@ -933,7 +944,20 @@ export class SelectorController {
 					this.ctx.chatContainer.addChild(new Text(theme.fg("dim", message), 1, 0));
 					this.ctx.ui.requestRender();
 				},
-				onManualCodeInput: useManualInput ? () => manualInput.waitForInput(providerId) : undefined,
+				onManualCodeInput: useManualInput
+					? () => {
+							if (manualInputClaim) return manualInputClaim.promise;
+							const pendingInput = manualInput.tryClaimInput(providerId);
+							if (!pendingInput) {
+								const pendingProvider = manualInput.pendingProviderId ?? "another provider";
+								throw new Error(
+									`OAuth login already in progress for ${pendingProvider}. Complete or cancel it before starting a new login.`,
+								);
+							}
+							manualInputClaim = pendingInput;
+							return pendingInput.promise;
+						}
+					: undefined,
 			});
 			await this.ctx.session.modelRegistry.refresh();
 			this.ctx.chatContainer.addChild(new Spacer(1));
@@ -946,7 +970,7 @@ export class SelectorController {
 			this.ctx.showError(`Login failed: ${error instanceof Error ? error.message : String(error)}`);
 		} finally {
 			if (useManualInput) {
-				manualInput.clear(`Manual OAuth input cleared for ${providerId}`);
+				manualInputClaim?.clear(`Manual OAuth input cleared for ${providerId}`);
 			}
 		}
 	}

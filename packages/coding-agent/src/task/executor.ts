@@ -24,6 +24,7 @@ import type { MCPManager } from "../mcp/manager";
 import type { MnemopiSessionState } from "../mnemopi/state";
 import subagentSystemPromptTemplate from "../prompts/system/subagent-system-prompt.md" with { type: "text" };
 import submitReminderTemplate from "../prompts/system/subagent-yield-reminder.md" with { type: "text" };
+import { AgentLifecycleManager } from "../registry/agent-lifecycle";
 import { AgentRegistry } from "../registry/agent-registry";
 import { createAgentSession, discoverAuthStorage } from "../sdk";
 import type { AgentSession, AgentSessionEvent } from "../session/agent-session";
@@ -164,6 +165,7 @@ export interface ExecutorOptions {
 	signal?: AbortSignal;
 	onProgress?: (progress: AgentProgress) => void;
 	sessionFile?: string | null;
+	resumeSession?: AgentSession;
 	persistArtifacts?: boolean;
 	artifactsDir?: string;
 	/** Path to parent conversation context file */
@@ -1115,6 +1117,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			}
 		};
 
+		let reviveSession: (() => Promise<AgentSession>) | null = null;
 		try {
 			checkAbort();
 			// Pin authStorage to modelRegistry.authStorage — mirrors the createAgentSession invariant.
@@ -1261,6 +1264,73 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			);
 
 			activeSession = session;
+
+			const installRegistryStatusSync = (target: AgentSession): void => {
+				target.subscribe(event => {
+					if (event.type === "agent_start") {
+						AgentRegistry.global().setStatus(id, "running");
+					} else if (event.type === "agent_end") {
+						AgentRegistry.global().setStatus(id, "idle");
+					}
+				});
+			};
+			installRegistryStatusSync(session);
+			if (sessionFile !== null && worktree === undefined) {
+				reviveSession = async () => {
+					const reopened = await SessionManager.open(sessionFile);
+					if (options.parentArtifactManager) {
+						reopened.adoptArtifactManager(options.parentArtifactManager);
+					}
+					const { session: revived } = await createAgentSession({
+						cwd: worktree ?? cwd,
+						authStorage,
+						modelRegistry,
+						settings: subagentSettings,
+						model,
+						thinkingLevel: effectiveThinkingLevel,
+						toolNames,
+						outputSchema,
+						requireYieldTool: true,
+						contextFiles: options.contextFiles,
+						skills: options.skills,
+						promptTemplates: options.promptTemplates,
+						workspaceTree: options.workspaceTree,
+						systemPrompt: defaultPrompt => {
+							const subagentPrompt = prompt.render(subagentSystemPromptTemplate, {
+								agent: agent.systemPrompt,
+								context: options.context?.trim() ?? "",
+								worktree: worktree ?? "",
+								outputSchema: normalizedOutputSchema,
+								contextFile: contextFileForPrompt,
+								ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
+								ircSelfId: ircEnabled ? id : "",
+							});
+							return defaultPrompt.length === 0
+								? [subagentPrompt]
+								: [...defaultPrompt.slice(0, -1), subagentPrompt, defaultPrompt[defaultPrompt.length - 1]];
+						},
+						sessionManager: reopened,
+						hasUI: false,
+						spawns: spawnsEnv,
+						taskDepth: childDepth,
+						parentHindsightSessionState: options.parentHindsightSessionState,
+						parentMnemopiSessionState: options.parentMnemopiSessionState,
+						parentTaskPrefix: id,
+						agentId: id,
+						agentDisplayName: agent.name,
+						enableLsp: lspEnabled,
+						skipPythonPreflight,
+						enableMCP,
+						mcpManager: options.mcpManager,
+						customTools: mcpProxyTools.length > 0 ? mcpProxyTools : undefined,
+						localProtocolOptions: options.localProtocolOptions,
+						telemetry: subagentTelemetry,
+						parentEvalSessionId: options.parentEvalSessionId,
+					});
+					installRegistryStatusSync(revived);
+					return revived;
+				};
+			}
 
 			// Emit lifecycle start event
 			if (options.eventBus) {
@@ -1505,10 +1575,26 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			if (activeSession) {
 				const session = activeSession;
 				activeSession = null;
-				try {
-					await untilAborted(AbortSignal.timeout(5000), () => session.dispose());
-				} catch {
-					// Ignore cleanup errors
+				const registry = AgentRegistry.global();
+				const agentIdleTtlMs = Math.trunc(Number(settings.get("task.agentIdleTtlMs" as any) ?? 420_000) || 0);
+
+				if (aborted) {
+					registry.setStatus(id, "aborted");
+					try {
+						await untilAborted(AbortSignal.timeout(5000), () => session.dispose());
+					} catch {}
+				} else if (worktree !== undefined) {
+					registry.setStatus(id, "parked");
+					try {
+						await untilAborted(AbortSignal.timeout(5000), () => session.dispose());
+					} catch {}
+					registry.detachSession(id);
+				} else {
+					registry.setStatus(id, "idle");
+					AgentLifecycleManager.global().adopt(id, {
+						idleTtlMs: agentIdleTtlMs,
+						revive: reviveSession ?? undefined,
+					});
 				}
 			}
 		}
@@ -1640,6 +1726,320 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		abortReason: finalAbortReason,
 		usage: hasUsage ? accumulatedUsage : undefined,
 		outputPath,
+		extractedToolData: progress.extractedToolData,
+		retryFailure: progress.retryFailure,
+		outputMeta,
+	};
+}
+
+export interface ResumeExecutorOptions {
+	session: AgentSession;
+	id: string;
+	agent: AgentDefinition;
+	task: string;
+	assignment?: string;
+	description?: string;
+	index: number;
+	parentToolCallId?: string;
+	outputSchema?: unknown;
+	signal?: AbortSignal;
+	onProgress?: (progress: AgentProgress) => void;
+	eventBus?: EventBus;
+	settings?: Settings;
+	artifactsDir?: string;
+}
+
+export async function resumeSubprocess(options: ResumeExecutorOptions): Promise<SingleResult> {
+	const { session, id, agent, task, assignment, index, signal, onProgress } = options;
+	const startTime = Date.now();
+
+	if (signal?.aborted) {
+		return {
+			index,
+			id,
+			agent: agent.name,
+			agentSource: agent.source,
+			task,
+			assignment,
+			description: options.description,
+			exitCode: 1,
+			output: "",
+			stderr: "Cancelled before start",
+			truncated: false,
+			durationMs: 0,
+			tokens: 0,
+			error: "Cancelled before start",
+			aborted: true,
+			abortReason: "Cancelled before start",
+		};
+	}
+
+	const progress: AgentProgress = {
+		index,
+		id,
+		agent: agent.name,
+		agentSource: agent.source,
+		status: "running",
+		task,
+		assignment,
+		description: options.description,
+		lastIntent: undefined,
+		recentTools: [],
+		recentOutput: [],
+		toolCount: 0,
+		tokens: 0,
+		cost: 0,
+		durationMs: 0,
+	};
+
+	let unsubscribe: (() => void) | null = null;
+	const sessionAbortController = new AbortController();
+	const abortSignal = signal
+		? AbortSignal.any([signal, sessionAbortController.signal])
+		: sessionAbortController.signal;
+
+	let exitCode = 1;
+	let error: string | undefined;
+	let aborted = false;
+	let abortReason: string | undefined;
+	let abortReasonText: string | undefined;
+	let yieldCalled = false;
+	const runtimeLimitExceeded = false;
+	let truncatedOutput = "";
+	const stderr = "";
+	const truncated = false;
+	let hasUsage = false;
+	const accumulatedUsage: any = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+	const outputMeta: any = undefined;
+
+	const scheduleProgress = (immediate = false) => {
+		if (onProgress) onProgress(progress);
+	};
+
+	const checkAbort = () => {
+		if (abortSignal.aborted) {
+			const err = new Error("Aborted");
+			err.name = "AbortError";
+			throw err;
+		}
+	};
+
+	const requestAbort = (reason: string) => {
+		abortReason = reason;
+		sessionAbortController.abort();
+	};
+
+	const awaitAbortable = async <T>(promise: Promise<T>): Promise<T> => {
+		checkAbort();
+		const { promise: abortPromise, reject } = Promise.withResolvers<never>();
+		const onAbort = () => {
+			try {
+				checkAbort();
+			} catch (err) {
+				reject(err);
+			}
+		};
+		abortSignal.addEventListener("abort", onAbort, { once: true });
+		try {
+			return await Promise.race([promise, abortPromise]);
+		} finally {
+			abortSignal.removeEventListener("abort", onAbort);
+		}
+	};
+
+	if (options.eventBus) {
+		options.eventBus.emit(TASK_SUBAGENT_LIFECYCLE_CHANNEL, {
+			id,
+			agent: agent.name,
+			parentToolCallId: options.parentToolCallId,
+			agentSource: agent.source,
+			description: options.description,
+			status: "started",
+			index,
+		});
+	}
+
+	try {
+		const MAX_YIELD_RETRIES = 3;
+		unsubscribe = session.subscribe(event => {
+			if (event.type === "auto_retry_start") {
+				progress.retryState = {
+					attempt: event.attempt,
+					maxAttempts: event.maxAttempts,
+					delayMs: event.delayMs,
+					errorMessage: event.errorMessage,
+					startedAtMs: Date.now(),
+				};
+				progress.retryFailure = undefined;
+				scheduleProgress(true);
+				return;
+			}
+			if (event.type === "auto_retry_end") {
+				const attempt = progress.retryState?.attempt ?? event.attempt;
+				progress.retryState = undefined;
+				if (!event.success) {
+					progress.retryFailure = {
+						attempt,
+						errorMessage: event.finalError ?? "Auto-retry failed",
+					};
+				}
+				scheduleProgress(true);
+				return;
+			}
+			if (isAgentEvent(event)) {
+				try {
+					if (event.type === "agent_start") {
+						progress.status = "running";
+						scheduleProgress(true);
+					} else if (event.type === "agent_end") {
+						progress.status = aborted ? "aborted" : exitCode === 0 ? "completed" : "failed";
+						scheduleProgress(true);
+					} else if (event.type === "tool_execution_start") {
+						progress.toolCount++;
+						progress.currentTool = event.toolName;
+						progress.currentToolArgs = event.args;
+						progress.currentToolStartMs = Date.now();
+						scheduleProgress(true);
+					} else if (event.type === "tool_execution_end") {
+						const argsToUse = progress.currentToolArgs;
+						progress.currentTool = undefined;
+						progress.currentToolArgs = undefined;
+						progress.currentToolStartMs = undefined;
+						if (event.toolName === "yield") {
+							yieldCalled = true;
+							try {
+								const parsed = typeof argsToUse === "string" ? JSON.parse(argsToUse) : argsToUse;
+								if (parsed && typeof parsed === "object" && "data" in parsed) {
+									const data = parsed.data;
+									truncatedOutput = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+								} else {
+									truncatedOutput = JSON.stringify(argsToUse);
+								}
+							} catch {
+								truncatedOutput = JSON.stringify(argsToUse);
+							}
+						} else {
+							progress.recentTools.unshift({
+								tool: event.toolName,
+								args: typeof argsToUse === "string" ? argsToUse : JSON.stringify(argsToUse),
+								endMs: Date.now(),
+							});
+							if (progress.recentTools.length > 5) progress.recentTools.pop();
+						}
+						scheduleProgress();
+					} else if (event.type === "message_end") {
+						if (event.message && event.message.role === "assistant") {
+							const messageUsage = (event.message as any).usage;
+							if (messageUsage && typeof messageUsage === "object") {
+								hasUsage = true;
+								accumulatedUsage.input += messageUsage.input ?? 0;
+								accumulatedUsage.output += messageUsage.output ?? 0;
+								accumulatedUsage.cacheRead += messageUsage.cacheRead ?? 0;
+								accumulatedUsage.cacheWrite += messageUsage.cacheWrite ?? 0;
+
+								const usageTokens =
+									(messageUsage.input ?? 0) + (messageUsage.output ?? 0) + (messageUsage.cacheWrite ?? 0);
+								progress.tokens += usageTokens;
+								progress.contextTokens = messageUsage.totalTokens;
+							}
+						}
+						scheduleProgress();
+					}
+				} catch (err) {
+					requestAbort("terminate");
+				}
+			}
+		});
+
+		checkAbort();
+		await awaitAbortable(session.prompt(task, { attribution: "agent" }));
+		await awaitAbortable(session.waitForIdle());
+
+		const reminderToolChoice = undefined; // We skip reminderToolChoice logic for simplicity or rebuild it if needed
+
+		let retryCount = 0;
+		while (!yieldCalled && retryCount < MAX_YIELD_RETRIES && !abortSignal.aborted) {
+			const lastBeforeReminder = session.getLastAssistantMessage();
+			if (lastBeforeReminder?.stopReason === "error") break;
+			try {
+				retryCount++;
+				const reminder = prompt.render(submitReminderTemplate, {
+					retryCount,
+					maxRetries: MAX_YIELD_RETRIES,
+				});
+
+				const isFinalRetry = retryCount >= MAX_YIELD_RETRIES;
+				await awaitAbortable(
+					session.prompt(reminder, {
+						attribution: "agent",
+					}),
+				);
+				await awaitAbortable(session.waitForIdle());
+			} catch (err) {
+				if (abortSignal.aborted || err instanceof ToolAbortError) {
+					// ignore
+				} else {
+					// ignore
+				}
+			}
+		}
+
+		await awaitAbortable(session.waitForIdle());
+		if (!yieldCalled && !abortSignal.aborted) {
+			exitCode = 0;
+		}
+
+		const lastAssistant = session.getLastAssistantMessage();
+		if (lastAssistant) {
+			if (lastAssistant.stopReason === "aborted") {
+				aborted = abortReason === "signal" || runtimeLimitExceeded || abortReason === undefined;
+				exitCode = 1;
+			} else if (lastAssistant.stopReason === "error") {
+				exitCode = 1;
+				error ??= lastAssistant.errorMessage || "Subagent failed";
+			}
+		}
+	} catch (err) {
+		exitCode = 1;
+		if (!abortSignal.aborted) {
+			error = err instanceof Error ? err.stack || err.message : String(err);
+		}
+	} finally {
+		if (abortSignal.aborted) {
+			aborted = abortReason === "signal" || runtimeLimitExceeded || abortReason === undefined;
+			if (exitCode === 0) exitCode = 1;
+		}
+		sessionAbortController.abort();
+		if (unsubscribe) {
+			try {
+				unsubscribe();
+			} catch {}
+			unsubscribe = null;
+		}
+		AgentRegistry.global().setStatus(id, "idle");
+	}
+
+	return {
+		index,
+		id,
+		agent: agent.name,
+		agentSource: agent.source,
+		task,
+		assignment,
+		description: options.description,
+		lastIntent: progress.lastIntent,
+		exitCode,
+		output: truncatedOutput,
+		stderr,
+		truncated: Boolean(truncated),
+		durationMs: Date.now() - startTime,
+		tokens: progress.tokens,
+		contextTokens: progress.contextTokens,
+		contextWindow: progress.contextWindow,
+		error: exitCode !== 0 && stderr ? stderr : undefined,
+		aborted,
+		abortReason: aborted ? abortReasonText : undefined,
+		usage: hasUsage ? accumulatedUsage : undefined,
 		extractedToolData: progress.extractedToolData,
 		retryFailure: progress.retryFailure,
 		outputMeta,

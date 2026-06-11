@@ -84,6 +84,7 @@ export interface AgentOptions {
 	 * Use for context pruning, injecting external context, etc.
 	 */
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
+	transformProviderContext?: (context: any) => any;
 
 	/**
 	 * Steering mode: "all" = send all steering messages at once, "one-at-a-time" = one per turn
@@ -270,6 +271,8 @@ export class Agent {
 	#abortController?: AbortController;
 	#convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	#transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
+	transformProviderContext?: (context: any) => any;
+	#transformProviderContext?: (context: any) => any;
 	#steeringQueue: AgentMessage[] = [];
 	#followUpQueue: AgentMessage[] = [];
 	#steeringMode: "all" | "one-at-a-time";

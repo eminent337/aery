@@ -719,6 +719,10 @@ async function streamAssistantResponse(
 		};
 	}
 
+	if (config.transformProviderContext) {
+		llmContext = config.transformProviderContext(llmContext);
+	}
+
 	const streamFunction = streamFn || streamSimple;
 
 	// Resolve API key (important for expiring tokens) — do this before resolving

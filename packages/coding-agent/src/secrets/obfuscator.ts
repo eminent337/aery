@@ -1,4 +1,5 @@
-import type { Message, TextContent } from "@aryee337/aery-ai";
+import type { Context, Message, TextContent, Tool } from "@aryee337/aery-ai";
+import { toolWireSchema } from "@aryee337/aery-ai/utils/schema";
 import type { SessionContext } from "../session/session-manager";
 import { compileSecretRegex } from "./regex";
 
@@ -179,6 +180,10 @@ export class SecretObfuscator {
 	}
 
 	/** Deep-walk an object, deobfuscating all string values. */
+	obfuscateObject<T>(obj: T): T {
+		if (!this.#hasAny) return obj;
+		return deepWalkStrings(obj, s => this.obfuscate(s));
+	}
 	deobfuscateObject<T>(obj: T): T {
 		if (!this.#hasAny) return obj;
 		return deepWalkStrings(obj, s => this.deobfuscate(s));
@@ -230,6 +235,31 @@ export function obfuscateMessages(obfuscator: SecretObfuscator, messages: Messag
 
 		return changed ? ({ ...msg, content } as typeof msg) : msg;
 	});
+}
+
+/** Obfuscate provider context for final LLM request emission. */
+export function obfuscateProviderContext(obfuscator: SecretObfuscator | undefined, context: Context): Context {
+	if (!obfuscator?.hasSecrets()) return context;
+	return {
+		...context,
+		systemPrompt: obfuscator.obfuscateObject(context.systemPrompt),
+		messages: obfuscator.obfuscateObject(context.messages),
+		tools: obfuscateProviderTools(obfuscator, context.tools),
+	};
+}
+
+/** Convert tool schemas to wire JSON Schema before obfuscating provider-visible strings. */
+export function obfuscateProviderTools(
+	obfuscator: SecretObfuscator | undefined,
+	tools: Tool[] | undefined,
+): Tool[] | undefined {
+	if (!tools || !obfuscator?.hasSecrets()) return tools;
+	return tools.map(tool => ({
+		...tool,
+		description: obfuscator.obfuscate(tool.description),
+		parameters: obfuscator.obfuscateObject(toolWireSchema(tool)),
+		customFormat: tool.customFormat ? obfuscator.obfuscateObject(tool.customFormat) : undefined,
+	}));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

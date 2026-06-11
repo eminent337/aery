@@ -1,0 +1,112 @@
+--- packages/coding-agent/test/tools/irc.test.ts
++++ packages/coding-agent/test/tools/irc.test.ts
+@@ -1,83 +1,56 @@
+ import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
+ import { Agent } from "@aryee337/aery-agent-core";
+ import { Settings } from "@aryee337/aery-coding-agent/config/settings";
++import { IrcBus, type IrcMessage } from "@aryee337/aery-coding-agent/irc/bus";
++import { AgentLifecycleManager } from "@aryee337/aery-coding-agent/registry/agent-lifecycle";
+ import { AgentRegistry } from "@aryee337/aery-coding-agent/registry/agent-registry";
+-import { AgentSession } from "@aryee337/aery-coding-agent/session/agent-session";
+-import { type FileEntry, SessionManager } from "@aryee337/aery-coding-agent/session/session-manager";
++import { AgentSession, type AgentSessionEvent } from "@aryee337/aery-coding-agent/session/agent-session";
++import type { CustomMessage } from "@aryee337/aery-coding-agent/session/messages";
++import { SessionManager } from "@aryee337/aery-coding-agent/session/session-manager";
+ import type { ToolSession } from "@aryee337/aery-coding-agent/tools";
+ import { IrcTool } from "@aryee337/aery-coding-agent/tools/irc";
+ 
+ interface FakeSession {
+ 	session: AgentSession;
+-	calls: Array<{ from: string; message: string; awaitReply: boolean }>;
+-	/** Override the reply this fake session generates. */
+-	setReply: (text: string) => void;
+-	/** Cause the next respondAsBackground call to throw. */
++	/** Messages delivered into this session via deliverIrcMessage. */
++	delivered: IrcMessage[];
++	/** Outcome the fake reports (busy vs idle recipient). */
++	setOutcome: (outcome: "injected" | "woken") => void;
++	/** Cause the next deliverIrcMessage call to throw. */
+ 	setError: (error: Error) => void;
+-	/** Resolve the next respondAsBackground call only when allowed. */
+-	gateNextCall: () => { release: () => void };
+-	/** Keep the next respondAsBackground call pending until aborted. */
+-	hangNextCall: () => void;
++	/** Side effect run on delivery (e.g. reply via the bus). */
++	onDeliver: (fn: (msg: IrcMessage) => void) => void;
+ }
++
+ function makeFakeSession(): FakeSession {
+-	let nextReply = "auto-reply";
++	let outcome: "injected" | "woken" = "injected";
+ 	let nextError: Error | null = null;
+-	let gate: { promise: Promise<void>; release: () => void } | null = null;
+-	let hangNext = false;
+-	const calls: Array<{ from: string; message: string; awaitReply: boolean }> = [];
++	let deliverHook: ((msg: IrcMessage) => void) | undefined;
++	const delivered: IrcMessage[] = [];
+ 	const session = {
+-		respondAsBackground: async (args: {
+-			from: string;
+-			message: string;
+-			awaitReply?: boolean;
+-			signal?: AbortSignal;
+-		}) => {
+-			const awaitReply = args.awaitReply !== false;
+-			calls.push({ from: args.from, message: args.message, awaitReply });
+-			if (gate) {
+-				const g = gate;
+-				gate = null;
+-				await g.promise;
+-			}
+-			if (hangNext) {
+-				hangNext = false;
+-				const deferred = Promise.withResolvers<never>();
+-				if (args.signal?.aborted) {
+-					deferred.reject(args.signal.reason instanceof Error ? args.signal.reason : new Error("aborted"));
+-				} else {
+-					args.signal?.addEventListener(
+-						"abort",
+-						() =>
+-							deferred.reject(args.signal?.reason instanceof Error ? args.signal.reason : new Error("aborted")),
+-						{ once: true },
+-					);
+-				}
+-				return await deferred.promise;
+-			}
++		deliverIrcMessage: async (msg: IrcMessage) => {
+ 			if (nextError) {
+ 				const err = nextError;
+ 				nextError = null;
+ 				throw err;
+ 			}
+-			return { replyText: awaitReply ? nextReply : null };
++			delivered.push(msg);
++			deliverHook?.(msg);
++			return outcome;
+ 		},
++		emitIrcRelayObservation: () => {},
+ 	};
+ 	return {
+ 		session: session as unknown as AgentSession,
+-		calls,
+-		setReply: text => {
+-			nextReply = text;
++		delivered,
++		setOutcome: value => {
++			outcome = value;
+ 		},
+ 		setError: error => {
+ 			nextError = error;
+ 		},
+-		gateNextCall: () => {
+-			const { promise, resolve } = Promise.withResolvers<void>();
+-			gate = { promise, release: resolve };
+-			return { release: resolve };
+-		},
+-		hangNextCall: () => {
+-			hangNext = true;
++		onDeliver: fn => {
++			deliverHook = fn;
+ 		},
+ 	};
+ }

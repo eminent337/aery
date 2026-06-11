@@ -143,10 +143,19 @@ export async function generateSessionTitle(
 	sessionId?: string,
 	currentModel?: Model<Api>,
 	metadataResolver?: (provider: string) => Record<string, unknown> | undefined,
+	titleSystemPromptOverride?: string,
 ): Promise<string | null> {
 	const tinyModel = settings.get("providers.tinyModel");
 	if (tinyModel === ONLINE_TINY_TITLE_MODEL_KEY) {
-		return generateTitleOnline(firstMessage, registry, settings, sessionId, currentModel, metadataResolver);
+		return generateTitleOnline(
+			firstMessage,
+			registry,
+			settings,
+			sessionId,
+			currentModel,
+			metadataResolver,
+			titleSystemPromptOverride,
+		);
 	}
 
 	const onlineAbortController = new AbortController();
@@ -162,6 +171,7 @@ export async function generateSessionTitle(
 			sessionId,
 			currentModel,
 			metadataResolver,
+			titleSystemPromptOverride,
 			onlineAbortController.signal,
 		);
 
@@ -177,6 +187,7 @@ export async function generateTitleOnline(
 	sessionId?: string,
 	currentModel?: Model<Api>,
 	metadataResolver?: (provider: string) => Record<string, unknown> | undefined,
+	titleSystemPromptOverride?: string,
 	signal?: AbortSignal,
 ): Promise<string | null> {
 	const model = getTitleModel(registry, settings, currentModel);
@@ -200,6 +211,8 @@ export async function generateTitleOnline(
 	// account_uuid rather than the snapshot-at-call-site value.
 	const metadata = metadataResolver?.(model.provider);
 
+	const effectiveSystemPrompt = titleSystemPromptOverride ?? TITLE_SYSTEM_PROMPT;
+
 	// Title generation is a 3-6 word task, but some reasoning backends ignore
 	// disableReasoning. Keep the normal cheap budget for non-reasoning models
 	// while reserving enough output room for reasoning models to still emit
@@ -207,7 +220,7 @@ export async function generateTitleOnline(
 	const maxTokens = model.reasoning ? Math.max(TITLE_MAX_TOKENS, REASONING_SAFE_MAX_TOKENS) : TITLE_MAX_TOKENS;
 	const request = {
 		model: `${model.provider}/${model.id}`,
-		systemPrompt: TITLE_SYSTEM_PROMPT,
+		systemPrompt: effectiveSystemPrompt,
 		userMessage,
 		maxTokens,
 	};
@@ -217,7 +230,7 @@ export async function generateTitleOnline(
 		const response = await completeSimple(
 			model,
 			{
-				systemPrompt: [request.systemPrompt],
+				systemPrompt: [effectiveSystemPrompt],
 				messages: [{ role: "user", content: request.userMessage, timestamp: Date.now() }],
 				tools: [setTitleTool],
 			},

@@ -8,7 +8,18 @@ import { sanitizeWithOptionalSixelPassthrough } from "../utils/sixel";
 // =============================================================================
 
 export const DEFAULT_MAX_LINES = 3000;
+export const DEFAULT_MAX_BYTES = 100 * 1024;
 export const DEFAULT_MAX_COLUMN = 512; // Max chars per grep match line
+
+/**
+ * Default artifact-on-disk cap for {@link OutputSink}.
+ *
+ * `0` means unbounded: by default, `artifact://<id>` references preserve the
+ * complete raw stream instead of a capped head/tail sample.
+ */
+export const ARTIFACT_DEFAULT_MAX_BYTES = 0;
+/** Default head budget; the remainder becomes the rolling tail window. */
+export const ARTIFACT_DEFAULT_HEAD_BYTES = 3 * 1024 * 1024; // 3 MiB
 
 const NL = "\n";
 const ELLIPSIS = "…";
@@ -39,6 +50,14 @@ export interface OutputSummary {
 export interface OutputSinkOptions {
 	artifactPath?: string;
 	artifactId?: string;
+	/**
+	 * Optional cap on bytes written to the artifact-on-disk file. When the cap
+	 * is hit, the head window is preserved verbatim and subsequent output feeds
+	 * a rolling tail window; on close, the sink writes a single
+	 * `[ARTIFACT TRUNCATED: …]` notice between them. Default
+	 * {@link ARTIFACT_DEFAULT_MAX_BYTES} (unbounded).
+	 */
+	artifactMaxBytes?: number;
 	/** Tail buffer budget (bytes). Default DEFAULT_MAX_BYTES. */
 	spillThreshold?: number;
 	/**
@@ -650,6 +669,15 @@ export class OutputSink {
 	#truncated = false;
 	#lastChunkTime = 0;
 
+	readonly #artifactMaxBytes: number;
+	readonly #artifactHeadBudget: number;
+	readonly #artifactTailBudget: number;
+	#artifactHeadBytesWritten = 0;
+	#artifactHeadClosed = false;
+	#artifactTailRing = "";
+	#artifactTailRingBytes = 0;
+	#artifactTailIncomingBytes = 0;
+
 	// Per-line column cap streaming state (persists across `push` calls so a
 	// long line split across chunks still trips the same trigger).
 	#currentLineBytes = 0;
@@ -678,6 +706,7 @@ export class OutputSink {
 		const {
 			artifactPath,
 			artifactId,
+			artifactMaxBytes = ARTIFACT_DEFAULT_MAX_BYTES,
 			spillThreshold = DEFAULT_MAX_BYTES,
 			headBytes = 0,
 			maxColumns = 0,
@@ -691,6 +720,11 @@ export class OutputSink {
 		this.#maxColumns = Math.max(0, maxColumns);
 		this.#onChunk = onChunk;
 		this.#chunkThrottleMs = chunkThrottleMs;
+
+		this.#artifactMaxBytes = Math.max(0, artifactMaxBytes);
+		this.#artifactHeadBudget =
+			this.#artifactMaxBytes > 0 ? Math.min(this.#artifactMaxBytes, ARTIFACT_DEFAULT_HEAD_BYTES) : 0;
+		this.#artifactTailBudget = this.#artifactMaxBytes > 0 ? this.#artifactMaxBytes - this.#artifactHeadBudget : 0;
 	}
 
 	/**
@@ -859,17 +893,49 @@ export class OutputSink {
 	 * by queuing writes until the sink is ready, then draining synchronously.
 	 */
 	#writeToFile(chunk: string): void {
+		if (chunk.length === 0) return;
+
+		let toWrite = chunk;
+
+		if (this.#artifactMaxBytes > 0) {
+			let overflow = "";
+			const chunkBytes = Buffer.byteLength(chunk, "utf-8");
+			const room = this.#artifactHeadClosed ? 0 : this.#artifactHeadBudget - this.#artifactHeadBytesWritten;
+			if (room >= chunkBytes) {
+				this.#artifactHeadBytesWritten += chunkBytes;
+			} else if (room > 0) {
+				const headSlice = truncateTailBytes(chunk, room);
+				toWrite = headSlice.text;
+				this.#artifactHeadBytesWritten += headSlice.bytes;
+				this.#artifactHeadClosed = true;
+				overflow = chunk.substring(headSlice.text.length);
+			} else {
+				toWrite = "";
+				overflow = chunk;
+			}
+
+			if (overflow.length > 0 && this.#artifactTailBudget > 0) {
+				this.#artifactTailIncomingBytes += Buffer.byteLength(overflow, "utf-8");
+				this.#artifactTailRing += overflow;
+				const { text, bytes } = truncateTailBytes(this.#artifactTailRing, this.#artifactTailBudget);
+				this.#artifactTailRing = text;
+				this.#artifactTailRingBytes = bytes;
+			}
+		}
+
+		if (toWrite.length === 0) return;
+
 		if (this.#fileReady && this.#file) {
 			// Fast path: file sink exists, write synchronously
-			this.#file.sink.write(chunk);
+			this.#file.sink.write(toWrite);
 			return;
 		}
 		// File sink not yet created — queue this chunk and kick off creation
 		if (!this.#pendingFileWrites) {
-			this.#pendingFileWrites = [chunk];
+			this.#pendingFileWrites = [toWrite];
 			void this.#createFileSink();
 		} else {
-			this.#pendingFileWrites.push(chunk);
+			this.#pendingFileWrites.push(toWrite);
 		}
 	}
 
@@ -951,7 +1017,17 @@ export class OutputSink {
 		const noticeLine = notice ? `[${notice}]\n` : "";
 		const totalLines = this.#sawData ? this.#totalLines + 1 : 0;
 
-		if (this.#file) await this.#file.sink.end();
+		if (this.#file) {
+			if (this.#artifactTailIncomingBytes > 0) {
+				const elided = Math.max(0, this.#artifactTailIncomingBytes - this.#artifactTailRingBytes);
+				if (elided > 0) {
+					const noticeStr = `\n[ARTIFACT TRUNCATED: kept first ${formatBytes(this.#artifactHeadBytesWritten)} + last ${formatBytes(this.#artifactTailRingBytes)} of ${formatBytes(this.#artifactHeadBytesWritten + this.#artifactTailIncomingBytes)}; ${formatBytes(elided)} elided from the middle]\n`;
+					this.#file.sink.write(noticeStr);
+				}
+				this.#file.sink.write(this.#artifactTailRing);
+			}
+			await this.#file.sink.end();
+		}
 
 		// Compose the visible output. With head retention, splice head + marker
 		// + tail when content was elided. Otherwise return the rolling buffer.

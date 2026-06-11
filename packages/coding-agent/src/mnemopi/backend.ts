@@ -7,7 +7,12 @@ import { type DiagnosticSummary, inspectDatabase } from "@aryee337/aery-mnemopi/
 import { logger } from "@aryee337/aery-utils";
 import type { ModelRegistry } from "../config/model-registry";
 import { resolveRoleSelection } from "../config/model-resolver";
-import type { MemoryBackend, MemoryBackendStartOptions } from "../memory-backend/types";
+import type {
+	MemoryBackend,
+	MemoryBackendStartOptions,
+	MemoryBackendStatus,
+	MemoryBackendStatusOptions,
+} from "../memory-backend/types";
 import memoryConsolidationPrompt from "../prompts/system/memory-consolidation-system.md" with { type: "text" };
 import memoryExtractionPrompt from "../prompts/system/memory-extraction-system.md" with { type: "text" };
 import type { AgentSession } from "../session/agent-session";
@@ -143,6 +148,41 @@ export const mnemopiBackend: MemoryBackend = {
 			summary: inspectDatabase({ dbPath, initialize: false }),
 		}));
 		return renderMnemopiDiagnostics(summaries);
+	},
+
+	async status({ agentDir, session }: MemoryBackendStatusOptions): Promise<MemoryBackendStatus> {
+		const state = getMnemopiSessionState(session);
+		const primary = state?.aliasOf ?? state;
+		if (!primary) {
+			return {
+				backend: "aery-memory",
+				active: false,
+				writable: false,
+				searchable: false,
+				message: "Aery-memory backend is not initialised for this session.",
+			};
+		}
+
+		const { targets, owned } = createStatsTargets(agentDir, session);
+		try {
+			if (targets.length === 0) {
+				return {
+					backend: "aery-memory",
+					active: false,
+					writable: false,
+					searchable: false,
+					message: "Aery-memory backend is not tracking any banks.",
+				};
+			}
+			return {
+				backend: "aery-memory",
+				active: true,
+				writable: true,
+				searchable: true,
+			};
+		} finally {
+			for (const memory of owned) memory.close();
+		}
 	},
 
 	async preCompactionContext(messages, _settings, session): Promise<string | undefined> {

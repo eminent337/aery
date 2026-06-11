@@ -1,5 +1,4 @@
 import { THINKING_EFFORTS } from "@aryee337/aery-ai";
-import { TASK_SIMPLE_MODES } from "../task/simple-mode";
 import { AUTO_THINKING, getConfiguredThinkingLevelMetadata, getThinkingLevelMetadata } from "../thinking";
 import {
 	TINY_MODEL_DEVICE_DEFAULT,
@@ -2225,8 +2224,7 @@ export const SETTINGS_SCHEMA = {
 		ui: {
 			tab: "tools",
 			label: "IRC Timeout",
-			description:
-				"Drop IRC messages whose recipient does not respond within this many milliseconds (0 disables the timeout)",
+			description: "Default timeout for irc wait (and send await:true) in milliseconds; 0 disables the timeout",
 			options: [
 				{ value: "0", label: "Disabled" },
 				{ value: "30000", label: "30 seconds" },
@@ -2667,31 +2665,13 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
-	"task.simple": {
-		type: "enum",
-		values: TASK_SIMPLE_MODES,
-		default: "schema-free",
+	"task.batch": {
+		type: "boolean",
+		default: true,
 		ui: {
 			tab: "tasks",
-			label: "Task Input Mode",
-			description: "How much shared structure the task tool accepts (default, schema-free, or independent)",
-			options: [
-				{
-					value: "default",
-					label: "Default",
-					description: "Shared context and custom task schema are available",
-				},
-				{
-					value: "schema-free",
-					label: "Schema-free",
-					description: "Shared context stays available, but custom task schema is disabled",
-				},
-				{
-					value: "independent",
-					label: "Independent",
-					description: "No shared context or custom task schema; each task must stand alone",
-				},
-			],
+			label: "Batch Spawning",
+			description: "Accept multiple parallel tasks (tasks[]) with shared context in a single call",
 		},
 	},
 

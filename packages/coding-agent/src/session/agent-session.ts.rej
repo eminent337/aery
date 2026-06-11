@@ -1,0 +1,69 @@
+--- packages/coding-agent/src/session/agent-session.ts
++++ packages/coding-agent/src/session/agent-session.ts
+@@ -556,15 +555,15 @@ function formatRetryFallbackBaseSelector(selector: RetryFallbackSelector): strin
+ 	return `${selector.provider}/${selector.id}`;
+ }
+ 
+-const IRC_REPLY_MAX_BYTES = 4096;
++const EPHEMERAL_REPLY_MAX_BYTES = 4096;
+ 
+ /**
+- * Collapse degenerate IRC ephemeral replies before they hit the relay.
++ * Collapse degenerate ephemeral replies (/btw, /omfg side-channel turns).
+  * Models occasionally loop on a single line (~16 reports of N-times-repeated
+  * replies); compress runs longer than 3 down to one instance + `[…N×]`, then
+  * cap at 4 KiB so a runaway reply can't flood the channel.
+  */
+-function dedupeIrcReply(text: string): string {
++function dedupeEphemeralReply(text: string): string {
+ 	if (!text) return text;
+ 	const lines = text.split("\n");
+ 	const out: string[] = [];
+@@ -1201,7 +1198,13 @@ export class AgentSession {
+ 		// Background-job completions / late diagnostics are pulled into the run at
+ 		// each step boundary as non-interrupting asides (see Agent.getAsideMessages),
+ 		// so they reach the model between requests without waiting for a yield.
+-		this.agent.setAsideMessageProvider(() => this.yieldQueue.drainLazy());
++		this.agent.setAsideMessageProvider(() => {
++			const pendingIrc = this.#pendingIrcAsides;
++			this.#pendingIrcAsides = [];
++			const thunks: AsideMessage[] = pendingIrc.map(record => () => record);
++			thunks.push(...this.yieldQueue.drainLazy());
++			return thunks;
++		});
+ 		this.#convertToLlm = config.convertToLlm ?? convertToLlm;
+ 		this.#rebuildSystemPrompt = config.rebuildSystemPrompt;
+ 		this.#getMcpServerInstructions = config.getMcpServerInstructions;
+@@ -3087,15 +3089,28 @@ export class AgentSession {
+ 	}
+ 
+ 	/**
+-	 * Remove all listeners, flush pending writes, and disconnect from agent.
+-	 * Call this when completely done with the session.
++	 * Synchronously mark the session as disposing so new work is rejected
++	 * immediately: Python/eval starts throw, queued asides are dropped, and the
++	 * aside provider is detached. Idempotent; `dispose()` runs it first.
++	 *
++	 * Wrappers that await other teardown before delegating to `dispose()` MUST
++	 * call this before their first await — otherwise work started in that async
++	 * gap slips past the disposal guards.
+ 	 */
+-	async dispose(): Promise<void> {
++	beginDispose(): void {
+ 		this.#isDisposed = true;
+-		this.#pendingBackgroundExchanges = [];
++		this.#pendingIrcAsides = [];
+ 		this.yieldQueue.clear();
+ 		this.agent.setAsideMessageProvider(undefined);
+ 		this.#evalExecutionDisposing = true;
++	}
++
++	/**
++	 * Remove all listeners, flush pending writes, and disconnect from agent.
++	 * Call this when completely done with the session.
++	 */
++	async dispose(): Promise<void> {
++		this.beginDispose();
+ 		try {
+ 			if (this.#extensionRunner?.hasHandlers("session_shutdown")) {
+ 				await this.#extensionRunner.emit({ type: "session_shutdown" });

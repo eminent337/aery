@@ -650,6 +650,16 @@ export class Settings {
 			delete isolationObj.enabled;
 		}
 
+		// task.simple (enum) -> task.batch (boolean)
+		if (taskObj && "simple" in taskObj && !("batch" in taskObj)) {
+			if (taskObj.simple === "schema-free" || taskObj.simple === "default") {
+				taskObj.batch = true;
+			} else if (taskObj.simple === "independent") {
+				taskObj.batch = false;
+			}
+			delete taskObj.simple;
+		}
+
 		// task.isolation.mode: legacy values from before the aery-iso PAL refactor.
 		// `worktree` was git worktree → now lives under `rcopy`. `fuse-overlay`
 		// and `fuse-projfs` are now the platform-named `overlayfs` / `projfs`

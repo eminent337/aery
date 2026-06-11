@@ -25,6 +25,19 @@ export interface MemoryBackendStartOptions {
 	parentMnemopiSessionState?: MnemopiSessionState;
 }
 
+export interface MemoryBackendStatus {
+	backend: string;
+	active: boolean;
+	writable: boolean;
+	searchable: boolean;
+	message?: string;
+}
+
+export interface MemoryBackendStatusOptions {
+	agentDir: string;
+	session?: AgentSession;
+}
+
 export interface MemoryBackend {
 	readonly id: MemoryBackendId;
 
@@ -58,6 +71,9 @@ export interface MemoryBackend {
 
 	/** Render backend-specific memory diagnostics as markdown (`/memory diagnose`). */
 	diagnose?(agentDir: string, cwd: string, session?: AgentSession): Promise<string | undefined>;
+
+	/** Get the structured status of the memory backend. */
+	status?(options: MemoryBackendStatusOptions): Promise<MemoryBackendStatus>;
 	/**
 	 * Optional hook to inject a backend-specific block into the current turn's
 	 * system prompt before the agent starts generating.

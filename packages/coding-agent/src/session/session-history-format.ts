@@ -6,9 +6,10 @@
  * result pairs collapsed to single lines, thinking elided, custom messages
  * as one-liners. No system prompt, no tool catalog, no config sections.
  */
+
+import type { AssistantMessage, ImageContent, TextContent, ToolResultMessage } from "@aryee337/aery-ai";
 import type { AgentMessage } from "@aryee337/aery-core";
 import { INTENT_FIELD } from "@aryee337/aery-core";
-import type { AssistantMessage, ImageContent, TextContent, ToolResultMessage } from "@aryee337/aery-ai";
 import type {
 	BashExecutionMessage,
 	BranchSummaryMessage,

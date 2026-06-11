@@ -68,6 +68,8 @@ export interface InteractiveModeInitOptions {
 export type InteractiveSelectorDialogOptions = ExtensionUIDialogOptions & Pick<HookSelectorOptions, "disabledIndices">;
 
 export interface InteractiveModeContext {
+	titleSystemPrompt?: string;
+
 	// UI access
 	ui: TUI;
 	chatContainer: Container;
