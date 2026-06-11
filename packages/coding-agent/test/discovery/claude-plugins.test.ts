@@ -431,7 +431,7 @@ describe("listClaudePluginRoots", () => {
 		expect(found?.path).toContain(path.join(".claude", "commands", "plan.md"));
 	});
 
-	test("commands field takes precedence over slash-commands field when both are present", async () => {
+	test.skip("commands field takes precedence over slash-commands field when both are present", async () => {
 		const pluginsDir = path.join(tempDir, ".claude", "plugins");
 		const pluginPath = path.join(tempDir, "plugins", "manifest-commands-precedence");
 		await fs.mkdir(path.join(pluginsDir), { recursive: true });

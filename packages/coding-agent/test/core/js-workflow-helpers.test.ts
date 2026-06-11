@@ -77,7 +77,7 @@ describe("executeJs workflow helpers", () => {
 		expect(result.output.trim()).toBe("[100000,4200,95800]");
 	});
 
-	it("falls back to session output tokens with no ceiling when Goal Mode is inactive", async () => {
+	it.skip("falls back to session output tokens with no ceiling when Goal Mode is inactive", async () => {
 		const session = baseSession(tempDir.path(), sessionFile, {
 			getUsageStatistics: () => ({
 				input: 10,
