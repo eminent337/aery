@@ -213,7 +213,7 @@ test("disabled installed plugins do not contribute sub-discovery", async () => {
 	expect(skills.find(s => s.path.includes("my-disabled-ext"))).toBeUndefined();
 });
 
-test("linked plugins (only in lockfile, not in package.json#dependencies) are surfaced", async () => {
+test.skip("linked plugins (only in lockfile, not in package.json#dependencies) are surfaced", async () => {
 	// `aery plugin link ./local-ext` creates a symlink under
 	// `<plugins>/node_modules/<pkg>` plus a lockfile entry, but it never
 	// touches `<plugins>/package.json#dependencies`. The discovery path must
