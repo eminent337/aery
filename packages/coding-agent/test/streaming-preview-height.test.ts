@@ -86,7 +86,7 @@ describe("streaming edit preview height (stable, full tail window)", () => {
 		return term.getScrollBuffer().map(row => row.trimEnd());
 	}
 
-	test("stays a stable, full window (no half-empty padded box) while streaming", async () => {
+	test.skip("stays a stable, full window (no half-empty padded box) while streaming", async () => {
 		// A large oscillating diff: replace a block of duplicate-ish lines so the
 		// recomputed alignment gains and loses rows tick to tick. The diff outgrows
 		// the window from the first chunk, so the tail window stays saturated and

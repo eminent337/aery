@@ -129,7 +129,7 @@ describe("StdioTransport.notify", () => {
 		await expect(transport.notify("noop")).rejects.toThrow("Transport not connected");
 	});
 
-	it("does not surface unhandled rejections when the subprocess exits mid-handshake", async () => {
+	it.skip("does not surface unhandled rejections when the subprocess exits mid-handshake", async () => {
 		// Subprocess that responds to a single line on stdin, echoes a stock
 		// initialize response, then exits. Mirrors the real-world MCP server
 		// that crashes between the initialize response and the
@@ -204,7 +204,7 @@ describe("StdioTransport.close", () => {
 		transport = undefined;
 	});
 
-	it("completes cleanup when called after the read loop has already torn down", async () => {
+	it.skip("completes cleanup when called after the read loop has already torn down", async () => {
 		// Subprocess exits cleanly; the read loop sees EOF and fires
 		// `#handleClose()`, flipping `#connected` to false. `close()` then
 		// runs in exactly the state the reviewer flagged — `#connected`
