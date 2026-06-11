@@ -49,7 +49,6 @@ import { AgentOutputManager } from "./output-manager";
 import { mapWithConcurrencyLimit, Semaphore } from "./parallel";
 import { renderResult, renderCall as renderTaskCall } from "./render";
 import { repairTaskParams } from "./repair-args";
-import { getTaskSimpleModeCapabilities, type TaskSimpleMode } from "./simple-mode";
 import {
 	applyNestedPatches,
 	captureBaseline,
@@ -65,10 +64,9 @@ import {
 	type WorktreeBaseline,
 } from "./worktree";
 
-function renderSubagentUserPrompt(assignment: string, simpleMode: TaskSimpleMode): string {
+function renderSubagentUserPrompt(assignment: string): string {
 	return prompt.render(subagentUserPromptTemplate, {
 		assignment: assignment.trim(),
-		independentMode: simpleMode === "independent",
 	});
 }
 function createUsageTotals(): Usage {
@@ -140,7 +138,7 @@ function renderDescription(
 	isolationEnabled: boolean,
 	asyncEnabled: boolean,
 	disabledAgents: string[],
-	simpleMode: TaskSimpleMode,
+	batchEnabled: boolean,
 	ircEnabled: boolean,
 	parentSpawns: string,
 ): string {
@@ -157,19 +155,14 @@ function renderDescription(
 		);
 		filteredAgents = filteredAgents.filter(a => allowed.has(a.name));
 	}
-	const { contextEnabled, customSchemaEnabled } = getTaskSimpleModeCapabilities(simpleMode);
 	return prompt.render(taskDescriptionTemplate, {
 		agents: filteredAgents,
 		spawningDisabled,
 		MAX_CONCURRENCY: maxConcurrency,
 		isolationEnabled,
 		asyncEnabled,
-		contextEnabled,
-		customSchemaEnabled,
+		batchEnabled,
 		ircEnabled,
-		defaultMode: simpleMode === "default",
-		schemaFreeMode: simpleMode === "schema-free",
-		independentMode: simpleMode === "independent",
 	});
 }
 
@@ -180,29 +173,6 @@ function createTaskModeError(text: string): AgentToolResult<TaskToolDetails> {
 	};
 }
 
-function validateTaskModeParams(simpleMode: TaskSimpleMode, params: TaskParams): string | undefined {
-	const { contextEnabled, customSchemaEnabled } = getTaskSimpleModeCapabilities(simpleMode);
-	const disallowedFields: string[] = [];
-	if (!contextEnabled && params.context !== undefined) {
-		disallowedFields.push("context");
-	}
-	if (!customSchemaEnabled && params.schema !== undefined) {
-		disallowedFields.push("schema");
-	}
-	if (disallowedFields.length === 0) {
-		return undefined;
-	}
-
-	if (simpleMode === "schema-free") {
-		return "task.simple is set to schema-free, so the task tool does not accept `schema`. Remove it and rely on the selected agent definition or inherited session schema.";
-	}
-
-	if (disallowedFields.length === 1) {
-		return `task.simple is set to independent, so the task tool does not accept \`${disallowedFields[0]}\`. Put everything the subagent needs inside each task assignment.`;
-	}
-
-	return "task.simple is set to independent, so the task tool does not accept `context` or `schema`. Put all required background and output expectations inside each task assignment or the selected agent definition.";
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Tool Class
@@ -244,7 +214,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 
 	get parameters(): TaskToolSchemaInstance {
 		const isolationEnabled = this.session.settings.get("task.isolation.mode") !== "none";
-		return getTaskSchema({ isolationEnabled, simpleMode: this.#getTaskSimpleMode() });
+		return getTaskSchema({ isolationEnabled, batchEnabled: this.#isBatchEnabled() });
 	}
 
 	renderCall(args: unknown, options: Parameters<typeof renderTaskCall>[1], theme: Theme) {
@@ -262,7 +232,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			isolationMode !== "none",
 			this.session.settings.get("async.enabled"),
 			disabledAgents,
-			this.#getTaskSimpleMode(),
+			this.#isBatchEnabled(),
 			this.session.settings.get("irc.enabled") === true,
 			this.session.getSessionSpawns() ?? "*",
 		);
@@ -275,8 +245,8 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		this.#discoveredAgents = discoveredAgents;
 	}
 
-	#getTaskSimpleMode(): TaskSimpleMode {
-		return this.session.settings.get("task.simple");
+	#isBatchEnabled(): boolean {
+		return this.session.settings.get("task.batch");
 	}
 
 	/**
@@ -288,36 +258,31 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 	}
 
 	async execute(
-		_toolCallId: string,
+		toolCallId: string,
 		rawParams: unknown,
 		signal?: AbortSignal,
 		onUpdate?: AgentToolUpdateCallback<TaskToolDetails>,
 	): Promise<AgentToolResult<TaskToolDetails>> {
 		const params = repairTaskParams(rawParams as TaskParams);
-		const simpleMode = this.#getTaskSimpleMode();
-		const validationError = validateTaskModeParams(simpleMode, params);
+		const batchEnabled = this.#isBatchEnabled();
+		const validationError = validateShapeParams(batchEnabled, params) ?? validateSpawnParams(params, batchEnabled);
 		if (validationError) {
 			return createTaskModeError(validationError);
 		}
 
-		const asyncEnabled = this.session.settings.get("async.enabled");
+		const spawnItems = resolveSpawnItems(params);
 		const selectedAgent = this.#discoveredAgents.find(agent => agent.name === params.agent);
+		const asyncEnabled = this.session.settings.get("async.enabled");
 		if (!asyncEnabled || selectedAgent?.blocking === true) {
-			return this.#executeSync(_toolCallId, params, signal, onUpdate);
+			return this.#executeSyncFanout(toolCallId, params, spawnItems, signal, onUpdate);
 		}
 
 		const manager = AsyncJobManager.instance();
 		if (!manager) {
-			return {
-				content: [{ type: "text", text: "Async execution is enabled but no async job manager is available." }],
-				details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
-			};
+			return this.#executeSyncFanout(toolCallId, params, spawnItems, signal, onUpdate);
 		}
 
-		const taskItems = params.tasks ?? [];
-		if (taskItems.length === 0) {
-			return this.#executeSync(_toolCallId, params, signal, onUpdate);
-		}
+		const taskItems = spawnItems;
 
 		const outputManager =
 			this.session.agentOutputManager ?? new AgentOutputManager(this.session.getArtifactsDir ?? (() => null));
@@ -334,7 +299,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 				agent: params.agent,
 				agentSource: fallbackAgentSource,
 				status: "pending",
-				task: renderSubagentUserPrompt(assignment, simpleMode),
+				task: renderSubagentUserPrompt(assignment),
 				assignment,
 				description: taskItem.description,
 				recentTools: [],
@@ -567,10 +532,8 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 	): Promise<AgentToolResult<TaskToolDetails>> {
 		const startTime = Date.now();
 		const { agents, projectAgentsDir } = await discoverAgents(this.session.cwd);
-		const { agent: agentName || "", context, schema: outputSchema } = params;
-		const simpleMode = this.#getTaskSimpleMode();
-		const { contextEnabled, customSchemaEnabled } = getTaskSimpleModeCapabilities(simpleMode);
-		const sharedContext = contextEnabled ? context?.trim() : undefined;
+		const { agent: agentName = "", context, schema: outputSchema } = params;
+		const sharedContext = this.#isBatchEnabled() ? context?.trim() : undefined;
 		const isolationMode = this.session.settings.get("task.isolation.mode");
 		const isolationRequested = "isolated" in params ? params.isolated === true : false;
 		const isIsolated = isolationMode !== "none" && isolationRequested;
@@ -658,21 +621,20 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		});
 		const thinkingLevelOverride = effectiveAgent.thinkingLevel;
 
-		// Output schema priority: task call > agent frontmatter > inherited parent session.
-		// task.simple can disable the task-call override while leaving agent/session schemas intact.
-		const effectiveOutputSchema = customSchemaEnabled
-			? (outputSchema ?? effectiveAgent.output ?? this.session.outputSchema)
-			: (effectiveAgent.output ?? this.session.outputSchema);
+		// Output schema priority: agent frontmatter > inherited parent session.
+		// The task call itself never carries a schema; workflows needing ad-hoc
+		// structured output go through eval agent(prompt, schema).
+		const effectiveOutputSchema = effectiveAgent.output ?? this.session.outputSchema;
 
-		// Handle empty or missing tasks
+		// Handle empty or missing tasks (if they somehow bypassed execute's validation)
 		if (!params.tasks || params.tasks.length === 0) {
 			return {
 				content: [
 					{
 						type: "text",
-						text: contextEnabled
+						text: this.#isBatchEnabled()
 							? "No tasks provided. Use: { agent, context?, tasks: [{ id, description, assignment }, ...] }"
-							: "No tasks provided. Use: { agent, tasks: [{ id, description, assignment }, ...] }",
+							: "No tasks provided. Use: { agent, assignment }",
 					},
 				],
 				details: {
@@ -876,7 +838,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					agent: agentName || "",
 					agentSource: agent.source,
 					status: "pending",
-					task: renderSubagentUserPrompt(assignment, simpleMode),
+					task: renderSubagentUserPrompt(assignment),
 					assignment,
 					recentTools: [],
 					recentOutput: [],
@@ -895,7 +857,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					return runSubprocess({
 						cwd: this.session.cwd,
 						agent: effectiveAgent,
-						task: renderSubagentUserPrompt(task.assignment, simpleMode),
+						task: renderSubagentUserPrompt(task.assignment),
 						assignment: task.assignment.trim(),
 						context: sharedContext,
 						description: task.description,
@@ -952,7 +914,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						cwd: this.session.cwd,
 						worktree: isolationDir,
 						agent: effectiveAgent,
-						task: renderSubagentUserPrompt(task.assignment, simpleMode),
+						task: renderSubagentUserPrompt(task.assignment),
 						assignment: task.assignment.trim(),
 						context: sharedContext,
 						description: task.description,
@@ -1049,7 +1011,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						id: task.id,
 						agent: agent.name,
 						agentSource: agent.source,
-						task: renderSubagentUserPrompt(assignment, simpleMode),
+						task: renderSubagentUserPrompt(assignment),
 						assignment,
 						description: task.description,
 						exitCode: 1,
@@ -1088,7 +1050,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					id: task.id,
 					agent: agentName || "",
 					agentSource: agent.source,
-					task: renderSubagentUserPrompt(assignment, simpleMode),
+					task: renderSubagentUserPrompt(assignment),
 					assignment,
 					description: task.description,
 					exitCode: 1,

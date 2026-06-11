@@ -1,0 +1,809 @@
+commit a64ff00cb8d27658ca9be1844708e901de3fe4f7
+Author: can1357 <me@can.ac>
+Date:   Wed Jun 10 17:52:13 2026 +0200
+
+    feat(coding-agent): added history:// internal URL for agent transcripts
+    
+    Registers a HistoryProtocolHandler with the internal URL router: history:// lists every registered agent (id, status, kind, last activity) and history://<agentId> renders a concise markdown transcript (tool calls collapsed to one line each, thinking elided). Live refs render from the in-memory message array; parked refs load read-only from the JSONL session file via loadSessionMessagesReadOnly (no writer, no lock). System prompt + read tool prompt + docs/tools/read.md learn the new scheme.
+
+diff --git a/docs/tools/read.md b/docs/tools/read.md
+index 21edb6e4d..222462c3b 100644
+--- a/docs/tools/read.md
++++ b/docs/tools/read.md
+@@ -10,7 +10,7 @@
+   - `packages/coding-agent/src/tools/archive-reader.ts` — detect `archive.ext:inner/path`, index archives, list/read entries.
+   - `packages/coding-agent/src/tools/sqlite-reader.ts` — detect SQLite targets, parse selectors, render tables.
+   - `packages/coding-agent/src/tools/fetch.ts` — URL parsing, fetch/render pipeline, URL cache/artifacts.
+-  - `packages/coding-agent/src/internal-urls/router.ts` — resolve `agent://`, `artifact://`, `issue://`, `local://`, `mcp://`, `memory://`, `omp://`, `pr://`, `rule://`, `skill://`, and `vault://`.
++  - `packages/coding-agent/src/internal-urls/router.ts` — resolve `agent://`, `artifact://`, `history://`, `issue://`, `local://`, `mcp://`, `memory://`, `omp://`, `pr://`, `rule://`, `skill://`, and `vault://`.
+   - `packages/coding-agent/src/edit/notebook.ts` — convert `.ipynb` to editable `# %% [...] cell:N` text.
+   - `packages/coding-agent/src/utils/file-display-mode.ts` — decide hashline vs line-number vs raw display.
+   - `packages/coding-agent/src/workspace-tree.ts` — render directory trees.
+@@ -196,7 +196,7 @@ URL selectors are parsed separately in `packages/coding-agent/src/tools/fetch.ts
+ 
+ ### Internal URLs
+ - `read` does not resolve these itself; it delegates to `session.internalRouter.resolve()`.
+-- Registered protocols are outside this file, but the router in `packages/coding-agent/src/internal-urls/router.ts` is built for `agent://`, `artifact://`, `issue://`, `local://`, `mcp://`, `memory://`, `omp://`, `pr://`, `rule://`, and `skill://`.
++- Registered protocols are outside this file, but the router in `packages/coding-agent/src/internal-urls/router.ts` is built for `agent://`, `artifact://`, `history://`, `issue://`, `local://`, `mcp://`, `memory://`, `omp://`, `pr://`, `rule://`, and `skill://`.
+ - `#handleInternalUrl()` behavior:
+   - parses the URL with `parseInternalUrl()` so colons inside the host segment are legal
+   - for `agent://`, treats non-root path extraction or `?q=` extraction as a special no-pagination mode
+diff --git a/packages/coding-agent/src/internal-urls/history-protocol.ts b/packages/coding-agent/src/internal-urls/history-protocol.ts
+new file mode 100644
+index 000000000..576af1ac1
+--- /dev/null
++++ b/packages/coding-agent/src/internal-urls/history-protocol.ts
+@@ -0,0 +1,113 @@
++/**
++ * Protocol handler for history:// URLs.
++ *
++ * Exposes agent transcripts as concise markdown. Live refs render from the
++ * in-memory message array; parked refs (session disposed, sessionFile
++ * retained) load read-only from the JSONL session file — no writer, no lock.
++ *
++ * URL forms:
++ * - history:// - Index of all registry agents (id, status, kind, last activity)
++ * - history://<agentId> - Concise markdown transcript of that agent
++ */
++import type { AgentRef } from "../registry/agent-registry";
++import { AgentRegistry } from "../registry/agent-registry";
++import { formatSessionHistoryMarkdown } from "../session/session-history-format";
++import { loadSessionMessagesReadOnly } from "../session/session-manager";
++import type { InternalResource, InternalUrl, ProtocolHandler, UrlCompletion } from "./types";
++
++/** Humanize a last-activity timestamp as `Ns/Nm/Nh/Nd ago`. */
++function formatAgo(timestamp: number): string {
++	const diffMs = Math.max(0, Date.now() - timestamp);
++	const secs = Math.floor(diffMs / 1000);
++	if (secs < 60) return `${secs}s ago`;
++	const mins = Math.floor(secs / 60);
++	if (mins < 60) return `${mins}m ago`;
++	const hours = Math.floor(mins / 60);
++	if (hours < 24) return `${hours}h ago`;
++	return `${Math.floor(hours / 24)}d ago`;
++}
++
++/**
++ * Handler for history:// URLs.
++ *
++ * Resolves agent ids against the global AgentRegistry, serving transcripts
++ * for both live and parked agents.
++ */
++export class HistoryProtocolHandler implements ProtocolHandler {
++	readonly scheme = "history";
++	readonly immutable = false;
++
++	async resolve(url: InternalUrl): Promise<InternalResource> {
++		const agentId = url.rawHost || url.hostname;
++		const registry = AgentRegistry.global();
++
++		if (!agentId) {
++			const content = this.#renderIndex(registry.list());
++			return {
++				url: url.href,
++				content,
++				contentType: "text/markdown",
++				size: Buffer.byteLength(content, "utf-8"),
++			};
++		}
++
++		let ref = registry.get(agentId);
++		if (!ref) {
++			// Case-insensitive fallback: agent ids are human-typed (e.g. AuthLoader).
++			const lower = agentId.toLowerCase();
++			ref = registry.list().find(candidate => candidate.id.toLowerCase() === lower);
++		}
++		if (!ref) {
++			const known = registry.list().map(candidate => candidate.id);
++			const knownStr = known.length > 0 ? known.join(", ") : "none";
++			throw new Error(`Unknown agent: ${agentId}\nKnown agents: ${knownStr}\nList all with history://`);
++		}
++
++		const notes: string[] = [];
++		let messages: unknown[];
++		if (ref.session) {
++			messages = ref.session.messages;
++			notes.push("Source: live session");
++		} else if (ref.sessionFile) {
++			messages = await loadSessionMessagesReadOnly(ref.sessionFile);
++			notes.push(`Source: session file (read-only, ${ref.status})`);
++		} else {
++			throw new Error(`Agent ${ref.id} has no transcript: session is gone and no session file was retained`);
++		}
++
++		const content = formatSessionHistoryMarkdown(messages, { title: `${ref.id} (${ref.status})` });
++		return {
++			url: url.href,
++			content,
++			contentType: "text/markdown",
++			size: Buffer.byteLength(content, "utf-8"),
++			sourcePath: ref.sessionFile ?? undefined,
++			notes,
++		};
++	}
++
++	#renderIndex(refs: AgentRef[]): string {
++		const lines: string[] = ["# Agents", ""];
++		if (refs.length === 0) {
++			lines.push("No agents registered.");
++			return `${lines.join("\n")}\n`;
++		}
++		lines.push("| id | status | kind | parent | last activity |", "|---|---|---|---|---|");
++		for (const ref of refs) {
++			lines.push(
++				`| ${ref.id} | ${ref.status} | ${ref.kind} | ${ref.parentId ?? "—"} | ${formatAgo(ref.lastActivity)} |`,
++			);
++		}
++		lines.push("", "Read a transcript with `read history://<id>`.");
++		return `${lines.join("\n")}\n`;
++	}
++
++	async complete(): Promise<UrlCompletion[]> {
++		return AgentRegistry.global()
++			.list()
++			.map(ref => ({
++				value: ref.id,
++				description: `${ref.status} · ${ref.kind}${ref.parentId ? ` · parent ${ref.parentId}` : ""}`,
++			}));
++	}
++}
+diff --git a/packages/coding-agent/src/internal-urls/index.ts b/packages/coding-agent/src/internal-urls/index.ts
+index a460d8ff8..4714406e4 100644
+--- a/packages/coding-agent/src/internal-urls/index.ts
++++ b/packages/coding-agent/src/internal-urls/index.ts
+@@ -10,6 +10,7 @@
+ 
+ export * from "./agent-protocol";
+ export * from "./artifact-protocol";
++export * from "./history-protocol";
+ export * from "./issue-pr-protocol";
+ export * from "./json-query";
+ export * from "./local-protocol";
+diff --git a/packages/coding-agent/src/internal-urls/router.ts b/packages/coding-agent/src/internal-urls/router.ts
+index 194f9f156..608600ece 100644
+--- a/packages/coding-agent/src/internal-urls/router.ts
++++ b/packages/coding-agent/src/internal-urls/router.ts
+@@ -1,5 +1,5 @@
+ /**
+- * Internal URL router for internal protocols (`agent://`, `artifact://`, `issue://`, `local://`, `mcp://`, `memory://`, `omp://`, `pr://`, `rule://`, `skill://`, and `vault://`).
++ * Internal URL router for internal protocols (`agent://`, `artifact://`, `history://`, `issue://`, `local://`, `mcp://`, `memory://`, `omp://`, `pr://`, `rule://`, `skill://`, and `vault://`).
+  *
+  * One process-global router with one handler per scheme. Access via
+  * `InternalUrlRouter.instance()`. Handlers are stateless; per-session and
+@@ -7,6 +7,7 @@
+  */
+ import { AgentProtocolHandler } from "./agent-protocol";
+ import { ArtifactProtocolHandler } from "./artifact-protocol";
++import { HistoryProtocolHandler } from "./history-protocol";
+ import { IssueProtocolHandler, PrProtocolHandler } from "./issue-pr-protocol";
+ import { LocalProtocolHandler } from "./local-protocol";
+ import { McpProtocolHandler } from "./mcp-protocol";
+@@ -35,6 +36,7 @@ export class InternalUrlRouter {
+ 		this.register(new McpProtocolHandler());
+ 		this.register(new IssueProtocolHandler());
+ 		this.register(new PrProtocolHandler());
++		this.register(new HistoryProtocolHandler());
+ 	}
+ 
+ 	/** Process-global router instance. */
+diff --git a/packages/coding-agent/src/internal-urls/types.ts b/packages/coding-agent/src/internal-urls/types.ts
+index 3075b6b16..ef2260057 100644
+--- a/packages/coding-agent/src/internal-urls/types.ts
++++ b/packages/coding-agent/src/internal-urls/types.ts
+@@ -1,7 +1,7 @@
+ /**
+  * Types for the internal URL routing system.
+  *
+- * Internal URLs (`agent://`, `artifact://`, `issue://`, `local://`, `mcp://`, `memory://`, `omp://`, `pr://`, `rule://`, `skill://`, and `vault://`) are resolved by tools like read,
++ * Internal URLs (`agent://`, `artifact://`, `history://`, `issue://`, `local://`, `mcp://`, `memory://`, `omp://`, `pr://`, `rule://`, `skill://`, and `vault://`) are resolved by tools like read,
+  * providing access to agent outputs and server resources without exposing filesystem paths.
+  */
+ 
+diff --git a/packages/coding-agent/src/prompts/system/system-prompt.md b/packages/coding-agent/src/prompts/system/system-prompt.md
+index db0bd2a07..89218c062 100644
+--- a/packages/coding-agent/src/prompts/system/system-prompt.md
++++ b/packages/coding-agent/src/prompts/system/system-prompt.md
+@@ -149,6 +149,7 @@ With most FS/bash-like tools, static references to them will automatically resol
+ - `agent://<id>`: full agent output artifact
+    - `/<path>`: JSON field extraction
+ - `artifact://<id>`: Artifact content
++- `history://<agentId>`: agent transcript as concise markdown; bare `history://` lists agents
+ - `local://<name>.md`: Plan artifacts and shared content with subagents
+ {{#if hasObsidian}}
+ - `vault://<vault>/<path>`: Obsidian vault content (read/edit). `vault://` lists vaults; `vault://_/…` targets the active vault. File-scoped `?op=outline|backlinks|links|tags|properties|tasks|base|…`; vault-scoped `?op=search&q=…|daily|tasks|orphans|unresolved|bases|…`.
+diff --git a/packages/coding-agent/src/prompts/tools/read.md b/packages/coding-agent/src/prompts/tools/read.md
+index 4a0004298..b95a1a36c 100644
+--- a/packages/coding-agent/src/prompts/tools/read.md
++++ b/packages/coding-agent/src/prompts/tools/read.md
+@@ -8,7 +8,7 @@ Read files, directories, archives, SQLite databases, images, documents, internal
+ 
+ ## Parameters
+ 
+-- `path` — required. Local path, internal URI (`skill://`, `agent://`, `artifact://`, `memory://`, `rule://`, `local://`, `vault://`, `mcp://`, `omp://`, `issue://`, `pr://`), or URL. Append `:<sel>` for line ranges, raw mode, or special modes (e.g. `src/foo.ts:50-200`, `src/foo.ts:raw`, `db.sqlite:users:42`).
++- `path` — required. Local path, internal URI (`skill://`, `agent://`, `artifact://`, `history://`, `memory://`, `rule://`, `local://`, `vault://`, `mcp://`, `omp://`, `issue://`, `pr://`), or URL. Append `:<sel>` for line ranges, raw mode, or special modes (e.g. `src/foo.ts:50-200`, `src/foo.ts:raw`, `db.sqlite:users:42`).
+ 
+ ## Selectors
+ 
+@@ -74,7 +74,7 @@ For `.sqlite`, `.sqlite3`, `.db`, `.db3`:
+ 
+ # Internal URIs
+ 
+-`skill://<name>`, `agent://<id>`, `artifact://<id>`, `memory://root`, `rule://<name>`, `local://<name>.md`, `vault://<vault>/<path>`, `mcp://<uri>`, `omp://<doc>.md`, `issue://<N>`, and `pr://<N>` resolve transparently and accept the same line selectors as filesystem paths. Use `artifact://<id>` to recover full output that a previous bash/eval/tool result spilled or truncated.
++`skill://<name>`, `agent://<id>`, `artifact://<id>`, `history://<agentId>`, `memory://root`, `rule://<name>`, `local://<name>.md`, `vault://<vault>/<path>`, `mcp://<uri>`, `omp://<doc>.md`, `issue://<N>`, and `pr://<N>` resolve transparently and accept the same line selectors as filesystem paths. Use `artifact://<id>` to recover full output that a previous bash/eval/tool result spilled or truncated. `history://<agentId>` is an agent's transcript as concise markdown; bare `history://` lists agents.
+ 
+ <critical>
+ - You MUST use `read` for every file, directory, archive, and URL inspection. `cat`, `head`, `tail`, `less`, `more`, `ls`, `tar`, `unzip`, `curl`, `wget` are FORBIDDEN — any such bash call is a bug, regardless of how short or convenient it looks.
+diff --git a/packages/coding-agent/src/session/session-history-format.ts b/packages/coding-agent/src/session/session-history-format.ts
+new file mode 100644
+index 000000000..9588ed1fc
+--- /dev/null
++++ b/packages/coding-agent/src/session/session-history-format.ts
+@@ -0,0 +1,246 @@
++/**
++ * Concise markdown transcript serializer for `history://` URLs.
++ *
++ * Unlike `session-dump-format.ts` (verbose `/dump` export), this emits a
++ * compressed transcript: full user/assistant/developer text, tool call +
++ * result pairs collapsed to single lines, thinking elided, custom messages
++ * as one-liners. No system prompt, no tool catalog, no config sections.
++ */
++import type { AgentMessage } from "@aery/aery-agent-core";
++import { INTENT_FIELD } from "@aery/aery-agent-core";
++import type { AssistantMessage, ImageContent, TextContent, ToolResultMessage } from "@aery/aery-ai";
++import type {
++	BashExecutionMessage,
++	BranchSummaryMessage,
++	CompactionSummaryMessage,
++	CustomMessage,
++	FileMentionMessage,
++	HookMessage,
++	PythonExecutionMessage,
++} from "./messages";
++
++export interface HistoryFormatOptions {
++	/** Optional H1 prepended to the transcript. */
++	title?: string;
++}
++
++/** Max length of the primary-arg summary inside `→ tool(...)` lines. */
++const PRIMARY_ARG_MAX = 120;
++
++/** Per-tool preference order for the most informative scalar argument. */
++const PRIMARY_ARG_KEYS = [
++	"path",
++	"file_path",
++	"filePath",
++	"command",
++	"cmd",
++	"pattern",
++	"url",
++	"query",
++	"prompt",
++	"assignment",
++	"message",
++	"op",
++	"name",
++	"id",
++] as const;
++
++/** Collapse whitespace runs and truncate to `max` chars with an ellipsis. */
++function oneLine(text: string, max = PRIMARY_ARG_MAX): string {
++	const flat = text.replace(/\s+/g, " ").trim();
++	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
++}
++
++/** Join the text blocks of a string-or-blocks content field. Images become `[image]`. */
++function contentToText(content: string | readonly (TextContent | ImageContent)[]): string {
++	if (typeof content === "string") return content;
++	const parts: string[] = [];
++	for (const block of content) {
++		if (block.type === "text") parts.push(block.text);
++		else parts.push("[image]");
++	}
++	return parts.join("\n");
++}
++
++function lineCount(text: string): number {
++	if (!text) return 0;
++	return text.split("\n").length;
++}
++
++/** Pick the most informative scalar argument of a tool call. */
++function primaryArg(args: Record<string, unknown> | undefined): string {
++	if (!args || typeof args !== "object") return "";
++	for (const key of PRIMARY_ARG_KEYS) {
++		const value = args[key];
++		if (typeof value === "string" && value.length > 0) return oneLine(value);
++		if (Array.isArray(value) && value.length > 0 && value.every(v => typeof v === "string")) {
++			return oneLine(value.join(", "));
++		}
++	}
++	// Fallback: first non-intent string arg, then a compact JSON of the args.
++	const rest: Record<string, unknown> = {};
++	let restCount = 0;
++	for (const key in args) {
++		if (key === INTENT_FIELD) continue;
++		const value = args[key];
++		if (typeof value === "string" && value.length > 0) return oneLine(value);
++		rest[key] = value;
++		restCount++;
++	}
++	if (restCount === 0) return "";
++	try {
++		return oneLine(JSON.stringify(rest));
++	} catch {
++		return "";
++	}
++}
++
++/** One line per tool call: `→ read(src/foo.ts:50-80) ⇒ ok · 31 lines`. */
++function toolCallLine(
++	name: string,
++	args: Record<string, unknown> | undefined,
++	result: ToolResultMessage | undefined,
++): string {
++	const head = `→ ${name}(${primaryArg(args)})`;
++	if (!result) return `${head} ⇒ pending`;
++	const text = contentToText(result.content);
++	const lines = lineCount(text);
++	const count = `${lines} ${lines === 1 ? "line" : "lines"}`;
++	if (result.isError) {
++		const firstLine = oneLine(text.split("\n", 1)[0] ?? "");
++		return firstLine ? `${head} ⇒ error · ${count} — ${firstLine}` : `${head} ⇒ error · ${count}`;
++	}
++	return `${head} ⇒ ok · ${count}`;
++}
++
++/** One line for a user-initiated `!`/`$` execution. */
++function executionLine(
++	kind: "bash" | "python",
++	source: string,
++	msg: BashExecutionMessage | PythonExecutionMessage,
++): string {
++	const status = msg.cancelled
++		? "cancelled"
++		: msg.exitCode !== undefined && msg.exitCode !== 0
++			? `error · exit ${msg.exitCode}`
++			: "ok";
++	const lines = lineCount(msg.output);
++	return `→ ${kind}! ${oneLine(source)} ⇒ ${status} · ${lines} ${lines === 1 ? "line" : "lines"}`;
++}
++
++/** One-liner for custom/hook messages: `[irc] A → B: body…`. */
++function customOneLiner(msg: CustomMessage | HookMessage): string {
++	const details = (msg.details ?? {}) as Record<string, unknown>;
++	const str = (key: string): string => (typeof details[key] === "string" ? (details[key] as string) : "");
++	switch (msg.customType) {
++		case "irc:incoming":
++			return `[irc] ${str("from") || "?"} → me: ${oneLine(str("message"))}`;
++		case "irc:relay":
++			return `[irc] ${str("from") || "?"} → ${str("to") || "?"}: ${oneLine(str("body"))}`;
++		case "async-result": {
++			const jobs = Array.isArray(details.jobs) && details.jobs.length > 0 ? details.jobs : [details];
++			const labels = jobs
++				.map(job => {
++					const j = (job ?? {}) as Record<string, unknown>;
++					return typeof j.label === "string" && j.label ? j.label : typeof j.jobId === "string" ? j.jobId : "job";
++				})
++				.join(", ");
++			return `[async-result] ${oneLine(labels)}`;
++		}
++		default:
++			return `[${msg.customType}] ${oneLine(contentToText(msg.content))}`;
++	}
++}
++
++/**
++ * Format a session's message array as a concise markdown transcript.
++ *
++ * `messages` is the session's in-memory message array (or the read-only
++ * equivalent loaded from a session file) — the same shapes
++ * `session-dump-format.ts` consumes.
++ */
++export function formatSessionHistoryMarkdown(messages: unknown[], opts?: HistoryFormatOptions): string {
++	const typed = messages as AgentMessage[];
++	const lines: string[] = [];
++	if (opts?.title) {
++		lines.push(`# ${opts.title}`, "");
++	}
++
++	// Index tool results by call id so each toolCall collapses to one line.
++	const resultsByCallId = new Map<string, ToolResultMessage>();
++	for (const msg of typed) {
++		if (msg.role === "toolResult") {
++			resultsByCallId.set(msg.toolCallId, msg);
++		}
++	}
++	const consumed = new Set<string>();
++
++	for (const msg of typed) {
++		switch (msg.role) {
++			case "user":
++			case "developer": {
++				const text = contentToText(msg.content);
++				if (!text.trim()) break;
++				lines.push(`## ${msg.role}`, "", text, "");
++				break;
++			}
++			case "assistant": {
++				const assistantMsg = msg as AssistantMessage;
++				const body: string[] = [];
++				for (const block of assistantMsg.content) {
++					if (block.type === "text") {
++						if (block.text.trim()) body.push(block.text);
++					} else if (block.type === "toolCall") {
++						const result = resultsByCallId.get(block.id);
++						if (result) consumed.add(block.id);
++						body.push(toolCallLine(block.name, block.arguments, result));
++					}
++					// thinking / redactedThinking elided entirely
++				}
++				if (body.length === 0) break;
++				lines.push("## assistant", "", ...body, "");
++				break;
++			}
++			case "toolResult": {
++				// Normally consumed by its toolCall; orphans (e.g. truncated history) get their own line.
++				if (consumed.has(msg.toolCallId)) break;
++				lines.push(toolCallLine(msg.toolName, undefined, msg), "");
++				break;
++			}
++			case "bashExecution": {
++				const bashMsg = msg as BashExecutionMessage;
++				if (bashMsg.excludeFromContext) break;
++				lines.push(executionLine("bash", bashMsg.command, bashMsg), "");
++				break;
++			}
++			case "pythonExecution": {
++				const pythonMsg = msg as PythonExecutionMessage;
++				if (pythonMsg.excludeFromContext) break;
++				lines.push(executionLine("python", pythonMsg.code, pythonMsg), "");
++				break;
++			}
++			case "custom":
++			case "hookMessage": {
++				lines.push(customOneLiner(msg as CustomMessage | HookMessage), "");
++				break;
++			}
++			case "branchSummary": {
++				const branchMsg = msg as BranchSummaryMessage;
++				lines.push(`[branch] from ${branchMsg.fromId}: ${oneLine(branchMsg.summary)}`, "");
++				break;
++			}
++			case "compactionSummary": {
++				const compactMsg = msg as CompactionSummaryMessage;
++				lines.push(`[compaction] ${oneLine(compactMsg.summary)}`, "");
++				break;
++			}
++			case "fileMention": {
++				const fileMsg = msg as FileMentionMessage;
++				lines.push(`[file-mention] ${oneLine(fileMsg.files.map(f => f.path).join(", "))}`, "");
++				break;
++			}
++		}
++	}
++
++	return `${lines.join("\n").trim()}\n`;
++}
+diff --git a/packages/coding-agent/test/internal-urls/history-protocol.test.ts b/packages/coding-agent/test/internal-urls/history-protocol.test.ts
+new file mode 100644
+index 000000000..8f7f8d6b0
+--- /dev/null
++++ b/packages/coding-agent/test/internal-urls/history-protocol.test.ts
+@@ -0,0 +1,189 @@
++/**
++ * Contracts: history:// protocol handler (rework-contracts.md §6), resolved
++ * through `InternalUrlRouter.instance().resolve(...)` like real callers.
++ *
++ * - Bare `history://` renders an index listing registered agent ids.
++ * - `history://<id>` with a live ref renders the in-memory transcript.
++ * - A parked ref (session null, sessionFile retained) renders read-only from
++ *   the JSONL session file.
++ * - An unknown id fails with an error listing the known ids.
++ */
++import { afterEach, beforeEach, describe, expect, it } from "bun:test";
++import * as fs from "node:fs/promises";
++import * as os from "node:os";
++import * as path from "node:path";
++import { InternalUrlRouter } from "@aery/aery-coding-agent/internal-urls";
++import { AgentRegistry } from "@aery/aery-coding-agent/registry/agent-registry";
++import type { AgentSession } from "@aery/aery-coding-agent/session/agent-session";
++import { CURRENT_SESSION_VERSION } from "@aery/aery-coding-agent/session/session-manager";
++
++async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
++	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "history-protocol-"));
++	try {
++		return await fn(dir);
++	} finally {
++		await fs.rm(dir, { recursive: true, force: true });
++	}
++}
++
++function fakeLiveSession(messages: unknown[]): AgentSession {
++	return { messages } as unknown as AgentSession;
++}
++
++/** Minimal current-version session JSONL: header + a linear user/assistant chain. */
++function sessionFixtureJsonl(): string {
++	const timestamp = new Date().toISOString();
++	const header = {
++		type: "session",
++		version: CURRENT_SESSION_VERSION,
++		id: "fixture-session",
++		timestamp,
++		cwd: "/tmp",
++	};
++	const userEntry = {
++		type: "message",
++		id: "m1",
++		parentId: null,
++		timestamp,
++		message: { role: "user", content: "parked hello", timestamp: 1 },
++	};
++	const assistantEntry = {
++		type: "message",
++		id: "m2",
++		parentId: "m1",
++		timestamp,
++		message: {
++			role: "assistant",
++			content: [{ type: "text", text: "parked reply" }],
++			api: "anthropic-messages",
++			provider: "anthropic",
++			model: "test-model",
++			usage: {},
++			stopReason: "stop",
++			timestamp: 2,
++		},
++	};
++	return `${JSON.stringify(header)}\n${JSON.stringify(userEntry)}\n${JSON.stringify(assistantEntry)}\n`;
++}
++
++describe("history:// protocol", () => {
++	beforeEach(() => {
++		AgentRegistry.resetGlobalForTests();
++		InternalUrlRouter.resetForTests();
++	});
++
++	afterEach(() => {
++		InternalUrlRouter.resetForTests();
++		AgentRegistry.resetGlobalForTests();
++	});
++
++	it("bare history:// renders an index listing registered agents", async () => {
++		AgentRegistry.global().register({
++			id: "HubAgent",
++			displayName: "task",
++			kind: "sub",
++			session: fakeLiveSession([]),
++			status: "idle",
++		});
++
++		const resource = await InternalUrlRouter.instance().resolve("history://");
++
++		expect(resource.contentType).toBe("text/markdown");
++		expect(resource.content).toContain("# Agents");
++		expect(resource.content).toContain("| HubAgent | idle | sub |");
++	});
++
++	it("history://<id> renders a live ref's in-memory transcript", async () => {
++		AgentRegistry.global().register({
++			id: "HubAgent",
++			displayName: "task",
++			kind: "sub",
++			session: fakeLiveSession([{ role: "user", content: "hello from live", timestamp: 1 }]),
++			status: "idle",
++		});
++
++		const resource = await InternalUrlRouter.instance().resolve("history://HubAgent");
++
++		expect(resource.content).toContain("# HubAgent (idle)");
++		expect(resource.content).toContain("## user");
++		expect(resource.content).toContain("hello from live");
++		expect(resource.notes).toContain("Source: live session");
++	});
++
++	it("resolves agent ids case-insensitively", async () => {
++		AgentRegistry.global().register({
++			id: "HubAgent",
++			displayName: "task",
++			kind: "sub",
++			session: fakeLiveSession([{ role: "user", content: "hello from live", timestamp: 1 }]),
++			status: "idle",
++		});
++
++		const resource = await InternalUrlRouter.instance().resolve("history://hubagent");
++		expect(resource.content).toContain("# HubAgent (idle)");
++	});
++
++	it("history://<id> renders a parked ref read-only from its session file", async () => {
++		await withTempDir(async dir => {
++			const sessionFile = path.join(dir, "parked.jsonl");
++			await Bun.write(sessionFile, sessionFixtureJsonl());
++			AgentRegistry.global().register({
++				id: "Sleeper",
++				displayName: "task",
++				kind: "sub",
++				session: null,
++				sessionFile,
++				status: "parked",
++			});
++
++			const resource = await InternalUrlRouter.instance().resolve("history://Sleeper");
++
++			expect(resource.content).toContain("# Sleeper (parked)");
++			expect(resource.content).toContain("parked hello");
++			expect(resource.content).toContain("parked reply");
++			expect(resource.sourcePath).toBe(sessionFile);
++			expect(resource.notes?.join("\n")).toContain("read-only");
++		});
++	});
++
++	it("rejects an unknown id with the list of known agents", async () => {
++		AgentRegistry.global().register({
++			id: "HubAgent",
++			displayName: "task",
++			kind: "sub",
++			session: fakeLiveSession([]),
++			status: "idle",
++		});
++
++		const error = await InternalUrlRouter.instance()
++			.resolve("history://Nope")
++			.then(
++				() => null,
++				err => err as Error,
++			);
++
++		expect(error).toBeInstanceOf(Error);
++		expect(error?.message).toContain("Unknown agent: Nope");
++		expect(error?.message).toContain("HubAgent");
++	});
++
++	it("rejects a ref with neither session nor session file", async () => {
++		AgentRegistry.global().register({
++			id: "Husk",
++			displayName: "task",
++			kind: "sub",
++			session: null,
++			sessionFile: null,
++			status: "aborted",
++		});
++
++		const error = await InternalUrlRouter.instance()
++			.resolve("history://Husk")
++			.then(
++				() => null,
++				err => err as Error,
++			);
++
++		expect(error?.message).toContain("no transcript");
++	});
++});
+diff --git a/packages/coding-agent/test/modes/internal-url-autocomplete.test.ts b/packages/coding-agent/test/modes/internal-url-autocomplete.test.ts
+index f111051db..34f69698c 100644
+--- a/packages/coding-agent/test/modes/internal-url-autocomplete.test.ts
++++ b/packages/coding-agent/test/modes/internal-url-autocomplete.test.ts
+@@ -125,7 +125,7 @@ describe("internal-url-autocomplete", () => {
+ 
+ 		it("exposes the completion-capable schemes", () => {
+ 			const schemes = InternalUrlRouter.instance().completionSchemes().sort();
+-			expect(schemes).toEqual(["agent", "artifact", "local", "memory", "omp", "rule", "skill"]);
++			expect(schemes).toEqual(["agent", "artifact", "history", "local", "memory", "omp", "rule", "skill"]);
+ 		});
+ 	});
+ 
+diff --git a/packages/coding-agent/test/session/session-history-format.test.ts b/packages/coding-agent/test/session/session-history-format.test.ts
+new file mode 100644
+index 000000000..dc32cb1cb
+--- /dev/null
++++ b/packages/coding-agent/test/session/session-history-format.test.ts
+@@ -0,0 +1,108 @@
++/**
++ * Contracts: history:// transcript serializer (rework-contracts.md §5).
++ *
++ * - `## user` / `## assistant` headers carry full text.
++ * - Thinking blocks are elided entirely.
++ * - Each toolCall collapses with its toolResult into ONE `→ name(…) ⇒ …`
++ *   line (ok and error variants); result bodies are never dumped.
++ * - Custom messages render as one-liners (`[irc] from → me: …`).
++ * - No system prompt / tool catalog sections.
++ */
++import { describe, expect, it } from "bun:test";
++import { formatSessionHistoryMarkdown } from "@aery/aery-coding-agent/session/session-history-format";
++
++function buildMessages(): unknown[] {
++	return [
++		{ role: "user", content: "Please read the config.", timestamp: 1 },
++		{
++			role: "assistant",
++			content: [
++				{ type: "thinking", thinking: "SECRET-THOUGHT about the approach" },
++				{ type: "text", text: "Reading it now." },
++				{ type: "toolCall", id: "tc-1", name: "read", arguments: { path: "src/config.ts" } },
++				{ type: "toolCall", id: "tc-2", name: "bash", arguments: { command: "bun test" } },
++			],
++			api: "anthropic-messages",
++			provider: "anthropic",
++			model: "test-model",
++			usage: {},
++			stopReason: "toolUse",
++			timestamp: 2,
++		},
++		{
++			role: "toolResult",
++			toolCallId: "tc-1",
++			toolName: "read",
++			content: [{ type: "text", text: "const a = 1;\nconst b = 2;\nconst c = 3;" }],
++			isError: false,
++			timestamp: 3,
++		},
++		{
++			role: "toolResult",
++			toolCallId: "tc-2",
++			toolName: "bash",
++			content: [{ type: "text", text: "FAIL: 1 test failed" }],
++			isError: true,
++			timestamp: 4,
++		},
++		{
++			role: "custom",
++			customType: "irc:incoming",
++			content: "full rendered irc prompt that must not appear",
++			details: { from: "Main", message: "status update please" },
++			timestamp: 5,
++		},
++	];
++}
++
++describe("formatSessionHistoryMarkdown", () => {
++	it("renders role headers, collapses tool pairs to one line, and elides thinking", () => {
++		const output = formatSessionHistoryMarkdown(buildMessages());
++
++		expect(output).toContain("## user");
++		expect(output).toContain("Please read the config.");
++		expect(output).toContain("## assistant");
++		expect(output).toContain("Reading it now.");
++
++		// Thinking is elided entirely.
++		expect(output).not.toContain("SECRET-THOUGHT");
++
++		// Tool call + result collapse to one line each; bodies are not dumped.
++		expect(output).toContain("→ read(src/config.ts) ⇒ ok · 3 lines");
++		expect(output).not.toContain("const a = 1;");
++
++		// Error variant carries the first line of the error output.
++		expect(output).toContain("→ bash(bun test) ⇒ error · 1 line — FAIL: 1 test failed");
++
++		// Consumed toolResults do not render a second orphan line.
++		const toolLines = output.split("\n").filter(line => line.startsWith("→ "));
++		expect(toolLines).toHaveLength(2);
++
++		// Custom messages are one-liners; the rendered prompt body is dropped.
++		expect(output).toContain("[irc] Main → me: status update please");
++		expect(output).not.toContain("full rendered irc prompt");
++
++		// Concise transcript: no prompt/tool-catalog sections.
++		expect(output).not.toContain("System Prompt");
++		expect(output).not.toContain("Available Tools");
++	});
++
++	it("prefixes an H1 title when requested", () => {
++		const output = formatSessionHistoryMarkdown(buildMessages(), { title: "Spawnling (idle)" });
++		expect(output.startsWith("# Spawnling (idle)\n")).toBe(true);
++	});
++
++	it("renders an orphan toolResult (truncated history) as its own line", () => {
++		const output = formatSessionHistoryMarkdown([
++			{
++				role: "toolResult",
++				toolCallId: "tc-orphan",
++				toolName: "search",
++				content: [{ type: "text", text: "one match" }],
++				isError: false,
++				timestamp: 1,
++			},
++		]);
++		expect(output).toContain("→ search() ⇒ ok · 1 line");
++	});
++});

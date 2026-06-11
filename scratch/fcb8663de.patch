@@ -1,0 +1,2789 @@
+commit fcb8663de8ed6503c86d8be28cc9d1d068798160
+Author: can1357 <me@can.ac>
+Date:   Wed Jun 10 17:47:47 2026 +0200
+
+    feat(coding-agent): reworked irc to a send/wait/inbox/list mailbox bus
+    
+    Replaces the blocking auto-reply IRC turn with a process-global IrcBus and a four-op tool (send/wait/inbox/list). send is fire-and-forget with per-recipient delivery receipts (injected/woken/revived/failed); replies become real turns by the recipient, observed via wait (or the send await:true sugar). Bounded per-agent mailboxes (cap 100) drop oldest on overflow; AgentSession.deliverIrcMessage folds an in-flight delivery in as a non-interrupting aside at the next step boundary, or starts a real wake turn when idle. AgentRegistry/lifecycle handle the idle→woken / parked→revived transitions, so messaging a non-running peer brings it back. Adds a dedicated TUI renderer (directional headers, delivery-outcome coloring, quoted bodies, per-recipient receipt trees, status-badged peer lists with unread counts). irc.timeoutMs is now the default timeout for wait / send await:true. AgentSession sheds the agentRegistry config field, the dedupeIrcReply → dedupeEphemeralReply rename (now used by /btw and /omfg), and the background-channel exchange queue / forwardIrcRelayToMain plumbing the auto-reply model needed.
+
+diff --git a/docs/tools/irc.md b/docs/tools/irc.md
+index bf2ff70a3..bf4e79a03 100644
+--- a/docs/tools/irc.md
++++ b/docs/tools/irc.md
+@@ -1,120 +1,99 @@
+ # irc
+ 
+-> Send short prose messages to other live agents in the current process.
++> Send and receive messages between agents over a process-global mailbox bus.
+ 
+ ## Source
+ - Entry: `packages/coding-agent/src/tools/irc.ts`
+ - Model-facing prompt: `packages/coding-agent/src/prompts/tools/irc.md`
+ - Key collaborators:
+-  - `packages/coding-agent/src/registry/agent-registry.ts` — process-global live agent directory.
+-  - `packages/coding-agent/src/session/agent-session.ts` — side-channel reply generation and history injection.
+-  - `packages/coding-agent/src/prompts/system/irc-incoming.md` — no-tools auto-reply prompt.
+-  - `packages/coding-agent/src/tools/index.ts` — tool availability gating.
+-  - `packages/coding-agent/src/config/settings-schema.ts` — `irc.enabled` default.
++  - `packages/coding-agent/src/irc/bus.ts` — process-global `IrcBus`: per-agent mailboxes, delivery, waiter matching.
++  - `packages/coding-agent/src/registry/agent-registry.ts` — process-global agent directory and status.
++  - `packages/coding-agent/src/registry/agent-lifecycle.ts` — revival of parked recipients on direct send.
++  - `packages/coding-agent/src/session/agent-session.ts` — `deliverIrcMessage(...)`: recipient-side injection and wake turns.
++  - `packages/coding-agent/src/prompts/system/irc-incoming.md` — incoming-message rendering for the recipient.
++  - `packages/coding-agent/src/config/settings-schema.ts` — `irc.enabled`, `irc.timeoutMs`.
+   - `packages/coding-agent/src/modes/controllers/event-controller.ts` — renders IRC events into chat UI.
+-  - `packages/coding-agent/src/modes/utils/ui-helpers.ts` — formats `[IRC]` transcript lines.
+-  - `packages/coding-agent/src/task/executor.ts` — carries `irc.enabled` into subagents.
+ 
+ ## Inputs
+ 
+-### `op: "list"`
+-
+-| Field | Type | Required | Description |
+-| --- | --- | --- | --- |
+-| `op` | `"list"` | Yes | Lists peers visible to the caller. |
+-
+-### `op: "send"`
+-
+ | Field | Type | Required | Description |
+ | --- | --- | --- | --- |
+-| `op` | `"send"` | Yes | Sends one message to one peer or to `"all"`. |
+-| `to` | `string` | Yes | Peer id such as `Main`, or `"all"` for broadcast. Whitespace is trimmed. |
+-| `message` | `string` | Yes | Message body. Whitespace is trimmed; empty-after-trim is rejected. |
+-| `awaitReply` | `boolean` | No | Wait for prose replies. Defaults to `true` for direct messages and `false` for `to: "all"`. |
++| `op` | `"send" \| "wait" \| "inbox" \| "list"` | Yes | Operation. |
++| `to` | `string` | `send` | Recipient agent id, or `"all"` for broadcast. Whitespace trimmed; self-send rejected. |
++| `message` | `string` | `send` | Message body. Empty-after-trim is rejected. |
++| `replyTo` | `string` | No | `send`: message id being answered. |
++| `await` | `boolean` | No | `send`: after delivery, block until the next message from that peer arrives (round-trip sugar). Invalid with `to: "all"`. |
++| `from` | `string` | No | `wait`: only accept a message from this agent id. |
++| `timeoutMs` | `number` | No | `wait` / `send await:true`: timeout in milliseconds; `0` waits indefinitely. Defaults to `irc.timeoutMs`. |
++| `peek` | `boolean` | No | `inbox`: list messages without consuming them. |
+ 
+ ## Outputs
+ - Single-shot `AgentToolResult`; no streaming updates.
+-- `content` is one text block.
+-  - `list` returns either `No other live agents.` or a bullet list headed by `<n> peer(s):`.
+-  - `send` returns delivery summary text, then optional `## Replies`, `## Failed`, and `Unknown / unavailable peers:` sections.
+-- `details` is structured metadata:
+-  - `list`: `{ op, from, peers, channels }`
+-  - `send`: `{ op, from, to, delivered, replies?, failed?, notFound? }`
+-- The tool does not return raw IRC frames, message ids, or a transcript object.
++- `content` is one text block:
++  - `list`: `No other agents.` or `<n> peer(s):` bullets — `id [displayName · kind · status]` plus unread count, parent, and last-activity age; a footer notes that parked agents are revived automatically when messaged.
++  - `send`: per-recipient delivery receipts (`injected` / `woken` / `revived` / `failed — <error>`); with `await: true`, the reply body or a clean no-reply timeout note.
++  - `wait`: the consumed message as `[<msgId>] <from>: <body>` (with a reply-to tag), or `No message within <duration>.`
++  - `inbox`: `Inbox empty.` or `<n> message(s):` bullets.
++- `details: IrcDetails`: `{ op, from?, to?, receipts?, waited?, inbox?, peers? }`. `waited` is `null` when a wait timed out; `receipts` carry `{ to, outcome, error? }`.
+ 
+ ## Flow
+-1. `IrcTool.createIf` only constructs the tool when `irc.enabled` is on and the session has both an `AgentRegistry` and `getAgentId` (`packages/coding-agent/src/tools/irc.ts`).
+-2. Tool discovery adds another gate in `packages/coding-agent/src/tools/index.ts`: if the caller is `Main` and `async.enabled` is off, `irc` is hidden because the main agent cannot talk to concurrent peers in sync mode.
+-3. `execute` resolves the process-global registry and sender id. Missing either returns a text error result instead of throwing.
+-4. `op: "list"` calls `registry.listVisibleTo(senderId)`, which exposes every other agent in flat namespace whose status is `running` or `idle` (`packages/coding-agent/src/registry/agent-registry.ts`).
+-5. `list` formats human-readable lines and returns `channels` as `['all', ...peerIds]`. These are logical targets only; there is no channel join state.
+-6. `op: "send"` trims `to` and `message`; missing values produce text errors.
+-7. `send` resolves targets:
+-   - `to === "all"`: all visible peers.
+-   - otherwise: one exact registry id, excluding self and excluding peers not in `running`/`idle`.
+-8. `send` chooses `awaitReply = params.awaitReply ?? !isBroadcast`.
+-9. Each target is dispatched in parallel via `target.session.respondAsBackground(...)`. One slow or failing peer does not block dispatch to the others.
+-10. `respondAsBackground` emits an `irc_message` session event, forwards a display-only relay to the main session UI, and either:
+-    - queues just the incoming message for later history injection when `awaitReply === false`, or
+-    - renders `packages/coding-agent/src/prompts/system/irc-incoming.md`, runs `runEphemeralTurn` with `toolChoice: "none"`, emits an auto-reply event, then queues both incoming and reply messages for history injection.
+-11. Deferred injection waits until the recipient is no longer streaming; `#flushPendingBackgroundExchanges` appends the custom messages through normal `message_start`/`message_end` external events so persistence and listeners see them.
+-12. Dispatch waits are bounded by `irc.timeoutMs` (default `120_000` ms). A value of `0` disables the local timeout; parent aborts still abort the dispatch.
+-13. `send` aggregates `delivered`, `replies`, `failed`, and `notFound`, then returns one text summary plus matching `details`.
++1. `IrcTool.createIf` constructs the tool only when `irc.enabled` is on and the session has both an `AgentRegistry` and `getAgentId`. There is no longer a main-agent gate on `async.enabled` — the main agent is never sync-blocked.
++2. `execute` resolves the registry and sender id; missing either returns a text error result instead of throwing.
++3. `op: "list"`: `registry.list()` minus self and minus `aborted` agents — `parked` peers ARE listed. Each row includes the unread count from `IrcBus.unreadCount(...)` and last activity.
++4. `op: "send"` validates `to`/`message`, rejects self-sends, and rejects `await` with `to: "all"`.
++5. Target resolution: broadcasts fan out to `registry.listVisibleTo(senderId)` (live peers only — `running`/`idle`; reviving every parked agent on a broadcast would be a stampede). Direct sends go through the bus unfiltered, so a parked recipient is revived.
++6. `IrcBus.send(...)` is fire-and-forget — it never blocks on the recipient generating anything. Delivery by recipient status:
++   - `running` → message enqueued and injected as a non-interrupting aside at the recipient's next step boundary (`AgentSession.deliverIrcMessage`, rendered from `irc-incoming.md`, persisted as an `irc:incoming` custom message) — receipt `injected`;
++   - `idle` (live session) → enqueued and a real turn is started — the message wakes the agent — receipt `woken`;
++   - `parked` → `AgentLifecycleManager.global().ensureLive(to)` revives the session first, then the wake path — receipt `revived`;
++   - resolution/revival failure → receipt `failed` with the error; other recipients still complete.
++7. `send` with `await: true` then calls `IrcBus.wait(senderId, { from: to }, timeoutMs, signal)` and appends the reply (or a no-reply note suggesting `inbox`/`wait`) to the result.
++8. `op: "wait"` blocks until a message for the caller (optionally filtered by `from`) arrives, consumes it, and returns it. Timeout returns a clean "no message" result, not an error.
++9. `op: "inbox"` drains pending messages (or peeks with `peek: true`) without blocking.
++10. Timeouts resolve as `params.timeoutMs ?? irc.timeoutMs`, normalized: `0` disables the timeout, negative/non-finite values fall back to the default `120_000`, positive values are truncated and clamped to ≥ 1 ms.
+ 
+ ## Modes / Variants
+-- `list`: enumerate visible peers and logical channels.
+-- `send` direct message: one exact peer id, default synchronous auto-reply.
+-- `send` broadcast: `to: "all"`, default fire-and-forget (`awaitReply: false`) to every visible peer.
+-- `send` with `awaitReply: false`: recipient records the incoming message but does not generate a reply.
+-- `send` with `awaitReply: true`: recipient performs a no-tools ephemeral LLM turn and returns prose.
++- `list`: enumerate peers with status (`running`/`idle`/`parked`), unread counts, and last activity.
++- `send` direct: one exact peer id; wakes idle peers, revives parked ones.
++- `send` broadcast: `to: "all"` to every live peer; parked peers are skipped.
++- `send` + `await: true`: round-trip convenience — send, then wait for the next message from that peer. Replaces the old `awaitReply` auto-reply semantics without a fake reply.
++- `wait`: block for an incoming message, optionally filtered by sender.
++- `inbox`: non-blocking drain or peek.
+ 
+ ## Side Effects
+ - Session state
+-  - Reads from the process-global `AgentRegistry`.
+-  - Emits `irc_message` session events on recipient sessions.
+-  - Queues IRC custom messages into recipient persisted history after the current stream finishes.
+-  - For non-main recipients, forwards display-only relay observations into the main session UI; these relays are not persisted to the main agent history.
+-  - Subagents inherit `irc.enabled` from task executor settings.
++  - Reads the process-global `AgentRegistry`; direct sends to parked agents revive their sessions through the lifecycle manager.
++  - Persists `irc:incoming` custom messages into recipient history; replies are ordinary turns in the recipient's own session.
++  - Waking an idle/parked recipient starts a real agent turn (model requests, tool use) in that recipient.
+ - User-visible prompts / interactive UI
+-  - IRC events render as `[IRC]` transcript lines in the TUI.
+-  - Auto-replies are generated from `packages/coding-agent/src/prompts/system/irc-incoming.md` and explicitly forbid tool use.
++  - IRC events render as transcript cards in the TUI; the Agent Hub shows per-agent unread counts.
+ - Background work / cancellation
+-  - `send` starts one background `respondAsBackground` call per target.
+-  - The caller's `AbortSignal` is forwarded into each background reply turn. `irc.timeoutMs` creates a per-recipient `AbortController` and reports timeout failures per target.
++  - `send` itself never blocks on reply generation; only `wait` (and `await: true`) blocks, bounded by the resolved timeout and the caller's `AbortSignal`.
+ - Network
+-  - No IRC server connection.
+-  - When `awaitReply: true`, the recipient may make model-provider API calls through `runEphemeralTurn`.
++  - No IRC server connection. Woken recipients make their own model-provider calls as part of their turn.
+ - Filesystem
+-  - No direct filesystem writes in the tool itself.
++  - No direct filesystem writes in the tool itself; recipient turns persist to their session JSONL as usual.
+ 
+ ## Limits & Caps
+-- Availability gates:
+-  - `irc.enabled` defaults to `true` in `packages/coding-agent/src/config/settings-schema.ts`.
+-  - Main agent tool discovery suppresses `irc` when `async.enabled` is off (`packages/coding-agent/src/tools/index.ts`).
+-- Visibility scope: only peers in status `running` or `idle` are addressable via `listVisibleTo`.
+-- Reply execution:
+-  - No tools are available in auto-reply turns (`toolChoice: "none"` in `runEphemeralTurn`).
+-  - `irc.timeoutMs` defaults to `120_000`; `0` disables the timeout, non-finite values fall back to the default, and positive values are truncated and clamped to at least `1` ms.
+-  - No retry, backoff, rate limit, or reply length cap is defined in `irc.ts`; behavior otherwise relies on the underlying model stream and any upstream API limits.
+-- Flush scheduling: deferred history injection polls every `50` ms while the recipient is still streaming (`#scheduleBackgroundExchangeFlush` in `packages/coding-agent/src/session/agent-session.ts`).
++- Availability gates: `irc.enabled` (default `true`), an `AgentRegistry`, and a caller agent id.
++- Mailboxes are bounded at 100 messages per agent (`MAILBOX_CAP` in `packages/coding-agent/src/irc/bus.ts`); oldest messages are dropped beyond the cap.
++- `irc.timeoutMs` defaults to `120_000` and is the default `wait` / `send await:true` timeout; `0` disables the timeout, non-finite or negative values fall back to the default, positive values are truncated and clamped to at least `1` ms.
++- Broadcast scope: live peers only (`running`/`idle`) via `listVisibleTo`; direct sends address any non-aborted agent, including parked ones.
+ 
+ ## Errors
+-- The tool returns text errors, not thrown exceptions, for:
++- The tool returns text errors (with `isError: true`), not thrown exceptions, for:
+   - missing registry: `IRC is unavailable in this session.`
+   - missing sender id: `IRC is unavailable: caller has no agent id.`
+-  - missing `to`: `` `to` is required for op="send". ``
+-  - missing `message`: `` `message` is required for op="send". ``
+-  - unknown op: `Unknown irc op.`
+-- Unknown, self-addressed, non-running, and non-idle direct targets are reported under `details.notFound` and in the text footer `Unknown / unavailable peers:`.
+-- If a target has no attached session, it is treated as not found.
+-- Exceptions thrown by `respondAsBackground`, `runEphemeralTurn`, abort handling, or timeout handling are caught per-target and surfaced under `details.failed` as `{ id, error }`; other recipients still complete.
+-- If no target succeeds, `send` still returns normally with `No recipients received the message.` and optional `failed`/`notFound` metadata.
++  - missing `to` / `message` on `send`
++  - self-send: `Cannot send an IRC message to yourself.`
++  - `await` with `to: "all"`
++  - unknown op
++- Per-recipient delivery failures surface as `failed` receipts with the error message; `send` is marked `isError` only when no recipient received the message.
++- `wait` timeout is a normal result (`waited: null`), not an error.
+ 
+ ## Notes
+-- This is IRC-like naming only. There are no servers, sockets, nick registration, auth handshakes, channels beyond `all`, or commands such as join/part/topic.
+-- Addressing is by exact agent id from the registry; there is no fuzzy lookup or aliasing.
+-- `channels` in `list` is synthetic output: `all` plus visible peer ids. Nothing is persisted across calls as channel membership.
+-- Persistence is per recipient history, not per sender history. The sender gets the tool result; the recipient later sees injected custom messages on its next turn.
+-- The main UI may show IRC relays for conversations it was not part of, but those relay records are explicitly display-only.
+-- Because reply generation snapshots in-flight assistant text, a recipient can answer based on partially streamed context.
+-- Direct self-messaging is rejected by resolving the target as unavailable.
+\ No newline at end of file
++- This is IRC-like naming only: no servers, sockets, channels, or join/part state. Addressing is by exact registry agent id.
++- Replies are real turns by the recipient — the old ephemeral no-tools auto-reply (`awaitReply` / `respondAsBackground`) no longer exists. A recipient may keep working before answering; check `inbox` or `wait` again rather than re-sending.
++- Wake-on-message is the revive primitive: messaging a parked agent is equivalent to resuming it (same `ensureLive` path as `task(resume:)` and the Agent Hub).
++- Message ids are Snowflakes; pass them as `replyTo` to thread an answer to a specific message.
++- Persistence is per recipient history: the sender gets receipts in the tool result; the recipient sees the injected `irc:incoming` message in its own transcript (visible via `history://<id>`).
+diff --git a/packages/coding-agent/src/config/settings-schema.ts b/packages/coding-agent/src/config/settings-schema.ts
+index 66c691233..0e45a27b4 100644
+--- a/packages/coding-agent/src/config/settings-schema.ts
++++ b/packages/coding-agent/src/config/settings-schema.ts
+@@ -2316,8 +2316,7 @@ export const SETTINGS_SCHEMA = {
+ 		ui: {
+ 			tab: "tools",
+ 			label: "IRC Timeout",
+-			description:
+-				"Drop IRC messages whose recipient does not respond within this many milliseconds (0 disables the timeout)",
++			description: "Default timeout for irc wait (and send await:true) in milliseconds; 0 disables the timeout",
+ 			options: [
+ 				{ value: "0", label: "Disabled" },
+ 				{ value: "30000", label: "30 seconds" },
+diff --git a/packages/coding-agent/src/irc/bus.ts b/packages/coding-agent/src/irc/bus.ts
+new file mode 100644
+index 000000000..cb0186272
+--- /dev/null
++++ b/packages/coding-agent/src/irc/bus.ts
+@@ -0,0 +1,275 @@
++/**
++ * IrcBus - Process-global mailbox bus for agent-to-agent messaging.
++ *
++ * Replaces the old auto-reply model: a `send` never blocks on the recipient
++ * generating anything. Delivery resolves the recipient via the global
++ * AgentRegistry — parked agents are revived through the
++ * AgentLifecycleManager, idle agents are woken with a real turn, and busy
++ * agents receive the message as a non-interrupting aside at the next step
++ * boundary (see AgentSession.deliverIrcMessage). Replies are real turns by
++ * the recipient, observed via `wait`.
++ */
++
++import { logger, Snowflake } from "@aery/aery-utils";
++import { AgentLifecycleManager } from "../registry/agent-lifecycle";
++import { AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
++import type { CustomMessage } from "../session/messages";
++
++export interface IrcMessage {
++	id: string;
++	/** Sender agent id. */
++	from: string;
++	/** Recipient agent id (resolved; "all" is expanded by the tool, not stored). */
++	to: string;
++	body: string;
++	ts: number;
++	/** Message id being answered. */
++	replyTo?: string;
++}
++
++export interface IrcDeliveryReceipt {
++	to: string;
++	outcome: "injected" | "woken" | "revived" | "failed";
++	error?: string;
++}
++
++interface IrcWaiter {
++	from?: string;
++	resolve: (msg: IrcMessage) => void;
++	cancel: () => void;
++}
++
++/** Mailbox cap per agent; oldest messages are dropped beyond it. */
++const MAILBOX_CAP = 100;
++
++export class IrcBus {
++	static #global: IrcBus | undefined;
++
++	static global(): IrcBus {
++		if (!IrcBus.#global) {
++			IrcBus.#global = new IrcBus();
++		}
++		return IrcBus.#global;
++	}
++
++	/** Reset the global bus. Test-only. */
++	static resetGlobalForTests(): void {
++		IrcBus.#global = undefined;
++	}
++
++	readonly #registry: AgentRegistry;
++	readonly #lifecycle: () => AgentLifecycleManager;
++	readonly #mailboxes = new Map<string, IrcMessage[]>();
++	readonly #waiters = new Map<string, IrcWaiter[]>();
++
++	constructor(registry: AgentRegistry = AgentRegistry.global(), lifecycle?: AgentLifecycleManager) {
++		this.#registry = registry;
++		// Lazy: the lifecycle global self-constructs against the global registry,
++		// so only touch it when a parked recipient actually needs reviving.
++		this.#lifecycle = () => lifecycle ?? AgentLifecycleManager.global();
++	}
++
++	/**
++	 * Fire-and-forget delivery. Never blocks on the recipient generating
++	 * anything: the receipt reports how the message reached the recipient
++	 * (waiter/aside = "injected", idle wake = "woken", park revival =
++	 * "revived"), not what they did with it.
++	 */
++	async send(msg: Omit<IrcMessage, "id" | "ts">): Promise<IrcDeliveryReceipt> {
++		const message: IrcMessage = { ...msg, id: Snowflake.next(), ts: Date.now() };
++		const ref = this.#registry.get(message.to);
++		if (!ref || ref.status === "aborted") {
++			return { to: message.to, outcome: "failed", error: `Unknown or terminated agent "${message.to}".` };
++		}
++
++		let revived = false;
++		if (ref.status === "parked") {
++			try {
++				await this.#lifecycle().ensureLive(message.to);
++				revived = true;
++			} catch (error) {
++				return {
++					to: message.to,
++					outcome: "failed",
++					error: error instanceof Error ? error.message : String(error),
++				};
++			}
++		}
++
++		// A pending `wait` from the recipient consumes the message directly —
++		// it is returned from their irc tool call and never hits the inbox or
++		// the session injection path.
++		const waiter = this.#takeMatchingWaiter(message.to, message.from);
++		if (waiter) {
++			waiter.resolve(message);
++			this.#relayToMainUi(message);
++			return { to: message.to, outcome: revived ? "revived" : "injected" };
++		}
++
++		const session = this.#registry.get(message.to)?.session;
++		if (!session) {
++			return { to: message.to, outcome: "failed", error: `Agent "${message.to}" has no live session.` };
++		}
++
++		this.#enqueue(message);
++		try {
++			const delivery = await session.deliverIrcMessage(message);
++			this.#relayToMainUi(message);
++			return { to: message.to, outcome: revived ? "revived" : delivery };
++		} catch (error) {
++			return {
++				to: message.to,
++				outcome: "failed",
++				error: error instanceof Error ? error.message : String(error),
++			};
++		}
++	}
++
++	/**
++	 * Block until a message for `agentId` (optionally from `filter.from`)
++	 * arrives; consume + return it. Null on timeout (`timeoutMs <= 0` waits
++	 * forever). Rejects when `signal` aborts.
++	 */
++	async wait(
++		agentId: string,
++		filter: { from?: string },
++		timeoutMs: number,
++		signal?: AbortSignal,
++	): Promise<IrcMessage | null> {
++		if (signal?.aborted) {
++			throw signal.reason instanceof Error ? signal.reason : new Error("IRC wait aborted");
++		}
++
++		// Already-pending mail satisfies the wait without parking a waiter.
++		const pending = this.#takeFromMailbox(agentId, filter.from);
++		if (pending) return pending;
++
++		const { promise, resolve, reject } = Promise.withResolvers<IrcMessage | null>();
++		let timer: NodeJS.Timeout | undefined;
++		let onAbort: (() => void) | undefined;
++
++		const waiter: IrcWaiter = {
++			from: filter.from,
++			resolve: msg => {
++				cleanup();
++				resolve(msg);
++			},
++			cancel: () => {
++				cleanup();
++			},
++		};
++		const cleanup = (): void => {
++			this.#removeWaiter(agentId, waiter);
++			clearTimeout(timer);
++			if (signal && onAbort) signal.removeEventListener("abort", onAbort);
++		};
++
++		if (signal) {
++			onAbort = () => {
++				cleanup();
++				reject(signal.reason instanceof Error ? signal.reason : new Error("IRC wait aborted"));
++			};
++			signal.addEventListener("abort", onAbort, { once: true });
++		}
++		if (timeoutMs > 0) {
++			timer = setTimeout(() => {
++				cleanup();
++				resolve(null);
++			}, timeoutMs);
++			timer.unref?.();
++		}
++
++		let waiters = this.#waiters.get(agentId);
++		if (!waiters) {
++			waiters = [];
++			this.#waiters.set(agentId, waiters);
++		}
++		waiters.push(waiter);
++		return promise;
++	}
++
++	/** Drain (or peek) pending messages for `agentId`. */
++	inbox(agentId: string, opts?: { peek?: boolean }): IrcMessage[] {
++		const mailbox = this.#mailboxes.get(agentId);
++		if (!mailbox || mailbox.length === 0) return [];
++		if (opts?.peek) return [...mailbox];
++		this.#mailboxes.delete(agentId);
++		return mailbox;
++	}
++
++	unreadCount(agentId: string): number {
++		return this.#mailboxes.get(agentId)?.length ?? 0;
++	}
++
++	#enqueue(message: IrcMessage): void {
++		let mailbox = this.#mailboxes.get(message.to);
++		if (!mailbox) {
++			mailbox = [];
++			this.#mailboxes.set(message.to, mailbox);
++		}
++		mailbox.push(message);
++		if (mailbox.length > MAILBOX_CAP) {
++			const dropped = mailbox.shift();
++			logger.debug("IrcBus: mailbox full, dropped oldest message", {
++				agentId: message.to,
++				droppedId: dropped?.id,
++				droppedFrom: dropped?.from,
++			});
++		}
++	}
++
++	/** Resolve the OLDEST waiter for `agentId` whose from-filter accepts `from`. */
++	#takeMatchingWaiter(agentId: string, from: string): IrcWaiter | undefined {
++		const waiters = this.#waiters.get(agentId);
++		if (!waiters) return undefined;
++		const index = waiters.findIndex(waiter => !waiter.from || waiter.from === from);
++		if (index === -1) return undefined;
++		const [waiter] = waiters.splice(index, 1);
++		if (waiters.length === 0) this.#waiters.delete(agentId);
++		return waiter;
++	}
++
++	#removeWaiter(agentId: string, waiter: IrcWaiter): void {
++		const waiters = this.#waiters.get(agentId);
++		if (!waiters) return;
++		const index = waiters.indexOf(waiter);
++		if (index !== -1) waiters.splice(index, 1);
++		if (waiters.length === 0) this.#waiters.delete(agentId);
++	}
++
++	#takeFromMailbox(agentId: string, from?: string): IrcMessage | undefined {
++		const mailbox = this.#mailboxes.get(agentId);
++		if (!mailbox) return undefined;
++		const index = from ? mailbox.findIndex(msg => msg.from === from) : 0;
++		if (index === -1 || mailbox.length === 0) return undefined;
++		const [message] = mailbox.splice(index, 1);
++		if (mailbox.length === 0) this.#mailboxes.delete(agentId);
++		return message;
++	}
++
++	/**
++	 * Surface agent↔agent traffic as a display-only card on the main session
++	 * UI. Skipped when the main agent is the recipient — its own
++	 * `deliverIrcMessage` (or `wait` tool result) already shows the message.
++	 */
++	#relayToMainUi(message: IrcMessage): void {
++		if (message.to === MAIN_AGENT_ID) return;
++		const mainSession = this.#registry.get(MAIN_AGENT_ID)?.session;
++		if (!mainSession) return;
++		const record: CustomMessage = {
++			role: "custom",
++			customType: "irc:relay",
++			content: `[IRC \`${message.from}\` → \`${message.to}\`]\n\n${message.body}`,
++			display: true,
++			details: { from: message.from, to: message.to, body: message.body },
++			attribution: "agent",
++			timestamp: message.ts,
++		};
++		try {
++			mainSession.emitIrcRelayObservation(record);
++		} catch (error) {
++			// Display-only forwarding must never affect delivery semantics.
++			logger.debug("IrcBus: main UI relay failed", { to: message.to, error: String(error) });
++		}
++	}
++}
+diff --git a/packages/coding-agent/src/prompts/system/irc-incoming.md b/packages/coding-agent/src/prompts/system/irc-incoming.md
+index 7f5b8f139..6175b2216 100644
+--- a/packages/coding-agent/src/prompts/system/irc-incoming.md
++++ b/packages/coding-agent/src/prompts/system/irc-incoming.md
+@@ -1,8 +1,7 @@
+ <irc>
+-You received an IRC message from agent `{{from}}`.
++Incoming IRC message from agent `{{from}}`{{#if replyTo}} (replying to {{replyTo}}){{/if}}:
+ 
+-Reply briefly and directly using the conversation context already available to you. NEVER call tools. The reply you write is delivered back to `{{from}}` as your answer.
+-
+-Message:
+ {{message}}
++
++If a response is expected, reply with the `irc` tool (`op: "send"`, `to: "{{from}}"`) — you may finish your current step first. Nobody replies on your behalf.
+ </irc>
+diff --git a/packages/coding-agent/src/prompts/tools/irc.md b/packages/coding-agent/src/prompts/tools/irc.md
+index edb10b560..0aee47c57 100644
+--- a/packages/coding-agent/src/prompts/tools/irc.md
++++ b/packages/coding-agent/src/prompts/tools/irc.md
+@@ -1,11 +1,15 @@
+-Sends short text messages to other live agents in this process and receives their prose replies.
++Sends short text messages to other agents in this process and receives theirs.
+ 
+ <instruction>
+ - The main agent is addressable as `Main`. Subagents reuse their task id (e.g. `AuthLoader`, or `AuthLoader-2` when the name repeats).
+-- `op: "list"` returns the current set of visible peers. Use it before sending if you are not sure who is live.
+-- `op: "send"` delivers `message` to `to`. `to` may be a specific id or `"all"` to broadcast.
+-- Replies are generated on a side channel that does not wait for the recipient's main loop, so it is safe to IRC an agent that is mid tool call.
+-- The exchange (question + auto-reply) is injected into the recipient's history; they see it on their next turn and can follow up.
++- `op: "list"` — every addressable peer with status (`running` | `idle` | `parked`), unread count, parent, and last activity. Use it before sending if you are not sure who exists.
++- `op: "send"` — fire-and-forget delivery of `message` to `to` (a peer id, or `"all"` to broadcast to live peers). Returns per-recipient receipts immediately; it NEVER waits for the recipient to act. Receipt outcomes: `injected` (recipient was mid-turn; message folded in at their next step boundary), `woken` (idle recipient started a turn), `revived` (parked recipient was brought back and woken), `failed`.
++- Messaging an `idle` or `parked` peer is how you wake it — there is no separate revive call.
++- `send` with `await: true` — convenience round-trip: send, then block until the next message from that peer arrives (or the timeout passes). Invalid with `to: "all"`.
++- `op: "wait"` — block until a message arrives (optionally only `from` a specific peer); consumes and returns it. A timeout is a clean "no message" result, not an error.
++- `op: "inbox"` — drain pending messages without blocking (`peek: true` to leave them unread).
++- `replyTo` — set it to the id of the message you are answering so the sender can correlate.
++- Nobody answers on a peer's behalf anymore: a reply only arrives when the recipient actually sends one. For background on what a peer has been doing, `read` `history://<id>` instead of interrogating them.
+ </instruction>
+ 
+ <when_to_use>
+@@ -21,29 +25,35 @@ NEVER use `irc` for: routine progress updates, things a tool call can verify, or
+ <etiquette>
+ These rules apply to both sending and replying.
+ - **Plain prose only.** NEVER send structured JSON status payloads (e.g. `{"type":"task_completed",…}`). Write a normal sentence: "Done with the auth refactor — left a TODO in `src/server/auth.ts` for the rate limiter."
+-- **NEVER quote the message you are replying to.** Lead with the answer.
+-- **Use IRC, not terminal tools, to learn about peers.** NEVER `grep` artifacts, read other sessions' JSONL files, or shell-poke to figure out what another agent is doing. DM them.
+-- **One round-trip is enough.** Replies arrive synchronously when the recipient is reachable. NEVER follow up with "did you get my message?". If `delivered` is empty or the result was `failed`, the peer is unavailable — move on or report the blocker; NEVER retry in a loop.
++- **NEVER quote the message you are replying to.** Lead with the answer; set `replyTo` instead.
++- **Use IRC, not terminal tools, to learn about peers.** NEVER `grep` artifacts, read other sessions' JSONL files, or shell-poke to figure out what another agent is doing. DM them, or `read` `history://<id>`.
++- **Send, then keep working.** `send` returns immediately — only `wait` (or `await: true`) when you genuinely cannot proceed without the answer. NEVER follow up with "did you get my message?"; a `failed` receipt means the peer is unreachable — move on or report the blocker; NEVER retry in a loop.
++- **Answer when a response is expected.** When an incoming message asks something, reply with `irc send` to the sender (you may finish your current step first).
+ - **Stay terse.** A DM is a chat message, not a memo. One question per send. Share file paths and artifacts via `local://` / `memory://` / `artifact://` URLs instead of pasting blobs.
+ - **Address peers by id.** Use the exact id from `op: "list"` (e.g. `AuthLoader`, `Main`). NEVER invent friendly names.
+ - **NEVER IRC for things a tool would answer.** If a `read`, `grep`, or build command resolves the question, do that first.
+-- **Answer incoming IRC messages before continuing.** Address the question directly; do not repeat it back to the user.
+ </etiquette>
+ 
+ <output>
+-- `send`: returns each recipient that received the message and any prose replies that arrived.
+-- `list`: returns peers and channels visible to the caller.
++- `send`: per-recipient delivery receipts (`injected` / `woken` / `revived` / `failed`); with `await: true`, also the reply (or a timeout notice).
++- `wait`: the consumed message, or a clean timeout notice.
++- `inbox`: pending messages, oldest first.
++- `list`: peers with status, unread count, parent, and last activity.
+ </output>
+ 
+ <examples>
+ # List peers
+ `{"op": "list"}`
+-# Direct message to the main agent (waits for prose reply)
+-`{"op": "send", "to": "Main", "message": "Should I prefer JWT or session cookies for the auth flow?"}`
+-# Unexpected state — ask the originator
+-`{"op": "send", "to": "Main", "message": "Assignment says edit src/auth/jwt.ts but the file does not exist. Is the new path src/server/auth/jwt.ts?"}`
+-# Blocked by a peer — ask them directly
+-`{"op": "send", "to": "AuthLoader", "message": "Are you still touching src/server/auth.ts? I need to add a 401 path; OK to proceed or should I wait?"}`
+-# Broadcast to discover who owns something (no replies, just informs them)
+-`{"op": "send", "to": "all", "message": "About to refactor src/server/middleware/*. Anyone already in there?", "awaitReply": false}`
++# Fire-and-forget DM — keep working, check inbox later
++`{"op": "send", "to": "AuthLoader", "message": "Are you still touching src/server/auth.ts? I need to add a 401 path."}`
++# Round-trip when you cannot proceed without the answer
++`{"op": "send", "to": "Main", "message": "Should I prefer JWT or session cookies for the auth flow?", "await": true}`
++# Wake a parked agent (same send — the bus revives it)
++`{"op": "send", "to": "SchemaMigrator", "message": "The users table changed again; please re-check your migration."}`
++# Block until a specific peer answers
++`{"op": "wait", "from": "AuthLoader", "timeoutMs": 60000}`
++# Drain pending messages
++`{"op": "inbox"}`
++# Broadcast to live peers (no replies expected)
++`{"op": "send", "to": "all", "message": "About to refactor src/server/middleware/*. Anyone already in there?"}`
+ </examples>
+diff --git a/packages/coding-agent/src/session/agent-session.ts b/packages/coding-agent/src/session/agent-session.ts
+index d677a9d72..def9a1629 100644
+--- a/packages/coding-agent/src/session/agent-session.ts
++++ b/packages/coding-agent/src/session/agent-session.ts
+@@ -29,6 +29,7 @@ import {
+ 	type AgentState,
+ 	type AgentTool,
+ 	AppendOnlyContextManager,
++	type AsideMessage,
+ 	resolveTelemetry,
+ 	ThinkingLevel,
+ } from "@aery/aery-agent-core";
+@@ -163,6 +164,7 @@ import { GoalRuntime } from "../goals/runtime";
+ import type { Goal, GoalModeState } from "../goals/state";
+ import type { HindsightSessionState } from "../hindsight/state";
+ import { type LocalProtocolOptions, resolveLocalUrlToPath } from "../internal-urls";
++import type { IrcMessage } from "../irc/bus";
+ import { resolveMemoryBackend } from "../memory-backend";
+ import { getMnemopiSessionState, type MnemopiSessionState, setMnemopiSessionState } from "../mnemopi/state";
+ import { containsOrchestrate, ORCHESTRATE_NOTICE } from "../modes/orchestrate";
+@@ -184,7 +186,6 @@ import planModeToolDecisionReminderPrompt from "../prompts/system/plan-mode-tool
+ };
+ import ttsrInterruptTemplate from "../prompts/system/ttsr-interrupt.md" with { type: "text" };
+ import ttsrToolReminderTemplate from "../prompts/system/ttsr-tool-reminder.md" with { type: "text" };
+-import { type AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
+ import {
+ 	deobfuscateSessionContext,
+ 	obfuscateProviderContext,
+@@ -413,8 +414,6 @@ export interface AgentSessionConfig {
+ 	asyncJobManager?: AsyncJobManager;
+ 	/** Agent identity (registry id like "Main" or "Alice") used for IRC routing. */
+ 	agentId?: string;
+-	/** Shared agent registry (for forwarding IRC observations to the main session UI). */
+-	agentRegistry?: AgentRegistry;
+ 	/**
+ 	 * Override the provider-facing session ID for all API requests from this session.
+ 	 * When absent, `sessionManager.getSessionId()` is used. Needed when benchmark or
+@@ -557,15 +556,15 @@ function formatRetryFallbackBaseSelector(selector: RetryFallbackSelector): strin
+ 	return `${selector.provider}/${selector.id}`;
+ }
+ 
+-const IRC_REPLY_MAX_BYTES = 4096;
++const EPHEMERAL_REPLY_MAX_BYTES = 4096;
+ 
+ /**
+- * Collapse degenerate IRC ephemeral replies before they hit the relay.
++ * Collapse degenerate ephemeral replies (/btw, /omfg side-channel turns).
+  * Models occasionally loop on a single line (~16 reports of N-times-repeated
+  * replies); compress runs longer than 3 down to one instance + `[…N×]`, then
+  * cap at 4 KiB so a runaway reply can't flood the channel.
+  */
+-function dedupeIrcReply(text: string): string {
++function dedupeEphemeralReply(text: string): string {
+ 	if (!text) return text;
+ 	const lines = text.split("\n");
+ 	const out: string[] = [];
+@@ -582,11 +581,11 @@ function dedupeIrcReply(text: string): string {
+ 		i = j;
+ 	}
+ 	let result = out.join("\n");
+-	if (Buffer.byteLength(result, "utf8") > IRC_REPLY_MAX_BYTES) {
++	if (Buffer.byteLength(result, "utf8") > EPHEMERAL_REPLY_MAX_BYTES) {
+ 		// Trim by characters until we're under the byte budget — handles multi-byte
+ 		// glyphs at the boundary without splitting them.
+ 		const suffix = "\n[…truncated]";
+-		const budget = IRC_REPLY_MAX_BYTES - Buffer.byteLength(suffix, "utf8");
++		const budget = EPHEMERAL_REPLY_MAX_BYTES - Buffer.byteLength(suffix, "utf8");
+ 		while (Buffer.byteLength(result, "utf8") > budget) {
+ 			result = result.slice(0, -1);
+ 		}
+@@ -941,13 +940,11 @@ export class AgentSession {
+ 	#activeEvalExecutions = new Set<Promise<unknown>>();
+ 	#evalExecutionDisposing = false;
+ 
+-	// Background-channel IRC exchanges queued while the recipient was streaming.
+-	// Drained into history (via emitExternalEvent) once the recipient becomes idle.
+-	#pendingBackgroundExchanges: CustomMessage[][] = [];
+-	#scheduledBackgroundExchangeFlush = false;
+-	// Agent identity + registry for IRC relay forwarding to the main session UI.
++	// Incoming IRC messages received while a turn was streaming; drained as
++	// non-interrupting asides at the next step boundary (see the aside provider).
++	#pendingIrcAsides: CustomMessage[] = [];
++	// Agent identity (registry id) used for IRC routing and job ownership.
+ 	#agentId: string | undefined;
+-	#agentRegistry: AgentRegistry | undefined;
+ 	#providerSessionId: string | undefined;
+ 	#freshProviderSessionId: string | undefined;
+ 	#isDisposed = false;
+@@ -1204,7 +1201,13 @@ export class AgentSession {
+ 		// Background-job completions / late diagnostics are pulled into the run at
+ 		// each step boundary as non-interrupting asides (see Agent.getAsideMessages),
+ 		// so they reach the model between requests without waiting for a yield.
+-		this.agent.setAsideMessageProvider(() => this.yieldQueue.drainLazy());
++		this.agent.setAsideMessageProvider(() => {
++			const pendingIrc = this.#pendingIrcAsides;
++			this.#pendingIrcAsides = [];
++			const thunks: AsideMessage[] = pendingIrc.map(record => () => record);
++			thunks.push(...this.yieldQueue.drainLazy());
++			return thunks;
++		});
+ 		this.#convertToLlm = config.convertToLlm ?? convertToLlm;
+ 		this.#rebuildSystemPrompt = config.rebuildSystemPrompt;
+ 		this.#getMcpServerInstructions = config.getMcpServerInstructions;
+@@ -1235,7 +1238,6 @@ export class AgentSession {
+ 		this.#ttsrManager = config.ttsrManager;
+ 		this.#obfuscator = config.obfuscator;
+ 		this.#agentId = config.agentId;
+-		this.#agentRegistry = config.agentRegistry;
+ 		this.#providerSessionId = config.providerSessionId;
+ 		this.agent.setAssistantMessageEventInterceptor((message, assistantMessageEvent) => {
+ 			const event: AgentEvent = {
+@@ -3091,15 +3093,28 @@ export class AgentSession {
+ 	}
+ 
+ 	/**
+-	 * Remove all listeners, flush pending writes, and disconnect from agent.
+-	 * Call this when completely done with the session.
++	 * Synchronously mark the session as disposing so new work is rejected
++	 * immediately: Python/eval starts throw, queued asides are dropped, and the
++	 * aside provider is detached. Idempotent; `dispose()` runs it first.
++	 *
++	 * Wrappers that await other teardown before delegating to `dispose()` MUST
++	 * call this before their first await — otherwise work started in that async
++	 * gap slips past the disposal guards.
+ 	 */
+-	async dispose(): Promise<void> {
++	beginDispose(): void {
+ 		this.#isDisposed = true;
+-		this.#pendingBackgroundExchanges = [];
++		this.#pendingIrcAsides = [];
+ 		this.yieldQueue.clear();
+ 		this.agent.setAsideMessageProvider(undefined);
+ 		this.#evalExecutionDisposing = true;
++	}
++
++	/**
++	 * Remove all listeners, flush pending writes, and disconnect from agent.
++	 * Call this when completely done with the session.
++	 */
++	async dispose(): Promise<void> {
++		this.beginDispose();
+ 		try {
+ 			if (this.#extensionRunner?.hasHandlers("session_shutdown")) {
+ 				await this.#extensionRunner.emit({ type: "session_shutdown" });
+@@ -4634,7 +4649,7 @@ export class AgentSession {
+ 			// Flush any pending bash messages before the new prompt
+ 			this.#flushPendingBashMessages();
+ 			this.#flushPendingPythonMessages();
+-			this.#flushPendingBackgroundExchanges();
++			this.#flushPendingIrcAsides();
+ 
+ 			// Reset todo reminder count on new user prompt
+ 			this.#todoReminderCount = 0;
+@@ -8926,118 +8941,56 @@ export class AgentSession {
+ 	}
+ 
+ 	// =========================================================================
+-	// Background-Channel IRC Exchanges
++	// IRC Delivery
+ 	// =========================================================================
+ 
+ 	/**
+-	 * Generate an ephemeral reply to a background message (e.g. an IRC ping from
+-	 * another agent) using this session's current model + system prompt + history.
++	 * Deliver an IRC message into this session (recipient side; called by the
++	 * IrcBus). Emits the `irc_message` session event for UI cards and injects
++	 * the rendered message into the model's context as an `irc:incoming`
++	 * custom message:
++	 *
++	 * - mid-turn → queued on the aside channel and folded in at the next step
++	 *   boundary (non-interrupting, like async-result deliveries) → "injected";
++	 * - idle → starts a real turn with the message so the recipient wakes
++	 *   → "woken".
+ 	 *
+-	 * The incoming message is queued for injection into the recipient's persisted
+-	 * history immediately so timeouts/abort still preserve delivery. The reply is
+-	 * computed via a side-channel `streamSimple` call (analogous to `/btw`) so it
+-	 * never blocks on the recipient's in-flight tool calls. When a reply is
+-	 * generated, it is queued separately. Injection happens immediately when the
+-	 * session is idle, otherwise it is deferred until streaming ends.
++	 * Never blocks on the recipient's turn: the wake turn is fire-and-forget.
+ 	 */
+-	async respondAsBackground(args: {
+-		from: string;
+-		message: string;
+-		awaitReply?: boolean;
+-		signal?: AbortSignal;
+-	}): Promise<{ replyText: string | null }> {
+-		const awaitReply = args.awaitReply !== false;
+-		const incomingTimestamp = Date.now();
+-		const incomingRecord: CustomMessage = {
++	async deliverIrcMessage(msg: IrcMessage): Promise<"injected" | "woken"> {
++		if (this.#isDisposed) {
++			throw new Error("Recipient session is disposed.");
++		}
++		const record: CustomMessage = {
+ 			role: "custom",
+ 			customType: "irc:incoming",
+-			content: `[IRC \`${args.from}\` → you]\n\n${args.message}`,
++			content: prompt.render(ircIncomingTemplate, {
++				from: msg.from,
++				message: msg.body,
++				replyTo: msg.replyTo ?? "",
++			}),
+ 			display: true,
+-			details: { from: args.from, message: args.message },
++			details: { id: msg.id, from: msg.from, message: msg.body, ...(msg.replyTo ? { replyTo: msg.replyTo } : {}) },
+ 			attribution: "agent",
+-			timestamp: incomingTimestamp,
++			timestamp: msg.ts,
+ 		};
+-		void this.#emitSessionEvent({ type: "irc_message", message: incomingRecord });
+-		this.#forwardIrcRelayToMain({
+-			from: args.from,
+-			to: this.#agentId ?? "?",
+-			body: args.message,
+-			kind: "message",
+-			timestamp: incomingTimestamp,
+-		});
+-
+-		this.#queueBackgroundExchangeInjection([incomingRecord]);
+-		if (!awaitReply) {
+-			return { replyText: null };
++		void this.#emitSessionEvent({ type: "irc_message", message: record });
++		if (this.isStreaming) {
++			this.#pendingIrcAsides.push(record);
++			return "injected";
+ 		}
+-
+-		const incomingPrompt = prompt.render(ircIncomingTemplate, {
+-			from: args.from,
+-			message: args.message,
++		// Idle: same wake primitive the yield queue uses for async-result
++		// delivery — prompt the agent directly so a real turn runs.
++		this.agent.prompt(record).catch(error => {
++			logger.warn("IRC wake turn failed", { from: msg.from, to: msg.to, error: String(error) });
+ 		});
+-		const { replyText } = await this.runEphemeralTurn({
+-			promptText: incomingPrompt,
+-			signal: args.signal,
+-		});
+-
+-		const replyRecord: CustomMessage = {
+-			role: "custom",
+-			customType: "irc:autoreply",
+-			content: `[IRC you → \`${args.from}\` (auto)]\n\n${replyText}`,
+-			display: true,
+-			details: { to: args.from, reply: replyText },
+-			attribution: "agent",
+-			timestamp: Date.now(),
+-		};
+-		void this.#emitSessionEvent({ type: "irc_message", message: replyRecord });
+-		this.#forwardIrcRelayToMain({
+-			from: this.#agentId ?? "?",
+-			to: args.from,
+-			body: replyText,
+-			kind: "reply",
+-			timestamp: replyRecord.timestamp,
+-		});
+-		this.#queueBackgroundExchangeInjection([replyRecord]);
+-
+-		return { replyText };
+-	}
+-
+-	/**
+-	 * Forward an IRC exchange observation to the main agent's session UI so the
+-	 * user can see every IRC conversation in the main transcript, even when the
+-	 * main agent is not a direct participant. The relay record is display-only:
+-	 * it is NOT injected into the main agent's persisted history.
+-	 */
+-	#forwardIrcRelayToMain(args: {
+-		from: string;
+-		to: string;
+-		body: string;
+-		kind: "message" | "reply";
+-		timestamp: number;
+-	}): void {
+-		const registry = this.#agentRegistry;
+-		if (!registry) return;
+-		// If this session is the main agent, the local emit already reached the main UI.
+-		if (this.#agentId === MAIN_AGENT_ID) return;
+-		const mainRef = registry.get(MAIN_AGENT_ID);
+-		const mainSession = mainRef?.session;
+-		if (!mainSession || mainSession === this) return;
+-		const arrow = args.kind === "reply" ? "→ (auto)" : "→";
+-		const relayRecord: CustomMessage = {
+-			role: "custom",
+-			customType: "irc:relay",
+-			content: `[IRC \`${args.from}\` ${arrow} \`${args.to}\`]\n\n${args.body}`,
+-			display: true,
+-			details: { from: args.from, to: args.to, body: args.body, kind: args.kind },
+-			attribution: "agent",
+-			timestamp: args.timestamp,
+-		};
+-		mainSession.emitIrcRelayObservation(relayRecord);
++		return "woken";
+ 	}
+ 
+ 	/**
+ 	 * Emit an IRC relay observation event on this session for UI rendering only.
+-	 * Does not persist the record to history. Public so other sessions can forward.
++	 * Does not persist the record to history. Called by the IrcBus to surface
++	 * agent↔agent traffic on the main session.
+ 	 */
+ 	emitIrcRelayObservation(record: CustomMessage): void {
+ 		void this.#emitSessionEvent({ type: "irc_message", message: record });
+@@ -9049,7 +9002,7 @@ export class AgentSession {
+ 	 * does not block on, or interfere with, any in-flight main turn.  The
+ 	 * session's history and persisted state are NOT modified by this call.
+ 	 *
+-	 * Used by `respondAsBackground` (IRC) and `BtwController` (`/btw`) to share
++	 * Used by `BtwController` (`/btw`) and `OmfgController` (`/omfg`) to share
+ 	 * the snapshot + stream pipeline.  The snapshot includes any in-flight
+ 	 * streaming assistant text so the model sees the half-finished response
+ 	 * rather than missing context.
+@@ -9137,7 +9090,7 @@ export class AgentSession {
+ 			args.onTextDelta(replyText.slice(emittedReplyText.length));
+ 		}
+ 		return {
+-			replyText: args.dedupeReply === false ? replyText.trim() : dedupeIrcReply(replyText.trim()),
++			replyText: args.dedupeReply === false ? replyText.trim() : dedupeEphemeralReply(replyText.trim()),
+ 			assistantMessage,
+ 		};
+ 	}
+@@ -9188,46 +9141,21 @@ export class AgentSession {
+ 		return messages;
+ 	}
+ 
+-	#queueBackgroundExchangeInjection(messages: CustomMessage[]): void {
+-		this.#pendingBackgroundExchanges.push(messages);
+-		if (!this.isStreaming) {
+-			this.#flushPendingBackgroundExchanges();
+-			return;
+-		}
+-		this.#scheduleBackgroundExchangeFlush();
+-	}
+-
+-	#scheduleBackgroundExchangeFlush(): void {
+-		if (this.#scheduledBackgroundExchangeFlush) return;
+-		this.#scheduledBackgroundExchangeFlush = true;
+-		const attempt = (): void => {
+-			if (this.#pendingBackgroundExchanges.length === 0 || this.#isDisposed) {
+-				this.#pendingBackgroundExchanges = [];
+-				this.#scheduledBackgroundExchangeFlush = false;
+-				return;
+-			}
+-			if (this.isStreaming) {
+-				setTimeout(attempt, 50);
+-				return;
+-			}
+-			this.#scheduledBackgroundExchangeFlush = false;
+-			this.#flushPendingBackgroundExchanges();
+-		};
+-		setTimeout(attempt, 0);
+-	}
+-
+-	#flushPendingBackgroundExchanges(): void {
+-		if (this.#pendingBackgroundExchanges.length === 0) return;
+-		const batches = this.#pendingBackgroundExchanges;
+-		this.#pendingBackgroundExchanges = [];
+-		for (const batch of batches) {
+-			for (const msg of batch) {
+-				// emitExternalEvent on message_end appends to agent state and dispatches
+-				// to all session listeners, which in turn handle TUI rendering and
+-				// sessionManager persistence via #handleAgentEvent.
+-				this.agent.emitExternalEvent({ type: "message_start", message: msg });
+-				this.agent.emitExternalEvent({ type: "message_end", message: msg });
+-			}
++	/**
++	 * Persist any IRC asides that missed their step-boundary injection (the
++	 * message landed after the turn's last aside drain). Called at the start
++	 * of the next prompt so the model still sees them.
++	 */
++	#flushPendingIrcAsides(): void {
++		if (this.#pendingIrcAsides.length === 0) return;
++		const records = this.#pendingIrcAsides;
++		this.#pendingIrcAsides = [];
++		for (const record of records) {
++			// emitExternalEvent on message_end appends to agent state and dispatches
++			// to all session listeners, which in turn handle TUI rendering and
++			// sessionManager persistence via #handleAgentEvent.
++			this.agent.emitExternalEvent({ type: "message_start", message: record });
++			this.agent.emitExternalEvent({ type: "message_end", message: record });
+ 		}
+ 	}
+ 
+diff --git a/packages/coding-agent/src/tools/index.ts b/packages/coding-agent/src/tools/index.ts
+index 750af3f65..c524ca646 100644
+--- a/packages/coding-agent/src/tools/index.ts
++++ b/packages/coding-agent/src/tools/index.ts
+@@ -18,7 +18,7 @@ import { LspTool } from "../lsp";
+ import type { MCPManager } from "../mcp";
+ import type { MnemopiSessionState } from "../mnemopi/state";
+ import type { PlanModeState } from "../plan-mode/state";
+-import { type AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
++import type { AgentRegistry } from "../registry/agent-registry";
+ import type { ArtifactManager } from "../session/artifacts";
+ import type { ClientBridge } from "../session/client-bridge";
+ import type { CustomMessage } from "../session/messages";
+@@ -539,13 +539,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
+ 		if (name === "search_tool_bm25") return discoveryActive;
+ 		if (name === "browser") return session.settings.get("browser.enabled");
+ 		if (name === "checkpoint" || name === "rewind") return session.settings.get("checkpoint.enabled");
+-		if (name === "irc") {
+-			if (!session.settings.get("irc.enabled")) return false;
+-			// Main agent only needs `irc` when subagents may run concurrently (async).
+-			// In sync mode main blocks on `task`, so peer messaging from main is dead weight.
+-			if (!session.settings.get("async.enabled") && session.getAgentId?.() === MAIN_AGENT_ID) return false;
+-			return true;
+-		}
++		if (name === "irc") return session.settings.get("irc.enabled");
+ 		if (name === "retain" || name === "recall" || name === "reflect") {
+ 			return ["hindsight", "mnemopi"].includes(session.settings.get("memory.backend") ?? "");
+ 		}
+diff --git a/packages/coding-agent/src/tools/irc.ts b/packages/coding-agent/src/tools/irc.ts
+index a075b3404..49d594aa7 100644
+--- a/packages/coding-agent/src/tools/irc.ts
++++ b/packages/coding-agent/src/tools/irc.ts
+@@ -1,62 +1,80 @@
+ /**
+- * IRC tool — agent-to-agent messaging.
++ * IRC tool — agent-to-agent messaging over the process-global IrcBus.
+  *
+- * Lets any live agent send a short prose message to any other live agent in
+- * this process and (optionally) get a prose reply.
+- *
+- * Routing happens via the global AgentRegistry. Replies are produced by an
+- * ephemeral side-channel call (`AgentSession.respondAsBackground`) that
+- * mirrors `/btw`: the recipient's current model, system prompt, and message
+- * history are used to compute a reply without persisting it through the
+- * normal stream path. After the reply is generated, both the incoming
+- * message and the auto-reply are queued for injection into the recipient's
+- * persisted history (deferred until the recipient is idle), so the model
+- * sees the exchange on its next turn.
+- *
+- * This avoids the deadlock that arises when the recipient is blocked on a
+- * long-running tool call: the side-channel call does not depend on the
+- * recipient's main agent loop being free.
++ * `send` is fire-and-forget: the bus routes the message to the recipient
++ * (waking idle agents with a real turn, reviving parked ones via the
++ * lifecycle manager, injecting a non-interrupting aside into busy ones) and
++ * returns delivery receipts immediately. Replies are real turns by the
++ * recipient, observed with `wait` (or the `await: true` send sugar). `inbox`
++ * drains pending messages; `list` shows every addressable peer.
+  */
+ 
+ import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallback } from "@aery/aery-agent-core";
+-import { prompt } from "@aery/aery-utils";
++import { type Component, Text } from "@aery/aery-tui";
++import { formatAge, formatDuration, prompt } from "@aery/aery-utils";
+ import * as z from "zod/v4";
++import type { RenderResultOptions } from "../extensibility/custom-tools/types";
++import { IrcBus, type IrcDeliveryReceipt, type IrcMessage } from "../irc/bus";
++import type { Theme } from "../modes/theme/theme";
+ import ircDescription from "../prompts/tools/irc.md" with { type: "text" };
+-import type { AgentRef, AgentRegistry } from "../registry/agent-registry";
++import type { AgentRegistry } from "../registry/agent-registry";
++import { Ellipsis, renderStatusLine, renderTreeList, truncateToWidth } from "../tui";
+ import type { ToolSession } from ".";
++import {
++	createCachedComponent,
++	formatBadge,
++	formatErrorDetail,
++	getPreviewLines,
++	PREVIEW_LIMITS,
++	replaceTabs,
++	type ToolUIColor,
++} from "./render-utils";
+ 
+ const DEFAULT_IRC_TIMEOUT_MS = 120_000;
+ const ircSchema = z.object({
+-	op: z.enum(["send", "list"]).describe("irc operation"),
+-	to: z.string().optional().describe('recipient agent id or "all"'),
+-	message: z.string().optional().describe("message body"),
+-	awaitReply: z.boolean().optional().describe("wait for prose reply"),
++	op: z.enum(["send", "wait", "inbox", "list"]).describe("irc operation"),
++	to: z.string().optional().describe('send: recipient agent id or "all"'),
++	message: z.string().optional().describe("send: message body"),
++	replyTo: z.string().optional().describe("send: message id being answered"),
++	await: z.boolean().optional().describe('send: wait for the recipient\'s reply (invalid with to:"all")'),
++	from: z.string().optional().describe("wait: only accept a message from this agent id"),
++	timeoutMs: z.number().optional().describe("wait: timeout in milliseconds (0 waits indefinitely)"),
++	peek: z.boolean().optional().describe("inbox: list messages without consuming them"),
+ });
+ 
+ type IrcParams = z.infer<typeof ircSchema>;
+ 
+-interface IrcReply {
+-	from: string;
+-	text: string;
++interface IrcPeerInfo {
++	id: string;
++	displayName: string;
++	kind: string;
++	status: string;
++	parentId?: string;
++	unread: number;
++	lastActivity: number;
+ }
+ 
+ export interface IrcDetails {
+-	op: "send" | "list";
++	op: "send" | "wait" | "inbox" | "list";
+ 	from?: string;
+ 	to?: string;
+-	delivered?: string[];
+-	replies?: IrcReply[];
+-	failed?: Array<{ id: string; error: string }>;
+-	notFound?: string[];
+-	peers?: Array<{ id: string; displayName: string; kind: string; status: string; parentId?: string }>;
+-	channels?: string[];
++	receipts?: IrcDeliveryReceipt[];
++	/** Message consumed by `wait` / `send await:true`; null when the wait timed out. */
++	waited?: IrcMessage | null;
++	inbox?: IrcMessage[];
++	peers?: IrcPeerInfo[];
++}
++
++function formatIncoming(msg: IrcMessage): string {
++	const replyTag = msg.replyTo ? ` (reply to ${msg.replyTo})` : "";
++	return `[${msg.id}] ${msg.from}${replyTag}: ${msg.body}`;
+ }
+ 
+ export class IrcTool implements AgentTool<typeof ircSchema, IrcDetails> {
+ 	readonly name = "irc";
+ 	readonly approval = "read" as const;
+ 	readonly label = "IRC";
+-	readonly summary = "Send and receive messages between agents over IRC-like channels";
++	readonly summary = "Send and receive messages between agents";
+ 	readonly description: string;
+ 	readonly parameters = ircSchema;
+ 	readonly strict = true;
+@@ -87,41 +105,55 @@ export class IrcTool implements AgentTool<typeof ircSchema, IrcDetails> {
+ 			return errorResult("IRC is unavailable: caller has no agent id.", { op: params.op });
+ 		}
+ 
+-		if (params.op === "list") {
+-			return this.#executeList(registry, senderId);
+-		}
+-		if (params.op === "send") {
+-			return this.#executeSend(registry, senderId, params, signal);
++		switch (params.op) {
++			case "list":
++				return this.#executeList(registry, senderId);
++			case "send":
++				return this.#executeSend(registry, senderId, params, signal);
++			case "wait":
++				return this.#executeWait(senderId, params, signal);
++			case "inbox":
++				return this.#executeInbox(senderId, params);
++			default:
++				return errorResult("Unknown irc op.", { op: params.op });
+ 		}
+-		return errorResult("Unknown irc op.", { op: params.op as "send" | "list" });
+ 	}
+ 
+ 	#executeList(registry: AgentRegistry, senderId: string): AgentToolResult<IrcDetails> {
+-		const peers = registry.listVisibleTo(senderId);
++		const bus = IrcBus.global();
++		const peers = registry
++			.list()
++			.filter(ref => ref.id !== senderId && ref.status !== "aborted")
++			.map(ref => ({
++				id: ref.id,
++				displayName: ref.displayName,
++				kind: ref.kind,
++				status: ref.status,
++				parentId: ref.parentId,
++				unread: bus.unreadCount(ref.id),
++				lastActivity: ref.lastActivity,
++			}));
+ 		const lines: string[] = [];
+ 		if (peers.length === 0) {
+-			lines.push("No other live agents.");
++			lines.push("No other agents.");
+ 		} else {
+ 			lines.push(`${peers.length} peer(s):`);
+ 			for (const peer of peers) {
+-				lines.push(`- ${peer.id} [${peer.displayName} · ${peer.kind} · ${peer.status}]`);
++				const extras = [
++					peer.unread > 0 ? `unread ${peer.unread}` : undefined,
++					peer.parentId ? `parent ${peer.parentId}` : undefined,
++					`active ${formatDuration(Date.now() - peer.lastActivity)} ago`,
++				].filter(Boolean);
++				lines.push(`- ${peer.id} [${peer.displayName} · ${peer.kind} · ${peer.status}] — ${extras.join(", ")}`);
++			}
++			if (peers.some(peer => peer.status === "parked")) {
++				lines.push("");
++				lines.push("Parked agents are revived automatically when you message them.");
+ 			}
+ 		}
+-		const channels = ["all", ...peers.map(p => p.id)];
+ 		return {
+ 			content: [{ type: "text", text: lines.join("\n") }],
+-			details: {
+-				op: "list",
+-				from: senderId,
+-				peers: peers.map(p => ({
+-					id: p.id,
+-					displayName: p.displayName,
+-					kind: p.kind,
+-					status: p.status,
+-					parentId: p.parentId,
+-				})),
+-				channels,
+-			},
++			details: { op: "list", from: senderId, peers },
+ 		};
+ 	}
+ 
+@@ -139,91 +171,59 @@ export class IrcTool implements AgentTool<typeof ircSchema, IrcDetails> {
+ 		if (!message) {
+ 			return errorResult('`message` is required for op="send".', { op: "send", from: senderId });
+ 		}
+-
+-		// Resolve target peers.
+-		let targets: AgentRef[];
+-		const notFound: string[] = [];
++		if (to === senderId) {
++			return errorResult("Cannot send an IRC message to yourself.", { op: "send", from: senderId, to });
++		}
+ 		const isBroadcast = to === "all";
+-		if (isBroadcast) {
+-			targets = registry.listVisibleTo(senderId);
+-		} else {
+-			const ref = registry.get(to);
+-			if (!ref || ref.id === senderId) {
+-				notFound.push(to);
+-				targets = [];
+-			} else if (ref.status !== "running" && ref.status !== "idle") {
+-				notFound.push(to);
+-				targets = [];
+-			} else {
+-				targets = [ref];
+-			}
++		if (isBroadcast && params.await) {
++			return errorResult('`await` is invalid with to:"all" — broadcasts have no single replier.', {
++				op: "send",
++				from: senderId,
++				to,
++			});
+ 		}
+ 
+-		const awaitReply = params.awaitReply ?? !isBroadcast;
+-
+-		const timeoutMs = normalizeIrcTimeoutMs(this.session.settings.get("irc.timeoutMs"));
+-		const delivered: string[] = [];
+-		const replies: IrcReply[] = [];
+-		const failed: Array<{ id: string; error: string }> = [];
+-
+-		// Dispatch to each target in parallel via the recipient's ephemeral
+-		// side-channel. Independent calls so a slow recipient cannot stall the
+-		// others. The recipient's main loop never has to be unblocked: the
+-		// side-channel runs alongside any in-flight tool call.
+-		const dispatches = targets.map(async target => {
+-			const targetSession = target.session;
+-			if (!targetSession) {
+-				notFound.push(target.id);
+-				return;
+-			}
+-			try {
+-				const result = await runIrcDispatchWithTimeout(
+-					timeoutMs,
+-					signal,
+-					timeoutSignal =>
+-						targetSession.respondAsBackground({
+-							from: senderId,
+-							message,
+-							awaitReply,
+-							signal: timeoutSignal,
+-						}),
+-					target.id,
+-				);
+-				delivered.push(target.id);
+-				if (awaitReply && result.replyText) {
+-					replies.push({ from: target.id, text: result.replyText });
+-				}
+-			} catch (err) {
+-				failed.push({ id: target.id, error: err instanceof Error ? err.message : String(err) });
+-			}
+-		});
+-		await Promise.all(dispatches);
++		const bus = IrcBus.global();
++		// Broadcasts fan out to live peers only (running | idle); reviving every
++		// parked agent on a broadcast would be a stampede. Direct sends go
++		// through the bus unfiltered so parked recipients are revived.
++		const targets = isBroadcast ? registry.listVisibleTo(senderId).map(ref => ref.id) : [to];
++		const receipts = await Promise.all(
++			targets.map(target => bus.send({ from: senderId, to: target, body: message, replyTo: params.replyTo })),
++		);
+ 
+ 		const lines: string[] = [];
+-		if (delivered.length === 0) {
++		const delivered = receipts.filter(receipt => receipt.outcome !== "failed");
++		if (targets.length === 0) {
++			lines.push("No live peers to broadcast to.");
++		} else if (delivered.length === 0) {
+ 			lines.push("No recipients received the message.");
+ 		} else {
+-			lines.push(`Delivered to ${delivered.length} peer(s): ${delivered.join(", ")}`);
++			lines.push(`Delivered to ${delivered.length} peer(s):`);
+ 		}
+-		if (replies.length > 0) {
+-			lines.push("");
+-			lines.push("## Replies");
+-			for (const reply of replies) {
+-				lines.push(`### ${reply.from}`);
+-				lines.push(reply.text);
+-			}
++		for (const receipt of receipts) {
++			lines.push(
++				receipt.outcome === "failed"
++					? `- ${receipt.to}: failed — ${receipt.error ?? "unknown error"}`
++					: `- ${receipt.to}: ${receipt.outcome}`,
++			);
+ 		}
+-		if (failed.length > 0) {
++
++		let waited: IrcMessage | null | undefined;
++		if (params.await && delivered.length > 0) {
++			const timeoutMs = this.#resolveTimeoutMs(params);
++			waited = await bus.wait(senderId, { from: to }, timeoutMs, signal);
+ 			lines.push("");
+-			lines.push("## Failed");
+-			for (const f of failed) {
+-				lines.push(`- ${f.id}: ${f.error}`);
++			if (waited) {
++				lines.push(`Reply from ${waited.from}:`);
++				lines.push(waited.body);
++			} else {
++				lines.push(
++					`No reply from ${to} within ${formatDuration(timeoutMs)}. ` +
++						"They may answer later — check `inbox` or `wait` again.",
++				);
+ 			}
+ 		}
+-		if (notFound.length > 0) {
+-			lines.push("");
+-			lines.push(`Unknown / unavailable peers: ${notFound.join(", ")}`);
+-		}
+ 
+ 		return {
+ 			content: [{ type: "text", text: lines.join("\n") }],
+@@ -231,13 +231,52 @@ export class IrcTool implements AgentTool<typeof ircSchema, IrcDetails> {
+ 				op: "send",
+ 				from: senderId,
+ 				to,
+-				delivered,
+-				...(replies.length > 0 ? { replies } : {}),
+-				...(failed.length > 0 ? { failed } : {}),
+-				...(notFound.length > 0 ? { notFound } : {}),
++				receipts,
++				...(waited !== undefined ? { waited } : {}),
+ 			},
++			isError: delivered.length === 0 && targets.length > 0,
++		};
++	}
++
++	async #executeWait(senderId: string, params: IrcParams, signal?: AbortSignal): Promise<AgentToolResult<IrcDetails>> {
++		const from = params.from?.trim() || undefined;
++		const timeoutMs = this.#resolveTimeoutMs(params);
++		const waited = await IrcBus.global().wait(senderId, { from }, timeoutMs, signal);
++		if (!waited) {
++			const filterNote = from ? ` from ${from}` : "";
++			return {
++				content: [{ type: "text", text: `No message${filterNote} within ${formatDuration(timeoutMs)}.` }],
++				details: { op: "wait", from: senderId, waited: null },
++			};
++		}
++		return {
++			content: [{ type: "text", text: formatIncoming(waited) }],
++			details: { op: "wait", from: senderId, waited },
+ 		};
+ 	}
++
++	#executeInbox(senderId: string, params: IrcParams): AgentToolResult<IrcDetails> {
++		const messages = IrcBus.global().inbox(senderId, { peek: params.peek });
++		if (messages.length === 0) {
++			return {
++				content: [{ type: "text", text: "Inbox empty." }],
++				details: { op: "inbox", from: senderId, inbox: [] },
++			};
++		}
++		const header = params.peek ? `${messages.length} unread message(s):` : `${messages.length} message(s):`;
++		const lines = [header, ...messages.map(msg => `- ${formatIncoming(msg)}`)];
++		return {
++			content: [{ type: "text", text: lines.join("\n") }],
++			details: { op: "inbox", from: senderId, inbox: messages },
++		};
++	}
++
++	#resolveTimeoutMs(params: IrcParams): number {
++		if (params.timeoutMs !== undefined) {
++			return normalizeIrcTimeoutMs(params.timeoutMs);
++		}
++		return normalizeIrcTimeoutMs(this.session.settings.get("irc.timeoutMs"));
++	}
+ }
+ 
+ function errorResult(text: string, details: IrcDetails): AgentToolResult<IrcDetails> {
+@@ -256,43 +295,333 @@ function normalizeIrcTimeoutMs(value: number): number {
+ 	return Math.max(1, Math.trunc(value));
+ }
+ 
+-async function runIrcDispatchWithTimeout<T>(
+-	timeoutMs: number,
+-	parentSignal: AbortSignal | undefined,
+-	run: (signal?: AbortSignal) => Promise<T>,
+-	targetId: string,
+-): Promise<T> {
+-	if (timeoutMs <= 0) {
+-		return await run(parentSignal);
++// =============================================================================
++// TUI Renderer
++// =============================================================================
++
++type IrcRenderArgs = Partial<IrcParams>;
++
++const BODY_LINES_COLLAPSED = 2;
++const BODY_LINES_EXPANDED = 12;
++const BODY_LINE_WIDTH = 100;
++
++const PEER_STATUS_ORDER: Record<string, number> = { running: 0, idle: 1, parked: 2 };
++
++function ircGlyph(theme: Theme): string {
++	return theme.styledSymbol("tool.irc", "accent");
++}
++
++function outcomeColor(outcome: IrcDeliveryReceipt["outcome"]): ToolUIColor {
++	switch (outcome) {
++		case "woken":
++			return "success";
++		case "revived":
++			return "warning";
++		case "injected":
++			return "accent";
++		case "failed":
++			return "error";
+ 	}
++}
+ 
+-	const controller = new AbortController();
+-	const timeoutError = new Error(`IRC timed out waiting for ${targetId} after ${timeoutMs} ms`);
+-	let timeout: NodeJS.Timeout | undefined;
+-	let parentAbortListener: (() => void) | undefined;
++/** Glyph + status word, matching the agent-hub status conventions. */
++function peerStatusBadge(status: string, theme: Theme): string {
++	switch (status) {
++		case "running":
++			return theme.fg("accent", `${theme.status.running} running`);
++		case "idle":
++			return theme.fg("success", `${theme.status.enabled} idle`);
++		case "parked":
++			return theme.fg("muted", `${theme.status.shadowed} parked`);
++		default:
++			return theme.fg("error", `${theme.status.aborted} ${status}`);
++	}
++}
+ 
+-	const timeoutDeferred = Promise.withResolvers<never>();
+-	if (parentSignal) {
+-		if (parentSignal.aborted) {
+-			throw parentSignal.reason instanceof Error ? parentSignal.reason : new Error("IRC aborted");
+-		}
+-		parentAbortListener = () => {
+-			controller.abort(parentSignal.reason);
+-			timeoutDeferred.reject(parentSignal.reason instanceof Error ? parentSignal.reason : new Error("IRC aborted"));
+-		};
+-		parentSignal.addEventListener("abort", parentAbortListener, { once: true });
++function messageAge(ts: number | undefined): string {
++	if (!ts) return "";
++	return formatAge(Math.max(1, Math.round((Date.now() - ts) / 1000)));
++}
++
++function textContent(result: { content: Array<{ type: string; text?: string }> }): string {
++	return result.content.find(part => part.type === "text")?.text?.trim() ?? "";
++}
++
++/**
++ * Quote-bordered message body preview. `tone` separates outbound text (dim)
++ * from received text (toolOutput); a trailing dim counter marks elided lines.
++ */
++function bodyLines(
++	body: string,
++	expanded: boolean,
++	theme: Theme,
++	options: { indent?: string; tone?: "dim" | "toolOutput"; collapsedLines?: number } = {},
++): string[] {
++	const indent = options.indent ?? "";
++	const tone = options.tone ?? "toolOutput";
++	const max = expanded ? BODY_LINES_EXPANDED : (options.collapsedLines ?? BODY_LINES_COLLAPSED);
++	const total = body.split("\n").filter(line => line.trim()).length;
++	const quote = theme.fg("dim", theme.md.quoteBorder);
++	const lines = getPreviewLines(body, max, BODY_LINE_WIDTH, Ellipsis.Unicode).map(
++		line => `${indent}${quote} ${theme.fg(tone, replaceTabs(line))}`,
++	);
++	const hidden = total - Math.min(total, max);
++	if (hidden > 0) {
++		lines.push(`${indent}${quote} ${theme.fg("dim", `… +${hidden} more ${hidden === 1 ? "line" : "lines"}`)}`);
++	}
++	return lines;
++}
++
++/** Header title carrying the op direction: `IRC ➤ peer` out, `IRC ⟵ peer` in. */
++function callTitle(args: IrcRenderArgs | undefined, theme: Theme): string {
++	switch (args?.op) {
++		case "send":
++			return `IRC ${theme.nav.selected} ${args.to?.trim() || "…"}`;
++		case "wait":
++			return `IRC ${theme.nav.back} ${args.from?.trim() || "anyone"}`;
++		case "inbox":
++			return "IRC inbox";
++		case "list":
++			return "IRC peers";
++		default:
++			return "IRC";
+ 	}
++}
+ 
+-	timeout = setTimeout(() => {
+-		controller.abort(timeoutError);
+-		timeoutDeferred.reject(timeoutError);
+-	}, timeoutMs);
+-	timeout.unref?.();
+-
+-	try {
+-		return await Promise.race([run(controller.signal), timeoutDeferred.promise]);
+-	} finally {
+-		if (timeout) clearTimeout(timeout);
+-		if (parentSignal && parentAbortListener) parentSignal.removeEventListener("abort", parentAbortListener);
++function callMeta(args: IrcRenderArgs | undefined): string[] {
++	const meta: string[] = [];
++	if (args?.op === "send") {
++		if (args.to === "all") meta.push("broadcast");
++		if (args.await) meta.push("await reply");
++		if (args.replyTo) meta.push("reply");
+ 	}
++	if (args?.op === "wait" && args.timeoutMs) meta.push(`timeout ${formatDuration(args.timeoutMs)}`);
++	if (args?.op === "inbox" && args.peek) meta.push("peek");
++	return meta;
+ }
++
++function renderSendResult(
++	result: { content: Array<{ type: string; text?: string }>; isError?: boolean },
++	details: Partial<IrcDetails>,
++	args: IrcRenderArgs | undefined,
++	expanded: boolean,
++	theme: Theme,
++): string[] {
++	const receipts = details.receipts ?? [];
++	const to = details.to ?? args?.to?.trim() ?? "?";
++	const title = `IRC ${theme.nav.selected} ${to}`;
++
++	// Pre-delivery failures (validation) and empty broadcasts carry no receipts.
++	if (receipts.length === 0) {
++		const text = textContent(result) || (result.isError ? "Send failed." : "Nothing to deliver.");
++		return [
++			renderStatusLine({ icon: result.isError ? "error" : "warning", title }, theme),
++			result.isError ? formatErrorDetail(text, theme) : `  ${theme.fg("muted", replaceTabs(text))}`,
++		];
++	}
++
++	const delivered = receipts.filter(receipt => receipt.outcome !== "failed");
++	const failedCount = receipts.length - delivered.length;
++	const waited = details.waited;
++	const timedOut = waited === null;
++
++	const meta: string[] = [];
++	if (to === "all") meta.push("broadcast");
++	if (receipts.length === 1) {
++		const receipt = receipts[0]!;
++		meta.push(theme.fg(outcomeColor(receipt.outcome), receipt.outcome));
++	} else {
++		if (delivered.length > 0) meta.push(theme.fg("success", `${delivered.length} delivered`));
++		if (failedCount > 0) meta.push(theme.fg("error", `${failedCount} failed`));
++	}
++	if (timedOut) meta.push(theme.fg("warning", "no reply"));
++
++	const icon = result.isError
++		? { icon: "error" as const }
++		: timedOut
++			? { icon: "warning" as const }
++			: { iconOverride: ircGlyph(theme) };
++	const lines = [renderStatusLine({ ...icon, title, meta }, theme)];
++
++	const sent = args?.message?.trim();
++	if (sent) lines.push(...bodyLines(sent, expanded, theme, { indent: "  ", tone: "dim" }));
++
++	if (receipts.length > 1 || failedCount > 0) {
++		lines.push(
++			...renderTreeList<IrcDeliveryReceipt>(
++				{
++					items: receipts,
++					expanded,
++					maxCollapsed: PREVIEW_LIMITS.COLLAPSED_ITEMS,
++					itemType: "recipient",
++					renderItem: receipt => {
++						const badge = formatBadge(receipt.outcome, outcomeColor(receipt.outcome), theme);
++						const error =
++							receipt.outcome === "failed" && receipt.error
++								? ` ${theme.fg("error", `${theme.format.dash} ${receipt.error}`)}`
++								: "";
++						return `${theme.fg("toolOutput", receipt.to)} ${badge}${error}`;
++					},
++				},
++				theme,
++			),
++		);
++	}
++
++	if (waited) {
++		const age = messageAge(waited.ts);
++		lines.push(
++			`  ${theme.fg("dim", theme.nav.back)} ${theme.fg("accent", waited.from)}${age ? ` ${theme.fg("dim", age)}` : ""}`,
++		);
++		lines.push(...bodyLines(waited.body, expanded, theme, { indent: "  " }));
++	} else if (timedOut) {
++		lines.push(`  ${theme.fg("warning", "No reply yet — they may answer later; check inbox or wait again.")}`);
++	}
++	return lines;
++}
++
++function renderWaitResult(
++	result: { content: Array<{ type: string; text?: string }>; isError?: boolean },
++	details: Partial<IrcDetails>,
++	args: IrcRenderArgs | undefined,
++	expanded: boolean,
++	theme: Theme,
++): string[] {
++	const waited = details.waited;
++	if (!waited) {
++		const text = textContent(result) || "No message arrived.";
++		return [
++			renderStatusLine(
++				{ icon: "warning", title: `IRC ${theme.nav.back} ${args?.from?.trim() || "anyone"}`, meta: ["timed out"] },
++				theme,
++			),
++			`  ${theme.fg("muted", replaceTabs(text))}`,
++		];
++	}
++	const meta = [messageAge(waited.ts)];
++	if (waited.replyTo) meta.push("reply");
++	return [
++		renderStatusLine({ iconOverride: ircGlyph(theme), title: `IRC ${theme.nav.back} ${waited.from}`, meta }, theme),
++		...bodyLines(waited.body, expanded, theme, { indent: "  " }),
++	];
++}
++
++function renderInboxResult(
++	details: Partial<IrcDetails>,
++	args: IrcRenderArgs | undefined,
++	expanded: boolean,
++	theme: Theme,
++): string[] {
++	const messages = details.inbox ?? [];
++	if (messages.length === 0) {
++		return [renderStatusLine({ iconOverride: ircGlyph(theme), title: "IRC inbox", meta: ["empty"] }, theme)];
++	}
++	const meta = [`${messages.length} ${messages.length === 1 ? "message" : "messages"}`];
++	if (args?.peek) meta.push("peek");
++	const header = renderStatusLine({ iconOverride: ircGlyph(theme), title: "IRC inbox", meta }, theme);
++	const items = renderTreeList<IrcMessage>(
++		{
++			items: messages,
++			expanded,
++			maxCollapsed: PREVIEW_LIMITS.COLLAPSED_ITEMS,
++			itemType: "message",
++			renderItem: msg => {
++				const age = messageAge(msg.ts);
++				const replyBadge = msg.replyTo ? ` ${formatBadge("reply", "muted", theme)}` : "";
++				const head = `${theme.fg("accent", msg.from)}${age ? ` ${theme.fg("dim", age)}` : ""}${replyBadge}`;
++				return [head, ...bodyLines(msg.body, expanded, theme, { collapsedLines: 1 })];
++			},
++		},
++		theme,
++	);
++	return [header, ...items];
++}
++
++function renderListResult(details: Partial<IrcDetails>, expanded: boolean, theme: Theme): string[] {
++	const peers = [...(details.peers ?? [])].sort(
++		(a, b) =>
++			(PEER_STATUS_ORDER[a.status] ?? 9) - (PEER_STATUS_ORDER[b.status] ?? 9) || b.lastActivity - a.lastActivity,
++	);
++	if (peers.length === 0) {
++		return [renderStatusLine({ icon: "info", title: "IRC peers", meta: ["no other agents"] }, theme)];
++	}
++	const counts = new Map<string, number>();
++	for (const peer of peers) counts.set(peer.status, (counts.get(peer.status) ?? 0) + 1);
++	const meta = [...counts].map(([status, count]) => `${count} ${status}`);
++	const unreadTotal = peers.reduce((sum, peer) => sum + peer.unread, 0);
++	if (unreadTotal > 0) meta.push(theme.fg("warning", `${unreadTotal} unread`));
++	const header = renderStatusLine({ iconOverride: ircGlyph(theme), title: "IRC peers", meta }, theme);
++	const items = renderTreeList(
++		{
++			items: peers,
++			expanded,
++			maxCollapsed: PREVIEW_LIMITS.COLLAPSED_ITEMS,
++			itemType: "peer",
++			renderItem: peer => {
++				const kindText = peer.parentId ? `${peer.kind}${theme.sep.dot}of ${peer.parentId}` : peer.kind;
++				const unread = peer.unread > 0 ? ` ${formatBadge(`${peer.unread} unread`, "warning", theme)}` : "";
++				const age = messageAge(peer.lastActivity);
++				return `${peerStatusBadge(peer.status, theme)} ${theme.bold(replaceTabs(peer.id))} ${theme.fg("dim", kindText)}${unread}${age ? ` ${theme.fg("dim", age)}` : ""}`;
++			},
++		},
++		theme,
++	);
++	return [header, ...items];
++}
++
++function buildResultLines(
++	result: { content: Array<{ type: string; text?: string }>; isError?: boolean },
++	details: Partial<IrcDetails>,
++	args: IrcRenderArgs | undefined,
++	expanded: boolean,
++	theme: Theme,
++): string[] {
++	switch (details.op ?? args?.op) {
++		case "send":
++			return renderSendResult(result, details, args, expanded, theme);
++		case "wait":
++			return renderWaitResult(result, details, args, expanded, theme);
++		case "inbox":
++			return renderInboxResult(details, args, expanded, theme);
++		case "list":
++			return renderListResult(details, expanded, theme);
++		default: {
++			const text = textContent(result) || (result.isError ? "IRC call failed." : "Done.");
++			return [
++				renderStatusLine({ icon: result.isError ? "error" : "success", title: callTitle(args, theme) }, theme),
++				result.isError ? formatErrorDetail(text, theme) : `  ${theme.fg("muted", replaceTabs(text))}`,
++			];
++		}
++	}
++}
++
++export const ircToolRenderer = {
++	inline: true,
++	mergeCallAndResult: true,
++
++	renderCall(args: IrcRenderArgs, _options: RenderResultOptions, uiTheme: Theme): Component {
++		const lines = [
++			renderStatusLine({ icon: "pending", title: callTitle(args, uiTheme), meta: callMeta(args) }, uiTheme),
++		];
++		if (args?.op === "send" && args.message?.trim()) {
++			lines.push(...bodyLines(args.message, false, uiTheme, { indent: "  ", tone: "dim", collapsedLines: 1 }));
++		}
++		return new Text(lines.join("\n"), 0, 0);
++	},
++
++	renderResult(
++		result: { content: Array<{ type: string; text?: string }>; details?: IrcDetails; isError?: boolean },
++		options: RenderResultOptions,
++		uiTheme: Theme,
++		args?: IrcRenderArgs,
++	): Component {
++		const details: Partial<IrcDetails> = result.details ?? {};
++		return createCachedComponent(
++			() => options.expanded,
++			(width, expanded) =>
++				buildResultLines(result, details, args, expanded, uiTheme).map(line =>
++					truncateToWidth(line, width, Ellipsis.Unicode),
++				),
++		);
++	},
++};
+diff --git a/packages/coding-agent/src/tools/renderers.ts b/packages/coding-agent/src/tools/renderers.ts
+index dde5dc6be..362fdfae5 100644
+--- a/packages/coding-agent/src/tools/renderers.ts
++++ b/packages/coding-agent/src/tools/renderers.ts
+@@ -21,6 +21,7 @@ import { evalToolRenderer } from "./eval-render";
+ import { findToolRenderer } from "./find";
+ import { githubToolRenderer } from "./gh-renderer";
+ import { inspectImageToolRenderer } from "./inspect-image-renderer";
++import { ircToolRenderer } from "./irc";
+ import { jobToolRenderer } from "./job";
+ import { recallToolRenderer, reflectToolRenderer, retainToolRenderer } from "./memory-render";
+ import { readToolRenderer } from "./read";
+@@ -58,6 +59,7 @@ export const toolRenderers: Record<string, ToolRenderer> = {
+ 	search: searchToolRenderer as ToolRenderer,
+ 	lsp: lspToolRenderer as ToolRenderer,
+ 	inspect_image: inspectImageToolRenderer as ToolRenderer,
++	irc: ircToolRenderer as ToolRenderer,
+ 	read: readToolRenderer as ToolRenderer,
+ 	job: jobToolRenderer as ToolRenderer,
+ 	resolve: resolveToolRenderer as ToolRenderer,
+diff --git a/packages/coding-agent/test/tools/irc-renderer.test.ts b/packages/coding-agent/test/tools/irc-renderer.test.ts
+new file mode 100644
+index 000000000..768ddc273
+--- /dev/null
++++ b/packages/coding-agent/test/tools/irc-renderer.test.ts
+@@ -0,0 +1,256 @@
++import { describe, expect, it } from "bun:test";
++import type { IrcMessage } from "@aery/aery-coding-agent/irc/bus";
++import { getThemeByName } from "@aery/aery-coding-agent/modes/theme/theme";
++import { type IrcDetails, ircToolRenderer } from "@aery/aery-coding-agent/tools/irc";
++import { sanitizeText } from "@aery/aery-utils";
++
++async function theme() {
++	const t = await getThemeByName("dark");
++	expect(t).toBeDefined();
++	return t!;
++}
++
++const lines = (component: { render: (w: number) => readonly string[] }, width = 200) =>
++	sanitizeText(component.render(width).join("\n")).split("\n");
++
++const msg = (overrides: Partial<IrcMessage>): IrcMessage => ({
++	id: "7181122334455667789",
++	from: "AuthLoader",
++	to: "Main",
++	body: "session-store rename is merged.",
++	ts: Date.now() - 30_000,
++	...overrides,
++});
++
++describe("ircToolRenderer send", () => {
++	it("folds a single delivery outcome into the header and shows the awaited reply", async () => {
++		const uiTheme = await theme();
++		const rendered = lines(
++			ircToolRenderer.renderResult(
++				{
++					content: [{ type: "text", text: "" }],
++					details: {
++						op: "send",
++						from: "Main",
++						to: "AuthLoader",
++						receipts: [{ to: "AuthLoader", outcome: "revived" }],
++						waited: msg({ body: "go ahead, auth.ts is yours." }),
++					} satisfies IrcDetails,
++				},
++				{ expanded: false, isPartial: false },
++				uiTheme,
++				{ op: "send", to: "AuthLoader", message: "Are you done with auth.ts?", await: true },
++			),
++		);
++		expect(rendered[0]).toContain("AuthLoader");
++		expect(rendered[0]).toContain("revived");
++		expect(rendered.some(line => line.includes("Are you done with auth.ts?"))).toBe(true);
++		expect(rendered.some(line => line.includes("go ahead, auth.ts is yours."))).toBe(true);
++	});
++
++	it("lists per-recipient outcomes with error text when a broadcast partially fails", async () => {
++		const uiTheme = await theme();
++		const rendered = lines(
++			ircToolRenderer.renderResult(
++				{
++					content: [{ type: "text", text: "" }],
++					details: {
++						op: "send",
++						from: "Main",
++						to: "all",
++						receipts: [
++							{ to: "AuthLoader", outcome: "woken" },
++							{ to: "RateLimiter", outcome: "failed", error: 'unknown agent "RateLimiter"' },
++						],
++					} satisfies IrcDetails,
++				},
++				{ expanded: false, isPartial: false },
++				uiTheme,
++				{ op: "send", to: "all", message: "heads up" },
++			),
++		);
++		expect(rendered[0]).toContain("broadcast");
++		expect(rendered[0]).toContain("1 delivered");
++		expect(rendered[0]).toContain("1 failed");
++		expect(rendered.some(line => line.includes("AuthLoader") && line.includes("woken"))).toBe(true);
++		expect(rendered.some(line => line.includes("RateLimiter") && line.includes('unknown agent "RateLimiter"'))).toBe(
++			true,
++		);
++	});
++
++	it("flags an awaited send whose reply timed out", async () => {
++		const uiTheme = await theme();
++		const rendered = lines(
++			ircToolRenderer.renderResult(
++				{
++					content: [{ type: "text", text: "" }],
++					details: {
++						op: "send",
++						from: "Main",
++						to: "AuthLoader",
++						receipts: [{ to: "AuthLoader", outcome: "injected" }],
++						waited: null,
++					} satisfies IrcDetails,
++				},
++				{ expanded: false, isPartial: false },
++				uiTheme,
++				{ op: "send", to: "AuthLoader", message: "ping", await: true },
++			),
++		);
++		expect(rendered[0]).toContain("no reply");
++		expect(rendered.some(line => line.includes("No reply yet"))).toBe(true);
++	});
++
++	it("surfaces pre-delivery validation failures as an error detail", async () => {
++		const uiTheme = await theme();
++		const rendered = lines(
++			ircToolRenderer.renderResult(
++				{
++					content: [{ type: "text", text: '`to` is required for op="send".' }],
++					details: { op: "send", from: "Main" } satisfies IrcDetails,
++					isError: true,
++				},
++				{ expanded: false, isPartial: false },
++				uiTheme,
++				{ op: "send" },
++			),
++		);
++		expect(rendered.some(line => line.includes('`to` is required for op="send".'))).toBe(true);
++	});
++});
++
++describe("ircToolRenderer wait", () => {
++	it("renders the consumed message under a sender header", async () => {
++		const uiTheme = await theme();
++		const rendered = lines(
++			ircToolRenderer.renderResult(
++				{
++					content: [{ type: "text", text: "" }],
++					details: { op: "wait", from: "Main", waited: msg({}) } satisfies IrcDetails,
++				},
++				{ expanded: false, isPartial: false },
++				uiTheme,
++				{ op: "wait", from: "AuthLoader" },
++			),
++		);
++		expect(rendered[0]).toContain("AuthLoader");
++		expect(rendered.some(line => line.includes("session-store rename is merged."))).toBe(true);
++	});
++
++	it("marks a timed-out wait without inventing a message", async () => {
++		const uiTheme = await theme();
++		const rendered = lines(
++			ircToolRenderer.renderResult(
++				{
++					content: [{ type: "text", text: "No message from AuthLoader within 2m." }],
++					details: { op: "wait", from: "Main", waited: null } satisfies IrcDetails,
++				},
++				{ expanded: false, isPartial: false },
++				uiTheme,
++				{ op: "wait", from: "AuthLoader" },
++			),
++		);
++		expect(rendered[0]).toContain("timed out");
++		expect(rendered.some(line => line.includes("No message from AuthLoader within 2m."))).toBe(true);
++	});
++});
++
++describe("ircToolRenderer inbox", () => {
++	it("lists each message with sender and body preview", async () => {
++		const uiTheme = await theme();
++		const rendered = lines(
++			ircToolRenderer.renderResult(
++				{
++					content: [{ type: "text", text: "" }],
++					details: {
++						op: "inbox",
++						from: "Main",
++						inbox: [
++							msg({ from: "AuthLoader", body: "bus landed." }),
++							msg({ from: "RateLimiter", body: "receipts carry outcome.", replyTo: "7181122334455667791" }),
++						],
++					} satisfies IrcDetails,
++				},
++				{ expanded: false, isPartial: false },
++				uiTheme,
++				{ op: "inbox", peek: true },
++			),
++		);
++		expect(rendered[0]).toContain("2 messages");
++		expect(rendered[0]).toContain("peek");
++		expect(rendered.some(line => line.includes("bus landed."))).toBe(true);
++		expect(rendered.some(line => line.includes("RateLimiter"))).toBe(true);
++		expect(rendered.some(line => line.includes("receipts carry outcome."))).toBe(true);
++	});
++});
++
++describe("ircToolRenderer list", () => {
++	it("summarizes status counts and flags unread peers", async () => {
++		const uiTheme = await theme();
++		const rendered = lines(
++			ircToolRenderer.renderResult(
++				{
++					content: [{ type: "text", text: "" }],
++					details: {
++						op: "list",
++						from: "Main",
++						peers: [
++							{
++								id: "RateLimiter",
++								displayName: "task",
++								kind: "sub",
++								status: "parked",
++								parentId: "Main",
++								unread: 2,
++								lastActivity: Date.now() - 12 * 60_000,
++							},
++							{
++								id: "AuthLoader",
++								displayName: "task",
++								kind: "sub",
++								status: "running",
++								parentId: "Main",
++								unread: 0,
++								lastActivity: Date.now() - 2 * 60_000,
++							},
++						],
++					} satisfies IrcDetails,
++				},
++				{ expanded: false, isPartial: false },
++				uiTheme,
++				{ op: "list" },
++			),
++		);
++		expect(rendered[0]).toContain("1 running");
++		expect(rendered[0]).toContain("1 parked");
++		expect(rendered[0]).toContain("2 unread");
++		// Running peers sort above parked ones regardless of input order.
++		const authIndex = rendered.findIndex(line => line.includes("AuthLoader"));
++		const rateIndex = rendered.findIndex(line => line.includes("RateLimiter"));
++		expect(authIndex).toBeGreaterThan(0);
++		expect(authIndex).toBeLessThan(rateIndex);
++		expect(rendered.some(line => line.includes("RateLimiter") && line.includes("2 unread"))).toBe(true);
++	});
++});
++
++describe("ircToolRenderer body truncation", () => {
++	it("collapses long bodies with an elision counter and expands on demand", async () => {
++		const uiTheme = await theme();
++		const body = Array.from({ length: 6 }, (_, i) => `reply line ${i + 1}`).join("\n");
++		const details: IrcDetails = { op: "wait", from: "Main", waited: msg({ body }) };
++		const result = { content: [{ type: "text", text: "" }], details };
++
++		const collapsed = lines(
++			ircToolRenderer.renderResult(result, { expanded: false, isPartial: false }, uiTheme, { op: "wait" }),
++		);
++		expect(collapsed.some(line => line.includes("reply line 2"))).toBe(true);
++		expect(collapsed.some(line => line.includes("reply line 3"))).toBe(false);
++		expect(collapsed.some(line => line.includes("+4 more lines"))).toBe(true);
++
++		const expanded = lines(
++			ircToolRenderer.renderResult(result, { expanded: true, isPartial: false }, uiTheme, { op: "wait" }),
++		);
++		expect(expanded.some(line => line.includes("reply line 6"))).toBe(true);
++		expect(expanded.some(line => line.includes("more lines"))).toBe(false);
++	});
++});
+diff --git a/packages/coding-agent/test/tools/irc.test.ts b/packages/coding-agent/test/tools/irc.test.ts
+index a14c8016e..2b88dcfa4 100644
+--- a/packages/coding-agent/test/tools/irc.test.ts
++++ b/packages/coding-agent/test/tools/irc.test.ts
+@@ -1,83 +1,56 @@
+ import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
+ import { Agent } from "@aery/aery-agent-core";
+ import { Settings } from "@aery/aery-coding-agent/config/settings";
++import { IrcBus, type IrcMessage } from "@aery/aery-coding-agent/irc/bus";
++import { AgentLifecycleManager } from "@aery/aery-coding-agent/registry/agent-lifecycle";
+ import { AgentRegistry } from "@aery/aery-coding-agent/registry/agent-registry";
+-import { AgentSession } from "@aery/aery-coding-agent/session/agent-session";
+-import { type FileEntry, SessionManager } from "@aery/aery-coding-agent/session/session-manager";
++import { AgentSession, type AgentSessionEvent } from "@aery/aery-coding-agent/session/agent-session";
++import type { CustomMessage } from "@aery/aery-coding-agent/session/messages";
++import { SessionManager } from "@aery/aery-coding-agent/session/session-manager";
+ import type { ToolSession } from "@aery/aery-coding-agent/tools";
+ import { IrcTool } from "@aery/aery-coding-agent/tools/irc";
+ 
+ interface FakeSession {
+ 	session: AgentSession;
+-	calls: Array<{ from: string; message: string; awaitReply: boolean }>;
+-	/** Override the reply this fake session generates. */
+-	setReply: (text: string) => void;
+-	/** Cause the next respondAsBackground call to throw. */
++	/** Messages delivered into this session via deliverIrcMessage. */
++	delivered: IrcMessage[];
++	/** Outcome the fake reports (busy vs idle recipient). */
++	setOutcome: (outcome: "injected" | "woken") => void;
++	/** Cause the next deliverIrcMessage call to throw. */
+ 	setError: (error: Error) => void;
+-	/** Resolve the next respondAsBackground call only when allowed. */
+-	gateNextCall: () => { release: () => void };
+-	/** Keep the next respondAsBackground call pending until aborted. */
+-	hangNextCall: () => void;
++	/** Side effect run on delivery (e.g. reply via the bus). */
++	onDeliver: (fn: (msg: IrcMessage) => void) => void;
+ }
++
+ function makeFakeSession(): FakeSession {
+-	let nextReply = "auto-reply";
++	let outcome: "injected" | "woken" = "injected";
+ 	let nextError: Error | null = null;
+-	let gate: { promise: Promise<void>; release: () => void } | null = null;
+-	let hangNext = false;
+-	const calls: Array<{ from: string; message: string; awaitReply: boolean }> = [];
++	let deliverHook: ((msg: IrcMessage) => void) | undefined;
++	const delivered: IrcMessage[] = [];
+ 	const session = {
+-		respondAsBackground: async (args: {
+-			from: string;
+-			message: string;
+-			awaitReply?: boolean;
+-			signal?: AbortSignal;
+-		}) => {
+-			const awaitReply = args.awaitReply !== false;
+-			calls.push({ from: args.from, message: args.message, awaitReply });
+-			if (gate) {
+-				const g = gate;
+-				gate = null;
+-				await g.promise;
+-			}
+-			if (hangNext) {
+-				hangNext = false;
+-				const deferred = Promise.withResolvers<never>();
+-				if (args.signal?.aborted) {
+-					deferred.reject(args.signal.reason instanceof Error ? args.signal.reason : new Error("aborted"));
+-				} else {
+-					args.signal?.addEventListener(
+-						"abort",
+-						() =>
+-							deferred.reject(args.signal?.reason instanceof Error ? args.signal.reason : new Error("aborted")),
+-						{ once: true },
+-					);
+-				}
+-				return await deferred.promise;
+-			}
++		deliverIrcMessage: async (msg: IrcMessage) => {
+ 			if (nextError) {
+ 				const err = nextError;
+ 				nextError = null;
+ 				throw err;
+ 			}
+-			return { replyText: awaitReply ? nextReply : null };
++			delivered.push(msg);
++			deliverHook?.(msg);
++			return outcome;
+ 		},
++		emitIrcRelayObservation: () => {},
+ 	};
+ 	return {
+ 		session: session as unknown as AgentSession,
+-		calls,
+-		setReply: text => {
+-			nextReply = text;
++		delivered,
++		setOutcome: value => {
++			outcome = value;
+ 		},
+ 		setError: error => {
+ 			nextError = error;
+ 		},
+-		gateNextCall: () => {
+-			const { promise, resolve } = Promise.withResolvers<void>();
+-			gate = { promise, release: resolve };
+-			return { release: resolve };
+-		},
+-		hangNextCall: () => {
+-			hangNext = true;
++		onDeliver: fn => {
++			deliverHook = fn;
+ 		},
+ 	};
+ }
+@@ -93,7 +66,8 @@ function makeToolSession(registry: AgentRegistry, agentId: string): ToolSession
+ 		getAgentId: () => agentId,
+ 	};
+ }
+-function createRealBackgroundSession(): { session: AgentSession; sessionManager: SessionManager } {
++
++function createRealSession(): { session: AgentSession; sessionManager: SessionManager } {
+ 	const sessionManager = SessionManager.inMemory("/tmp");
+ 	const session = new AgentSession({
+ 		agent: new Agent({
+@@ -110,13 +84,17 @@ function createRealBackgroundSession(): { session: AgentSession; sessionManager:
+ 	return { session, sessionManager };
+ }
+ 
+-describe("IrcTool", () => {
++describe("IRC", () => {
+ 	let registry: AgentRegistry;
++	let bus: IrcBus;
+ 
+ 	const sessions: AgentSession[] = [];
+ 	beforeEach(() => {
+ 		AgentRegistry.resetGlobalForTests();
++		AgentLifecycleManager.resetGlobalForTests();
++		IrcBus.resetGlobalForTests();
+ 		registry = AgentRegistry.global();
++		bus = IrcBus.global();
+ 	});
+ 	afterEach(async () => {
+ 		vi.restoreAllMocks();
+@@ -125,217 +103,423 @@ describe("IrcTool", () => {
+ 		}
+ 	});
+ 
+-	it("createIf returns null when irc is disabled", () => {
+-		const session: ToolSession = {
+-			cwd: "/tmp",
+-			hasUI: false,
+-			getSessionFile: () => null,
+-			getSessionSpawns: () => "*",
+-			settings: Settings.isolated(),
+-			agentRegistry: registry,
+-			getAgentId: () => "0-Main",
+-		};
+-		session.settings.set("irc.enabled", false);
+-		expect(IrcTool.createIf(session)).toBeNull();
+-	});
++	describe("IrcBus", () => {
++		it("send delivers to a live recipient and reports the session outcome", async () => {
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++
++			sub.setOutcome("injected");
++			const injected = await bus.send({ from: "0-Main", to: "0-Sub", body: "ping" });
++			expect(injected).toEqual({ to: "0-Sub", outcome: "injected" });
++
++			sub.setOutcome("woken");
++			const woken = await bus.send({ from: "0-Main", to: "0-Sub", body: "ping again" });
++			expect(woken.outcome).toBe("woken");
++
++			expect(sub.delivered.map(msg => msg.body)).toEqual(["ping", "ping again"]);
++			expect(sub.delivered[0]?.from).toBe("0-Main");
++			expect(sub.delivered[0]?.id).toBeTruthy();
++		});
++
++		it("send to an unknown or aborted agent fails", async () => {
++			const unknown = await bus.send({ from: "0-Main", to: "0-Ghost", body: "hello?" });
++			expect(unknown.outcome).toBe("failed");
++
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Dead", displayName: "task", kind: "sub", session: sub.session });
++			registry.setStatus("0-Dead", "aborted");
++			const aborted = await bus.send({ from: "0-Main", to: "0-Dead", body: "hello?" });
++			expect(aborted.outcome).toBe("failed");
++		});
++
++		it("send surfaces recipient delivery errors as failed", async () => {
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++			sub.setError(new Error("boom"));
++			const receipt = await bus.send({ from: "0-Main", to: "0-Sub", body: "ping" });
++			expect(receipt).toEqual({ to: "0-Sub", outcome: "failed", error: "boom" });
++		});
++
++		it("send revives a parked recipient through the lifecycle manager", async () => {
++			const sub = makeFakeSession();
++			sub.setOutcome("woken");
++			registry.register({ id: "0-Parked", displayName: "task", kind: "sub", session: null, status: "parked" });
++			AgentLifecycleManager.global().adopt("0-Parked", {
++				idleTtlMs: 0,
++				revive: async () => sub.session,
++			});
++
++			const receipt = await bus.send({ from: "0-Main", to: "0-Parked", body: "wake up" });
++			expect(receipt.outcome).toBe("revived");
++			expect(sub.delivered.map(msg => msg.body)).toEqual(["wake up"]);
++			expect(registry.get("0-Parked")?.status).toBe("idle");
++		});
++
++		it("send fails cleanly when a parked recipient has no reviver", async () => {
++			registry.register({ id: "0-Parked", displayName: "task", kind: "sub", session: null, status: "parked" });
++			AgentLifecycleManager.global().adopt("0-Parked", { idleTtlMs: 0 });
++			const receipt = await bus.send({ from: "0-Main", to: "0-Parked", body: "wake up" });
++			expect(receipt.outcome).toBe("failed");
++			expect(receipt.error).toBeTruthy();
++		});
++
++		it("wait consumes a matching send instead of delivering it to the session", async () => {
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++
++			const waiting = bus.wait("0-Main", { from: "0-Sub" }, 1000);
++			const receipt = await bus.send({ from: "0-Sub", to: "0-Main", body: "pong" });
++			expect(receipt.outcome).toBe("injected");
++
++			const msg = await waiting;
++			expect(msg?.body).toBe("pong");
++			// The waiter consumed the message: no session delivery, no inbox copy.
++			expect(main.delivered).toEqual([]);
++			expect(bus.unreadCount("0-Main")).toBe(0);
++		});
++
++		it("wait from-filter ignores messages from other senders", async () => {
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			const a = makeFakeSession();
++			registry.register({ id: "0-A", displayName: "task", kind: "sub", session: a.session });
++			const b = makeFakeSession();
++			registry.register({ id: "0-B", displayName: "task", kind: "sub", session: b.session });
++
++			const waiting = bus.wait("0-Main", { from: "0-B" }, 1000);
++			await bus.send({ from: "0-A", to: "0-Main", body: "not for the waiter" });
++			// The non-matching message fell through to normal delivery.
++			expect(main.delivered.map(msg => msg.body)).toEqual(["not for the waiter"]);
++
++			await bus.send({ from: "0-B", to: "0-Main", body: "for the waiter" });
++			const msg = await waiting;
++			expect(msg?.from).toBe("0-B");
++			expect(msg?.body).toBe("for the waiter");
++		});
++
++		it("wait returns null on timeout and rejects on abort", async () => {
++			// Genuine 5ms wall-clock timeout: this deliberately exercises the
++			// bus's real timer path; nothing else races it.
++			expect(await bus.wait("0-Main", {}, 5)).toBeNull();
++
++			const controller = new AbortController();
++			const waiting = bus.wait("0-Main", {}, 1000, controller.signal);
++			controller.abort(new Error("cancelled"));
++			await expect(waiting).rejects.toThrow("cancelled");
++		});
++
++		it("wait drains an already-pending mailbox message first", async () => {
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++
++			await bus.send({ from: "0-Sub", to: "0-Main", body: "earlier" });
++			expect(bus.unreadCount("0-Main")).toBe(1);
++
++			// Resolves from the mailbox synchronously; the timeout never fires.
++			const msg = await bus.wait("0-Main", { from: "0-Sub" }, 5);
++			expect(msg?.body).toBe("earlier");
++			expect(bus.unreadCount("0-Main")).toBe(0);
++		});
++
++		it("inbox peeks or drains pending messages", async () => {
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++
++			await bus.send({ from: "0-Sub", to: "0-Main", body: "one" });
++			await bus.send({ from: "0-Sub", to: "0-Main", body: "two" });
++
++			const peeked = bus.inbox("0-Main", { peek: true });
++			expect(peeked.map(msg => msg.body)).toEqual(["one", "two"]);
++			expect(bus.unreadCount("0-Main")).toBe(2);
++
++			const drained = bus.inbox("0-Main");
++			expect(drained.map(msg => msg.body)).toEqual(["one", "two"]);
++			expect(bus.unreadCount("0-Main")).toBe(0);
++			expect(bus.inbox("0-Main")).toEqual([]);
++		});
++
++		it("wait does not leak the waiter after timeout or abort", async () => {
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++
++			// Timed-out waiter is removed: a later send goes to normal delivery.
++			expect(await bus.wait("0-Main", {}, 5)).toBeNull();
++			const afterTimeout = await bus.send({ from: "0-Sub", to: "0-Main", body: "after timeout" });
++			expect(afterTimeout.outcome).toBe("injected");
++			expect(main.delivered.map(msg => msg.body)).toEqual(["after timeout"]);
++			expect(bus.unreadCount("0-Main")).toBe(1);
++			bus.inbox("0-Main");
++
++			// Aborted waiter is removed too: the dead waiter never consumes mail.
++			const controller = new AbortController();
++			const waiting = bus.wait("0-Main", {}, 1000, controller.signal);
++			controller.abort(new Error("cancelled"));
++			await expect(waiting).rejects.toThrow("cancelled");
++			await bus.send({ from: "0-Sub", to: "0-Main", body: "after abort" });
++			expect(main.delivered.map(msg => msg.body)).toEqual(["after timeout", "after abort"]);
++			expect(bus.unreadCount("0-Main")).toBe(1);
++		});
++
++		it("resolves waiters in FIFO order", async () => {
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++
++			const first = bus.wait("0-Main", {}, 1000);
++			const second = bus.wait("0-Main", {}, 1000);
++			await bus.send({ from: "0-Sub", to: "0-Main", body: "one" });
++			await bus.send({ from: "0-Sub", to: "0-Main", body: "two" });
++
++			expect((await first)?.body).toBe("one");
++			expect((await second)?.body).toBe("two");
++			// Both messages were consumed by waiters, none reached the session.
++			expect(main.delivered).toEqual([]);
++			expect(bus.unreadCount("0-Main")).toBe(0);
++		});
++
++		it("mailbox drops the oldest message beyond the 100-message cap", async () => {
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++
++			for (let i = 0; i <= 100; i++) {
++				await bus.send({ from: "0-Sub", to: "0-Main", body: `msg-${i}` });
++			}
++
++			expect(bus.unreadCount("0-Main")).toBe(100);
++			const pending = bus.inbox("0-Main", { peek: true });
++			expect(pending[0]?.body).toBe("msg-1");
++			expect(pending[pending.length - 1]?.body).toBe("msg-100");
++		});
++
++		it("send surfaces the reviver's error message when revival fails", async () => {
++			registry.register({ id: "0-Parked", displayName: "task", kind: "sub", session: null, status: "parked" });
++			AgentLifecycleManager.global().adopt("0-Parked", {
++				idleTtlMs: 0,
++				revive: async () => {
++					throw new Error("revive exploded");
++				},
++			});
+ 
+-	it("createIf returns null without registry/agentId", () => {
+-		const session: ToolSession = {
+-			cwd: "/tmp",
+-			hasUI: false,
+-			getSessionFile: () => null,
+-			getSessionSpawns: () => "*",
+-			settings: Settings.isolated(),
+-		};
+-		expect(IrcTool.createIf(session)).toBeNull();
++			const receipt = await bus.send({ from: "0-Main", to: "0-Parked", body: "wake up" });
++			expect(receipt).toEqual({ to: "0-Parked", outcome: "failed", error: "revive exploded" });
++			// Failed revival never enqueues: the message is lost, not buffered.
++			expect(bus.unreadCount("0-Parked")).toBe(0);
++		});
+ 	});
+ 
+-	it("op=list returns peers visible to the caller", async () => {
+-		const main = makeFakeSession();
+-		const sub = makeFakeSession();
+-		registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
+-		registry.register({
+-			id: "0-AuthLoader",
+-			displayName: "task",
+-			kind: "sub",
+-			parentId: "0-Main",
+-			session: sub.session,
++	describe("IrcTool", () => {
++		it("createIf returns null when irc is disabled", () => {
++			const session: ToolSession = {
++				cwd: "/tmp",
++				hasUI: false,
++				getSessionFile: () => null,
++				getSessionSpawns: () => "*",
++				settings: Settings.isolated(),
++				agentRegistry: registry,
++				getAgentId: () => "0-Main",
++			};
++			session.settings.set("irc.enabled", false);
++			expect(IrcTool.createIf(session)).toBeNull();
++		});
++
++		it("createIf returns null without registry/agentId", () => {
++			const session: ToolSession = {
++				cwd: "/tmp",
++				hasUI: false,
++				getSessionFile: () => null,
++				getSessionSpawns: () => "*",
++				settings: Settings.isolated(),
++			};
++			expect(IrcTool.createIf(session)).toBeNull();
+ 		});
+ 
+-		const tool = new IrcTool(makeToolSession(registry, "0-Main"));
+-		const result = await tool.execute("call-1", { op: "list" });
+-		expect(result.details?.op).toBe("list");
+-		expect(result.details?.peers).toEqual([
+-			{
++		it("op=list includes parked peers, unread counts, and parent ids", async () => {
++			const sub = makeFakeSession();
++			registry.register({
+ 				id: "0-AuthLoader",
+ 				displayName: "task",
+ 				kind: "sub",
+-				status: "running",
+ 				parentId: "0-Main",
+-			},
+-		]);
+-		expect(result.details?.channels).toEqual(["all", "0-AuthLoader"]);
+-	});
++				session: sub.session,
++			});
++			registry.register({ id: "0-Parked", displayName: "task", kind: "sub", session: null, status: "parked" });
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			await bus.send({ from: "0-Main", to: "0-AuthLoader", body: "unread one" });
+ 
+-	it("op=send DM returns the recipient's prose reply", async () => {
+-		const main = makeFakeSession();
+-		const sub = makeFakeSession();
+-		sub.setReply("pong");
+-		registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
+-		registry.register({
+-			id: "0-AuthLoader",
+-			displayName: "task",
+-			kind: "sub",
+-			parentId: "0-Main",
+-			session: sub.session,
++			const tool = new IrcTool(makeToolSession(registry, "0-Main"));
++			const result = await tool.execute("call-1", { op: "list" });
++			expect(result.details?.op).toBe("list");
++			expect(result.details?.peers).toMatchObject([
++				{ id: "0-AuthLoader", status: "running", parentId: "0-Main", unread: 1 },
++				{ id: "0-Parked", status: "parked", unread: 0 },
++			]);
++			const text = result.content[0]?.type === "text" ? result.content[0].text : "";
++			expect(text).toContain("Parked agents are revived automatically");
+ 		});
+ 
+-		const tool = new IrcTool(makeToolSession(registry, "0-Main"));
+-		const result = await tool.execute("call-2", {
+-			op: "send",
+-			to: "0-AuthLoader",
+-			message: "ping",
++		it("op=send returns receipts immediately without waiting for a reply", async () => {
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++
++			const tool = new IrcTool(makeToolSession(registry, "0-Main"));
++			const result = await tool.execute("call-1", { op: "send", to: "0-Sub", message: "ping" });
++			expect(result.isError).toBeFalsy();
++			expect(result.details?.receipts).toEqual([{ to: "0-Sub", outcome: "injected" }]);
++			expect(result.details?.waited).toBeUndefined();
++			expect(sub.delivered.map(msg => msg.body)).toEqual(["ping"]);
+ 		});
+-		expect(result.details?.delivered).toEqual(["0-AuthLoader"]);
+-		expect(result.details?.replies).toEqual([{ from: "0-AuthLoader", text: "pong" }]);
+-		expect(sub.calls).toEqual([{ from: "0-Main", message: "ping", awaitReply: true }]);
+-	});
+ 
+-	it("op=send returns immediately even when the recipient is mid-tool-call", async () => {
+-		// Simulate "blocked recipient": gateNextCall holds respondAsBackground
+-		// pending until we release it. From the sender's perspective the call
+-		// must still complete because the side-channel does not block on the
+-		// recipient's main loop in a real session.
+-		const main = makeFakeSession();
+-		const sub = makeFakeSession();
+-		sub.setReply("ok");
+-		registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
+-		registry.register({ id: "0-Busy", displayName: "task", kind: "sub", parentId: "0-Main", session: sub.session });
+-
+-		const gate = sub.gateNextCall();
+-		const tool = new IrcTool(makeToolSession(registry, "0-Main"));
+-		const pending = tool.execute("call-3", { op: "send", to: "0-Busy", message: "are you there?" });
+-		// Release the gate after a microtask: the dispatch was already issued
+-		// even though the recipient was holding.
+-		setTimeout(() => gate.release(), 5);
+-		const result = await pending;
+-		expect(result.details?.delivered).toEqual(["0-Busy"]);
+-		expect(result.details?.replies).toEqual([{ from: "0-Busy", text: "ok" }]);
+-	});
++		it("op=send to=all fans out to live peers and reports per-recipient receipts", async () => {
++			const a = makeFakeSession();
++			registry.register({ id: "0-A", displayName: "task", kind: "sub", session: a.session });
++			const b = makeFakeSession();
++			b.setError(new Error("kaput"));
++			registry.register({ id: "0-B", displayName: "task", kind: "sub", session: b.session });
++			registry.register({ id: "0-Parked", displayName: "task", kind: "sub", session: null, status: "parked" });
+ 
+-	it("op=send to=all broadcasts (default no reply, only injection on each peer)", async () => {
+-		const main = makeFakeSession();
+-		const subA = makeFakeSession();
+-		const subB = makeFakeSession();
+-		registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
+-		registry.register({ id: "0-A", displayName: "task", kind: "sub", parentId: "0-Main", session: subA.session });
+-		registry.register({ id: "0-B", displayName: "task", kind: "sub", parentId: "0-Main", session: subB.session });
+-
+-		const tool = new IrcTool(makeToolSession(registry, "0-Main"));
+-		const result = await tool.execute("call-4", { op: "send", to: "all", message: "anyone there?" });
+-		expect(new Set(result.details?.delivered)).toEqual(new Set(["0-A", "0-B"]));
+-		expect(result.details?.replies ?? []).toEqual([]);
+-		expect(subA.calls).toEqual([{ from: "0-Main", message: "anyone there?", awaitReply: false }]);
+-		expect(subB.calls).toEqual([{ from: "0-Main", message: "anyone there?", awaitReply: false }]);
+-	});
++			const tool = new IrcTool(makeToolSession(registry, "0-Main"));
++			const result = await tool.execute("call-1", { op: "send", to: "all", message: "anyone there?" });
++			// Broadcast skips parked agents; one failure does not block the other delivery.
++			expect(result.details?.receipts).toEqual([
++				{ to: "0-A", outcome: "injected" },
++				{ to: "0-B", outcome: "failed", error: "kaput" },
++			]);
++			expect(a.delivered.map(msg => msg.body)).toEqual(["anyone there?"]);
++		});
+ 
+-	it("op=send returns notFound when target is unknown", async () => {
+-		const main = makeFakeSession();
+-		registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++		it("op=send await=true round-trips the recipient's reply", async () => {
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++			sub.onDeliver(msg => {
++				// Reply synchronously during delivery: it lands in the sender's
++				// mailbox, which the tool's await-wait drains deterministically.
++				void bus.send({ from: "0-Sub", to: msg.from, body: "pong", replyTo: msg.id });
++			});
+ 
+-		const tool = new IrcTool(makeToolSession(registry, "0-Main"));
+-		const result = await tool.execute("call-5", { op: "send", to: "0-Ghost", message: "hi" });
+-		expect(result.details?.delivered ?? []).toEqual([]);
+-		expect(result.details?.notFound).toEqual(["0-Ghost"]);
+-	});
++			const tool = new IrcTool(makeToolSession(registry, "0-Main"));
++			const result = await tool.execute("call-1", { op: "send", to: "0-Sub", message: "ping", await: true });
++			expect(result.details?.waited?.body).toBe("pong");
++			const text = result.content[0]?.type === "text" ? result.content[0].text : "";
++			expect(text).toContain("pong");
++		});
+ 
+-	it("op=send fails a hung recipient after the configured timeout", async () => {
+-		const main = makeFakeSession();
+-		const sub = makeFakeSession();
+-		sub.hangNextCall();
+-		registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
+-		registry.register({ id: "0-Hung", displayName: "task", kind: "sub", parentId: "0-Main", session: sub.session });
+-
+-		const toolSession = makeToolSession(registry, "0-Main");
+-		toolSession.settings.set("irc.timeoutMs", 5);
+-		const tool = new IrcTool(toolSession);
+-		const result = await tool.execute("call-timeout", { op: "send", to: "0-Hung", message: "ping" });
+-
+-		expect(result.details?.delivered ?? []).toEqual([]);
+-		expect(result.details?.failed).toEqual([{ id: "0-Hung", error: "IRC timed out waiting for 0-Hung after 5 ms" }]);
+-		expect(sub.calls).toEqual([{ from: "0-Main", message: "ping", awaitReply: true }]);
+-	});
+-	it("op=send preserves the recipient's incoming DM when the auto-reply times out", async () => {
+-		const main = makeFakeSession();
+-		const { session: recipient, sessionManager } = createRealBackgroundSession();
+-		sessions.push(recipient);
+-		vi.spyOn(recipient, "runEphemeralTurn").mockImplementation(async ({ signal }) => {
+-			if (!signal) {
+-				throw new Error("Missing abort signal");
+-			}
+-			const deferred = Promise.withResolvers<never>();
+-			const rejectOnAbort = () => {
+-				deferred.reject(signal.reason instanceof Error ? signal.reason : new Error("IRC aborted"));
+-			};
+-			if (signal.aborted) {
+-				rejectOnAbort();
+-			} else {
+-				signal.addEventListener("abort", rejectOnAbort, { once: true });
+-			}
+-			return await deferred.promise;
++		it("op=send await=true reports a clean timeout when no reply arrives", async () => {
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++
++			const tool = new IrcTool(makeToolSession(registry, "0-Main"));
++			const result = await tool.execute("call-1", {
++				op: "send",
++				to: "0-Sub",
++				message: "ping",
++				// Real 5ms timeout — exercises the timeout path; no reply ever arrives.
++				await: true,
++				timeoutMs: 5,
++			});
++			expect(result.isError).toBeFalsy();
++			expect(result.details?.waited).toBeNull();
++			const text = result.content[0]?.type === "text" ? result.content[0].text : "";
++			expect(text).toContain("No reply from 0-Sub");
+ 		});
+-		registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
+-		registry.register({
+-			id: "0-Hung",
+-			displayName: "task",
+-			kind: "sub",
+-			parentId: "0-Main",
+-			session: recipient,
++
++		it("op=send rejects await with to=all and self-sends", async () => {
++			const tool = new IrcTool(makeToolSession(registry, "0-Main"));
++			const broadcast = await tool.execute("call-1", { op: "send", to: "all", message: "x", await: true });
++			expect(broadcast.isError).toBe(true);
++			const self = await tool.execute("call-2", { op: "send", to: "0-Main", message: "x" });
++			expect(self.isError).toBe(true);
++		});
++
++		it("op=send returns a failed receipt for unknown targets", async () => {
++			const tool = new IrcTool(makeToolSession(registry, "0-Main"));
++			const result = await tool.execute("call-1", { op: "send", to: "0-Ghost", message: "ping" });
++			expect(result.isError).toBe(true);
++			expect(result.details?.receipts?.[0]?.outcome).toBe("failed");
+ 		});
+ 
+-		const toolSession = makeToolSession(registry, "0-Main");
+-		toolSession.settings.set("irc.timeoutMs", 5);
+-		const tool = new IrcTool(toolSession);
+-		const result = await tool.execute("call-timeout-persist", { op: "send", to: "0-Hung", message: "ping" });
+-
+-		expect(result.details?.delivered ?? []).toEqual([]);
+-		expect(result.details?.failed).toEqual([{ id: "0-Hung", error: "IRC timed out waiting for 0-Hung after 5 ms" }]);
+-		expect(recipient.messages).toEqual(
+-			expect.arrayContaining([
+-				expect.objectContaining({
+-					role: "custom",
+-					customType: "irc:incoming",
+-					content: "[IRC `0-Main` → you]\n\nping",
+-				}),
+-			]),
+-		);
+-		expect(recipient.messages).not.toEqual(
+-			expect.arrayContaining([expect.objectContaining({ role: "custom", customType: "irc:autoreply" })]),
+-		);
+-		const persistedEntries = sessionManager
+-			.captureState()
+-			.fileEntries.filter(
+-				(entry): entry is Extract<FileEntry, { type: "custom_message" }> =>
+-					entry.type === "custom_message" && typeof entry.content === "string",
+-			);
+-		expect(persistedEntries).toEqual([
+-			expect.objectContaining({
+-				customType: "irc:incoming",
+-				content: "[IRC `0-Main` → you]\n\nping",
+-			}),
+-		]);
++		it("op=wait returns a clean non-error timeout result", async () => {
++			const tool = new IrcTool(makeToolSession(registry, "0-Main"));
++			const result = await tool.execute("call-1", { op: "wait", timeoutMs: 5 });
++			expect(result.isError).toBeFalsy();
++			expect(result.details?.waited).toBeNull();
++			const text = result.content[0]?.type === "text" ? result.content[0].text : "";
++			expect(text).toContain("No message");
++		});
++
++		it("op=inbox drains the caller's mailbox", async () => {
++			const main = makeFakeSession();
++			registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
++			const sub = makeFakeSession();
++			registry.register({ id: "0-Sub", displayName: "task", kind: "sub", session: sub.session });
++			await bus.send({ from: "0-Sub", to: "0-Main", body: "fyi" });
++
++			const tool = new IrcTool(makeToolSession(registry, "0-Main"));
++			const peeked = await tool.execute("call-1", { op: "inbox", peek: true });
++			expect(peeked.details?.inbox?.map(msg => msg.body)).toEqual(["fyi"]);
++			const drained = await tool.execute("call-2", { op: "inbox" });
++			expect(drained.details?.inbox?.map(msg => msg.body)).toEqual(["fyi"]);
++			const empty = await tool.execute("call-3", { op: "inbox" });
++			expect(empty.details?.inbox).toEqual([]);
++		});
+ 	});
+ 
+-	it("op=send surfaces recipient errors as failed", async () => {
+-		const main = makeFakeSession();
+-		const sub = makeFakeSession();
+-		sub.setError(new Error("model unavailable"));
+-		registry.register({ id: "0-Main", displayName: "main", kind: "main", session: main.session });
+-		registry.register({ id: "0-Down", displayName: "task", kind: "sub", parentId: "0-Main", session: sub.session });
+-
+-		const tool = new IrcTool(makeToolSession(registry, "0-Main"));
+-		const result = await tool.execute("call-6", { op: "send", to: "0-Down", message: "ping" });
+-		expect(result.details?.delivered ?? []).toEqual([]);
+-		expect(result.details?.failed).toEqual([{ id: "0-Down", error: "model unavailable" }]);
++	describe("AgentSession.deliverIrcMessage", () => {
++		it("wakes an idle session with a real turn and emits the irc_message event", async () => {
++			const { session } = createRealSession();
++			sessions.push(session);
++			const promptSpy = vi.spyOn(session.agent, "prompt").mockResolvedValue(undefined);
++			const ircEvent = new Promise<AgentSessionEvent>(resolve => {
++				session.subscribe(event => {
++					if (event.type === "irc_message") resolve(event);
++				});
++			});
++
++			const outcome = await session.deliverIrcMessage({
++				id: "msg-1",
++				from: "0-Peer",
++				to: "0-Me",
++				body: "wake up",
++				ts: Date.now(),
++			});
++			expect(outcome).toBe("woken");
++			expect(promptSpy).toHaveBeenCalledTimes(1);
++			const prompted = promptSpy.mock.calls[0]?.[0] as unknown as CustomMessage;
++			expect(prompted).toMatchObject({ role: "custom", customType: "irc:incoming" });
++			expect(prompted.details).toMatchObject({ id: "msg-1", from: "0-Peer", message: "wake up" });
++
++			const event = await ircEvent;
++			expect(event.type).toBe("irc_message");
++		});
++
++		it("queues a non-interrupting aside when a turn is streaming", async () => {
++			const { session } = createRealSession();
++			sessions.push(session);
++			const promptSpy = vi.spyOn(session.agent, "prompt").mockResolvedValue(undefined);
++			Object.defineProperty(session, "isStreaming", { value: true, configurable: true });
++
++			const outcome = await session.deliverIrcMessage({
++				id: "msg-2",
++				from: "0-Peer",
++				to: "0-Me",
++				body: "mid-turn note",
++				ts: Date.now(),
++			});
++			expect(outcome).toBe("injected");
++			expect(promptSpy).not.toHaveBeenCalled();
++		});
+ 	});
+ });

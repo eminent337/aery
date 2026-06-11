@@ -1,0 +1,7 @@
+with open("packages/coding-agent/src/prompts/tools/read.md", "r") as f:
+    text = f.read()
+
+text = text.replace("<<<<<<<\n`skill://<name>`, `agent://<id>`, `artifact://<id>`, `memory://root`, `rule://<name>`, `local://<name>.md`, `vault://<vault>/<path>`, `mcp://<uri>` resolve transparently and accept the same line selectors as filesystem paths. Use `artifact://<id>` to recover full output that a previous bash/eval/tool result spilled or truncated.\n=======\n`skill://<name>`, `agent://<id>`, `artifact://<id>`, `history://<agentId>`, `memory://root`, `rule://<name>`, `local://<name>.md`, `vault://<vault>/<path>`, `mcp://<uri>`, `omp://<doc>.md`, `issue://<N>`, and `pr://<N>` resolve transparently and accept the same line selectors as filesystem paths. Use `artifact://<id>` to recover full output that a previous bash/eval/tool result spilled or truncated. `history://<agentId>` is an agent's transcript as concise markdown; bare `history://` lists agents.\n>>>>>>>", "`skill://<name>`, `agent://<id>`, `artifact://<id>`, `history://<agentId>`, `memory://root`, `rule://<name>`, `local://<name>.md`, `vault://<vault>/<path>`, `mcp://<uri>`, `aery://<doc>.md`, `issue://<N>`, and `pr://<N>` resolve transparently and accept the same line selectors as filesystem paths. Use `artifact://<id>` to recover full output that a previous bash/eval/tool result spilled or truncated. `history://<agentId>` is an agent's transcript as concise markdown; bare `history://` lists agents.")
+
+with open("packages/coding-agent/src/prompts/tools/read.md", "w") as f:
+    f.write(text)
