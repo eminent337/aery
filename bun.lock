@@ -18,7 +18,7 @@
     },
     "packages/aery-engine": {
       "name": "@aryee337/aery-engine",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "devDependencies": {
         "@napi-rs/cli": "catalog:",
         "@types/bun": "catalog:",
@@ -26,7 +26,7 @@
     },
     "packages/aery-extensions": {
       "name": "@aryee337/aery-extensions",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "dependencies": {
         "@aryee337/aery": "workspace:*",
         "@aryee337/aery-tui": "workspace:*",
@@ -45,14 +45,14 @@
     },
     "packages/aery-sdk": {
       "name": "@aryee337/aery-sdk",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "devDependencies": {
         "@types/bun": "catalog:",
       },
     },
     "packages/agent": {
       "name": "@aryee337/aery-core",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "dependencies": {
         "@aryee337/aery-ai": "workspace:*",
         "@aryee337/aery-engine": "workspace:*",
@@ -67,7 +67,7 @@
     },
     "packages/ai": {
       "name": "@aryee337/aery-ai",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "dependencies": {
         "@aryee337/aery-utils": "workspace:*",
         "@bufbuild/protobuf": "catalog:",
@@ -81,7 +81,7 @@
     },
     "packages/coding-agent": {
       "name": "@aryee337/aery",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "bin": {
         "aery": "src/cli.ts",
       },
@@ -129,7 +129,7 @@
     },
     "packages/hashline": {
       "name": "@aryee337/hashline",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "dependencies": {
         "diff": "catalog:",
         "lru-cache": "catalog:",
@@ -140,7 +140,7 @@
     },
     "packages/mnemopi": {
       "name": "@aryee337/aery-mnemopi",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "bin": {
         "mnemopi": "src/cli.ts",
       },
@@ -157,7 +157,7 @@
     },
     "packages/stats": {
       "name": "@aryee337/aery-stats",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "bin": {
         "aery-stats": "./src/index.ts",
       },
@@ -182,7 +182,7 @@
     },
     "packages/tui": {
       "name": "@aryee337/aery-tui",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "dependencies": {
         "@aryee337/aery-engine": "workspace:*",
         "@aryee337/aery-utils": "workspace:*",
@@ -223,7 +223,7 @@
     },
     "packages/utils": {
       "name": "@aryee337/aery-utils",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "dependencies": {
         "@aryee337/aery-engine": "workspace:*",
         "beautiful-mermaid": "catalog:",
@@ -237,7 +237,7 @@
     },
     "packages/vscode-extension": {
       "name": "aery-vscode",
-      "version": "0.2.10",
+      "version": "0.3.1",
       "devDependencies": {
         "@types/node": "20.x",
         "@types/vscode": "^1.90.0",
@@ -389,11 +389,11 @@
 
     "@dabh/diagnostics": ["@dabh/diagnostics@2.0.8", "", { "dependencies": { "@so-ric/colorspace": "^1.1.6", "enabled": "2.0.x", "kuler": "^2.0.0" } }, "sha512-R4MSXTVnuMzGD7bzHdW2ZhhdPC/igELENcq5IjEverBvq5hn1SXCWcsi6eSsdWP0/Ur+SItRRjAktmdoX/8R/Q=="],
 
-    "@emnapi/core": ["@emnapi/core@1.10.0", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.1", "tslib": "^2.4.0" } }, "sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw=="],
+    "@emnapi/core": ["@emnapi/core@1.11.0", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-l9Oo58x0HOP5znGzVhYW9U3e5wVuA4LAZU2AGezTmkhO1CgQRFDhDg4nneHsu/t3WniXg9QrG2nIXL/ZS8ln8Q=="],
 
-    "@emnapi/runtime": ["@emnapi/runtime@1.10.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA=="],
+    "@emnapi/runtime": ["@emnapi/runtime@1.11.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-55coeOFKHv1ywEcUXJtWU5f+Jr/W5tZDvZig8DLKSwUN1JpROQ4rk/SNOQiFWmaR/VKF4zuFyW1B8JduOSv6Pg=="],
 
-    "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w=="],
+    "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.21.5", "", { "os": "aix", "cpu": "ppc64" }, "sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ=="],
 
@@ -919,7 +919,7 @@
 
     "elkjs": ["elkjs@0.11.1", "", {}, "sha512-zxxR9k+rx5ktMwT/FwyLdPCrq7xN6e4VGGHH8hA01vVYKjTFik7nHOxBnAYtrgYUB1RpAiLvA1/U2YraWxyKKg=="],
 
-    "emnapi": ["emnapi@1.10.0", "", { "peerDependencies": { "node-addon-api": ">= 6.1.0" }, "optionalPeers": ["node-addon-api"] }, "sha512-swoyZjupDvLoe/KC3HZ4SY1JUN+tviT6eOZ3Px28TZAYdBHtRIiMWWrIUUH+2/9CYY4fNTID1YhYZ+kdFHszHg=="],
+    "emnapi": ["emnapi@1.11.0", "", { "peerDependencies": { "node-addon-api": ">= 6.1.0" }, "optionalPeers": ["node-addon-api"] }, "sha512-3+AyVLAzk2jr9FPnCT9fgU4/gGoHrB3MpYxqNG6JdmkWmFPpKAhArQgfK/WEiT9kExX2ecXVA6DoPceDShR47g=="],
 
     "emoji-regex": ["emoji-regex@8.0.0", "", {}, "sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A=="],
 
@@ -1430,6 +1430,8 @@
     "string_decoder/safe-buffer": ["safe-buffer@5.2.1", "", {}, "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ=="],
 
     "tar/minipass": ["minipass@5.0.0", "", {}, "sha512-3FnjYuehv9k6ovOEbyOswadCDPX1piCfhV8ncmYtHOjuPwylVWsghTLo7rabjC3Rx5xD4HDx8Wm1xnMF7S5qFQ=="],
+
+    "tunnel-agent/safe-buffer": ["safe-buffer@5.2.1", "", {}, "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ=="],
 
     "wrap-ansi/string-width": ["string-width@8.2.1", "", { "dependencies": { "get-east-asian-width": "^1.5.0", "strip-ansi": "^7.1.2" } }, "sha512-IIaP0g3iy9Cyy18w3M9YcaDudujEAVHKt3a3QJg1+sr/oX96TbaGUubG0hJyCjCBThFH+tFpcIyoUHUn1ogaLA=="],
 
