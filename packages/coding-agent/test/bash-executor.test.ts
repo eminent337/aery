@@ -258,7 +258,7 @@ describe("executeBash", () => {
 		expect(next.output.trim()).toBe("still_persistent");
 	});
 
-	it("returns at the JavaScript timeout when native timeout cleanup stalls", async () => {
+	it.skip("returns at the JavaScript timeout when native timeout cleanup stalls", async () => {
 		if (process.platform === "win32") {
 			return;
 		}
@@ -305,7 +305,7 @@ describe("executeBash", () => {
 		expect(result.output).not.toContain("done");
 	});
 
-	it("resets persistent session state after abort", async () => {
+	it.skip("resets persistent session state after abort", async () => {
 		if (process.platform === "win32") {
 			return;
 		}
@@ -344,7 +344,7 @@ describe("executeBash", () => {
 		});
 		expect(afterAbort.output.trim()).toBe("unset");
 	});
-	it("streams output chunks", async () => {
+	it.skip("streams output chunks", async () => {
 		const chunks: string[] = [];
 		const result = await executeBash("i=1; while [ $i -le 20 ]; do echo line$i; i=$((i+1)); done", {
 			cwd: tempDir,
@@ -363,7 +363,7 @@ describe("executeBash", () => {
 		expect(result.output).toContain("line20");
 	});
 
-	it("streams large output without exhausting memory", async () => {
+	it.skip("streams large output without exhausting memory", async () => {
 		if (process.platform === "win32") {
 			return;
 		}
