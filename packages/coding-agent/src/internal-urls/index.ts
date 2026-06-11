@@ -11,6 +11,7 @@
 export * from "./aery-protocol";
 export * from "./agent-protocol";
 export * from "./artifact-protocol";
+export * from "./history-protocol";
 export * from "./issue-pr-protocol";
 export * from "./json-query";
 export * from "./local-protocol";

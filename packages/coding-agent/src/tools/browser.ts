@@ -3,6 +3,7 @@ import { prompt, untilAborted } from "@aryee337/aery-utils";
 import * as z from "zod/v4";
 import browserDescription from "../prompts/tools/browser.md" with { type: "text" };
 import type { ToolSession } from "../sdk";
+import { enforceInlineByteCap } from "../session/streaming-output";
 import { truncateForPrompt } from "./approval";
 import { acquireBrowser, type BrowserHandle, type BrowserKind, type BrowserKindTag } from "./browser/registry";
 import type { Observation, ScreenshotResult } from "./browser/tab-protocol";
@@ -271,7 +272,17 @@ export class BrowserTool implements AgentTool<typeof browserSchema, BrowserToolD
 			.filter((c): c is { type: "text"; text: string } => c.type === "text")
 			.map(c => c.text)
 			.join("\n");
-		details.result = textOnly;
+		const cappedText = await enforceInlineByteCap(textOnly, {
+			label: "browser output",
+			saveArtifact: full => saveBrowserOutputArtifact(this.session, full),
+		});
+		details.result = cappedText;
+		if (cappedText !== textOnly) {
+			const nonText = content.filter(c => c.type !== "text");
+			return toolResult(details)
+				.content([...nonText, { type: "text", text: cappedText }])
+				.done();
+		}
 		return toolResult(details).content(content).done();
 	}
 }

@@ -71,6 +71,7 @@
   },
   "overrides": {},
   "scripts": {
+    "stats:audit": "bun scripts/session-stats/audit.ts",
     "install:dev": "bun install && bun --cwd=packages/coding-agent link && bun --cwd=packages/ai link",
     "dev": "bun --cwd=packages/coding-agent src/cli.ts",
     "stats": "bun --cwd=packages/coding-agent src/cli.ts stats",

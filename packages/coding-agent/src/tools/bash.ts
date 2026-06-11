@@ -19,7 +19,7 @@ import { shimmerEnabled } from "../modes/theme/shimmer";
 import { highlightCode, type Theme } from "../modes/theme/theme";
 import bashDescription from "../prompts/tools/bash.md" with { type: "text" };
 import type { ClientBridgeTerminalExitStatus, ClientBridgeTerminalOutput } from "../session/client-bridge";
-import { DEFAULT_MAX_BYTES, streamTailUpdates, TailBuffer } from "../session/streaming-output";
+import { DEFAULT_MAX_BYTES, enforceInlineByteCap, streamTailUpdates, TailBuffer } from "../session/streaming-output";
 import { renderStatusLine } from "../tui";
 import { CachedOutputBlock } from "../tui/output-block";
 import { getSixelLineMask } from "../utils/sixel";
@@ -392,7 +392,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		}
 	}
 
-	#buildCompletedResult(
+	async #buildCompletedResult(
 		result: BashResult | BashInteractiveResult,
 		timeoutSec: number,
 		options: {
@@ -401,7 +401,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 			terminalId?: string;
 			wallTimeMs?: number;
 		} = {},
-	): AgentToolResult<BashToolDetails> {
+	): Promise<AgentToolResult<BashToolDetails>> {
 		const exitCode = result.exitCode;
 		const failedExit = exitCode !== undefined && exitCode !== 0;
 
@@ -435,7 +435,14 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		if (failedExit) {
 			details.exitCode = exitCode;
 		}
-		const resultBuilder = toolResult(details).text(outputText).truncationFromSummary(result, { direction: "tail" });
+		const cappedOutputText = await enforceInlineByteCap(outputText, {
+			label: "bash output",
+			saveArtifact: full => saveBashOriginalArtifact(this.session, full),
+		});
+
+		const resultBuilder = toolResult(details)
+			.text(cappedOutputText)
+			.truncationFromSummary(result, { direction: "tail" });
 		if (failedExit) resultBuilder.error();
 		return resultBuilder.done();
 	}
@@ -446,7 +453,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		previewText: string,
 		timeoutSec: number,
 		options: { requestedTimeoutSec?: number; notices?: readonly string[] } = {},
-	): AgentToolResult<BashToolDetails> {
+	): Promise<AgentToolResult<BashToolDetails>> {
 		const details: BashToolDetails = {
 			timeoutSeconds: timeoutSec,
 			async: { state: "running", jobId, type: "bash" },
@@ -523,7 +530,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 						onMinimizedSave: originalText => saveBashOriginalArtifact(this.session, originalText),
 					});
 					const wallTimeMs = performance.now() - wallTimeStart;
-					const finalResult = this.#buildCompletedResult(result, options.timeoutSec, {
+					const finalResult = await this.#buildCompletedResult(result, options.timeoutSec, {
 						requestedTimeoutSec: options.requestedTimeoutSec,
 						notices: options.notices ?? [],
 						wallTimeMs,
@@ -876,7 +883,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 								outputLines: current.output.length > 0 ? current.output.split("\n").length : 0,
 								outputBytes: current.output.length,
 							};
-							return this.#buildCompletedResult(timedOutResult, timeoutSec, {
+							return await this.#buildCompletedResult(timedOutResult, timeoutSec, {
 								requestedTimeoutSec,
 								notices: pendingNotices,
 								terminalId: handle.terminalId,
@@ -937,7 +944,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 				if (finalOutput.truncated) bridgeNotices.push("(output truncated)");
 				for (const notice of pendingNotices) bridgeNotices.push(notice);
 
-				return this.#buildCompletedResult(bridgeResult, timeoutSec, {
+				return await this.#buildCompletedResult(bridgeResult, timeoutSec, {
 					requestedTimeoutSec,
 					notices: bridgeNotices,
 					terminalId: handle.terminalId,
@@ -991,7 +998,7 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		if (isInteractiveResult(result) && result.timedOut) {
 			throw new ToolError(normalizeResultOutput(result) || `Command timed out after ${timeoutSec} seconds`);
 		}
-		return this.#buildCompletedResult(result, timeoutSec, {
+		return await this.#buildCompletedResult(result, timeoutSec, {
 			requestedTimeoutSec,
 			notices: pendingNotices,
 			wallTimeMs,

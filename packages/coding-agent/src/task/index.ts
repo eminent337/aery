@@ -567,7 +567,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 	): Promise<AgentToolResult<TaskToolDetails>> {
 		const startTime = Date.now();
 		const { agents, projectAgentsDir } = await discoverAgents(this.session.cwd);
-		const { agent: agentName, context, schema: outputSchema } = params;
+		const { agent: agentName || "", context, schema: outputSchema } = params;
 		const simpleMode = this.#getTaskSimpleMode();
 		const { contextEnabled, customSchemaEnabled } = getTaskSimpleModeCapabilities(simpleMode);
 		const sharedContext = contextEnabled ? context?.trim() : undefined;
@@ -873,7 +873,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 				progressMap.set(i, {
 					index: i,
 					id: taskItem.id,
-					agent: agentName,
+					agent: agentName || "",
 					agentSource: agent.source,
 					status: "pending",
 					task: renderSubagentUserPrompt(assignment, simpleMode),
@@ -1043,7 +1043,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					return result;
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
-					const assignment = task.assignment.trim();
+					const assignment = task.assignment?.trim() || "";
 					return {
 						index,
 						id: task.id,
@@ -1082,11 +1082,11 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					return result;
 				}
 				const task = tasksWithUniqueIds[index];
-				const assignment = task.assignment.trim();
+				const assignment = task.assignment?.trim() || "";
 				return {
 					index,
 					id: task.id,
-					agent: agentName,
+					agent: agentName || "",
 					agentSource: agent.source,
 					task: renderSubagentUserPrompt(assignment, simpleMode),
 					assignment,

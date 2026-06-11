@@ -22,8 +22,31 @@ const STATUS_MAP: Record<string, ObservableSession["status"]> = {
 	aborted: "aborted",
 };
 
+const MAX_RETAINED_TRANSCRIPT_REFERENCES = 1000;
+
+function hasSameOwner(
+	payload: Pick<SubagentLifecyclePayload | SubagentProgressPayload, "sessionFile">,
+	snapshot: Pick<ObservableSession, "sessionFile">,
+): boolean {
+	if (payload.sessionFile !== undefined && snapshot.sessionFile !== undefined) {
+		return payload.sessionFile === snapshot.sessionFile;
+	}
+	return true;
+}
+
+function addPruned(set: Set<string>, value: string, maxSize: number): void {
+	set.delete(value);
+	set.add(value);
+	while (set.size > maxSize) {
+		const oldest = set.keys().next();
+		if (oldest.done) break;
+		set.delete(oldest.value);
+	}
+}
+
 export class SessionObserverRegistry {
 	#sessions = new Map<string, ObservableSession>();
+	#staleSubagentIds = new Set<string>();
 	#listeners = new Set<() => void>();
 	#eventBusUnsubscribers: Array<() => void> = [];
 
@@ -70,6 +93,11 @@ export class SessionObserverRegistry {
 
 	/** Clear all tracked sessions (e.g. on session switch). Keeps EventBus subscriptions and listeners. */
 	resetSessions(): void {
+		for (const subagentId of this.#sessions.keys()) {
+			if (subagentId !== "main") {
+				addPruned(this.#staleSubagentIds, subagentId, MAX_RETAINED_TRANSCRIPT_REFERENCES);
+			}
+		}
 		this.#sessions.clear();
 		this.#notifyListeners();
 	}
@@ -78,6 +106,7 @@ export class SessionObserverRegistry {
 		for (const unsub of this.#eventBusUnsubscribers) unsub();
 		this.#eventBusUnsubscribers = [];
 		this.#sessions.clear();
+		this.#staleSubagentIds.clear();
 		this.#listeners.clear();
 	}
 
@@ -93,6 +122,12 @@ export class SessionObserverRegistry {
 				if (!status) return;
 
 				const existing = this.#sessions.get(payload.id);
+				if (existing && !hasSameOwner(payload, existing)) return;
+				if (!existing && payload.status !== "started") return;
+				if (payload.status === "started") {
+					this.#staleSubagentIds.delete(payload.id);
+				}
+
 				if (existing) {
 					existing.status = status;
 					existing.lastUpdate = Date.now();
@@ -119,26 +154,16 @@ export class SessionObserverRegistry {
 				const payload = data as SubagentProgressPayload;
 				const progress = payload.progress;
 				const id = progress.id;
-				const existing = this.#sessions.get(id);
+				if (this.#staleSubagentIds.has(id)) return;
 
-				if (existing) {
-					existing.lastUpdate = Date.now();
-					existing.progress = progress;
-					if (progress.description) existing.description = progress.description;
-					if (payload.sessionFile) existing.sessionFile = payload.sessionFile;
-				} else {
-					this.#sessions.set(id, {
-						id,
-						kind: "subagent",
-						label: progress.description ?? `Subagent #${payload.index}`,
-						agent: payload.agent,
-						description: progress.description,
-						status: "active",
-						sessionFile: payload.sessionFile,
-						lastUpdate: Date.now(),
-						progress,
-					});
-				}
+				const existing = this.#sessions.get(id);
+				if (!existing) return;
+				if (!hasSameOwner(payload, existing)) return;
+
+				existing.lastUpdate = Date.now();
+				existing.progress = progress;
+				if (progress.description) existing.description = progress.description;
+				if (payload.sessionFile) existing.sessionFile = payload.sessionFile;
 				this.#notifyListeners();
 			}),
 		);

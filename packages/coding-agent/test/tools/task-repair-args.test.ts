@@ -59,9 +59,9 @@ describe("repairTaskParams", () => {
 
 		const repaired = repairTaskParams(params);
 		expect(repaired.context).toBe("# Goal\nDo the thing — carefully");
-		expect(repaired.tasks[0].id).toBe("FirstTask");
-		expect(repaired.tasks[0].description).toBe('judge "sketch" accuracy');
-		expect(repaired.tasks[0].assignment).toBe("Score 0-100.\nUse the full range.\nNo bunching.");
+		expect(repaired.tasks![0].id).toBe("FirstTask");
+		expect(repaired.tasks![0].description).toBe('judge "sketch" accuracy');
+		expect(repaired.tasks![0].assignment).toBe("Score 0-100.\nUse the full range.\nNo bunching.");
 	});
 
 	it("returns the same reference when nothing needs repair", () => {
