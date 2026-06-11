@@ -1,7 +1,7 @@
 {
   "type": "module",
   "name": "@aryee337/aery-ai",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Unified LLM API with automatic model discovery and provider configuration",
   "homepage": "https://aery.dev",
   "author": "aryee337",
