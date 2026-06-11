@@ -1176,27 +1176,37 @@ export async function enforceInlineByteCap(
 	},
 ): Promise<string> {
 	const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
-	const lenBytes = Buffer.byteLength(text, "utf-8");
+	const buf = Buffer.from(text, "utf-8");
+	const lenBytes = buf.length;
 	if (lenBytes <= maxBytes) return text;
 
 	const headBytes = Math.floor(maxBytes * 0.6);
 	const tailBytes = Math.floor(maxBytes * 0.25);
 
 	let headCut = headBytes;
-	while (headCut > 0 && text.charCodeAt(headCut) !== 10) headCut--;
+	while (headCut > 0 && buf[headCut] !== 10) headCut--;
 	if (headCut === 0) headCut = headBytes;
 
 	let tailCut = lenBytes - tailBytes;
-	while (tailCut < lenBytes && text.charCodeAt(tailCut) !== 10) tailCut++;
-	if (tailCut === lenBytes) tailCut = lenBytes - tailBytes;
+	while (tailCut < lenBytes && buf[tailCut] !== 10) tailCut++;
+	if (tailCut === lenBytes) {
+		tailCut = lenBytes - tailBytes;
+	} else if (buf[tailCut] === 10) {
+		tailCut++; // Skip the newline since the marker has a trailing newline
+	}
 
-	const elidedBytes = Buffer.byteLength(text.slice(headCut, tailCut), "utf-8");
+	// fallback if cuts cross
+	if (tailCut <= headCut) {
+		tailCut = lenBytes - tailBytes;
+	}
+
+	const elidedBytes = tailCut - headCut;
 	const marker = `\n[… elided ${elidedBytes} bytes of ${options.label} …]\n`;
 
 	const artifactId = await options.saveArtifact?.(text);
 	const footer = artifactId ? `\n[raw output: artifact://${artifactId}]` : "";
 
-	const head = Buffer.from(text, "utf-8").subarray(0, headCut).toString("utf-8");
-	const tail = Buffer.from(text, "utf-8").subarray(tailCut).toString("utf-8");
-	return `${head}${marker}${tail}${footer}`;
+	const headStr = buf.subarray(0, headCut).toString("utf-8");
+	const tailStr = buf.subarray(tailCut).toString("utf-8");
+	return `${headStr}${marker}${tailStr}${footer}`;
 }
