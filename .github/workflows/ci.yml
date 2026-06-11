@@ -40,6 +40,13 @@ jobs:
          - uses: actions/checkout@v4
            with:
               fetch-tags: ${{ github.ref == 'refs/heads/main' }}
+
+         # actions/checkout with fetch-depth=1 (default) sometimes fails to
+         # fetch tags even when fetch-tags is true. Force an explicit tag
+         # fetch so `git tag --points-at HEAD` works on release pushes.
+         - name: Ensure tags are fetched
+           if: ${{ github.ref == 'refs/heads/main' }}
+           run: git fetch --tags origin
          - name: Detect release tag at HEAD
            id: check
            shell: bash
