@@ -272,7 +272,6 @@ export class Agent {
 	#convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	#transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
 	transformProviderContext?: (context: any) => any;
-	#transformProviderContext?: (context: any) => any;
 	#steeringQueue: AgentMessage[] = [];
 	#followUpQueue: AgentMessage[] = [];
 	#steeringMode: "all" | "one-at-a-time";

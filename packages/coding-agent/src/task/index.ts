@@ -235,13 +235,9 @@ function resolveSpawnItems(params: TaskParams): TaskItem[] {
 }
 
 function spawnParamsFor(params: TaskParams, item: TaskItem): TaskParams {
-	const spawn: TaskParams = { agent: params.agent };
-	if (item.id !== undefined) spawn.id = item.id;
-	if (item.description !== undefined) spawn.description = item.description;
-	if (item.assignment !== undefined) spawn.assignment = item.assignment;
+	const spawn: TaskParams = { agent: params.agent, tasks: [item] };
 	if (params.context !== undefined) spawn.context = params.context;
 	if (params.isolated !== undefined) spawn.isolated = params.isolated;
-	if (item.isolated !== undefined) spawn.isolated = item.isolated;
 	return spawn;
 }
 

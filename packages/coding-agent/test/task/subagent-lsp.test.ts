@@ -18,6 +18,7 @@ import { EventBus } from "../../src/utils/event-bus";
 
 const TEST_TASK: TaskParams = {
 	agent: "task",
+	context: "Global context",
 	tasks: [{ id: "CheckLsp", description: "Check LSP availability", assignment: "Inspect LSP tools." }],
 };
 
@@ -128,6 +129,7 @@ function mockCreateAgentSession(): { getOptions: () => CreateAgentSessionOptions
 	let capturedOptions: CreateAgentSessionOptions | undefined;
 	vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async (options = {}) => {
 		capturedOptions = options;
+		console.log("MOCKED createAgentSession CALLED WITH:", Object.keys(options), "enableLsp:", options.enableLsp);
 		return {
 			session: createYieldingSession(),
 			extensionsResult: {} as unknown as LoadExtensionsResult,
@@ -180,7 +182,8 @@ describe("subagent LSP availability", () => {
 		const { getOptions } = mockCreateAgentSession();
 
 		const tool = await TaskTool.create(createSession());
-		await tool.execute("tool-call", TEST_TASK);
+		const res = await tool.execute("tool-call", TEST_TASK);
+		console.log("TOOL RESULT:", res);
 
 		expect(getOptions()?.enableLsp).toBe(false);
 	});

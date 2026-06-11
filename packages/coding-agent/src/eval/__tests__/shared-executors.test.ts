@@ -128,6 +128,7 @@ const taskAgent: AgentDefinition = {
 
 const taskParams: TaskParams = {
 	agent: "task",
+	context: "Global context",
 	tasks: [{ id: "ReadEval", description: "Read eval state", assignment: "Read parent eval state." }],
 };
 
