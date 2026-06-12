@@ -2,7 +2,7 @@
   "name": "aery-vscode",
   "displayName": "Aery",
   "description": "Aery Unified Coding Agent Integration",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "engines": {
     "vscode": "^1.90.0"
   },
