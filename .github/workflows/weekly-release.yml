@@ -1,8 +1,8 @@
-name: Daily Auto Release
+name: Weekly Auto Release
 
 on:
    schedule:
-      - cron: '0 0 * * *' # Runs at midnight UTC every day
+      - cron: '0 0 * * 1' # Runs at midnight UTC every Monday
    workflow_dispatch:
       inputs:
          skip_npm:
