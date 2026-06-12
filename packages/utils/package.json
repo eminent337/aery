@@ -1,7 +1,7 @@
 {
   "type": "module",
   "name": "@aryee337/aery-utils",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Shared utilities for aery packages",
   "homepage": "https://aery.dev",
   "author": "aryee337",

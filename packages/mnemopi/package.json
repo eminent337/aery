@@ -1,7 +1,7 @@
 {
   "type": "module",
   "name": "@aryee337/aery-mnemopi",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Local SQLite memory engine for Aery agents",
   "homepage": "https://aery.dev",
   "author": "aryee337",

@@ -68,5 +68,5 @@ use napi_derive::napi;
 /// MUST stay in sync with `VERSION_SENTINEL_EXPORT` in
 /// `packages/aery-engine/native/index.js` (which derives the name from
 /// `package.json#version`).
-#[napi(js_name = "__aeryNativesV0_3_3")]
+#[napi(js_name = "__aeryNativesV0_3_4")]
 pub const fn aery_engine_version_sentinel() {}
