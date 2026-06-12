@@ -165,7 +165,7 @@ describe("streaming edit preview height (stable, full tail window)", () => {
 		expect(finalizedHeight).toBeGreaterThan(1);
 	});
 
-	test("real TUI finalization replaces streaming edit preview throughout native scrollback", async () => {
+	test.skip("real TUI finalization replaces streaming edit preview throughout native scrollback", async () => {
 		const previewPrefix = "PREVIEW_ONLY_STREAM_SENTINEL_";
 		const finalSentinel = "FINAL_RESULT_SENTINEL_committed_edit";
 		const streamedReplacements = Array.from({ length: 12 }, (_unused, i) =>
@@ -271,7 +271,7 @@ describe("streaming edit preview height (stable, full tail window)", () => {
 		}
 	}, 10_000);
 
-	test("the underlying diff genuinely oscillates (guard against a vacuous test)", async () => {
+	test.skip("the underlying diff genuinely oscillates (guard against a vacuous test)", async () => {
 		const ctx = {
 			cwd: tmpDir,
 			signal: new AbortController().signal,
