@@ -184,7 +184,7 @@ function compareVersions(a: string, b: string): number {
 	return aPatch - bPatch;
 }
 
-async function cmdRelease(version: string): Promise<void> {
+async function cmdRelease(version: string, skipWatch: boolean = false): Promise<void> {
 	console.log("\n=== Release Script ===\n");
 
 	// 1. Pre-flight checks
@@ -363,6 +363,11 @@ async function cmdRelease(version: string): Promise<void> {
 	}
 	console.log();
 
+	if (skipWatch) {
+		console.log(`=== Pushed v${version} (Skipping CI watch) ===`);
+		return;
+	}
+
 	// 9. Watch CI
 	console.log("Watching CI...");
 	const success = await watchCI();
@@ -379,27 +384,50 @@ async function cmdRelease(version: string): Promise<void> {
 	}
 }
 
+async function cmdAutoRelease(skipWatch: boolean): Promise<void> {
+	console.log("\n=== Auto Release ===\n");
+	const latestTag = (await git(["describe", "--tags", "--abbrev=0"]).text()).trim();
+	console.log(`  Latest tag: ${latestTag}`);
+	const commitsCount = parseInt((await git(["rev-list", `${latestTag}..HEAD`, "--count"]).text()).trim(), 10);
+	if (commitsCount === 0) {
+		console.log("  No new commits since latest release. Exiting cleanly.");
+		process.exit(0);
+	}
+	console.log(`  ${commitsCount} new commits found. Bumping version...`);
+	const [major, minor, patch] = parseVersion(latestTag);
+	const nextVersion = `${major}.${minor}.${patch + 1}`;
+	console.log(`  Next version: ${nextVersion}`);
+	
+	// Delegate to standard release flow
+	await cmdRelease(nextVersion, skipWatch);
+}
+
 // =============================================================================
 // Main
 // =============================================================================
 
 const arg = process.argv[2];
+const isSkipWatch = process.argv.includes("--skip-watch");
 
 if (!arg) {
 	console.error("Usage:");
-	console.error("  bun scripts/release.ts <version>   Full release");
-	console.error("  bun scripts/release.ts watch       Watch CI for current commit");
+	console.error("  bun scripts/release.ts <version> [--skip-watch]  Full release");
+	console.error("  bun scripts/release.ts watch                     Watch CI for current commit");
+	console.error("  bun scripts/release.ts auto [--skip-watch]       Auto-bump patch if new commits exist");
 	process.exit(1);
 }
 
 if (arg === "watch") {
 	await cmdWatch();
+} else if (arg === "auto") {
+	await cmdAutoRelease(isSkipWatch);
 } else if (/^\d+\.\d+\.\d+/.test(arg)) {
-	await cmdRelease(arg);
+	await cmdRelease(arg, isSkipWatch);
 } else {
 	console.error(`Unknown command or invalid version: ${arg}`);
 	console.error("Usage:");
-	console.error("  bun scripts/release.ts <version>   Full release");
-	console.error("  bun scripts/release.ts watch       Watch CI for current commit");
+	console.error("  bun scripts/release.ts <version> [--skip-watch]  Full release");
+	console.error("  bun scripts/release.ts watch                     Watch CI for current commit");
+	console.error("  bun scripts/release.ts auto [--skip-watch]       Auto-bump patch if new commits exist");
 	process.exit(1);
 }
