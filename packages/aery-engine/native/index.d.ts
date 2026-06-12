@@ -136,7 +136,7 @@ export declare class Shell {
  * `packages/aery-engine/native/index.js` (which derives the name from
  * `package.json#version`).
  */
-export declare function __aeryNativesV0_3_2(): void
+export declare function __aeryNativesV0_3_3(): void
 
 /**
  * Apply conservative pre-execution rewrites to a bash command.
