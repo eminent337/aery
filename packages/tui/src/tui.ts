@@ -745,6 +745,14 @@ export class TUI extends Container {
 		}
 	}
 
+	requestComponentRender(component: Component): void {
+		if (this.#stopped) return;
+		if (!this.#renderRequested) {
+			this.#renderRequested = true;
+			process.nextTick(() => this.#scheduleRender());
+		}
+	}
+
 	#scheduleRender(): void {
 		if (this.#stopped || this.#renderTimer || !this.#renderRequested) {
 			return;

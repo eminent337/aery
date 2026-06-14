@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { AgentMessage } from "@aryee337/aery-core";
-import { TreeSelectorComponent } from "@aryee337/aery-coding-agent/modes/components/tree-selector";
-import * as themeModule from "@aryee337/aery-coding-agent/modes/theme/theme";
-import type { SessionEntry, SessionTreeNode } from "@aryee337/aery-coding-agent/session/session-manager";
+import { TreeSelectorComponent } from "../../../src/modes/components/tree-selector";
+import * as themeModule from "../../../src/modes/theme/theme";
+import type { SessionEntry, SessionTreeNode } from "../../../src/session/session-manager";
 
 let counter = 0;
 function makeNode(role: "user" | "assistant", text: string, parentId: string | null = null): SessionTreeNode {
@@ -29,7 +29,7 @@ function renderStripped(tree: SessionTreeNode[], leafId: string, width = 120): s
 		() => {},
 		() => {},
 	);
-	return selector.render(width).map(line => Bun.stripANSI(line));
+	return selector.render(width).map((line: string) => Bun.stripANSI(line));
 }
 
 describe("issue #2298: chain rows under last-sibling branches keep their gutter", () => {
@@ -64,7 +64,7 @@ describe("issue #2298: chain rows under last-sibling branches keep their gutter"
 		const rendered = renderStripped([root], fixIt.entry.id);
 
 		const findRow = (needle: string): string => {
-			const row = rendered.find(line => line.includes(needle));
+			const row = rendered.find((line: string) => line.includes(needle));
 			if (!row) throw new Error(`row containing ${JSON.stringify(needle)} not rendered`);
 			return row;
 		};
@@ -113,7 +113,7 @@ describe("issue #2298: chain rows under last-sibling branches keep their gutter"
 		// branch1's column must stay as space so the standard `└─` semantics
 		// survive for proper tree drawings.
 		for (const needle of ["grandchild c", "grandchild d"]) {
-			const row = rendered.find(line => line.includes(needle));
+			const row = rendered.find((line: string) => line.includes(needle));
 			if (!row) throw new Error(`row containing ${JSON.stringify(needle)} not rendered`);
 			expect(row).not.toMatch(/^\s{2}│/);
 			expect(row).toMatch(/[├└]─/);
@@ -123,7 +123,7 @@ describe("issue #2298: chain rows under last-sibling branches keep their gutter"
 		// but they must extend only their nearest connector gutter (c/d), not the
 		// suppressed branch1 gutter. This is the nested case from the PR review.
 		for (const needle of ["c continuation", "d continuation"]) {
-			const row = rendered.find(line => line.includes(needle));
+			const row = rendered.find((line: string) => line.includes(needle));
 			if (!row) throw new Error(`row containing ${JSON.stringify(needle)} not rendered`);
 			expect(row).not.toMatch(/^\s{2}│/);
 			expect(row).toMatch(/^\s{5}│/);
