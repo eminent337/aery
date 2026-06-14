@@ -17,6 +17,7 @@ import {
 	Spacer,
 	Text,
 } from "@aryee337/aery-tui";
+import { logger } from "@aryee337/aery-utils";
 import { PluginManager } from "../../extensibility/plugins/manager";
 import type { InstalledPlugin, PluginSettingSchema } from "../../extensibility/plugins/types";
 import { getSelectListTheme, getSettingsListTheme, theme } from "../../modes/theme/theme";
@@ -442,7 +443,12 @@ export class PluginSettingsComponent extends Container {
 		this.#currentPlugin = null;
 		this.clear();
 
-		const plugins = await this.#manager.list();
+		const plugins = await this.#manager.list().catch(err => {
+			logger.error("Settings → Plugins: failed to list npm plugins", {
+				error: err instanceof Error ? err.message : String(err),
+			});
+			return [] as InstalledPlugin[];
+		});
 
 		this.#viewComponent = new PluginListComponent(plugins, {
 			onPluginSelect: plugin => this.#showPluginDetail(plugin),
@@ -483,6 +489,16 @@ export class PluginSettingsComponent extends Container {
 	}
 
 	handleInput(data: string): void {
-		this.#viewComponent?.handleInput(data);
+		if (!this.#viewComponent) {
+			// The list view mounts asynchronously (npm + marketplace listing).
+			// Until it does — or if listing rejected and no view ever mounted —
+			// Escape must still close the panel instead of leaving /settings
+			// non-dismissible.
+			if (data === "\x1b" || data === "\x1b\x1b") {
+				this.callbacks.onClose();
+			}
+			return;
+		}
+		this.#viewComponent.handleInput(data);
 	}
 }
