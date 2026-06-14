@@ -36,6 +36,7 @@ export interface StatusLineSettings {
 	segmentOptions?: StatusLineSegmentOptions;
 	showHookStatus?: boolean;
 	sessionAccent?: boolean;
+	transparent?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
