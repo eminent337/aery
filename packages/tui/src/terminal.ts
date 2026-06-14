@@ -32,9 +32,6 @@ function registerStdoutErrorHandler(handler: (err: Error) => void): () => void {
 	}
 	return () => {
 		stdoutErrorHandlers.delete(handler);
-		if (stdoutErrorHandlers.size > 0 || !stdoutErrorListenerInstalled) return;
-		process.stdout.removeListener("error", onStdoutError);
-		stdoutErrorListenerInstalled = false;
 	};
 }
 
