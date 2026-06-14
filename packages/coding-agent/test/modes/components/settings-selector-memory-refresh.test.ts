@@ -83,3 +83,26 @@ describe("SettingsSelectorComponent memory tab", () => {
 		expect(after).not.toContain("Hindsight Auto Recall");
 	});
 });
+
+	it("delegates Escape to an open settings submenu before closing the selector", () => {
+		let cancelCount = 0;
+		settings.set("memory.backend", "off");
+				const comp = new SettingsSelectorComponent(
+			{ availableThinkingLevels: [], thinkingLevel: undefined, availableThemes: ["dark"], cwd: process.cwd() },
+			{ onChange: () => {}, onCancel: () => { cancelCount++; } }
+		);
+		focusMemoryTab(comp);
+
+		comp.handleInput("\n");
+		expect(comp.render(120).join("\n")).toContain("Esc to go back");
+
+		comp.handleInput("\x1b");
+		const afterBack = comp.render(120).join("\n");
+		expect(cancelCount).toBe(0);
+		expect(afterBack).toContain("Memory Backend");
+		expect(afterBack).toContain("Esc to cancel");
+		expect(afterBack).not.toContain("Esc to go back");
+
+		comp.handleInput("\x1b");
+		expect(cancelCount).toBe(1);
+	});
