@@ -100,7 +100,7 @@ describe("SettingsSelectorComponent memory tab", () => {
 					.trim(),
 			)
 			.filter(line => line === "Other" || line === "General" || line === "Mnemopi" || line === "Hindsight");
-		expect(flatHeadings).toEqual(["Other"]);
+		expect(flatHeadings).toEqual([]);
 
 		// Switch backend to hindsight: a second group materializes, so the wide
 		// render switches to the split layout with section titles in the sidebar.
