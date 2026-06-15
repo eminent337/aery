@@ -43,8 +43,9 @@ describe("SettingsSelectorComponent memory tab", () => {
 		settings.set("memory.backend", "off");
 		const comp = createSelector();
 		focusMemoryTab(comp);
-
-		const before = comp.render(120).join("\n");
+		// Width 70 keeps the flat single-column layout (the wide split layout
+		// shows only the active section's rows, covered by the sidebar test).
+		const before = comp.render(70).join("\n");
 		expect(before).toContain("Memory Backend");
 		expect(before).not.toContain("Hindsight API URL");
 
@@ -56,7 +57,7 @@ describe("SettingsSelectorComponent memory tab", () => {
 		comp.handleInput("\n");
 
 		expect(settings.get("memory.backend")).toBe("hindsight");
-		const after = comp.render(120).join("\n");
+		const after = comp.render(70).join("\n");
 		expect(after).toContain("Memory Backend");
 		expect(after).toContain("Hindsight API URL");
 		expect(after).toContain("Hindsight Auto Recall");
@@ -66,8 +67,8 @@ describe("SettingsSelectorComponent memory tab", () => {
 		settings.set("memory.backend", "hindsight");
 		const comp = createSelector();
 		focusMemoryTab(comp);
-
-		expect(comp.render(120).join("\n")).toContain("Hindsight API URL");
+		// Width 70 keeps the flat layout so all sections' rows render inline.
+		expect(comp.render(70).join("\n")).toContain("Hindsight API URL");
 
 		// Open Memory Backend → SelectSubmenu pre-selects the current value
 		// ("hindsight" at index 2) → step up twice to reach "off" → Enter confirms.
@@ -84,25 +85,30 @@ describe("SettingsSelectorComponent memory tab", () => {
 	});
 });
 
-	it("delegates Escape to an open settings submenu before closing the selector", () => {
-		let cancelCount = 0;
-		settings.set("memory.backend", "off");
-				const comp = new SettingsSelectorComponent(
-			{ availableThinkingLevels: [], thinkingLevel: undefined, availableThemes: ["dark"], cwd: process.cwd() },
-			{ onChange: () => {}, onCancel: () => { cancelCount++; } }
-		);
-		focusMemoryTab(comp);
+it("delegates Escape to an open settings submenu before closing the selector", () => {
+	let cancelCount = 0;
+	settings.set("memory.backend", "off");
+	const comp = new SettingsSelectorComponent(
+		{ availableThinkingLevels: [], thinkingLevel: undefined, availableThemes: ["dark"], cwd: process.cwd() },
+		{
+			onChange: () => {},
+			onCancel: () => {
+				cancelCount++;
+			},
+		},
+	);
+	focusMemoryTab(comp);
 
-		comp.handleInput("\n");
-		expect(comp.render(120).join("\n")).toContain("Esc to go back");
+	comp.handleInput("\n");
+	expect(comp.render(120).join("\n")).toContain("Esc to go back");
 
-		comp.handleInput("\x1b");
-		const afterBack = comp.render(120).join("\n");
-		expect(cancelCount).toBe(0);
-		expect(afterBack).toContain("Memory Backend");
-		expect(afterBack).toContain("Esc to cancel");
-		expect(afterBack).not.toContain("Esc to go back");
+	comp.handleInput("\x1b");
+	const afterBack = comp.render(120).join("\n");
+	expect(cancelCount).toBe(0);
+	expect(afterBack).toContain("Memory Backend");
+	expect(afterBack).toContain("Esc to cancel");
+	expect(afterBack).not.toContain("Esc to go back");
 
-		comp.handleInput("\x1b");
-		expect(cancelCount).toBe(1);
-	});
+	comp.handleInput("\x1b");
+	expect(cancelCount).toBe(1);
+});
