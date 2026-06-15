@@ -1069,11 +1069,12 @@ describe("ACP agent", () => {
 			update =>
 				update.sessionId === created.sessionId && update.update.sessionUpdate === "available_commands_update",
 		);
-		const names = commandUpdates.flatMap(update =>
-			update.update.sessionUpdate === "available_commands_update"
-				? update.update.availableCommands.map(command => command.name)
-				: [],
-		);
+		// Each update is a complete advertisement; assert on the latest one
+		// (the bootstrap update may or may not have landed by now).
+		const lastUpdate = commandUpdates.at(-1);
+		const allCommands =
+			lastUpdate?.update.sessionUpdate === "available_commands_update" ? lastUpdate.update.availableCommands : [];
+		const names = allCommands.map(c => c.name);
 		expect(names).toContain("fast");
 		expect(names).toContain("force");
 		expect(names).toContain("skill:sample");
