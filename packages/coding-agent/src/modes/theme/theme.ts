@@ -48,6 +48,7 @@ export type SymbolKey =
 	| "nav.expand"
 	| "nav.collapse"
 	| "nav.back"
+	| "icon.search"
 	// Tree Connectors
 	| "tree.branch"
 	| "tree.last"
@@ -222,6 +223,7 @@ const UNICODE_SYMBOLS: SymbolMap = {
 	"nav.expand": "▸",
 	"nav.collapse": "▾",
 	"nav.back": "⟵",
+	"icon.search": "🔍",
 	// Tree
 	"tree.branch": "├─",
 	"tree.last": "└─",
@@ -408,6 +410,7 @@ const NERD_SYMBOLS: SymbolMap = {
 	"nav.collapse": "\uf0d7",
 	// pick:  | alt:  
 	"nav.back": "\uf060",
+	"icon.search": "🔍",
 	// Tree Connectors (same as unicode)
 	// pick: ├─ | alt: ├╴ ├╌ ╠═ ┣━
 	"tree.branch": "├─",
@@ -662,6 +665,7 @@ const ASCII_SYMBOLS: SymbolMap = {
 	"nav.expand": "+",
 	"nav.collapse": "-",
 	"nav.back": "<-",
+	"icon.search": "🔍",
 	// Tree Connectors
 	"tree.branch": "|--",
 	"tree.last": "'--",

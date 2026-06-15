@@ -16,7 +16,7 @@ afterEach(() => {
 	resetSettingsForTest();
 });
 
-function createSelector(): SettingsSelectorComponent {
+function createSelector(onCancel: () => void = () => {}): SettingsSelectorComponent {
 	return new SettingsSelectorComponent(
 		{
 			availableThinkingLevels: [],
@@ -26,7 +26,7 @@ function createSelector(): SettingsSelectorComponent {
 		},
 		{
 			onChange: () => {},
-			onCancel: () => {},
+			onCancel,
 		},
 	);
 }
@@ -83,32 +83,82 @@ describe("SettingsSelectorComponent memory tab", () => {
 		expect(after).not.toContain("Hindsight API URL");
 		expect(after).not.toContain("Hindsight Auto Recall");
 	});
-});
+	it("renders group titles, suppressing groups whose items are all condition-hidden", () => {
+		settings.set("memory.backend", "off");
+		const comp = createSelector();
+		focusMemoryTab(comp);
 
-it("delegates Escape to an open settings submenu before closing the selector", () => {
-	let cancelCount = 0;
-	settings.set("memory.backend", "off");
-	const comp = new SettingsSelectorComponent(
-		{ availableThinkingLevels: [], thinkingLevel: undefined, availableThemes: ["dark"], cwd: process.cwd() },
-		{
-			onChange: () => {},
-			onCancel: () => {
-				cancelCount++;
-			},
-		},
-	);
-	focusMemoryTab(comp);
+		const strip = (line: string): string => line.replace(/\x1b\[[0-9;]*m/g, "");
 
-	comp.handleInput("\n");
-	expect(comp.render(120).join("\n")).toContain("Esc to go back");
+		// Single visible group renders flat: the title is a standalone heading row.
+		// Mnemopi/Hindsight groups are fully condition-hidden and emit nothing.
+		const flatHeadings = comp
+			.render(120)
+			.map(line =>
+				strip(line)
+					.replace(/[█│]\s*$/, "")
+					.trim(),
+			)
+			.filter(line => line === "Other" || line === "General" || line === "Mnemopi" || line === "Hindsight");
+		expect(flatHeadings).toEqual(["Other"]);
 
-	comp.handleInput("\x1b");
-	const afterBack = comp.render(120).join("\n");
-	expect(cancelCount).toBe(0);
-	expect(afterBack).toContain("Memory Backend");
-	expect(afterBack).toContain("Esc to cancel");
-	expect(afterBack).not.toContain("Esc to go back");
+		// Switch backend to hindsight: a second group materializes, so the wide
+		// render switches to the split layout with section titles in the sidebar.
+		comp.handleInput("\n");
+		comp.handleInput("\x1b[B");
+		comp.handleInput("\x1b[B");
+		comp.handleInput("\n");
 
-	comp.handleInput("\x1b");
-	expect(cancelCount).toBe(1);
+		const sidebarTitles = comp
+			.render(120)
+			.map(strip)
+			.filter(line => line.includes("│"))
+			.map(line => line.split("│")[0].trim())
+			.filter(title => title.length > 0);
+		expect(sidebarTitles).toEqual(["Other", "Hindsight"]);
+	});
+
+	it("clears the global settings search on Escape before closing the selector", () => {
+		let cancelCount = 0;
+		const comp = createSelector(() => {
+			cancelCount++;
+		});
+
+		// Typing starts the cross-tab search: banner shows the query and matches.
+		comp.handleInput("b");
+		const strip = (line: string): string => line.replace(/\x1b\[[0-9;]*m/g, "");
+		const searching = comp.render(120).map(strip).join("\n");
+		expect(searching).toContain("b▌");
+		expect(searching).toMatch(/\d+ match/);
+
+		// First Escape exits search mode without closing the panel.
+		comp.handleInput("\x1b");
+		expect(cancelCount).toBe(0);
+		expect(comp.render(120).join("\n")).not.toContain("matches");
+
+		comp.handleInput("\x1b");
+		expect(cancelCount).toBe(1);
+	});
+
+	it("delegates Escape to an open settings submenu before closing the selector", () => {
+		let cancelCount = 0;
+		settings.set("memory.backend", "off");
+		const comp = createSelector(() => {
+			cancelCount++;
+		});
+		focusMemoryTab(comp);
+
+		comp.handleInput("\n");
+		expect(comp.render(120).join("\n")).toContain("Esc to go back");
+
+		comp.handleInput("\x1b");
+		const afterBack = comp.render(120).join("\n");
+		expect(cancelCount).toBe(0);
+		expect(afterBack).toContain("Memory Backend");
+		expect(afterBack).toContain("Esc to cancel");
+		expect(afterBack).not.toContain("Esc to go back");
+
+		comp.handleInput("\x1b");
+		expect(cancelCount).toBe(1);
+	});
 });
