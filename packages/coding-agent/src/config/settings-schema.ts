@@ -45,7 +45,8 @@ export type SettingTab =
 	| "interaction"
 	| "context"
 	| "memory"
-	| "editing"
+	| "files"
+	| "shell"
 	| "tools"
 	| "tasks"
 	| "providers";
@@ -151,6 +152,8 @@ export type SubmenuOption<V extends string = string> = {
 
 interface UiBase {
 	tab: SettingTab;
+	/** Section within the tab; must be listed in TAB_GROUPS[tab]. Ungrouped settings render at the top. */
+	group?: string;
 	label: string;
 	description: string;
 	/** Condition function name - setting only shown when true */
