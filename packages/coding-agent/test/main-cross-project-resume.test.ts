@@ -60,16 +60,23 @@ describe("createSessionManager — cross-project --resume cancellation (#1668)",
 	});
 
 	it("throws when the cross-project fork prompt is unavailable in non-interactive mode", async () => {
-		expect(process.stdin.isTTY).toBeFalsy();
+		const originalIsTTY = process.stdin.isTTY;
+		Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
 
-		const sessionCwd = "/some/other/project";
-		vi.spyOn(sessionManagerModule, "resolveResumableSession").mockResolvedValue(buildGlobalMatch(sessionCwd));
+		try {
+			expect(process.stdin.isTTY).toBeFalsy();
 
-		const args = buildArgs("019e84ed");
-		const stubSettings = { get: () => undefined } as unknown as Settings;
+			const sessionCwd = "/some/other/project";
+			vi.spyOn(sessionManagerModule, "resolveResumableSession").mockResolvedValue(buildGlobalMatch(sessionCwd));
 
-		await expect(createSessionManager(args, "/current/project", stubSettings)).rejects.toThrow(
-			'Session "019e84ed" is in another project (/some/other/project); run interactively to fork it into the current project.',
-		);
+			const args = buildArgs("019e84ed");
+			const stubSettings = { get: () => undefined } as unknown as Settings;
+
+			await expect(createSessionManager(args, "/current/project", stubSettings)).rejects.toThrow(
+				'Session "019e84ed" is in another project (/some/other/project); run interactively to fork it into the current project.',
+			);
+		} finally {
+			Object.defineProperty(process.stdin, "isTTY", { value: originalIsTTY, configurable: true });
+		}
 	});
 });

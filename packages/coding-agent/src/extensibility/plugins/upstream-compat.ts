@@ -268,11 +268,11 @@ function rewriteLegacyExtensionSource(source: string): string {
 	// @aryee337 scope, and remaps legacy package names (aery-coding-agent)
 	// to the current shorthand (aery).
 	const withOldScopes = source.replace(
-		/@(?:aryee337|eminent337|aery)\/aery(?:-(?:core|ai|coding-agent|engine|tui|utils|sdk))?(?:\/[^"']*)?/g,
+		/@(?:aryee337|eminent337|aery|pi)\/(?:aery|pi)(?:-(?:core|ai|coding-agent|engine|tui|utils|sdk))?(?:\/[^"']*)?/g,
 		(match: string) => {
 			// Extract the scope, package name, and optional subpath
 			const atIndex = match.indexOf("/");
-			const remaining = match.slice(atIndex + 1); // e.g. "aery-coding-agent/extensions/extensions"
+			const remaining = match.slice(atIndex + 1); // e.g. "pi-coding-agent/extensions/extensions"
 			const slashAfterPkg = remaining.indexOf("/");
 			let pkg: string;
 			let subpath = "";
@@ -285,8 +285,11 @@ function rewriteLegacyExtensionSource(source: string): string {
 			// Remap legacy package names to current ^0.2 package names
 			const PKG_REMAP: Record<string, string> = {
 				"aery-coding-agent": "aery",
+				"pi-coding-agent": "aery",
 			};
-			const mappedPkg = PKG_REMAP[pkg] ?? pkg;
+			let mappedPkg = PKG_REMAP[pkg] ?? pkg;
+			mappedPkg = mappedPkg.replace(/^pi-/, "aery-");
+			if (mappedPkg === "pi") mappedPkg = "aery";
 			return `@aryee337/${mappedPkg}${subpath}`;
 		},
 	);

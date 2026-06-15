@@ -205,7 +205,7 @@ class SettingsSearchHeader implements Component {
 
 	invalidate(): void {}
 
-	render(width: number): readonly string[] {
+	render(width: number): string[] {
 		if (!this.#active) return [];
 
 		const icon = theme.symbol("icon.search");

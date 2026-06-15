@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -20,6 +20,7 @@ describe("plugin extension discovery", () => {
 		tempXdgDataHome = fs.mkdtempSync(path.join(os.tmpdir(), "aery-plugin-data-"));
 		fs.mkdirSync(path.join(tempXdgDataHome, "aery"), { recursive: true });
 		process.env.XDG_DATA_HOME = tempXdgDataHome;
+		spyOn(os, "homedir").mockReturnValue(tempXdgDataHome);
 		// Rebuild path caches after changing XDG env so plugin discovery resolves into the temp root.
 		setAgentDir(originalAgentDir);
 
@@ -57,6 +58,7 @@ describe("plugin extension discovery", () => {
 	});
 
 	afterEach(() => {
+		mock.restore();
 		projectDir.removeSync();
 		fs.rmSync(tempXdgDataHome, { recursive: true, force: true });
 		if (originalXdgDataHome === undefined) {
@@ -107,8 +109,8 @@ describe("plugin extension discovery", () => {
 			[
 				'import * as nodePath from "path";',
 				'if (false) import("./optional-missing.js");',
-				'import { isToolCallEventType as legacyRoot } from "@eminent337/aery-coding-agent";',
-				'import { isToolCallEventType as legacyExtensions } from "@eminent337/aery-coding-agent/extensibility/extensions";',
+				'import { isToolCallEventType as legacyRoot } from "@eminent337/pi-coding-agent";',
+				'import { isToolCallEventType as legacyExtensions } from "@eminent337/pi-coding-agent/extensibility/extensions";',
 				`import { isToolCallEventType as modernRoot } from ${JSON.stringify(currentAeryPath)};`,
 				`import { isToolCallEventType as modernExtensions } from ${JSON.stringify(currentPiExtensionsPath)};`,
 				"",

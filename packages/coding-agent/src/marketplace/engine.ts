@@ -199,7 +199,6 @@ export function uninstallPack(
 		s.extensions = (s.extensions ?? []).filter((e: string) => e !== filePath && !e.includes(pack.file!));
 		removed = (s.extensions ?? []).length < before;
 	} else {
-		const repoUrl = `https://github.com/${pack.source}`;
 		const before = (s.packages ?? []).length;
 		s.packages = (s.packages ?? []).filter((p: string) => !p.includes(pack.source));
 		removed = (s.packages ?? []).length < before;
