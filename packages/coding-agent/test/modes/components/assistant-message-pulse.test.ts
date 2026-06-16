@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { resetSettingsForTest, Settings } from "@aryee337/aery/config/settings";
-import { initTheme } from "@aryee337/aery/modes/theme/theme";
 import { AssistantMessageComponent } from "@aryee337/aery/modes/components/assistant-message";
+import { initTheme } from "@aryee337/aery/modes/theme/theme";
 import type { AssistantMessage } from "@aryee337/aery-ai";
 
 const RENDER_WIDTH = 80;

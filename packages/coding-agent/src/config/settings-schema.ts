@@ -67,8 +67,9 @@ export const TAB_GROUPS: Record<SettingTab, readonly string[]> = {
 		"Magic Keywords",
 		"Startup & Updates",
 		"Power (macOS)",
+		"Agent",
 	],
-	context: ["General", "Compaction", "Rules (TTSR)"],
+	context: ["General", "Compaction", "Rules (TTSR)", "Experimental"],
 	memory: ["General", "Mnemopi", "Hindsight"],
 	files: ["Editing", "Reading", "Read Summaries", "LSP"],
 	shell: ["Bash", "Eval & Python"],
@@ -3140,6 +3141,30 @@ export const SETTINGS_SCHEMA = {
 				"Difficulty classifier for the `auto` thinking level: online smol by default, or a local on-device model",
 			condition: "autoThinkingActive",
 			options: AUTO_THINKING_MODEL_OPTIONS,
+		},
+	},
+	"features.unexpectedStopDetection": {
+		type: "boolean",
+		default: false,
+		ui: {
+			tab: "interaction",
+			group: "Agent",
+			label: "Detect unexpected stops",
+			description:
+				"Use a small model to detect when the assistant says it will continue but stops without tool calls; automatically prompt it to continue.",
+		},
+	},
+	"providers.unexpectedStopModel": {
+		type: "enum",
+		values: TINY_MEMORY_MODEL_VALUES,
+		default: ONLINE_MEMORY_MODEL_KEY,
+		ui: {
+			tab: "providers",
+			group: "Tiny Model",
+			label: "Unexpected Stop Model",
+			description: "Classifier for unexpected-stop detection: online smol by default, or a local on-device model.",
+			condition: "unexpectedStopDetection",
+			options: TINY_MEMORY_MODEL_OPTIONS,
 		},
 	},
 

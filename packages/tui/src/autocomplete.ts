@@ -396,7 +396,6 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 			}
 		}
 
-
 		const afterCursor = currentLine.slice(cursorCol);
 
 		const slashStart = textBeforeCursor.indexOf("/");
