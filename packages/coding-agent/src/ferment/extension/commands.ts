@@ -3,6 +3,7 @@
  * Subcommands: start, pause, resume, progress, abort, policy, list, switch, delete, one-shot
  */
 
+import type { AutocompleteItem } from "@aryee337/aery-tui";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../extensibility/extensions/types.js";
 import { whatNext } from "../engine.js";
 import { applyTransition } from "../state-machine.js";
@@ -32,9 +33,69 @@ function createMinimalFerment(goal: string, cwd: string): Ferment {
 	};
 }
 
+const FERMENT_SUBCOMMAND_COMPLETIONS: AutocompleteItem[] = [
+	{ value: "start ", label: "start", description: "Start or resume a ferment" },
+	{ value: "pause", label: "pause", description: "Pause the active ferment" },
+	{ value: "resume", label: "resume", description: "Resume the active ferment" },
+	{ value: "progress", label: "progress", description: "Show ferment progress" },
+	{ value: "abort", label: "abort", description: "Abort the active ferment" },
+	{ value: "policy", label: "policy", description: "Toggle continuation policy" },
+	{ value: "list", label: "list", description: "List ferments in this worktree" },
+	{ value: "switch ", label: "switch", description: "Switch active ferment by id or name" },
+	{ value: "delete ", label: "delete", description: "Delete a ferment by id or name" },
+	{ value: "one-shot ", label: "one-shot", description: "Create and auto-execute a single task ferment" },
+];
+
+function matchCompletionPrefix(items: AutocompleteItem[], prefix: string): AutocompleteItem[] | null {
+	const needle = prefix.toLowerCase();
+	const matches = items.filter(
+		item =>
+			item.value.toLowerCase().startsWith(needle) || (item.label && item.label.toLowerCase().startsWith(needle)),
+	);
+	return matches.length > 0 ? matches : null;
+}
+
+function fermentTargetCompletions(verb: "switch" | "delete", prefix: string): AutocompleteItem[] | null {
+	const targetPrefix = prefix
+		.slice(verb.length)
+		.trim()
+		.replace(/^["']|["']$/g, "")
+		.toLowerCase();
+
+	const store = FermentStore.open();
+	const matches = store
+		.listByWorktree(process.cwd())
+		.filter(f => {
+			if (!targetPrefix) return true;
+			return f.name.toLowerCase().includes(targetPrefix) || f.id.toLowerCase().startsWith(targetPrefix);
+		})
+		.slice(0, 20)
+		.map(f => ({
+			value: `${verb} "${f.name.includes('"') ? f.id : f.name}"`,
+			label: f.name,
+			description: `${f.status} · ${f.id.slice(0, 8)}`,
+		}));
+
+	return matches.length > 0 ? matches : null;
+}
+
+function getFermentArgumentCompletions(prefix: string): AutocompleteItem[] | null {
+	const trimmedStart = prefix.trimStart();
+	const lower = trimmedStart.toLowerCase();
+
+	for (const verb of ["switch", "delete"] as const) {
+		if (lower === verb || lower.startsWith(`${verb} `)) {
+			return fermentTargetCompletions(verb, trimmedStart);
+		}
+	}
+
+	return matchCompletionPrefix(FERMENT_SUBCOMMAND_COMPLETIONS, trimmedStart);
+}
+
 export function registerFermentCommands(api: ExtensionAPI): void {
 	api.registerCommand("ferment", {
 		description: "Ferment workflow commands",
+		getArgumentCompletions: getFermentArgumentCompletions,
 		handler: async (_args: string, ctx: ExtensionCommandContext): Promise<void> => {
 			const args = _args.trim().split(/\s+/).filter(Boolean);
 			const sub = (args[0] ?? "").toLowerCase();
