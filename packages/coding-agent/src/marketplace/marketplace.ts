@@ -5,9 +5,66 @@
  */
 
 import type { ExtensionAPI } from "@aryee337/aery";
+import type { AutocompleteItem } from "@aryee337/aery-tui";
 import { detectConflicts, getInstalledPacks, installPack, isInstalled, uninstallPack, updatePack } from "./engine";
-import { fetchRegistry } from "./registry";
+import { fetchRegistry, loadCache } from "./registry";
 import type { Pack, Registry } from "./types";
+
+const MARKETPLACE_SUBCOMMAND_COMPLETIONS: AutocompleteItem[] = [
+	{ value: "install ", label: "install", description: "Install an extension" },
+	{ value: "uninstall ", label: "uninstall", description: "Uninstall an extension" },
+	{ value: "remove ", label: "remove", description: "Remove an extension" },
+	{ value: "update ", label: "update", description: "Update an extension" },
+	{ value: "list", label: "list", description: "List installed extensions" },
+	{ value: "browse", label: "browse", description: "Browse all extensions" },
+	{ value: "info ", label: "info", description: "Show info for an extension" },
+];
+
+function matchCompletionPrefix(items: AutocompleteItem[], prefix: string): AutocompleteItem[] | null {
+	const lower = prefix.toLowerCase();
+	const matches = items.filter(m => m.value.toLowerCase().startsWith(lower));
+	return matches.length > 0 ? matches : null;
+}
+
+function getMarketplaceArgumentCompletions(prefix: string): AutocompleteItem[] | null {
+	const parts = prefix.trimStart().split(/\s+/);
+	if (parts.length <= 1) {
+		return matchCompletionPrefix(MARKETPLACE_SUBCOMMAND_COMPLETIONS, parts[0] || "");
+	}
+
+	const sub = parts[0]?.toLowerCase();
+	const verbPrefix = parts[1] || "";
+
+	if (parts.length === 2) {
+		if (sub === "install" || sub === "info") {
+			const cache = loadCache();
+			if (cache) {
+				const available = Object.entries(cache.packs)
+					.filter(([, p]) => !p.auto)
+					.map(([name]) => ({
+						value: name,
+						label: name,
+						description: "extension in registry",
+					}));
+				return matchCompletionPrefix(available, verbPrefix);
+			}
+		} else if (sub === "update" || sub === "uninstall" || sub === "remove") {
+			const installed = getInstalledPacks();
+			const dynamicItems: AutocompleteItem[] = installed.map(i => ({
+				value: i.name,
+				label: i.name,
+				description: "installed extension",
+			}));
+			if (sub === "update") {
+				dynamicItems.unshift({ value: "--all", label: "--all", description: "Update all installed extensions" });
+				dynamicItems.unshift({ value: "-a", label: "-a", description: "Update all installed extensions" });
+			}
+			return matchCompletionPrefix(dynamicItems, verbPrefix);
+		}
+	}
+
+	return null;
+}
 
 const TIER_BADGE: Record<string, string> = {
 	core: "⚙",
@@ -85,6 +142,7 @@ export default function registerMarketplace(aery: ExtensionAPI) {
 	aery.registerCommand("marketplace", {
 		description:
 			"Browse, install, uninstall, update Aery extensions. Usage: /marketplace [install|uninstall|update|list|info] [name]",
+		getArgumentCompletions: getMarketplaceArgumentCompletions,
 		handler: async (args: string) => {
 			const parts = args.trim().split(/\s+/);
 			const sub = parts[0]?.toLowerCase() ?? "";

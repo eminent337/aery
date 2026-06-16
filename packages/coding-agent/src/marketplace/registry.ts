@@ -19,7 +19,7 @@ interface CachedRegistry {
 	registry: Registry;
 }
 
-function loadCache(): Registry | null {
+export function loadCache(): Registry | null {
 	try {
 		if (!existsSync(CACHE_PATH)) return null;
 		const raw = JSON.parse(readFileSync(CACHE_PATH, "utf-8")) as CachedRegistry;
