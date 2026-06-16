@@ -6,7 +6,7 @@ import { discoverAndLoadExtensions } from "@aryee337/aery/extensibility/extensio
 import { getAgentDir, getPluginsDir, setAgentDir, TempDir } from "@aryee337/aery-utils";
 
 const currentAeryPath = Bun.resolveSync("@aryee337/aery", import.meta.dir);
-const currentPiExtensionsPath = Bun.resolveSync("@aryee337/aery/extensibility/extensions", import.meta.dir);
+const currentAeryExtensionsPath = Bun.resolveSync("@aryee337/aery/extensibility/extensions", import.meta.dir);
 
 describe("plugin extension discovery", () => {
 	let projectDir: TempDir;
@@ -112,7 +112,7 @@ describe("plugin extension discovery", () => {
 				'import { isToolCallEventType as legacyRoot } from "@eminent337/pi-coding-agent";',
 				'import { isToolCallEventType as legacyExtensions } from "@eminent337/pi-coding-agent/extensibility/extensions";',
 				`import { isToolCallEventType as modernRoot } from ${JSON.stringify(currentAeryPath)};`,
-				`import { isToolCallEventType as modernExtensions } from ${JSON.stringify(currentPiExtensionsPath)};`,
+				`import { isToolCallEventType as modernExtensions } from ${JSON.stringify(currentAeryExtensionsPath)};`,
 				"",
 				'if (legacyRoot !== modernRoot) throw new Error("legacy root import did not remap");',
 				'if (legacyExtensions !== modernExtensions) throw new Error("legacy extension import did not remap");',

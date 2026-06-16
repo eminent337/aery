@@ -39,7 +39,7 @@ describe("InteractiveMode prompt-template autocomplete (#2462)", () => {
 	beforeEach(async () => {
 		Bun.gc(true);
 		resetSettingsForTest();
-		tempDir = TempDir.createSync("@pi-prompt-template-autocomplete-");
+		tempDir = TempDir.createSync("@aery-prompt-template-autocomplete-");
 		await Settings.init({ inMemory: true, cwd: tempDir.path() });
 		Settings.instance.set("startup.quiet", true);
 		authStorage = await AuthStorage.create(path.join(tempDir.path(), "testauth.db"));
