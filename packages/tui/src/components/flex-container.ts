@@ -52,8 +52,8 @@ export class FlexContainer implements Component {
 		}
 
 		const remainingHeight = Math.max(0, height - totalFixed);
-		let allocatedFlexHeight = 0;
 
+		let allocatedFlexHeight = 0;
 		for (let i = 0; i < this.#children.length; i++) {
 			const child = this.#children[i]!;
 			if (child.flexGrow && child.flexGrow > 0) {

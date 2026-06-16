@@ -20,9 +20,11 @@ import {
 	getPluginsCacheDir,
 	MarketplaceManager,
 } from "../extensibility/plugins/marketplace";
+import { getFermentArgumentCompletions } from "../ferment/extension/commands.js";
 import { applyTransition } from "../ferment/state-machine.js";
 import { FermentStore } from "../ferment/store.js";
 import type { Ferment } from "../ferment/types.js";
+import { getMarketplaceArgumentCompletions } from "../marketplace/marketplace.js";
 import { resolveMemoryBackend } from "../memory-backend";
 import type { InteractiveModeContext } from "../modes/types";
 import { formatShakeSummary, type ShakeMode } from "../session/shake-types";
@@ -1185,6 +1187,15 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			{ name: "list", description: "List installed marketplace extensions" },
 		],
 		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			const runner = runtime.ctx.session.extensionRunner;
+			const extCmd = runner?.getCommand("marketplace");
+			if (extCmd) {
+				await extCmd.handler(command.args, runner!.createCommandContext());
+				return { consumed: true };
+			}
+			return undefined;
+		},
 		handle: async (command, runtime) => {
 			const { verb } = parseSubcommand(command.args);
 			const lines: string[] = [];
@@ -1480,9 +1491,13 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		handleTui: async (command, runtime) => {
 			const args = command.args.trim();
 			if (!args.startsWith("one-shot")) {
-				runtime.ctx.showStatus("Usage: /ferment one-shot <goal>");
-				runtime.ctx.editor.setText("");
-				return;
+				const runner = runtime.ctx.session.extensionRunner;
+				const extCmd = runner?.getCommand("ferment");
+				if (extCmd) {
+					await extCmd.handler(command.args, runner!.createCommandContext());
+					return { consumed: true };
+				}
+				return undefined;
 			}
 			const goal = args.slice("one-shot".length).trim();
 			if (!goal) {
@@ -1625,9 +1640,17 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<
 	}
 > = BUILTIN_SLASH_COMMAND_DEFS.map(cmd => {
 	if (cmd.subcommands) {
+		const defaultCompletions = buildArgumentCompletions(cmd.subcommands);
+		let customCompletions: ((prefix: string) => AutocompleteItem[] | null) | undefined;
+		if (cmd.name === "marketplace") customCompletions = getMarketplaceArgumentCompletions;
+		if (cmd.name === "ferment") customCompletions = getFermentArgumentCompletions;
+
 		return {
 			...cmd,
-			getArgumentCompletions: buildArgumentCompletions(cmd.subcommands),
+			getArgumentCompletions: (prefix: string) => {
+				const res = customCompletions ? customCompletions(prefix) : null;
+				return res || defaultCompletions(prefix);
+			},
 			getInlineHint: buildSubcommandInlineHint(cmd.subcommands),
 		};
 	}

@@ -14,7 +14,7 @@ const BG_AMBER = "\x1b[48;5;214m";
 const BG_SLATE = "\x1b[48;5;236m";
 const FG_WHITE = "\x1b[97m";
 const FG_DIM = "\x1b[38;5;245m";
-const FG_AMBER = "\x1b[38;5;214m";
+
 const RESET = "\x1b[0m";
 
 export interface BarSegment {

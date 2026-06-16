@@ -57,6 +57,7 @@ import createMarketplaceLoaderExtension from "./extensions/marketplace/loader.js
 import { createRtkExtension } from "./extensions/rtk.js";
 import { createThinkingStepsExtension } from "./extensions/thinking-steps.js";
 import { createFermentExtension } from "./ferment/extension/extension.js";
+import registerMarketplace from "./marketplace/marketplace.js";
 import "./discovery";
 import { ADVISOR_READONLY_TOOL_NAMES } from "./advisor";
 import { resolveConfigValue } from "./config/resolve-config-value";
@@ -1455,6 +1456,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 		// Load marketplace extensions on demand via /marketplace install
 		inlineExtensions.push(createMarketplaceLoaderExtension);
+		inlineExtensions.push(registerMarketplace);
 
 		// Load extensions. A preloaded result (e.g. resolved by the CLI before
 		// session creation so it can classify `@file` args extension-aware without

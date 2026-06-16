@@ -1,0 +1,448 @@
+commit dd17dae7b3f3e280784d3e3dd741b6046ff71d3e
+Author: Peter Brczan <peter.brczan@cast.ai>
+Date:   Wed May 20 10:18:39 2026 +0200
+
+    feat: simplify terminal box formatting to stroke-only design (#305)
+    
+    ### JIRA: [UI-6728](https://castai.atlassian.net/browse/UI-6728)
+    
+    [UI-6728]:
+    https://castai.atlassian.net/browse/UI-6728?atlOrigin=eyJpIjoiNWRkNTljNzYxNjVmNDY3MDlhMDU5Y2ZhYzA5YTRkZjUiLCJwIjoiZ2l0aHViLWNvbS1KU1cifQ
+    [UI-6728]:
+    https://castai.atlassian.net/browse/UI-6728?atlOrigin=eyJpIjoiNWRkNTljNzYxNjVmNDY3MDlhMDU5Y2ZhYzA5YTRkZjUiLCJwIjoiZ2l0aHViLWNvbS1KU1cifQ
+    
+    ---
+    ### Kimchi Summary
+    ### What changed
+    Switches terminal UI box rendering from full background fills to a
+    minimal left-edge stroke design using a colored `▍ ` prefix. Applies
+    matching foreground-color updates across interactive message components.
+    
+    ### Why
+    Reduces visual noise in the terminal interface and aligns the Kimchi dev
+    CLI with a cleaner, stroke-only aesthetic for message and tool-execution
+    boxes.
+    
+    ### Key changes
+    - **`patches/@earendil-works__pi-tui.patch`** (added): Replaces
+    `applyBackgroundToLine` with a new `applyStrokeToLine` utility. Updates
+    `Box`, `Text`, and `Markdown` components to account for `STROKE_WIDTH`
+    and render a left-edge colored stroke instead of a solid background.
+    - **`patches/@earendil-works__pi-coding-agent.patch`**: Updates
+    `UserMessageComponent`, `CustomMessageComponent`,
+    `ToolExecutionComponent`, and related interactive components to pass
+    foreground color functions (`theme.fg("accent")`, `theme.fg("success")`,
+    `theme.fg("error")`) instead of background color functions, matching the
+    new stroke rendering contract. Also adds `kimchi-dev` to
+    `defaultModelPerProvider` and documents `PI_AGENT_EXPORT_DIR`.
+    - **`package.json`** / **`pnpm-lock.yaml`**: Registers the new
+    `@earendil-works/pi-tui` patch and updates corresponding patch hashes.
+    
+    ### Impact
+    - Message and tool boxes in the terminal now display a thin left-edge
+    stroke indicator rather than a full-width background block.
+    - Content width inside affected `Box`, `Text`, and `Markdown` components
+    is reduced by two cells to accommodate the stroke.
+
+diff --git a/package.json b/package.json
+index 93d238bb..6679eb8b 100644
+--- a/package.json
++++ b/package.json
+@@ -91,7 +91,8 @@
+ 			"protobufjs"
+ 		],
+ 		"patchedDependencies": {
+-			"@earendil-works/pi-coding-agent": "patches/@earendil-works__pi-coding-agent.patch"
++			"@earendil-works/pi-coding-agent": "patches/@earendil-works__pi-coding-agent.patch",
++			"@earendil-works/pi-tui": "patches/@earendil-works__pi-tui.patch"
+ 		}
+ 	}
+ }
+diff --git a/patches/@earendil-works__pi-coding-agent.patch b/patches/@earendil-works__pi-coding-agent.patch
+index 216851c1..c6cce834 100644
+--- a/patches/@earendil-works__pi-coding-agent.patch
++++ b/patches/@earendil-works__pi-coding-agent.patch
+@@ -1,8 +1,8 @@
+ diff --git a/dist/cli/args.js b/dist/cli/args.js
+-index c9f34fef8e473c203dbbfc1603b69beb8f5d8d2b..bec90c470284e05946e4c6e9c0ae95952d7a3b8e 100644
++index d9722b792a5e2c0020bd842ea6ddb1754a51b44c..6d64db9876b8be6ae6af34322d5748cfcbbe06a7 100644
+ --- a/dist/cli/args.js
+ +++ b/dist/cli/args.js
+-@@ -281,6 +281,7 @@ ${chalk.bold("Examples:")}
++@@ -286,6 +286,7 @@ ${chalk.bold("Examples:")}
+    ${APP_NAME} --export session.jsonl output.html
+  
+  ${chalk.bold("Environment Variables:")}
+@@ -11,10 +11,10 @@ index c9f34fef8e473c203dbbfc1603b69beb8f5d8d2b..bec90c470284e05946e4c6e9c0ae9595
+    ANTHROPIC_OAUTH_TOKEN            - Anthropic OAuth token (alternative to API key)
+    OPENAI_API_KEY                   - OpenAI GPT API key
+ diff --git a/dist/core/model-resolver.js b/dist/core/model-resolver.js
+-index 3ffb1439bf059d787aee4bf314c89cb28b6b4959..275c5dc3c02bdba4932fd14587c70ca8f08e9333 100644
++index afdb0b720f9e57875d9493fe932b4912afa9807f..c644bee905695ca37f4d124cc81fd327840e6911 100644
+ --- a/dist/core/model-resolver.js
+ +++ b/dist/core/model-resolver.js
+-@@ -33,6 +33,7 @@ export const defaultModelPerProvider = {
++@@ -34,6 +34,7 @@ export const defaultModelPerProvider = {
+      opencode: "kimi-k2.6",
+      "opencode-go": "kimi-k2.6",
+      "kimi-coding": "kimi-for-coding",
+@@ -22,3 +22,129 @@ index 3ffb1439bf059d787aee4bf314c89cb28b6b4959..275c5dc3c02bdba4932fd14587c70ca8
+      "cloudflare-workers-ai": "@cf/moonshotai/kimi-k2.6",
+      "cloudflare-ai-gateway": "workers-ai/@cf/moonshotai/kimi-k2.6",
+      xiaomi: "mimo-v2.5-pro",
++diff --git a/dist/core/tools/edit.js b/dist/core/tools/edit.js
++index 62002dd1fa751ac168165a26b68561c2e95f6637..001ac31848098104ca4f127ce65931917bc1b292 100644
++--- a/dist/core/tools/edit.js
+++++ b/dist/core/tools/edit.js
++@@ -55,7 +55,7 @@ function validateEditInput(input) {
++     return { path: input.path, edits: input.edits };
++ }
++ function createEditCallRenderComponent() {
++-    return Object.assign(new Box(1, 1, (text) => text), {
+++    return Object.assign(new Box(1, 1), {
++         preview: undefined,
++         previewArgsKey: undefined,
++         previewPending: false,
++@@ -123,14 +123,14 @@ function formatEditResult(args, preview, result, theme, isError) {
++ function getEditHeaderBg(preview, settledError, theme) {
++     if (preview) {
++         if ("error" in preview) {
++-            return (text) => theme.bg("toolErrorBg", text);
+++            return (text) => theme.fg("error", text);
++         }
++-        return (text) => theme.bg("toolSuccessBg", text);
+++        return (text) => theme.fg("success", text);
++     }
++     if (settledError) {
++-        return (text) => theme.bg("toolErrorBg", text);
+++        return (text) => theme.fg("error", text);
++     }
++-    return (text) => theme.bg("toolPendingBg", text);
+++    return (text) => theme.fg("accent", text);
++ }
++ function buildEditCallComponent(component, args, theme) {
++     component.setBgFn(getEditHeaderBg(component.preview, component.settledError, theme));
++diff --git a/dist/modes/interactive/components/branch-summary-message.js b/dist/modes/interactive/components/branch-summary-message.js
++index e23ca6db02a29814112dd4945bd868604eb6676f..d0f6fd7aeb79c6a20655805152a30970f1b4cc2a 100644
++--- a/dist/modes/interactive/components/branch-summary-message.js
+++++ b/dist/modes/interactive/components/branch-summary-message.js
++@@ -10,7 +10,7 @@ export class BranchSummaryMessageComponent extends Box {
++     message;
++     markdownTheme;
++     constructor(message, markdownTheme = getMarkdownTheme()) {
++-        super(1, 1, (t) => theme.bg("customMessageBg", t));
+++        super(1, 1, (t) => theme.fg("accent", t));
++         this.message = message;
++         this.markdownTheme = markdownTheme;
++         this.updateDisplay();
++diff --git a/dist/modes/interactive/components/compaction-summary-message.js b/dist/modes/interactive/components/compaction-summary-message.js
++index 48c22718e1dff7cf4faa4cc09b8a917301b0d892..93b59defc4ecc9caf7faf907230260a1a3f7c477 100644
++--- a/dist/modes/interactive/components/compaction-summary-message.js
+++++ b/dist/modes/interactive/components/compaction-summary-message.js
++@@ -10,7 +10,7 @@ export class CompactionSummaryMessageComponent extends Box {
++     message;
++     markdownTheme;
++     constructor(message, markdownTheme = getMarkdownTheme()) {
++-        super(1, 1, (t) => theme.bg("customMessageBg", t));
+++        super(1, 1, (t) => theme.fg("accent", t));
++         this.message = message;
++         this.markdownTheme = markdownTheme;
++         this.updateDisplay();
++diff --git a/dist/modes/interactive/components/custom-message.js b/dist/modes/interactive/components/custom-message.js
++index 2d54902da1800044206eb1f00ca07501a7310145..44daf4982a5ab6f671f5bce373a94a310a52fc73 100644
++--- a/dist/modes/interactive/components/custom-message.js
+++++ b/dist/modes/interactive/components/custom-message.js
++@@ -18,7 +18,7 @@ export class CustomMessageComponent extends Container {
++         this.markdownTheme = markdownTheme;
++         this.addChild(new Spacer(1));
++         // Create box with purple background (used for default rendering)
++-        this.box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
+++        this.box = new Box(1, 1, (t) => theme.fg("accent", t));
++         this.rebuild();
++     }
++     setExpanded(expanded) {
++diff --git a/dist/modes/interactive/components/skill-invocation-message.js b/dist/modes/interactive/components/skill-invocation-message.js
++index 561f3d2540db0a8d934bc2bbecb097aaa7c88458..da4601b0aa0ea1145505300ba77485cfc5c48bb0 100644
++--- a/dist/modes/interactive/components/skill-invocation-message.js
+++++ b/dist/modes/interactive/components/skill-invocation-message.js
++@@ -11,7 +11,7 @@ export class SkillInvocationMessageComponent extends Box {
++     skillBlock;
++     markdownTheme;
++     constructor(skillBlock, markdownTheme = getMarkdownTheme()) {
++-        super(1, 1, (t) => theme.bg("customMessageBg", t));
+++        super(1, 1, (t) => theme.fg("accent", t));
++         this.skillBlock = skillBlock;
++         this.markdownTheme = markdownTheme;
++         this.updateDisplay();
++diff --git a/dist/modes/interactive/components/tool-execution.js b/dist/modes/interactive/components/tool-execution.js
++index e099877c0c53ea52f26eb1034ef7cd631371603f..69bf8eedf74f7f241b0136e844dad8a5144bc451 100644
++--- a/dist/modes/interactive/components/tool-execution.js
+++++ b/dist/modes/interactive/components/tool-execution.js
++@@ -43,8 +43,8 @@ export class ToolExecutionComponent extends Container {
++         // Always create all shell variants. contentBox is used for default renderer-based composition.
++         // selfRenderContainer is used when the tool renders its own framing.
++         // contentText is reserved for generic fallback rendering when no tool definition exists.
++-        this.contentBox = new Box(1, 1, (text) => theme.bg("toolPendingBg", text));
++-        this.contentText = new Text("", 1, 1, (text) => theme.bg("toolPendingBg", text));
+++        this.contentBox = new Box(1, 1, (text) => theme.fg("accent", text));
+++        this.contentText = new Text("", 1, 1, (text) => theme.fg("accent", text));
++         this.selfRenderContainer = new Container();
++         if (this.hasRendererDefinition()) {
++             this.addChild(this.getRenderShell() === "self" ? this.selfRenderContainer : this.contentBox);
++@@ -182,10 +182,10 @@ export class ToolExecutionComponent extends Container {
++     }
++     updateDisplay() {
++         const bgFn = this.isPartial
++-            ? (text) => theme.bg("toolPendingBg", text)
+++            ? (text) => theme.fg("accent", text)
++             : this.result?.isError
++-                ? (text) => theme.bg("toolErrorBg", text)
++-                : (text) => theme.bg("toolSuccessBg", text);
+++                ? (text) => theme.fg("error", text)
+++                : (text) => theme.fg("success", text);
++         let hasContent = false;
++         this.hideComponent = false;
++         if (this.hasRendererDefinition()) {
++diff --git a/dist/modes/interactive/components/user-message.js b/dist/modes/interactive/components/user-message.js
++index fe7086d4b68a38a945016ea4274f6c6a8093f5b5..2880acd74317eddfce891ef935fa16f093d45ade 100644
++--- a/dist/modes/interactive/components/user-message.js
+++++ b/dist/modes/interactive/components/user-message.js
++@@ -10,7 +10,7 @@ export class UserMessageComponent extends Container {
++     contentBox;
++     constructor(text, markdownTheme = getMarkdownTheme()) {
++         super();
++-        this.contentBox = new Box(1, 1, (content) => theme.bg("userMessageBg", content));
+++        this.contentBox = new Box(1, 1, (content) => theme.fg("accent", content));
++         this.contentBox.addChild(new Markdown(text, 0, 0, markdownTheme, {
++             color: (content) => theme.fg("userMessageText", content),
++         }));
+diff --git a/patches/@earendil-works__pi-tui.patch b/patches/@earendil-works__pi-tui.patch
+new file mode 100644
+index 00000000..1bbb66d2
+--- /dev/null
++++ b/patches/@earendil-works__pi-tui.patch
+@@ -0,0 +1,171 @@
++diff --git a/dist/components/box.js b/dist/components/box.js
++index 5de0f24bfe4e9ccb7b9476dae9ea55f882acce75..e8bf2e8986ec53c8189a58764e47e16d50d8793a 100644
++--- a/dist/components/box.js
+++++ b/dist/components/box.js
++@@ -1,4 +1,4 @@
++-import { applyBackgroundToLine, visibleWidth } from "../utils.js";
+++import { STROKE_WIDTH, applyStrokeToLine, visibleWidth } from "../utils.js";
++ /**
++  * Box component - a container that applies padding and background to all children
++  */
++@@ -54,7 +54,8 @@ export class Box {
++         if (this.children.length === 0) {
++             return [];
++         }
++-        const contentWidth = Math.max(1, width - this.paddingX * 2);
+++        const strokeWidth = this.bgFn ? STROKE_WIDTH : 0;
+++        const contentWidth = Math.max(1, width - this.paddingX * 2 - strokeWidth);
++         const leftPad = " ".repeat(this.paddingX);
++         // Render all children
++         const childLines = [];
++@@ -92,11 +93,12 @@ export class Box {
++         return result;
++     }
++     applyBg(line, width) {
+++        const strokeWidth = this.bgFn ? STROKE_WIDTH : 0;
++         const visLen = visibleWidth(line);
++-        const padNeeded = Math.max(0, width - visLen);
+++        const padNeeded = Math.max(0, width - visLen - strokeWidth);
++         const padded = line + " ".repeat(padNeeded);
++         if (this.bgFn) {
++-            return applyBackgroundToLine(padded, width, this.bgFn);
+++            return applyStrokeToLine(padded, width, this.paddingX, this.bgFn);
++         }
++         return padded;
++     }
++diff --git a/dist/components/markdown.js b/dist/components/markdown.js
++index 1f73455cddb2159279193624b6f703b9da275680..6446240059b47c4e729c4a03d29b32ba3fb25a4a 100644
++--- a/dist/components/markdown.js
+++++ b/dist/components/markdown.js
++@@ -1,6 +1,6 @@
++ import { Marked, Tokenizer } from "marked";
++ import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.js";
++-import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.js";
+++import { STROKE_WIDTH, applyStrokeToLine, visibleWidth, wrapTextWithAnsi } from "../utils.js";
++ const STRICT_STRIKETHROUGH_REGEX = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/;
++ class StrictStrikethroughTokenizer extends Tokenizer {
++     del(src) {
++@@ -54,7 +54,8 @@ export class Markdown {
++             return this.cachedLines;
++         }
++         // Calculate available width for content (subtract horizontal padding)
++-        const contentWidth = Math.max(1, width - this.paddingX * 2);
+++        const strokeWidth = this.defaultTextStyle?.bgColor ? STROKE_WIDTH : 0;
+++        const contentWidth = Math.max(1, width - this.paddingX * 2 - strokeWidth);
++         // Don't render anything if there's no actual text
++         if (!this.text || this.text.trim() === "") {
++             const result = [];
++@@ -101,21 +102,22 @@ export class Markdown {
++                 continue;
++             }
++             const lineWithMargins = leftMargin + line + rightMargin;
+++            const visibleLen = visibleWidth(lineWithMargins);
+++            const paddingNeeded = Math.max(0, width - visibleLen - strokeWidth);
+++            const padded = lineWithMargins + " ".repeat(paddingNeeded);
++             if (bgFn) {
++-                contentLines.push(applyBackgroundToLine(lineWithMargins, width, bgFn));
+++                contentLines.push(applyStrokeToLine(padded, width, this.paddingX, bgFn));
++             }
++             else {
++-                // No background - just pad to width
++-                const visibleLen = visibleWidth(lineWithMargins);
++-                const paddingNeeded = Math.max(0, width - visibleLen);
++-                contentLines.push(lineWithMargins + " ".repeat(paddingNeeded));
+++                contentLines.push(padded);
++             }
++         }
++         // Add top/bottom padding (empty lines)
++         const emptyLine = " ".repeat(width);
++         const emptyLines = [];
++         for (let i = 0; i < this.paddingY; i++) {
++-            const line = bgFn ? applyBackgroundToLine(emptyLine, width, bgFn) : emptyLine;
+++            const emptyPadded = leftMargin + " ".repeat(Math.max(0, width - this.paddingX - STROKE_WIDTH));
+++            const line = bgFn ? applyStrokeToLine(emptyPadded, width, this.paddingX, bgFn) : emptyLine;
++             emptyLines.push(line);
++         }
++         // Combine top padding, content, and bottom padding
++diff --git a/dist/components/text.js b/dist/components/text.js
++index 0d840239c41181e24dfc60237c3338081c6b48d5..85697c3aa728e9dda120d97234d407105f1c881d 100644
++--- a/dist/components/text.js
+++++ b/dist/components/text.js
++@@ -1,4 +1,4 @@
++-import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.js";
+++import { STROKE_PREFIX, STROKE_WIDTH, applyStrokeToLine, visibleWidth, wrapTextWithAnsi } from "../utils.js";
++ /**
++  * Text component - displays multi-line text with word wrapping
++  */
++@@ -50,7 +50,8 @@ export class Text {
++         // Replace tabs with 3 spaces
++         const normalizedText = this.text.replace(/\t/g, "   ");
++         // Calculate content width (subtract left/right margins)
++-        const contentWidth = Math.max(1, width - this.paddingX * 2);
+++        const strokeWidth = this.customBgFn ? STROKE_WIDTH : 0;
+++        const contentWidth = Math.max(1, width - this.paddingX * 2 - strokeWidth);
++         // Wrap text (this preserves ANSI codes but does NOT pad)
++         const wrappedLines = wrapTextWithAnsi(normalizedText, contentWidth);
++         // Add margins and background to each line
++@@ -60,22 +61,22 @@ export class Text {
++         for (const line of wrappedLines) {
++             // Add margins
++             const lineWithMargins = leftMargin + line + rightMargin;
++-            // Apply background if specified (this also pads to full width)
+++            const visibleLen = visibleWidth(lineWithMargins);
+++            const paddingNeeded = Math.max(0, width - visibleLen - strokeWidth);
+++            const padded = lineWithMargins + " ".repeat(paddingNeeded);
++             if (this.customBgFn) {
++-                contentLines.push(applyBackgroundToLine(lineWithMargins, width, this.customBgFn));
+++                contentLines.push(applyStrokeToLine(padded, width, this.paddingX, this.customBgFn));
++             }
++             else {
++-                // No background - just pad to width with spaces
++-                const visibleLen = visibleWidth(lineWithMargins);
++-                const paddingNeeded = Math.max(0, width - visibleLen);
++-                contentLines.push(lineWithMargins + " ".repeat(paddingNeeded));
+++                contentLines.push(padded);
++             }
++         }
++         // Add top/bottom padding (empty lines)
++         const emptyLine = " ".repeat(width);
++         const emptyLines = [];
++         for (let i = 0; i < this.paddingY; i++) {
++-            const line = this.customBgFn ? applyBackgroundToLine(emptyLine, width, this.customBgFn) : emptyLine;
+++            const emptyPadded = leftMargin + " ".repeat(Math.max(0, width - this.paddingX - STROKE_WIDTH));
+++            const line = this.customBgFn ? applyStrokeToLine(emptyPadded, width, this.paddingX, this.customBgFn) : emptyLine;
++             emptyLines.push(line);
++         }
++         const result = [...emptyLines, ...contentLines, ...emptyLines];
++diff --git a/dist/utils.js b/dist/utils.js
++index 9d00544d0858681339bb780057bda825f8054ca5..3a06068612dbea3a598c68a4dbfdb1702c80d19d 100644
++--- a/dist/utils.js
+++++ b/dist/utils.js
++@@ -764,6 +764,30 @@ export function applyBackgroundToLine(line, width, bgFn) {
++     const withPadding = line + padding;
++     return bgFn(withPadding);
++ }
+++/** Stroke character used for edge indicator */
+++export const STROKE_PREFIX = "▍ ";
+++/** Width of the stroke in character cells */
+++export const STROKE_WIDTH = 2;
+++/**
+++ * Apply a left-edge stroke to a pre-padded line.
+++ * If the line is too narrow for the stroke to fit without overflow,
+++ * returns spaces of the full width instead.
+++ *
+++ * @param padded - Line already padded to full visible width (may contain ANSI codes)
+++ * @param width - Total target width
+++ * @param paddingX - Left padding to preserve before the stroke
+++ * @param colorFn - Color function to apply to the stroke
+++ * @returns Line with left-edge stroke applied
+++ */
+++export function applyStrokeToLine(padded, width, paddingX, colorFn) {
+++    // Guard: if too narrow, skip coloring to avoid overflow
+++    if (width <= paddingX + STROKE_WIDTH) {
+++        return " ".repeat(width);
+++    }
+++    const prefix = padded.slice(0, paddingX);
+++    const rest = padded.slice(paddingX);
+++    return prefix + colorFn(STROKE_PREFIX) + rest;
+++}
++ /**
++  * Truncate text to fit within a maximum visible width, adding ellipsis if needed.
++  * Optionally pad with spaces to reach exactly maxWidth.
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index f09875c8..5fda27ff 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -6,8 +6,11 @@ settings:
+ 
+ patchedDependencies:
+   '@earendil-works/pi-coding-agent':
+-    hash: 33a0c3e13cc04cb66302023b9c7d9ae5af70a78c076e88c8b1124de922cd94e9
++    hash: bfe614021e3f7c6dd196bece1a61f27bf88584dae8e2cebc720678f890d287ab
+     path: patches/@earendil-works__pi-coding-agent.patch
++  '@earendil-works/pi-tui':
++    hash: e432fee0f54b7321d104a08ff5a38561d9c2cd3b002f34e6b8cbc2377889c9d2
++    path: patches/@earendil-works__pi-tui.patch
+ 
+ importers:
+ 
+@@ -21,10 +24,10 @@ importers:
+         version: 1.3.0
+       '@earendil-works/pi-coding-agent':
+         specifier: ^0.75.1
+-        version: 0.75.1(patch_hash=33a0c3e13cc04cb66302023b9c7d9ae5af70a78c076e88c8b1124de922cd94e9)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.20.1)(zod@4.4.3)
++        version: 0.75.1(patch_hash=bfe614021e3f7c6dd196bece1a61f27bf88584dae8e2cebc720678f890d287ab)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.20.1)(zod@4.4.3)
+       '@earendil-works/pi-tui':
+         specifier: ^0.75.1
+-        version: 0.75.1
++        version: 0.75.1(patch_hash=e432fee0f54b7321d104a08ff5a38561d9c2cd3b002f34e6b8cbc2377889c9d2)
+       '@modelcontextprotocol/ext-apps':
+         specifier: ^1.7.1
+         version: 1.7.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.4.3)
+@@ -2186,11 +2189,11 @@ snapshots:
+       - ws
+       - zod
+ 
+-  '@earendil-works/pi-coding-agent@0.75.1(patch_hash=33a0c3e13cc04cb66302023b9c7d9ae5af70a78c076e88c8b1124de922cd94e9)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.20.1)(zod@4.4.3)':
++  '@earendil-works/pi-coding-agent@0.75.1(patch_hash=bfe614021e3f7c6dd196bece1a61f27bf88584dae8e2cebc720678f890d287ab)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.20.1)(zod@4.4.3)':
+     dependencies:
+       '@earendil-works/pi-agent-core': 0.75.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.20.1)(zod@4.4.3)
+       '@earendil-works/pi-ai': 0.75.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.20.1)(zod@4.4.3)
+-      '@earendil-works/pi-tui': 0.75.1
++      '@earendil-works/pi-tui': 0.75.1(patch_hash=e432fee0f54b7321d104a08ff5a38561d9c2cd3b002f34e6b8cbc2377889c9d2)
+       '@silvia-odwyer/photon-node': 0.3.4
+       chalk: 5.6.2
+       diff: 8.0.4
+@@ -2214,7 +2217,7 @@ snapshots:
+       - ws
+       - zod
+ 
+-  '@earendil-works/pi-tui@0.75.1':
++  '@earendil-works/pi-tui@0.75.1(patch_hash=e432fee0f54b7321d104a08ff5a38561d9c2cd3b002f34e6b8cbc2377889c9d2)':
+     dependencies:
+       get-east-asian-width: 1.6.0
+       marked: 15.0.12

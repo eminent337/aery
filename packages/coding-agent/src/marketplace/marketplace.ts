@@ -26,7 +26,7 @@ function matchCompletionPrefix(items: AutocompleteItem[], prefix: string): Autoc
 	return matches.length > 0 ? matches : null;
 }
 
-function getMarketplaceArgumentCompletions(prefix: string): AutocompleteItem[] | null {
+export function getMarketplaceArgumentCompletions(prefix: string): AutocompleteItem[] | null {
 	const parts = prefix.trimStart().split(/\s+/);
 	if (parts.length <= 1) {
 		return matchCompletionPrefix(MARKETPLACE_SUBCOMMAND_COMPLETIONS, parts[0] || "");
@@ -143,7 +143,7 @@ export default function registerMarketplace(aery: ExtensionAPI) {
 		description:
 			"Browse, install, uninstall, update Aery extensions. Usage: /marketplace [install|uninstall|update|list|info] [name]",
 		getArgumentCompletions: getMarketplaceArgumentCompletions,
-		handler: async (args: string) => {
+		handler: async (args: string, ctx) => {
 			const parts = args.trim().split(/\s+/);
 			const sub = parts[0]?.toLowerCase() ?? "";
 			const packArg = parts[1]?.toLowerCase() ?? "";
@@ -223,7 +223,7 @@ export default function registerMarketplace(aery: ExtensionAPI) {
 					const options = availablePacks
 						.filter(([, p]) => !p.coming_soon)
 						.map(([name, p]) => formatPack(name, p, isInstalled(name, p)));
-					const choice = await (aery as any).ui?.select("Select extension to install:", options);
+					const choice = await ctx.ui.select("Select extension to install:", options);
 					if (!choice) return;
 					packName = choice.split(" ").slice(1)[0]?.replace(/\s.*/, "") ?? "";
 					pack = registry.packs[packName];
@@ -279,7 +279,7 @@ export default function registerMarketplace(aery: ExtensionAPI) {
 						const p = registry.packs[i.name];
 						return p ? formatPack(i.name, p, true) : `◆ ${i.name} [ext] ✓`;
 					});
-					const choice = await (aery as any).ui?.select("Select extension to uninstall:", options);
+					const choice = await ctx.ui.select("Select extension to uninstall:", options);
 					if (!choice) return;
 					packName = choice.split(" ").slice(1)[0]?.replace(/\s.*/, "") ?? "";
 					pack = registry.packs[packName];
@@ -346,7 +346,7 @@ export default function registerMarketplace(aery: ExtensionAPI) {
 						return new MarketplaceGrid(tui, availablePacks, getInstalledPacks(), done);
 					},
 					{ overlay: true },
-				)) ?? (await (aery as any).ui?.select("🛒 Aery Marketplace", options));
+				)) ?? (await ctx.ui.select("Aery Extensions:", options));
 
 			if (!choice) return;
 

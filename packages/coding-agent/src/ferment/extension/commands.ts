@@ -79,7 +79,7 @@ function fermentTargetCompletions(verb: "switch" | "delete", prefix: string): Au
 	return matches.length > 0 ? matches : null;
 }
 
-function getFermentArgumentCompletions(prefix: string): AutocompleteItem[] | null {
+export function getFermentArgumentCompletions(prefix: string): AutocompleteItem[] | null {
 	const trimmedStart = prefix.trimStart();
 	const lower = trimmedStart.toLowerCase();
 
