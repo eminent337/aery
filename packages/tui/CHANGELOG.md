@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added Zellij and WezTerm pane environment fallbacks for terminal-specific session continuation when no TTY path is available.
+
+### Fixed
+
+- Fixed progressive enhancement keyboard negotiation for Zellij by correctly probing capabilities and interpreting "no kitty support" fallback paths.
+
 ## [15.8.1] - 2026-06-02
 
 ### Fixed

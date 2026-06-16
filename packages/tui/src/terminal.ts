@@ -493,16 +493,22 @@ export class ProcessTerminal implements Terminal {
 				// the flag value. Pick the level we want; `\x1b[>Nu` pushes one frame
 				// that shutdown's single `\x1b[<u` pop balances.
 				const reportedFlags = parseInt(match[1]!, 10);
-				this.#kittyProtocolActive = true;
-				setKittyProtocolActive(true);
 				if (reportedFlags >= 3) {
 					// Already enriched (Ghostty/foot may keep flags from a parent app).
 					// Push level-2 to lock in event reporting.
+					this.#kittyProtocolActive = true;
+					setKittyProtocolActive(true);
 					this.#safeWrite("\x1b[>7u");
-				} else {
+				} else if (reportedFlags >= 1) {
 					// Level 1 (disambiguate escape codes) — enough for Shift+Enter
 					// without the modifyOtherKeys fallback that caused regression #3259.
+					this.#kittyProtocolActive = true;
+					setKittyProtocolActive(true);
 					this.#safeWrite("\x1b[>1u");
+				} else if (reportedFlags === 0) {
+					// Terminal explicitly says "no kitty support" (flag 0)
+					this.#safeWrite("\x1b[>4;2m");
+					this.#modifyOtherKeysActive = true;
 				}
 				return;
 			}
