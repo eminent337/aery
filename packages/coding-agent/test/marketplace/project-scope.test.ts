@@ -19,6 +19,7 @@ import {
 	readInstalledPluginsRegistry,
 	writeInstalledPluginsRegistry,
 } from "@aryee337/aery/extensibility/plugins/marketplace";
+import { getConfigDirName } from "@aryee337/aery-utils";
 import {
 	clearClaudePluginRootsCache,
 	listClaudePluginRoots,
@@ -44,6 +45,9 @@ describe("resolveActiveProjectRegistryPath", () => {
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aery-proj-scope-"));
+		try {
+			fs.rmSync(path.join(os.tmpdir(), getConfigDirName()), { recursive: true, force: true });
+		} catch {}
 	});
 
 	afterEach(() => {

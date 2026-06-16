@@ -23,6 +23,8 @@ import type {
 export interface HistoryFormatOptions {
 	/** Optional H1 prepended to the transcript. */
 	title?: string;
+	/** Render assistant thinking blocks (default: elided). */
+	includeThinking?: boolean;
 }
 
 /** Max length of the primary-arg summary inside `→ tool(...)` lines. */
@@ -195,8 +197,10 @@ export function formatSessionHistoryMarkdown(messages: unknown[], opts?: History
 						const result = resultsByCallId.get(block.id);
 						if (result) consumed.add(block.id);
 						body.push(toolCallLine(block.name, block.arguments, result));
+					} else if (opts?.includeThinking && block.type === "thinking" && block.thinking.trim()) {
+						body.push(`_thinking:_ ${block.thinking}`);
 					}
-					// thinking / redactedThinking elided entirely
+					// redactedThinking elided entirely (no readable text)
 				}
 				if (body.length === 0) break;
 				lines.push("## assistant", "", ...body, "");

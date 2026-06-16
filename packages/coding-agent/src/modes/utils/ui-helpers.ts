@@ -1,8 +1,10 @@
 import type { AssistantMessage, ImageContent, Message } from "@aryee337/aery-ai";
 import type { AgentMessage } from "@aryee337/aery-core";
 import { type Component, Spacer, Text, TruncatedText } from "@aryee337/aery-tui";
+import type { AdvisorMessageDetails } from "../../advisor";
 import { settings } from "../../config/settings";
 import { getFileSnapshotStore } from "../../edit/file-snapshot-store";
+import { createAdvisorMessageCard } from "../../modes/components/advisor-message";
 import { AssistantMessageComponent } from "../../modes/components/assistant-message";
 import { BashExecutionComponent } from "../../modes/components/bash-execution";
 import { BranchSummaryMessageComponent } from "../../modes/components/branch-summary-message";
@@ -203,6 +205,12 @@ export class UiHelpers {
 							}
 						}
 						return components;
+					}
+					if (message.customType === "advisor") {
+						const details = (message as CustomMessage<AdvisorMessageDetails>).details;
+						const card = createAdvisorMessageCard(details, () => this.ctx.toolOutputExpanded, theme);
+						this.ctx.chatContainer.addChild(card);
+						return [card];
 					}
 					const renderer = this.ctx.session.extensionRunner?.getMessageRenderer(message.customType);
 					// Both HookMessage and CustomMessage have the same structure, cast for compatibility
