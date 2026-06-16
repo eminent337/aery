@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -17,6 +17,12 @@ import type { Ferment } from "../../../src/ferment/types.js";
 
 // Clear any residual state from parallel test runs
 clearActive();
+
+const originalOpen = FermentStore.open;
+afterEach(() => {
+	clearActive();
+	FermentStore.open = originalOpen;
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
