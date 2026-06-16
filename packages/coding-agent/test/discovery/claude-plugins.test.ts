@@ -9,6 +9,7 @@ import {
 	listClaudePluginRoots,
 	parseClaudePluginsRegistry,
 } from "@aryee337/aery/discovery/helpers";
+import { expandSlashCommand, loadSlashCommands } from "@aryee337/aery/extensibility/slash-commands";
 import { discoverAgents } from "@aryee337/aery/task/discovery";
 import "@aryee337/aery/discovery/claude-plugins";
 import type { Skill } from "@aryee337/aery/capability/skill";
@@ -354,6 +355,39 @@ describe("listClaudePluginRoots", () => {
 
 		expect(found).toBeDefined();
 		expect(found?.path).toContain(path.join(".claude", "skills", "manifest-skill", "SKILL.md"));
+	});
+	test("exposes plugin skills as bare slash commands", async () => {
+		const pluginsDir = path.join(tempDir, ".claude", "plugins");
+		const pluginPath = path.join(tempDir, ".claude", "plugins", "cache", "plugins", "understand-anything");
+		await fs.mkdir(pluginsDir, { recursive: true });
+		await fs.mkdir(path.join(pluginPath, "skills", "understand"), { recursive: true });
+
+		const registry = {
+			version: 2,
+			plugins: {
+				"understand-anything@understand-anything": [
+					{
+						scope: "user",
+						installPath: pluginPath,
+						version: "2.7.7",
+						installedAt: "2026-06-12T00:00:00Z",
+						lastUpdated: "2026-06-12T00:00:00Z",
+					},
+				],
+			},
+		};
+
+		await fs.writeFile(path.join(pluginsDir, "installed_plugins.json"), JSON.stringify(registry));
+		await fs.writeFile(
+			path.join(pluginPath, "skills", "understand", "SKILL.md"),
+			"---\nname: understand\ndescription: Build an understanding graph\n---\nAnalyze the project.\n",
+		);
+
+		const commands = await loadSlashCommands({ cwd: tempDir });
+		const found = commands.find(command => command.name === "understand");
+
+		expect(found?.description).toBe("Build an understanding graph");
+		expect(expandSlashCommand("/understand --language zh", commands)).toContain("Analyze the project.");
 	});
 
 	test("reads slash commands directory from plugin manifest slash-commands field", async () => {

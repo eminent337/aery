@@ -42,10 +42,11 @@ import type {
 	SlashCommandResult,
 	SlashCommandRuntime,
 	SlashCommandSpec,
+	SubcommandDef,
 	TuiSlashCommandRuntime,
 } from "./types";
 
-export type { BuiltinSlashCommand, SubcommandDef } from "./types";
+export type { BuiltinSlashCommand, SubcommandDef };
 
 /** TUI-specific runtime accepted by `executeBuiltinSlashCommand`. */
 export type BuiltinSlashCommandRuntime = TuiSlashCommandRuntime;
