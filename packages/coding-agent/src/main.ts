@@ -40,6 +40,7 @@ import {
 	preloadPluginRoots,
 	resolveActiveProjectRegistryPath,
 } from "./discovery/helpers";
+import { registerKimchiModels } from "./discovery/kimchi";
 import { exportFromFile } from "./export/html";
 import { ExtensionRunner } from "./extensibility/extensions/runner";
 import type { ExtensionUIContext } from "./extensibility/extensions/types";
@@ -733,6 +734,8 @@ export async function runRootCommand(
 	// Create AuthStorage and ModelRegistry upfront
 	const authStorage = await logger.time("discoverModels", deps.discoverAuthStorage ?? discoverAuthStorage);
 	const modelRegistry = new ModelRegistry(authStorage);
+	// Register kimchi/CastAI models at startup so they persist across restarts
+	registerKimchiModels(modelRegistry);
 
 	if (parsedArgs.version) {
 		process.stdout.write(`${VERSION}\n`);
