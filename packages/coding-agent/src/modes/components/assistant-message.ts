@@ -8,6 +8,9 @@ import { getMarkdownTheme, theme } from "../../modes/theme/theme";
 import { isSilentAbort } from "../../session/messages";
 import { resolveImageOptions } from "../../tools/render-utils";
 
+const THINKING_DOTS_FRAMES = ["▁", "▃", "▄", "▃"] as const;
+const THINKING_DOTS_FRAME_MS = 320;
+
 /**
  * Component that renders a complete assistant message
  */
@@ -18,6 +21,10 @@ export class AssistantMessageComponent extends Container {
 	#usageInfo?: Usage;
 	#convertedKittyImages = new Map<string, ImageContent>();
 	#kittyConversionsInFlight = new Set<string>();
+	#thinkingDotsTimer?: ReturnType<typeof setInterval>;
+	#thinkingDotsFrame = 0;
+	#thinkingDots?: Text;
+	#transcriptBlockFinalized = false;
 
 	constructor(
 		message?: AssistantMessage,
@@ -72,6 +79,54 @@ export class AssistantMessageComponent extends Container {
 
 	setHideThinkingBlock(hide: boolean): void {
 		this.hideThinkingBlock = hide;
+	}
+
+	markTranscriptBlockFinalized(): void {
+		this.#transcriptBlockFinalized = true;
+		this.#stopThinkingAnimation();
+		if (this.#thinkingDots) {
+			if (this.#lastMessage) this.updateContent(this.#lastMessage);
+		}
+	}
+
+	#shouldAnimateThinking(message: AssistantMessage): boolean {
+		if (!this.hideThinkingBlock || this.#transcriptBlockFinalized) return false;
+		let tail: "text" | "thinking" | undefined;
+		for (const content of message.content) {
+			if (content.type === "toolCall") return false;
+			if (content.type === "text" && content.text.trim()) tail = "text";
+			else if (content.type === "thinking" && content.thinking.trim()) tail = "thinking";
+		}
+		return tail === "thinking";
+	}
+
+	#thinkingDotsLabel(): string {
+		const glyph = THINKING_DOTS_FRAMES[this.#thinkingDotsFrame % THINKING_DOTS_FRAMES.length] ?? "…";
+		return theme.fg("thinkingText", glyph);
+	}
+
+	#startThinkingAnimation(): void {
+		if (this.#thinkingDotsTimer) return;
+		this.#thinkingDotsTimer = setInterval(() => this.#advanceThinkingDots(), THINKING_DOTS_FRAME_MS);
+		this.#thinkingDotsTimer.unref?.();
+	}
+
+	#advanceThinkingDots(): void {
+		if (!this.#thinkingDots) {
+			this.#stopThinkingAnimation();
+			return;
+		}
+		this.#thinkingDotsFrame = (this.#thinkingDotsFrame + 1) % THINKING_DOTS_FRAMES.length;
+		this.#thinkingDots.setText(this.#thinkingDotsLabel());
+		this.onImageUpdate?.();
+	}
+
+	#stopThinkingAnimation(): void {
+		if (this.#thinkingDotsTimer) {
+			clearInterval(this.#thinkingDotsTimer);
+			this.#thinkingDotsTimer = undefined;
+		}
+		this.#thinkingDotsFrame = 0;
 	}
 
 	setToolResultImages(toolCallId: string, images: ImageContent[]): void {
@@ -187,6 +242,7 @@ export class AssistantMessageComponent extends Container {
 
 		// Clear content container
 		this.#contentContainer.clear();
+		this.#thinkingDots = undefined;
 
 		const hasVisibleContent = message.content.some(
 			c => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()),
@@ -232,6 +288,15 @@ export class AssistantMessageComponent extends Container {
 					}
 				}
 			}
+		}
+
+		if (this.#shouldAnimateThinking(message)) {
+			if (hasVisibleContent) this.#contentContainer.addChild(new Spacer(1));
+			this.#thinkingDots = new Text(this.#thinkingDotsLabel(), 1, 0);
+			this.#contentContainer.addChild(this.#thinkingDots);
+			this.#startThinkingAnimation();
+		} else {
+			this.#stopThinkingAnimation();
 		}
 
 		this.#renderToolImages();
