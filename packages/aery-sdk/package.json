@@ -1,6 +1,6 @@
 {
   "name": "@aryee337/aery-sdk",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Official Aery Plugin SDK \u2014 build extensions, tools, and commands for the Aery OS",
   "type": "module",
   "main": "./src/index.ts",

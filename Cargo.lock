@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aery-ast"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "ast-grep-core",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "aery-engine"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "aery-ast",
  "aery-iso",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "aery-iso"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "async-trait",
  "libc",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "aery-shell"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "brush-builtins",
