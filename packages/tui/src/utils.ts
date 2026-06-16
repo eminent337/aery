@@ -380,6 +380,37 @@ export function applyBackgroundToLine(line: string, width: number, bgFn: (text: 
 	return bgFn(withPadding);
 }
 
+/** Stroke character used for edge indicator */
+export const STROKE_PREFIX = "▍ ";
+/** Width of the stroke in character cells */
+export const STROKE_WIDTH = 2;
+
+/**
+ * Apply a left-edge stroke to a pre-padded line.
+ * If the line is too narrow for the stroke to fit without overflow,
+ * returns spaces of the full width instead.
+ *
+ * @param padded - Line already padded to full visible width (may contain ANSI codes)
+ * @param width - Total target width
+ * @param paddingX - Left padding to preserve before the stroke
+ * @param colorFn - Color function to apply to the stroke
+ * @returns Line with left-edge stroke applied
+ */
+export function applyStrokeToLine(
+	padded: string,
+	width: number,
+	paddingX: number,
+	colorFn: (text: string) => string,
+): string {
+	// Guard: if too narrow, skip coloring to avoid overflow
+	if (width <= paddingX + STROKE_WIDTH) {
+		return padding(width);
+	}
+	const prefix = padded.slice(0, paddingX);
+	const rest = padded.slice(paddingX);
+	return prefix + colorFn(STROKE_PREFIX) + rest;
+}
+
 /**
  * Extract a range of visible columns from a line. Handles ANSI codes and wide chars.
  *

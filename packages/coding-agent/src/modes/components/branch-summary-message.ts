@@ -10,7 +10,7 @@ export class BranchSummaryMessageComponent extends Box {
 	#expanded = false;
 
 	constructor(private readonly message: BranchSummaryMessage) {
-		super(1, 1, t => theme.bg("customMessageBg", t));
+		super(1, 1, t => theme.fg("accent", t));
 		this.#updateDisplay();
 	}
 

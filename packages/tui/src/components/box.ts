@@ -1,5 +1,5 @@
 import type { Component } from "../tui";
-import { applyBackgroundToLine, padding, visibleWidth } from "../utils";
+import { applyStrokeToLine, padding, STROKE_WIDTH, visibleWidth } from "../utils";
 
 type Cache = {
 	key: bigint | number;
@@ -81,7 +81,8 @@ export class Box implements Component {
 			return [];
 		}
 
-		const contentWidth = Math.max(1, width - this.#paddingX * 2);
+		const strokeWidth = this.#bgFn ? STROKE_WIDTH : 0;
+		const contentWidth = Math.max(1, width - this.#paddingX * 2 - strokeWidth);
 		const leftPad = padding(this.#paddingX);
 
 		// Render all children
@@ -132,12 +133,13 @@ export class Box implements Component {
 	}
 
 	#applyBg(line: string, width: number): string {
+		const strokeWidth = this.#bgFn ? STROKE_WIDTH : 0;
 		const visLen = visibleWidth(line);
-		const padNeeded = Math.max(0, width - visLen);
+		const padNeeded = Math.max(0, width - visLen - strokeWidth);
 		const padded = line + padding(padNeeded);
 
 		if (this.#bgFn) {
-			return applyBackgroundToLine(padded, width, this.#bgFn);
+			return applyStrokeToLine(padded, width, this.#paddingX, this.#bgFn);
 		}
 		return padded;
 	}

@@ -227,8 +227,8 @@ export class ToolExecutionComponent extends Container {
 		this.addChild(new Spacer(1));
 
 		// Always create both - contentBox for custom tools/bash/tools with renderers, contentText for other built-ins
-		this.#contentBox = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
-		this.#contentText = new Text("", 1, 1, (text: string) => theme.bg("toolPendingBg", text));
+		this.#contentBox = new Box(1, 1, (text: string) => theme.fg("accent", text));
+		this.#contentText = new Text("", 1, 1, (text: string) => theme.fg("accent", text));
 
 		// Use Box for custom tools or built-in tools that have renderers
 		const hasRenderer = toolName in toolRenderers;
@@ -516,10 +516,10 @@ export class ToolExecutionComponent extends Container {
 	#updateDisplay(): void {
 		// Set background based on state
 		const bgFn = this.#isPartial
-			? (text: string) => theme.bg("toolPendingBg", text)
+			? (text: string) => theme.fg("accent", text)
 			: this.#result?.isError
-				? (text: string) => theme.bg("toolErrorBg", text)
-				: (text: string) => theme.bg("toolSuccessBg", text);
+				? (text: string) => theme.fg("error", text)
+				: (text: string) => theme.fg("success", text);
 
 		// Sync shared mutable render state for component closures
 		this.#renderState.expanded = this.#expanded;
@@ -625,8 +625,8 @@ export class ToolExecutionComponent extends Container {
 						this.addChild(spacer);
 					}
 					const fileBgFn = fileResult.isError
-						? (text: string) => theme.bg("toolErrorBg", text)
-						: (text: string) => theme.bg("toolSuccessBg", text);
+						? (text: string) => theme.fg("error", text)
+						: (text: string) => theme.fg("success", text);
 					const fileBox = new Box(1, 1, fileBgFn);
 					try {
 						const resultComponent = renderer.renderResult(
@@ -653,7 +653,7 @@ export class ToolExecutionComponent extends Container {
 					const pendingSpacer = new Spacer(1);
 					this.#multiFileBoxes.push(pendingSpacer);
 					this.addChild(pendingSpacer);
-					const pendingBox = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
+					const pendingBox = new Box(1, 1, (text: string) => theme.fg("accent", text));
 					const pendingText = renderStatusLine(
 						{
 							icon: "pending",

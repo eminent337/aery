@@ -3,7 +3,7 @@ import { Marked, marked, type Token, Tokenizer, type Tokens } from "marked";
 import type { SymbolTheme } from "../symbols";
 import { TERMINAL } from "../terminal-capabilities";
 import type { Component } from "../tui";
-import { applyBackgroundToLine, padding, replaceTabs, visibleWidth, wrapTextWithAnsi } from "../utils";
+import { applyStrokeToLine, padding, replaceTabs, STROKE_WIDTH, visibleWidth, wrapTextWithAnsi } from "../utils";
 
 const STRICT_STRIKETHROUGH_REGEX = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/;
 
@@ -256,7 +256,8 @@ export class Markdown implements Component {
 		}
 
 		// Calculate available width for content (subtract horizontal padding)
-		const contentWidth = Math.max(1, width - this.#paddingX * 2);
+		const strokeWidth = this.#defaultTextStyle?.bgColor ? STROKE_WIDTH : 0;
+		const contentWidth = Math.max(1, width - this.#paddingX * 2 - strokeWidth);
 
 		// Don't render anything if there's no actual text
 		if (!this.#text || this.#text.trim() === "") {
@@ -333,14 +334,14 @@ export class Markdown implements Component {
 			}
 
 			const lineWithMargins = leftMargin + line + rightMargin;
+			const visibleLen = visibleWidth(lineWithMargins);
+			const paddingNeeded = Math.max(0, width - visibleLen - strokeWidth);
+			const padded = lineWithMargins + padding(paddingNeeded);
 
 			if (bgFn) {
-				contentLines.push(applyBackgroundToLine(lineWithMargins, width, bgFn));
+				contentLines.push(applyStrokeToLine(padded, width, this.#paddingX, bgFn));
 			} else {
-				// No background - just pad to width
-				const visibleLen = visibleWidth(lineWithMargins);
-				const paddingNeeded = Math.max(0, width - visibleLen);
-				contentLines.push(lineWithMargins + padding(paddingNeeded));
+				contentLines.push(padded);
 			}
 		}
 
@@ -348,7 +349,8 @@ export class Markdown implements Component {
 		const emptyLine = padding(width);
 		const emptyLines: string[] = [];
 		for (let i = 0; i < this.#paddingY; i++) {
-			const line = bgFn ? applyBackgroundToLine(emptyLine, width, bgFn) : emptyLine;
+			const emptyPadded = leftMargin + padding(Math.max(0, width - this.#paddingX - STROKE_WIDTH));
+			const line = bgFn ? applyStrokeToLine(emptyPadded, width, this.#paddingX, bgFn) : emptyLine;
 			emptyLines.push(line);
 		}
 

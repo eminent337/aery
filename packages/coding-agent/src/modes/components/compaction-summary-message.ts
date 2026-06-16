@@ -10,7 +10,7 @@ export class CompactionSummaryMessageComponent extends Box {
 	#expanded = false;
 
 	constructor(private readonly message: CompactionSummaryMessage) {
-		super(1, 1, t => theme.bg("customMessageBg", t));
+		super(1, 1, t => theme.fg("accent", t));
 		this.#updateDisplay();
 	}
 

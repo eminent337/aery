@@ -1,5 +1,5 @@
 import type { Component } from "../tui";
-import { applyBackgroundToLine, padding, replaceTabs, visibleWidth, wrapTextWithAnsi } from "../utils";
+import { applyStrokeToLine, padding, replaceTabs, STROKE_WIDTH, visibleWidth, wrapTextWithAnsi } from "../utils";
 
 /**
  * Text component - displays multi-line text with word wrapping
@@ -65,7 +65,8 @@ export class Text implements Component {
 		const normalizedText = replaceTabs(this.#text);
 
 		// Calculate content width (subtract left/right margins)
-		const contentWidth = Math.max(1, width - this.#paddingX * 2);
+		const strokeWidth = this.#customBgFn ? STROKE_WIDTH : 0;
+		const contentWidth = Math.max(1, width - this.#paddingX * 2 - strokeWidth);
 
 		// Wrap text (this preserves ANSI codes but does NOT pad)
 		const wrappedLines = wrapTextWithAnsi(normalizedText, contentWidth);
@@ -80,13 +81,13 @@ export class Text implements Component {
 			const lineWithMargins = leftMargin + line + rightMargin;
 
 			// Apply background if specified (this also pads to full width)
+			const visibleLen = visibleWidth(lineWithMargins);
+			const paddingNeeded = Math.max(0, width - visibleLen - strokeWidth);
+			const padded = lineWithMargins + padding(paddingNeeded);
 			if (this.#customBgFn) {
-				contentLines.push(applyBackgroundToLine(lineWithMargins, width, this.#customBgFn));
+				contentLines.push(applyStrokeToLine(padded, width, this.#paddingX, this.#customBgFn));
 			} else {
-				// No background - just pad to width with spaces
-				const visibleLen = visibleWidth(lineWithMargins);
-				const paddingNeeded = Math.max(0, width - visibleLen);
-				contentLines.push(lineWithMargins + padding(paddingNeeded));
+				contentLines.push(padded);
 			}
 		}
 
@@ -94,7 +95,10 @@ export class Text implements Component {
 		const emptyLine = padding(width);
 		const emptyLines: string[] = [];
 		for (let i = 0; i < this.#paddingY; i++) {
-			const line = this.#customBgFn ? applyBackgroundToLine(emptyLine, width, this.#customBgFn) : emptyLine;
+			const emptyPadded = leftMargin + padding(Math.max(0, width - this.#paddingX - STROKE_WIDTH));
+			const line = this.#customBgFn
+				? applyStrokeToLine(emptyPadded, width, this.#paddingX, this.#customBgFn)
+				: emptyLine;
 			emptyLines.push(line);
 		}
 
