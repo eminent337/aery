@@ -6,6 +6,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { $env, Snowflake } from "@aryee337/aery-utils";
+import { detectMultiplexer, openMultiplexerPane } from "./terminal-multiplexer.js";
+
+export { detectMultiplexer, type MultiplexerInfo } from "./terminal-multiplexer.js";
 
 /** Returns the user's preferred editor command, or undefined if not configured. */
 export function getEditorCommand(): string | undefined {
@@ -15,10 +18,17 @@ export function getEditorCommand(): string | undefined {
 export interface OpenInEditorOptions {
 	/** File extension for the temp file (default: ".md"). */
 	extension?: string;
-	/** Custom stdio configuration (default: all "inherit"). */
+	/** Custom stdio configuration (default: all "inherit"). Only used for direct (non-multiplexer) spawn. */
 	stdio?: [number | "inherit", number | "inherit", number | "inherit"];
 	/** Keep the file's trailing newline instead of trimming it from the returned text. */
 	trimTrailingNewline?: boolean;
+	/**
+	 * Whether to open in a multiplexer pane when one is detected.
+	 * - `"auto"` (default): detect and use if available.
+	 * - `true`: always try multiplexer (fails if none detected).
+	 * - `false`: never use multiplexer; spawn directly.
+	 */
+	useMultiplexer?: boolean | "auto";
 }
 
 /**
@@ -26,6 +36,8 @@ export interface OpenInEditorOptions {
  * Returns `null` if the editor exits with a non-zero code.
  *
  * The caller is responsible for stopping/starting the TUI around this call.
+ * Callers can use {@link detectMultiplexer} beforehand to know whether a
+ * pane will be used and skip TUI stop/start accordingly.
  */
 export async function openInEditor(
 	editorCmd: string,
@@ -38,14 +50,29 @@ export async function openInEditor(
 	try {
 		await Bun.write(tmpFile, content);
 
-		const [editor, ...editorArgs] = editorCmd.split(" ");
-		const stdio = options?.stdio ?? ["inherit", "inherit", "inherit"];
+		const mux =
+			options?.useMultiplexer !== false ? (options?.useMultiplexer === true ? detectMultiplexer() : detectMultiplexer()) : null;
 
-		const child = spawn(editor, [...editorArgs, tmpFile], { stdio, shell: process.platform === "win32" });
-		const { promise, reject, resolve } = Promise.withResolvers<number>();
-		child.once("exit", (code, signal) => resolve(code ?? (signal ? -1 : 0)));
-		child.once("error", error => reject(error));
-		const exitCode = await promise;
+		let exitCode: number;
+		if (mux) {
+			const result = await openMultiplexerPane(mux, {
+				editorCmd,
+				filePath: tmpFile,
+			});
+			exitCode = result.exitCode;
+		} else {
+			if (options?.useMultiplexer === true) {
+				throw new Error("No supported terminal multiplexer detected.");
+			}
+			const [editor, ...editorArgs] = editorCmd.split(" ");
+			const stdio = options?.stdio ?? ["inherit", "inherit", "inherit"];
+
+			const child = spawn(editor, [...editorArgs, tmpFile], { stdio, shell: process.platform === "win32" });
+			const { promise, reject, resolve } = Promise.withResolvers<number>();
+			child.once("exit", (code, signal) => resolve(code ?? (signal ? -1 : 0)));
+			child.once("error", error => reject(error));
+			exitCode = await promise;
+		}
 
 		if (exitCode === 0) {
 			const text = await Bun.file(tmpFile).text();

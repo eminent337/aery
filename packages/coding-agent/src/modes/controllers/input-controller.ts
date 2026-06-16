@@ -16,7 +16,7 @@ import { isTinyTitleLocalModelKey } from "../../tiny/models";
 import { tinyTitleClient } from "../../tiny/title-client";
 import type { TinyTitleProgressEvent } from "../../tiny/title-protocol";
 import { copyToClipboard, readImageFromClipboard, readTextFromClipboard } from "../../utils/clipboard";
-import { getEditorCommand, openInEditor } from "../../utils/external-editor";
+import { getEditorCommand, openInEditor, detectMultiplexer } from "../../utils/external-editor";
 import { ensureSupportedImageInput } from "../../utils/image-loading";
 import { resizeImage } from "../../utils/image-resize";
 import { generateSessionTitle, setSessionTerminalTitle } from "../../utils/title-generator";
@@ -868,16 +868,20 @@ export class InputController {
 
 		const currentText = this.ctx.editor.getExpandedText?.() ?? this.ctx.editor.getText();
 
+		const mux = detectMultiplexer();
+
 		let ttyHandle: fs.FileHandle | null = null;
 		try {
 			ttyHandle = await this.#openEditorTerminalHandle();
-			this.ctx.ui.stop();
+			if (!mux) {
+				this.ctx.ui.stop();
+			}
 
 			const stdio: [number | "inherit", number | "inherit", number | "inherit"] = ttyHandle
 				? [ttyHandle.fd, ttyHandle.fd, ttyHandle.fd]
 				: ["inherit", "inherit", "inherit"];
 
-			const result = await openInEditor(editorCmd, currentText, { extension: ".aery.md", stdio });
+			const result = await openInEditor(editorCmd, currentText, { extension: ".aery.md", stdio, useMultiplexer: "auto" });
 			if (result !== null) {
 				this.ctx.editor.setText(result);
 			}
@@ -890,7 +894,9 @@ export class InputController {
 				await ttyHandle.close();
 			}
 
-			this.ctx.ui.start();
+			if (!mux) {
+				this.ctx.ui.start();
+			}
 			this.ctx.ui.requestRender();
 		}
 	}

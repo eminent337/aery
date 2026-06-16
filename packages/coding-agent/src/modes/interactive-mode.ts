@@ -89,7 +89,7 @@ import { type ResolveToolDetails, runResolveInvocation } from "../tools/resolve"
 import { formatPhaseDisplayName, selectStickyTodoWindow, todoMatchesAnyDescription } from "../tools/todo-write";
 import { ToolError } from "../tools/tool-errors";
 import type { EventBus } from "../utils/event-bus";
-import { getEditorCommand, openInEditor } from "../utils/external-editor";
+import { getEditorCommand, openInEditor, detectMultiplexer } from "../utils/external-editor";
 import { getSessionAccentAnsi, getSessionAccentHex } from "../utils/session-color";
 import { popTerminalTitle, pushTerminalTitle, setSessionTerminalTitle } from "../utils/title-generator";
 import type { AssistantMessageComponent } from "./components/assistant-message";
@@ -1745,9 +1745,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 
 		let ttyHandle: fs.FileHandle | null = null;
+		const mux = detectMultiplexer();
 		try {
 			ttyHandle = await this.#openEditorTerminalHandle();
-			this.ui.stop();
+			if (!mux) {
+				this.ui.stop();
+			}
 
 			const stdio: [number | "inherit", number | "inherit", number | "inherit"] = ttyHandle
 				? [ttyHandle.fd, ttyHandle.fd, ttyHandle.fd]
@@ -1757,6 +1760,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				extension: path.extname(resolvedPath) || ".md",
 				stdio,
 				trimTrailingNewline: false,
+				useMultiplexer: "auto",
 			});
 			if (result !== null) {
 				await Bun.write(resolvedPath, result);
@@ -1769,7 +1773,9 @@ export class InteractiveMode implements InteractiveModeContext {
 			if (ttyHandle) {
 				await ttyHandle.close();
 			}
-			this.ui.start();
+			if (!mux) {
+				this.ui.start();
+			}
 			this.ui.requestRender(true);
 		}
 	}

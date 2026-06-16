@@ -10,7 +10,7 @@ import {
 	USER_TODO_EDIT_CUSTOM_TYPE,
 } from "../../tools/todo-write";
 import { copyToClipboard } from "../../utils/clipboard";
-import { getEditorCommand, openInEditor } from "../../utils/external-editor";
+import { getEditorCommand, openInEditor, detectMultiplexer } from "../../utils/external-editor";
 import type { InteractiveModeContext } from "../types";
 
 const USAGE = [
@@ -410,8 +410,11 @@ export class TodoCommandController {
 		const initialMarkdown =
 			current.length > 0 ? phasesToMarkdown(current) : "# Todos\n- [ ] (replace this with your tasks)\n";
 
+		const mux = detectMultiplexer();
 		const fileHandle = await this.#openTtyHandle();
-		this.ctx.ui.stop();
+		if (!mux) {
+			this.ctx.ui.stop();
+		}
 		try {
 			const stdio: [number | "inherit", number | "inherit", number | "inherit"] = fileHandle
 				? [fileHandle.fd, fileHandle.fd, fileHandle.fd]
@@ -419,6 +422,7 @@ export class TodoCommandController {
 			const result = await openInEditor(editorCmd, initialMarkdown, {
 				extension: ".todo.md",
 				stdio,
+				useMultiplexer: "auto",
 			});
 			if (result === null) {
 				this.ctx.showWarning("Editor exited without saving; todos unchanged.");
@@ -440,7 +444,9 @@ export class TodoCommandController {
 			if (fileHandle) {
 				await fileHandle.close().catch(() => {});
 			}
-			this.ctx.ui.start();
+			if (!mux) {
+				this.ctx.ui.start();
+			}
 			this.ctx.ui.requestRender();
 		}
 	}

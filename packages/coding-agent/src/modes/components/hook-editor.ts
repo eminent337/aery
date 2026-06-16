@@ -9,7 +9,7 @@
 import { Container, Editor, matchesKey, Spacer, Text, type TUI } from "@aryee337/aery-tui";
 import { getEditorTheme, theme } from "../../modes/theme/theme";
 import { matchesAppExternalEditor, matchesAppInterrupt } from "../../modes/utils/keybinding-matchers";
-import { getEditorCommand, openInEditor } from "../../utils/external-editor";
+import { getEditorCommand, openInEditor, detectMultiplexer } from "../../utils/external-editor";
 import { DynamicBorder } from "./dynamic-border";
 
 export interface HookEditorOptions {
@@ -144,15 +144,20 @@ export class HookEditorComponent extends Container {
 		const editorCmd = getEditorCommand();
 		if (!editorCmd) return;
 
+		const mux = detectMultiplexer();
 		const currentText = this.#editor.getExpandedText();
 		try {
-			this.#tui.stop();
-			const result = await openInEditor(editorCmd, currentText);
+			if (!mux) {
+				this.#tui.stop();
+			}
+			const result = await openInEditor(editorCmd, currentText, { useMultiplexer: "auto" });
 			if (result !== null) {
 				this.#editor.setText(result);
 			}
 		} finally {
-			this.#tui.start();
+			if (!mux) {
+				this.#tui.start();
+			}
 			this.#tui.requestRender(true);
 		}
 	}
