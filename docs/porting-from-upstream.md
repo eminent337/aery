@@ -5,8 +5,8 @@ Use it for any merge: single file, feature branch, or full release sync.
 
 ## Last Sync Point (historical upstream marker)
 
-**Commit:** `b21b42d032919de2f2e6920a76fa9a37c3920c0a`
-**Date:** 2026-03-22
+**Commit:** `3c5e32f21b437834bf60ff2194aa10506a332611`
+**Date:** 2026-06-16
 
 Update this section after each sync; do not reuse the previous range. This commit is an upstream marker and may not exist in this repo's local object database.
 
