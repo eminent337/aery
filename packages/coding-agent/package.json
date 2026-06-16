@@ -1,7 +1,7 @@
 {
   "type": "module",
   "name": "@aryee337/aery",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Coding agent CLI with read, bash, edit, write tools and session management",
   "homepage": "https://aery.dev",
   "author": "aryee337",
