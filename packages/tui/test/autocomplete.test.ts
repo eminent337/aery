@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { CombinedAutocompleteProvider } from "@aryee337/aery-tui/autocomplete";
+import { SelectList } from "@aryee337/aery-tui/components/select-list";
 
 describe("CombinedAutocompleteProvider", () => {
 	describe("extractPathPrefix", () => {
@@ -290,5 +291,69 @@ describe("trySyncSlashCompletion", () => {
 		const result = provider.trySyncSlashCompletion("/mod");
 		expect(result).not.toBeNull();
 		expect(result!.items.map(i => i.value)).toEqual(["model"]);
+	});
+});
+
+describe("command metadata → AutocompleteItem pipeline", () => {
+	it("Test A: argumentHint appears in description with description", () => {
+		const provider = new CombinedAutocompleteProvider(
+			[{ name: "plan", description: "Toggle plan mode", argumentHint: "[prompt]" }],
+			"/tmp",
+		);
+		const result = provider.trySyncSlashCompletion("/pl");
+		expect(result).not.toBeNull();
+		expect(result!.items).toHaveLength(1);
+		expect(result!.items[0]!.description).toBe("[prompt] — Toggle plan mode");
+	});
+
+	it("Test B: subcommands produce a subcommand preview in description", () => {
+		const provider = new CombinedAutocompleteProvider(
+			[
+				{
+					name: "mcp",
+					description: "Manage MCP",
+					subcommands: [{ name: "add" }, { name: "list" }, { name: "remove" }],
+				},
+			],
+			"/tmp",
+		);
+		const result = provider.trySyncSlashCompletion("/mc");
+		expect(result).not.toBeNull();
+		expect(result!.items).toHaveLength(1);
+		expect(result!.items[0]!.description).toContain("(add, list, remove)");
+	});
+
+	it("Test C: category is preserved on AutocompleteItem", () => {
+		const provider = new CombinedAutocompleteProvider(
+			[{ name: "help", description: "Show help", category: "builtin" }],
+			"/tmp",
+		);
+		const result = provider.trySyncSlashCompletion("/he");
+		expect(result).not.toBeNull();
+		expect(result!.items).toHaveLength(1);
+		expect(result!.items[0]!.category).toBe("builtin");
+	});
+});
+
+describe("SelectList category rendering", () => {
+	it("Test D: mixed categories with maxVisible caps content and adds status line", () => {
+		const items = [
+			{ value: "a1", label: "Alpha 1", category: "Alpha" },
+			{ value: "a2", label: "Alpha 2", category: "Alpha" },
+			{ value: "b1", label: "Beta 1", category: "Beta" },
+		];
+		const theme = {
+			selectedPrefix: (t: string) => `> ${t}`,
+			selectedText: (t: string) => `[${t}]`,
+			description: (t: string) => `(${t})`,
+			scrollInfo: (t: string) => `|${t}|`,
+			noMatch: (t: string) => `~${t}~`,
+			symbols: { cursor: ">" } as any,
+		};
+		const list = new SelectList(items, 3, theme);
+		list.setSelectedIndex(2);
+		const lines = list.render(80);
+		// 3 content lines (item or header) capped by maxVisible, plus 1 status line
+		expect(lines.length).toBe(4);
 	});
 });

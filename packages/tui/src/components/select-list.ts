@@ -24,6 +24,8 @@ export interface SelectItem {
 	description?: string;
 	/** Dim hint text shown inline after cursor when this item is selected */
 	hint?: string;
+	/** Optional category for grouping in select lists */
+	category?: string;
 }
 
 export interface SelectListTheme {
@@ -96,21 +98,64 @@ export class SelectList implements Component {
 
 		const primaryColumnWidth = this.#getPrimaryColumnWidth();
 
-		// Calculate visible range with scrolling
-		const startIndex = Math.max(
+		// Render visible items with line-aware scrolling (category headers count
+		// toward the line budget so content is never pushed off-screen).
+		const hasCategories = this.#filteredItems.some(item => item.category);
+		let startIndex = Math.max(
 			0,
 			Math.min(this.#selectedIndex - Math.floor(this.maxVisible / 2), this.#filteredItems.length - this.maxVisible),
 		);
-		const endIndex = Math.min(startIndex + this.maxVisible, this.#filteredItems.length);
+		startIndex = Math.min(startIndex, this.#selectedIndex);
 
-		// Render visible items
-		for (let i = startIndex; i < endIndex; i++) {
+		// Adjust startIndex forward until the selected item fits within maxVisible lines
+		while (startIndex < this.#selectedIndex) {
+			let lineCount = 0;
+			let fits = false;
+			for (let i = startIndex; i < this.#filteredItems.length; i++) {
+				const item = this.#filteredItems[i];
+				if (hasCategories && item?.category) {
+					const prevCategory = i > 0 ? this.#filteredItems[i - 1]?.category : undefined;
+					if (item.category !== prevCategory) lineCount++;
+				}
+				lineCount++;
+				if (lineCount > this.maxVisible) break;
+				if (i >= this.#selectedIndex) {
+					fits = true;
+					break;
+				}
+			}
+			if (fits) break;
+			startIndex++;
+		}
+
+		let lineCount = 0;
+		let endIndex = startIndex;
+		for (let i = startIndex; i < this.#filteredItems.length; i++) {
 			const item = this.#filteredItems[i];
 			if (!item) continue;
+
+			// Category header when category changes
+			if (hasCategories && item.category) {
+				const prevCategory = i > 0 ? this.#filteredItems[i - 1]?.category : undefined;
+				if (item.category !== prevCategory) {
+					if (lineCount >= this.maxVisible) break;
+					const catPrefix = "  ";
+					const catText = `— ${item.category} —`;
+					const catDisplay = this.theme.description(catText);
+					const catWidth = visibleWidth(catDisplay);
+					const fill = Math.max(0, width - catPrefix.length - catWidth);
+					lines.push(catPrefix + catDisplay + " ".repeat(fill));
+					lineCount++;
+				}
+			}
+
+			if (lineCount >= this.maxVisible) break;
 
 			const isSelected = i === this.#selectedIndex;
 			const descriptionText = item.description ? sanitizeSingleLine(item.description) : undefined;
 			lines.push(this.#renderItem(item, isSelected, width, descriptionText, primaryColumnWidth));
+			lineCount++;
+			endIndex = i + 1;
 		}
 
 		// Add scroll/search status when needed

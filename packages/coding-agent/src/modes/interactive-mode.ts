@@ -78,7 +78,7 @@ import { HistoryStorage } from "../session/history-storage";
 import type { SessionContext, SessionManager } from "../session/session-manager";
 import { getRecentSessions } from "../session/session-manager";
 import type { ShakeMode } from "../session/shake-types";
-import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES, BUILTIN_SLASH_COMMANDS } from "../slash-commands/builtin-registry";
+import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES } from "../slash-commands/builtin-registry";
 import { formatDuration } from "../slash-commands/helpers/format";
 import { STTController, type SttState } from "../stt";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
@@ -144,6 +144,7 @@ import type {
 	TodoItem,
 	TodoPhase,
 } from "./types";
+import { SlashCommandResolver } from "./slash-command-resolver";
 import { UiHelpers } from "./utils/ui-helpers";
 
 const HINT_SHIMMER_PALETTE: ShimmerPalette = {
@@ -326,6 +327,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	oauthManualInput: OAuthManualInputManager = new OAuthManualInputManager();
 
 	#pendingSlashCommands: SlashCommand[] = [];
+	readonly #slashCommandResolver: SlashCommandResolver;
 	#cleanupUnsubscribe?: () => void;
 	readonly #version: string;
 	readonly #changelogMarkdown: string | undefined;
@@ -431,32 +433,49 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		this.hideThinkingBlock = settings.get("hideThinkingBlock");
 
-		const hookCommands: SlashCommand[] = (
-			this.session.extensionRunner?.getRegisteredCommands(BUILTIN_SLASH_COMMAND_RESERVED_NAMES) ?? []
-		).map(cmd => ({
-			name: cmd.name,
-			description: cmd.description ?? "(hook command)",
-			getArgumentCompletions: cmd.getArgumentCompletions,
-		}));
+		this.#slashCommandResolver = new SlashCommandResolver(this.session, this.session.extensionRunner);
 
-		// Convert custom commands (TypeScript) to SlashCommand format
-		const customCommands: SlashCommand[] = this.session.customCommands.map(loaded => ({
-			name: loaded.command.name,
-			description: `${loaded.command.description} (${loaded.source})`,
-		}));
-
-		// Build skill commands from session.skills (if enabled)
-		const skillCommandList: SlashCommand[] = [];
+		// Populate skill command paths for runtime lookup
 		if (settings.get("skills.enableSkillCommands")) {
 			for (const skill of this.session.skills) {
 				const commandName = `skill:${skill.name}`;
 				this.skillCommands.set(commandName, skill.filePath);
-				skillCommandList.push({ name: commandName, description: skill.description });
 			}
 		}
 
 		// Store pending commands for init() where file commands are loaded async
-		this.#pendingSlashCommands = [...BUILTIN_SLASH_COMMANDS, ...hookCommands, ...customCommands, ...skillCommandList];
+		const builtins = this.#slashCommandResolver.resolveBuiltinCommands();
+
+		const runner = this.session.extensionRunner;
+		const hookCommands: SlashCommand[] = (
+			runner?.getRegisteredCommands(BUILTIN_SLASH_COMMAND_RESERVED_NAMES) ?? []
+		).map(cmd => ({
+			name: cmd.name,
+			description: cmd.description ?? "(hook command)",
+			getArgumentCompletions: cmd.getArgumentCompletions,
+			category: "custom" as const,
+		}));
+
+		const customCommands: SlashCommand[] = this.session.customCommands.map(loaded => ({
+			name: loaded.command.name,
+			description: `${loaded.command.description} (${loaded.source})`,
+			category: "custom" as const,
+		}));
+
+		const skillCommandList: SlashCommand[] = [];
+		if (settings.get("skills.enableSkillCommands")) {
+			for (const skill of this.session.skills) {
+				const commandName = `skill:${skill.name}`;
+				skillCommandList.push({ name: commandName, description: skill.description, category: "skill" as const });
+			}
+		}
+
+		this.#pendingSlashCommands = [
+			...builtins,
+			...hookCommands,
+			...customCommands,
+			...skillCommandList,
+		];
 
 		this.#uiHelpers = new UiHelpers(this);
 		this.#btwController = new BtwController(this);
@@ -671,30 +690,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		const basePath = cwd ?? this.sessionManager.getCwd();
 		const fileCommands = await loadSlashCommands({ cwd: basePath });
 		this.fileSlashCommands = new Set(fileCommands.map(cmd => cmd.name));
-		const fileSlashCommands: SlashCommand[] = fileCommands.map(cmd => ({
-			name: cmd.name,
-			description: cmd.description,
-		}));
-		// Surface discovered prompt templates in the picker. AgentSession.prompt() expands
-		// `expandSlashCommand` before `expandPromptTemplate`, so a file-based slash command
-		// of the same name shadows the template at runtime — mirror that here by skipping
-		// templates whose names already appear in builtins/hooks/custom/skill/file commands.
-		const reservedNames = new Set<string>([
-			...this.#pendingSlashCommands.map(cmd => cmd.name),
-			...fileSlashCommands.map(cmd => cmd.name),
-		]);
-		const promptTemplateCommands: SlashCommand[] = this.session.promptTemplates
-			.filter(template => !reservedNames.has(template.name))
-			.map(template => ({
-				name: template.name,
-				// `PromptTemplate.description` from `loadTemplatesFromDir` already includes the
-				// source suffix (e.g. "Review code (project)"), so pass it through verbatim.
-				description: template.description,
-			}));
-		const autocompleteProvider = this.#inputController.createAutocompleteProvider(
-			[...this.#pendingSlashCommands, ...fileSlashCommands, ...promptTemplateCommands],
-			basePath,
-		);
+		const preloadedFileCommands = fileCommands.map(cmd => ({ name: cmd.name, description: cmd.description }));
+		const allCommands = await this.#slashCommandResolver.resolveAllForAutocomplete(basePath, preloadedFileCommands);
+		const autocompleteProvider = this.#inputController.createAutocompleteProvider(allCommands, basePath);
 		this.editor.setAutocompleteProvider(autocompleteProvider);
 		this.session.setSlashCommands(fileCommands);
 	}

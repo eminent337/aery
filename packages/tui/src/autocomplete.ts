@@ -154,6 +154,8 @@ export interface AutocompleteItem {
 	description?: string;
 	/** Dim hint text shown inline after cursor when this item is selected */
 	hint?: string;
+	/** Optional category for grouping in select lists */
+	category?: string;
 }
 
 type Awaitable<T> = T | Promise<T>;
@@ -162,12 +164,20 @@ export interface SlashCommand {
 	name: string;
 	description?: string;
 	argumentHint?: string;
+	/** Optional category for grouping in select lists */
+	category?: string;
+	/** Subcommands exposed for autocomplete preview */
+	subcommands?: Array<{ name: string }>;
 	// Function to get argument completions for this command
 	// Returns null if no argument completion is available
 	getArgumentCompletions?(argumentPrefix: string): Awaitable<AutocompleteItem[] | null>;
 	/** Return inline hint text for the current argument state (shown as dim ghost text after cursor) */
 	getInlineHint?(argumentText: string): string | null;
 }
+
+type AutocompleteCommand =
+	| ({ kind: "slash" } & SlashCommand)
+	| ({ kind: "item" } & AutocompleteItem);
 
 export interface AutocompleteProvider {
 	/** Get autocomplete suggestions for current text/cursor position */
@@ -212,7 +222,7 @@ export interface AutocompleteProvider {
 
 // Combined provider that handles both slash commands and file paths.
 export class CombinedAutocompleteProvider implements AutocompleteProvider {
-	#commands: (SlashCommand | AutocompleteItem)[];
+	#commands: AutocompleteCommand[];
 	#basePath: string;
 	// Intentionally separate from aery-engine cache: this cache is a local,
 	// per-directory readdir fast-path for prefix completions. Global fuzzy
@@ -221,7 +231,9 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 	readonly #DIR_CACHE_TTL = 2000; // 2 seconds
 
 	constructor(commands: (SlashCommand | AutocompleteItem)[] = [], basePath: string = getProjectDir()) {
-		this.#commands = commands;
+		this.#commands = commands.map(cmd =>
+			"name" in cmd ? ({ kind: "slash", ...cmd } as AutocompleteCommand) : ({ kind: "item", ...cmd } as AutocompleteCommand),
+		);
 		this.#basePath = basePath;
 	}
 
@@ -274,36 +286,7 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 				const prefix = textBeforeCursor.slice(1); // Remove the "/"
 				const lowerPrefix = prefix.toLowerCase();
 
-				// Filter commands using fuzzy matching (subsequence match)
-				const matches = this.#commands
-					.filter(cmd => {
-						const name = "name" in cmd ? cmd.name : cmd.value;
-						if (!name) return false;
-						// Match name or description
-						if (fuzzyMatch(lowerPrefix, name.toLowerCase())) return true;
-						const desc = cmd.description?.toLowerCase();
-						return desc ? fuzzyMatch(lowerPrefix, desc) : false;
-					})
-					.map(cmd => {
-						const name = "name" in cmd ? cmd.name : cmd.value;
-						const lowerName = name?.toLowerCase() ?? "";
-						const lowerDesc = cmd.description?.toLowerCase() ?? "";
-						// Score name matches higher than description matches
-						const nameScore = fuzzyMatch(lowerPrefix, lowerName) ? fuzzyScore(lowerPrefix, lowerName) : 0;
-						const descScore = fuzzyMatch(lowerPrefix, lowerDesc) ? fuzzyScore(lowerPrefix, lowerDesc) * 0.5 : 0;
-						const hint = "argumentHint" in cmd && cmd.argumentHint ? cmd.argumentHint : undefined;
-						const desc = cmd.description ?? "";
-						const fullDesc = hint ? (desc ? `${hint} — ${desc}` : hint) : desc;
-						return {
-							value: name,
-							label: "name" in cmd ? cmd.name : cmd.label,
-							score: Math.max(nameScore, descScore),
-							...(fullDesc && { description: fullDesc }),
-						};
-					})
-					.sort((a, b) => b.score - a.score)
-					.map(({ score: _, ...rest }) => rest);
-
+				const matches = this.#buildSlashCommandItems(lowerPrefix);
 				if (matches.length === 0) return null;
 
 				return {
@@ -316,10 +299,10 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 				const argumentText = textBeforeCursor.slice(spaceIndex + 1); // Text after space
 
 				const command = this.#commands.find(cmd => {
-					const name = "name" in cmd ? cmd.name : cmd.value;
+					const name = cmd.kind === "slash" ? cmd.name : cmd.value;
 					return name === commandName;
 				});
-				if (!command || !("getArgumentCompletions" in command) || !command.getArgumentCompletions) {
+				if (!command || command.kind !== "slash" || !command.getArgumentCompletions) {
 					return null; // No argument completion for this command
 				}
 
@@ -845,16 +828,54 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		const argumentText = textBeforeCursor.slice(spaceIndex + 1);
 
 		const command = this.#commands.find(cmd => {
-			const name = "name" in cmd ? cmd.name : cmd.value;
+			const name = cmd.kind === "slash" ? cmd.name : cmd.value;
 			return name === commandName;
 		});
 
-		if (!command || !("getInlineHint" in command) || !command.getInlineHint) {
+		if (!command || command.kind !== "slash" || !command.getInlineHint) {
 			return null;
 		}
 
 		return command.getInlineHint(argumentText);
 	}
+	#buildSlashCommandItems(lowerPrefix: string): AutocompleteItem[] {
+		return this.#commands
+			.filter(cmd => {
+				const name = cmd.kind === "slash" ? cmd.name : cmd.value;
+				if (!name) return false;
+				if (fuzzyMatch(lowerPrefix, name.toLowerCase())) return true;
+				const desc = cmd.description?.toLowerCase();
+				return desc ? fuzzyMatch(lowerPrefix, desc) : false;
+			})
+			.map(cmd => {
+				const name = cmd.kind === "slash" ? cmd.name : cmd.value;
+				const lowerName = name?.toLowerCase() ?? "";
+				const lowerDesc = cmd.description?.toLowerCase() ?? "";
+				const nameScore = fuzzyMatch(lowerPrefix, lowerName) ? fuzzyScore(lowerPrefix, lowerName) : 0;
+				const descScore = fuzzyMatch(lowerPrefix, lowerDesc) ? fuzzyScore(lowerPrefix, lowerDesc) * 0.5 : 0;
+				const hint = cmd.kind === "slash" && cmd.argumentHint ? cmd.argumentHint : undefined;
+				const desc = cmd.description ?? "";
+				let fullDesc = hint ? (desc ? `${hint} — ${desc}` : hint) : desc;
+
+				// Append subcommand preview if available
+				if (cmd.kind === "slash" && cmd.subcommands && cmd.subcommands.length > 0) {
+					const names = cmd.subcommands.slice(0, 3).map(s => s.name);
+					const preview = `(${names.join(", ")}${cmd.subcommands.length > 3 ? ", …" : ""})`;
+					fullDesc = fullDesc ? `${fullDesc} ${preview}` : preview;
+				}
+
+				return {
+					value: name,
+					label: cmd.kind === "slash" ? cmd.name : cmd.label,
+					score: Math.max(nameScore, descScore),
+					...(fullDesc && { description: fullDesc }),
+					...(cmd.category && { category: cmd.category }),
+				} as AutocompleteItem & { score: number };
+			})
+			.sort((a, b) => b.score - a.score)
+			.map(({ score: _, ...rest }) => rest);
+	}
+
 	trySyncSlashCompletion(textBeforeCursor: string): { items: AutocompleteItem[]; prefix: string } | null {
 		if (!textBeforeCursor.startsWith("/")) return null;
 		if (textBeforeCursor.length <= 1) return null; // Bare "/" alone, don't auto-complete
@@ -863,33 +884,7 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		const prefix = textBeforeCursor.slice(1);
 		const lowerPrefix = prefix.toLowerCase();
 
-		const matches = this.#commands
-			.filter(cmd => {
-				const name = "name" in cmd ? cmd.name : cmd.value;
-				if (!name) return false;
-				if (fuzzyMatch(lowerPrefix, name.toLowerCase())) return true;
-				const desc = cmd.description?.toLowerCase();
-				return desc ? fuzzyMatch(lowerPrefix, desc) : false;
-			})
-			.map(cmd => {
-				const name = "name" in cmd ? cmd.name : cmd.value;
-				const lowerName = name?.toLowerCase() ?? "";
-				const lowerDesc = cmd.description?.toLowerCase() ?? "";
-				const nameScore = fuzzyMatch(lowerPrefix, lowerName) ? fuzzyScore(lowerPrefix, lowerName) : 0;
-				const descScore = fuzzyMatch(lowerPrefix, lowerDesc) ? fuzzyScore(lowerPrefix, lowerDesc) * 0.5 : 0;
-				const hint = "argumentHint" in cmd && cmd.argumentHint ? cmd.argumentHint : undefined;
-				const desc = cmd.description ?? "";
-				const fullDesc = hint ? (desc ? `${hint} — ${desc}` : hint) : desc;
-				return {
-					value: name,
-					label: "name" in cmd ? cmd.name : cmd.label,
-					score: Math.max(nameScore, descScore),
-					...(fullDesc && { description: fullDesc }),
-				} as AutocompleteItem & { score: number };
-			})
-			.sort((a, b) => b.score - a.score)
-			.map(({ score: _, ...rest }) => rest);
-
+		const matches = this.#buildSlashCommandItems(lowerPrefix);
 		if (matches.length === 0) return null;
 		return { items: matches, prefix: textBeforeCursor };
 	}

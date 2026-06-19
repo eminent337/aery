@@ -1171,6 +1171,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		description: "Browse, install, and manage marketplace extensions",
 		acpDescription: "Browse and install marketplace extensions",
 		acpInputHint: "[help|install|uninstall|discover|list]",
+		customCompletions: getMarketplaceArgumentCompletions,
 		subcommands: [
 			{ name: "help", description: "Show marketplace usage information" },
 			{
@@ -1445,6 +1446,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	{
 		name: "ferment",
 		description: "Ferment workflow commands",
+		customCompletions: getFermentArgumentCompletions,
 		subcommands: [
 			{ name: "one-shot", description: "Create and auto-execute a single task ferment", usage: "<goal>" },
 		],
@@ -1562,6 +1564,7 @@ export const BUILTIN_SLASH_COMMAND_DEFS: ReadonlyArray<BuiltinSlashCommand> = BU
 		description: command.description,
 		subcommands: command.subcommands,
 		inlineHint: command.inlineHint,
+		customCompletions: command.customCompletions,
 	}),
 );
 
@@ -1641,14 +1644,12 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<
 > = BUILTIN_SLASH_COMMAND_DEFS.map(cmd => {
 	if (cmd.subcommands) {
 		const defaultCompletions = buildArgumentCompletions(cmd.subcommands);
-		let customCompletions: ((prefix: string) => AutocompleteItem[] | null) | undefined;
-		if (cmd.name === "marketplace") customCompletions = getMarketplaceArgumentCompletions;
-		if (cmd.name === "ferment") customCompletions = getFermentArgumentCompletions;
 
 		return {
 			...cmd,
+			argumentHint: "<subcommand>",
 			getArgumentCompletions: (prefix: string) => {
-				const res = customCompletions ? customCompletions(prefix) : null;
+				const res = cmd.customCompletions ? cmd.customCompletions(prefix) : null;
 				return res || defaultCompletions(prefix);
 			},
 			getInlineHint: buildSubcommandInlineHint(cmd.subcommands),
@@ -1657,6 +1658,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<
 	if (cmd.inlineHint) {
 		return {
 			...cmd,
+			argumentHint: cmd.inlineHint,
 			getInlineHint: buildStaticInlineHint(cmd.inlineHint),
 		};
 	}

@@ -19,6 +19,8 @@ export interface BuiltinSlashCommand {
 	subcommands?: SubcommandDef[];
 	/** Static inline hint when command takes a simple argument (no subcommands). */
 	inlineHint?: string;
+	/** Custom argument completion provider that takes precedence over subcommand completions. */
+	customCompletions?: (prefix: string) => import("@aryee337/aery-tui").AutocompleteItem[] | null;
 }
 
 /** Parsed slash-command text after stripping the leading "/". */
