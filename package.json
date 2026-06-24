@@ -155,7 +155,8 @@
     "*.{js,ts,jsx,tsx,json,jsonc,css}": "biome check --write --no-errors-on-unmatched"
   },
   "dependencies": {
-    "chromium-bidi": "16.0.1"
+    "chromium-bidi": "16.0.1",
+    "node-pty": "1.1.0"
   },
   "patchedDependencies": {
     "@opentelemetry/core@2.7.1": "patches/@opentelemetry%2Fcore@2.7.1.patch"

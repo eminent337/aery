@@ -1202,6 +1202,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		],
 		allowArgs: true,
 		handleTui: async (command, runtime) => {
+			runtime.ctx.editor.setText("");
 			const runner = runtime.ctx.session.extensionRunner;
 			const extCmd = runner?.getCommand("marketplace");
 			if (extCmd) {
