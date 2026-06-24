@@ -36,8 +36,10 @@
     "generate-models": "bun scripts/generate-models.ts"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "catalog:",
     "@aryee337/aery-utils": "workspace:*",
+    "@bufbuild/protobuf": "catalog:",
+    "@sinclair/typebox": "0.34.49",
+    "ajv": "8.20.0",
     "openai": "catalog:",
     "partial-json": "catalog:",
     "zod": "catalog:"

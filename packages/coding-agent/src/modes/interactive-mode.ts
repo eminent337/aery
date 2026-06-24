@@ -20,7 +20,7 @@ import {
 	ThinkingLevel,
 } from "@aryee337/aery-core";
 import type { CompactionOutcome } from "@aryee337/aery-core/compaction";
-import type { Component, EditorTheme, SlashCommand } from "@aryee337/aery-tui";
+import type { Component, EditorTheme } from "@aryee337/aery-tui";
 import {
 	Container,
 	clearRenderCache,
@@ -78,7 +78,6 @@ import { HistoryStorage } from "../session/history-storage";
 import type { SessionContext, SessionManager } from "../session/session-manager";
 import { getRecentSessions } from "../session/session-manager";
 import type { ShakeMode } from "../session/shake-types";
-import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES } from "../slash-commands/builtin-registry";
 import { formatDuration } from "../slash-commands/helpers/format";
 import { STTController, type SttState } from "../stt";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
