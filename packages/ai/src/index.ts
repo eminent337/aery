@@ -4,6 +4,15 @@ export * from "./auth-broker";
 export { type AuthGatewayBootOptions, type ModelResolver, startAuthGateway } from "./auth-gateway/server";
 export * from "./auth-gateway/types";
 export * from "./auth-storage";
+// Export generate API
+export {
+	generate,
+	generateComplete,
+	getApiKey,
+	QueuedGenerateStream,
+	registerApi,
+	setApiKey,
+} from "./generate";
 export * from "./model-cache";
 export * from "./model-manager";
 export * from "./model-thinking";

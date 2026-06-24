@@ -942,3 +942,29 @@ export interface Model<TApi extends Api = any> {
 	 */
 	isOAuth?: boolean;
 }
+
+// The stream interface - what generate() returns
+export interface GenerateStream extends AsyncIterable<AssistantMessageEvent> {
+	// Get the final message (waits for streaming to complete)
+	finalMessage(): Promise<AssistantMessage>;
+}
+
+// Base options all providers share
+export interface GenerateOptions {
+	temperature?: number;
+	maxTokens?: number;
+	signal?: AbortSignal;
+	apiKey?: string;
+}
+
+// Unified options with reasoning (what public generate() accepts)
+export interface GenerateOptionsUnified extends GenerateOptions {
+	reasoning?: import("./model-thinking").Effort;
+}
+
+// Generic GenerateFunction with typed options
+export type GenerateFunction<TOptions extends GenerateOptions = GenerateOptions> = (
+	model: Model<Api>,
+	context: Context,
+	options: TOptions,
+) => GenerateStream;
