@@ -103,11 +103,10 @@ export async function openMultiplexerPane(
 			// -d = do not switch to the new pane
 			// -c <cwd> = start in current directory
 			// The pane auto-closes when the shell exits.
-			spawn(
-				mux.executable,
-				["split-window", "-v", "-d", "-c", process.cwd(), "sh", "-c", wrapperCmd],
-				{ detached: true, stdio: "ignore" },
-			);
+			spawn(mux.executable, ["split-window", "-v", "-d", "-c", process.cwd(), "sh", "-c", wrapperCmd], {
+				detached: true,
+				stdio: "ignore",
+			});
 			break;
 		}
 		case "wezterm": {
@@ -184,10 +183,13 @@ async function waitForSentinel(
 		};
 
 		interval = setInterval(check, pollIntervalMs);
-		timeout = setTimeout(() => {
-			cleanup();
-			reject(new Error(`Editor pane timed out after ${timeoutMs}ms.`));
-		}, timeoutMs + pollIntervalMs * 2);
+		timeout = setTimeout(
+			() => {
+				cleanup();
+				reject(new Error(`Editor pane timed out after ${timeoutMs}ms.`));
+			},
+			timeoutMs + pollIntervalMs * 2,
+		);
 
 		void check();
 	});

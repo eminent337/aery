@@ -1,9 +1,9 @@
 import type { SlashCommand } from "@aryee337/aery-tui";
 import { settings } from "../config/settings";
-import { loadSlashCommands } from "../extensibility/slash-commands";
 import type { ExtensionRunner } from "../extensibility/extensions/runner";
-import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES, BUILTIN_SLASH_COMMANDS } from "../slash-commands/builtin-registry";
+import { loadSlashCommands } from "../extensibility/slash-commands";
 import type { AgentSession } from "../session/agent-session";
+import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES, BUILTIN_SLASH_COMMANDS } from "../slash-commands/builtin-registry";
 
 export class SlashCommandResolver {
 	constructor(

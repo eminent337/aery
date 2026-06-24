@@ -89,7 +89,7 @@ import { type ResolveToolDetails, runResolveInvocation } from "../tools/resolve"
 import { formatPhaseDisplayName, selectStickyTodoWindow, todoMatchesAnyDescription } from "../tools/todo-write";
 import { ToolError } from "../tools/tool-errors";
 import type { EventBus } from "../utils/event-bus";
-import { getEditorCommand, openInEditor, detectMultiplexer } from "../utils/external-editor";
+import { detectMultiplexer, getEditorCommand, openInEditor } from "../utils/external-editor";
 import { getSessionAccentAnsi, getSessionAccentHex } from "../utils/session-color";
 import { popTerminalTitle, pushTerminalTitle, setSessionTerminalTitle } from "../utils/title-generator";
 import type { AssistantMessageComponent } from "./components/assistant-message";
@@ -125,6 +125,7 @@ import {
 import { OAuthManualInputManager } from "./oauth-manual-input";
 import { SessionObserverRegistry } from "./session-observer-registry";
 import { interruptHint } from "./shared";
+import { SlashCommandResolver } from "./slash-command-resolver";
 import { type ShimmerPalette, shimmerSegments, shimmerText } from "./theme/shimmer";
 import type { Theme } from "./theme/theme";
 import {
@@ -144,7 +145,6 @@ import type {
 	TodoItem,
 	TodoPhase,
 } from "./types";
-import { SlashCommandResolver } from "./slash-command-resolver";
 import { UiHelpers } from "./utils/ui-helpers";
 
 const HINT_SHIMMER_PALETTE: ShimmerPalette = {
@@ -278,6 +278,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	todoExpanded = false;
 	planModeEnabled = false;
 	planModePaused = false;
+	#pendingSlashCommands: SlashCommand[] = [];
 	goalModeEnabled = false;
 	goalModePaused = false;
 	planModePlanFilePath: string | undefined = undefined;
@@ -325,8 +326,6 @@ export class InteractiveMode implements InteractiveModeContext {
 	fileSlashCommands: Set<string> = new Set();
 	skillCommands: Map<string, string> = new Map();
 	oauthManualInput: OAuthManualInputManager = new OAuthManualInputManager();
-
-	#pendingSlashCommands: SlashCommand[] = [];
 	readonly #slashCommandResolver: SlashCommandResolver;
 	#cleanupUnsubscribe?: () => void;
 	readonly #version: string;
@@ -470,12 +469,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			}
 		}
 
-		this.#pendingSlashCommands = [
-			...builtins,
-			...hookCommands,
-			...customCommands,
-			...skillCommandList,
-		];
+		this.#pendingSlashCommands = [...builtins, ...hookCommands, ...customCommands, ...skillCommandList];
 
 		this.#uiHelpers = new UiHelpers(this);
 		this.#btwController = new BtwController(this);

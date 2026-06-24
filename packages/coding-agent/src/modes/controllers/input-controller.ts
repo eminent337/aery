@@ -16,7 +16,7 @@ import { isTinyTitleLocalModelKey } from "../../tiny/models";
 import { tinyTitleClient } from "../../tiny/title-client";
 import type { TinyTitleProgressEvent } from "../../tiny/title-protocol";
 import { copyToClipboard, readImageFromClipboard, readTextFromClipboard } from "../../utils/clipboard";
-import { getEditorCommand, openInEditor, detectMultiplexer } from "../../utils/external-editor";
+import { detectMultiplexer, getEditorCommand, openInEditor } from "../../utils/external-editor";
 import { ensureSupportedImageInput } from "../../utils/image-loading";
 import { resizeImage } from "../../utils/image-resize";
 import { generateSessionTitle, setSessionTerminalTitle } from "../../utils/title-generator";
@@ -881,7 +881,11 @@ export class InputController {
 				? [ttyHandle.fd, ttyHandle.fd, ttyHandle.fd]
 				: ["inherit", "inherit", "inherit"];
 
-			const result = await openInEditor(editorCmd, currentText, { extension: ".aery.md", stdio, useMultiplexer: "auto" });
+			const result = await openInEditor(editorCmd, currentText, {
+				extension: ".aery.md",
+				stdio,
+				useMultiplexer: "auto",
+			});
 			if (result !== null) {
 				this.ctx.editor.setText(result);
 			}

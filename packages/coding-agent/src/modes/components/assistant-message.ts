@@ -341,6 +341,12 @@ export class AssistantMessageComponent extends Container {
 			if (usage.cacheRead > 0) {
 				parts.push(`cache: ${formatNumber(usage.cacheRead)}`);
 			}
+
+			const toolCalls = message.content.filter(c => c.type === "toolCall").length;
+			if (toolCalls > 0) {
+				parts.push(`⚒ ${toolCalls}`);
+			}
+
 			this.#contentContainer.addChild(new Spacer(1));
 			this.#contentContainer.addChild(new Text(theme.fg("dim", parts.join("  ")), 1, 0));
 		}

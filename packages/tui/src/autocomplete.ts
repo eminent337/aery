@@ -175,9 +175,7 @@ export interface SlashCommand {
 	getInlineHint?(argumentText: string): string | null;
 }
 
-type AutocompleteCommand =
-	| ({ kind: "slash" } & SlashCommand)
-	| ({ kind: "item" } & AutocompleteItem);
+type AutocompleteCommand = ({ kind: "slash" } & SlashCommand) | ({ kind: "item" } & AutocompleteItem);
 
 export interface AutocompleteProvider {
 	/** Get autocomplete suggestions for current text/cursor position */
@@ -232,7 +230,9 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 
 	constructor(commands: (SlashCommand | AutocompleteItem)[] = [], basePath: string = getProjectDir()) {
 		this.#commands = commands.map(cmd =>
-			"name" in cmd ? ({ kind: "slash", ...cmd } as AutocompleteCommand) : ({ kind: "item", ...cmd } as AutocompleteCommand),
+			"name" in cmd
+				? ({ kind: "slash", ...cmd } as AutocompleteCommand)
+				: ({ kind: "item", ...cmd } as AutocompleteCommand),
 		);
 		this.#basePath = basePath;
 	}

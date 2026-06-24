@@ -9,7 +9,7 @@
 import { Container, Editor, matchesKey, Spacer, Text, type TUI } from "@aryee337/aery-tui";
 import { getEditorTheme, theme } from "../../modes/theme/theme";
 import { matchesAppExternalEditor, matchesAppInterrupt } from "../../modes/utils/keybinding-matchers";
-import { getEditorCommand, openInEditor, detectMultiplexer } from "../../utils/external-editor";
+import { detectMultiplexer, getEditorCommand, openInEditor } from "../../utils/external-editor";
 import { DynamicBorder } from "./dynamic-border";
 
 export interface HookEditorOptions {

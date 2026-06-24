@@ -642,6 +642,19 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "tokens",
+		description: "Show cumulative token usage tracking",
+		acpDescription: "Show token usage",
+		handle: async (_command, runtime) => {
+			await runtime.output(await buildUsageReportText(runtime));
+			return commandConsumed();
+		},
+		handleTui: async (_command, runtime) => {
+			await runtime.ctx.handleUsageCommand();
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
 		name: "changelog",
 		description: "Show changelog entries",
 		acpDescription: "Show changelog",

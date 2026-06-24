@@ -51,7 +51,11 @@ export async function openInEditor(
 		await Bun.write(tmpFile, content);
 
 		const mux =
-			options?.useMultiplexer !== false ? (options?.useMultiplexer === true ? detectMultiplexer() : detectMultiplexer()) : null;
+			options?.useMultiplexer !== false
+				? options?.useMultiplexer === true
+					? detectMultiplexer()
+					: detectMultiplexer()
+				: null;
 
 		let exitCode: number;
 		if (mux) {
