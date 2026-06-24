@@ -1955,7 +1955,7 @@ export async function resumeSubprocess(options: ResumeExecutorOptions): Promise<
 		await awaitAbortable(session.prompt(task, { attribution: "agent" }));
 		await awaitAbortable(session.waitForIdle());
 
-		const reminderToolChoice = undefined; // We skip reminderToolChoice logic for simplicity or rebuild it if needed
+		// const reminderToolChoice = undefined; // We skip reminderToolChoice logic for simplicity or rebuild it if needed
 
 		let retryCount = 0;
 		while (!yieldCalled && retryCount < MAX_YIELD_RETRIES && !abortSignal.aborted) {
@@ -1968,7 +1968,7 @@ export async function resumeSubprocess(options: ResumeExecutorOptions): Promise<
 					maxRetries: MAX_YIELD_RETRIES,
 				});
 
-				const isFinalRetry = retryCount >= MAX_YIELD_RETRIES;
+				// const isFinalRetry = retryCount >= MAX_YIELD_RETRIES;
 				await awaitAbortable(
 					session.prompt(reminder, {
 						attribution: "agent",

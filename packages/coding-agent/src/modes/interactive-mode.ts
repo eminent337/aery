@@ -278,7 +278,6 @@ export class InteractiveMode implements InteractiveModeContext {
 	todoExpanded = false;
 	planModeEnabled = false;
 	planModePaused = false;
-	#pendingSlashCommands: SlashCommand[] = [];
 	goalModeEnabled = false;
 	goalModePaused = false;
 	planModePlanFilePath: string | undefined = undefined;
@@ -441,35 +440,6 @@ export class InteractiveMode implements InteractiveModeContext {
 				this.skillCommands.set(commandName, skill.filePath);
 			}
 		}
-
-		// Store pending commands for init() where file commands are loaded async
-		const builtins = this.#slashCommandResolver.resolveBuiltinCommands();
-
-		const runner = this.session.extensionRunner;
-		const hookCommands: SlashCommand[] = (
-			runner?.getRegisteredCommands(BUILTIN_SLASH_COMMAND_RESERVED_NAMES) ?? []
-		).map(cmd => ({
-			name: cmd.name,
-			description: cmd.description ?? "(hook command)",
-			getArgumentCompletions: cmd.getArgumentCompletions,
-			category: "custom" as const,
-		}));
-
-		const customCommands: SlashCommand[] = this.session.customCommands.map(loaded => ({
-			name: loaded.command.name,
-			description: `${loaded.command.description} (${loaded.source})`,
-			category: "custom" as const,
-		}));
-
-		const skillCommandList: SlashCommand[] = [];
-		if (settings.get("skills.enableSkillCommands")) {
-			for (const skill of this.session.skills) {
-				const commandName = `skill:${skill.name}`;
-				skillCommandList.push({ name: commandName, description: skill.description, category: "skill" as const });
-			}
-		}
-
-		this.#pendingSlashCommands = [...builtins, ...hookCommands, ...customCommands, ...skillCommandList];
 
 		this.#uiHelpers = new UiHelpers(this);
 		this.#btwController = new BtwController(this);

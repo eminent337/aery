@@ -11,6 +11,7 @@
  * JSON Schema dialect.
  */
 
+import { Kind } from "@sinclair/typebox";
 // We import the Zod *value* (z) for runtime APIs. Marker checks rely on the
 // `_zod` symbol that every Zod v4 schema instance carries.
 import { type ZodType, z } from "zod/v4";
@@ -47,6 +48,10 @@ export function isZodSchema(value: unknown): value is ZodType {
 		// prototype. Real instances have `.parse` on the prototype chain.
 		typeof (value as { parse?: unknown }).parse === "function"
 	);
+}
+
+export function isTypeBoxSchema(value: unknown): boolean {
+	return typeof value === "object" && value !== null && Kind in value;
 }
 
 /** Symbol-stamped caches keyed by schema object identity. */
@@ -286,6 +291,7 @@ export function zodToWireSchema(schema: ZodType): Record<string, unknown> {
 export function toolWireSchema(tool: Tool): Record<string, unknown> {
 	const params: TSchema = tool.parameters;
 	if (isZodSchema(params)) return zodToWireSchema(params);
+	if (isTypeBoxSchema(params)) return params as Record<string, unknown>;
 	return stamp(params as Record<string, unknown>, kJsonWireSchema, p => {
 		const upgraded = upgradeJsonSchemaTo202012(p) as Record<string, unknown>;
 		return postProcessJsonSchema(upgraded);

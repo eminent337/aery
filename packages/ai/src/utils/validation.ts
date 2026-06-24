@@ -23,6 +23,10 @@
  * massage shapes the LLM almost got right.
  */
 import { structuredCloneJSON } from "@aryee337/aery-utils";
+import Ajv from "ajv";
+
+const ajv = new Ajv({ strict: false });
+
 import type { ZodType } from "zod/v4";
 import type { $ZodIssue as ZodIssue } from "zod/v4/core";
 import type { Tool, ToolCall } from "../types";
@@ -32,7 +36,7 @@ import {
 	type JsonSchemaValidationIssue,
 	validateJsonSchemaValue,
 } from "./schema/json-schema-validator";
-import { isZodSchema, zodToWireSchema } from "./schema/wire";
+import { isTypeBoxSchema, isZodSchema, zodToWireSchema } from "./schema/wire";
 
 // ============================================================================
 // Type Coercion Utilities
@@ -868,6 +872,11 @@ type ValidationContext =
 			json: Record<string, unknown>;
 	  }
 	| {
+			kind: "typebox";
+			validate: import("ajv").ValidateFunction;
+			json: Record<string, unknown>;
+	  }
+	| {
 			kind: "json";
 			json: Record<string, unknown>;
 	  };
@@ -877,16 +886,33 @@ type ValidationContext =
  * Keyed by the parameters object identity, which is stable across tool
  * registrations.
  */
-const kValidationContext = Symbol("ai.validationContext");
-type ParamsWithValidationContext = object & { [kValidationContext]?: ValidationContext };
+const validationContextCache = new WeakMap<object, ValidationContext>();
+
 function getValidationContext(tool: Tool): ValidationContext {
-	const params = tool.parameters as ParamsWithValidationContext;
-	const existing = params[kValidationContext];
+	const params = tool.parameters;
+	if (typeof params !== "object" || params === null) {
+		return { kind: "json", json: upgradeJsonSchemaTo202012(params) as Record<string, unknown> };
+	}
+
+	const existing = validationContextCache.get(params);
 	if (existing) return existing;
-	const ctx: ValidationContext = isZodSchema(params)
-		? { kind: "zod", zod: params, json: zodToWireSchema(params) }
-		: { kind: "json", json: upgradeJsonSchemaTo202012(params) as Record<string, unknown> };
-	params[kValidationContext] = ctx;
+
+	if (isZodSchema(params)) {
+		const ctx: ValidationContext = { kind: "zod", zod: params, json: zodToWireSchema(params) };
+		validationContextCache.set(params, ctx);
+		return ctx;
+	}
+
+	if (isTypeBoxSchema(params)) {
+		const json = params as Record<string, unknown>;
+		const validate = ajv.compile(json);
+		const ctx: ValidationContext = { kind: "typebox", validate, json };
+		validationContextCache.set(params, ctx);
+		return ctx;
+	}
+
+	const ctx: ValidationContext = { kind: "json", json: upgradeJsonSchemaTo202012(params) as Record<string, unknown> };
+	validationContextCache.set(params, ctx);
 	return ctx;
 }
 
@@ -935,6 +961,20 @@ function validateContext(ctx: ValidationContext, value: unknown): ContextValidat
 			flatIssues: flattenIssues(result.error.issues),
 			messages: result.error.issues.map(issue => `  - ${formatIssuePath(issue.path)}: ${issue.message}`),
 		};
+	}
+
+	if (ctx.kind === "typebox") {
+		const success = ctx.validate(value);
+		if (success) return { success: true, value };
+
+		const ajvErrors = ctx.validate.errors ?? [];
+		const flatIssues: FlatIssue[] = ajvErrors.map(e => ({
+			keyword: e.keyword === "type" ? "type" : e.keyword === "additionalProperties" ? "unrecognized" : "other",
+			instancePath: e.instancePath,
+			expectedTypes: e.keyword === "type" && typeof e.params.type === "string" ? [e.params.type] : [],
+		}));
+		const messages = ajvErrors.map(e => `  - ${e.instancePath || "root"}: ${e.message}`);
+		return { success: false, flatIssues, messages };
 	}
 
 	const result = validateJsonSchemaValue(ctx.json, value);
