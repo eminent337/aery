@@ -342,6 +342,10 @@ export class AssistantMessageComponent extends Container {
 				parts.push(`cache: ${formatNumber(usage.cacheRead)}`);
 			}
 
+			if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
+				parts.push(`⚡ ${formatNumber(usage.reasoningTokens)}`);
+			}
+
 			const toolCalls = message.content.filter(c => c.type === "toolCall").length;
 			if (toolCalls > 0) {
 				parts.push(`⚒ ${toolCalls}`);
