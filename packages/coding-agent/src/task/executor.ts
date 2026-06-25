@@ -630,7 +630,23 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		if (agent.spawns !== undefined && !toolNames.includes("task") && !atMaxDepth) {
 			toolNames = [...toolNames, "task"];
 		}
+	} else {
+		// Default to standard subset
+		toolNames = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+		if (agent.spawns !== undefined && !atMaxDepth) {
+			toolNames.push("task");
+		}
 	}
+
+	const EXCLUDED_TOOL_NAMES = [
+		"invoke_subagent",
+		"mcp_manage",
+		"ttsr_manage",
+		"ttsr_clear",
+		"ttsr_revert",
+		"shadow_watch",
+	];
+	toolNames = toolNames.filter(name => !EXCLUDED_TOOL_NAMES.includes(name));
 
 	if (atMaxDepth && toolNames?.includes("task")) {
 		toolNames = toolNames.filter(name => name !== "task");
@@ -1238,6 +1254,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 							contextFile: contextFileForPrompt,
 							ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
 							ircSelfId: ircEnabled ? id : "",
+							toolGuidance: toolNames ? buildToolGuidance(toolNames) : "",
 						});
 						return defaultPrompt.length === 0
 							? [subagentPrompt]
@@ -1749,6 +1766,17 @@ export interface ResumeExecutorOptions {
 	artifactsDir?: string;
 }
 
+export function buildToolGuidance(toolNames: string[]): string {
+	const names = new Set(toolNames);
+	const lines: string[] = [];
+	if (names.has("read")) lines.push("- Use the read tool instead of cat/head/tail");
+	if (names.has("edit")) lines.push("- Use the edit tool instead of sed/awk");
+	if (names.has("write")) lines.push("- Use the write tool instead of echo/heredoc");
+	if (names.has("find")) lines.push("- Use the find tool instead of bash find/ls for file search");
+	if (names.has("grep")) lines.push("- Use the grep tool instead of bash grep/rg for content search");
+	return lines.join("\n");
+}
+
 export async function resumeSubprocess(options: ResumeExecutorOptions): Promise<SingleResult> {
 	const { session, id, agent, task, assignment, index, signal, onProgress } = options;
 	const startTime = Date.now();
@@ -1799,7 +1827,6 @@ export async function resumeSubprocess(options: ResumeExecutorOptions): Promise<
 		: sessionAbortController.signal;
 
 	let exitCode = 1;
-	let error: string | undefined;
 	let aborted = false;
 	let abortReason: string | undefined;
 	let abortReasonText: string | undefined;
@@ -1945,7 +1972,7 @@ export async function resumeSubprocess(options: ResumeExecutorOptions): Promise<
 						}
 						scheduleProgress();
 					}
-				} catch (err) {
+				} catch {
 					requestAbort("terminate");
 				}
 			}
@@ -1996,14 +2023,10 @@ export async function resumeSubprocess(options: ResumeExecutorOptions): Promise<
 				exitCode = 1;
 			} else if (lastAssistant.stopReason === "error") {
 				exitCode = 1;
-				error ??= lastAssistant.errorMessage || "Subagent failed";
 			}
 		}
-	} catch (err) {
+	} catch {
 		exitCode = 1;
-		if (!abortSignal.aborted) {
-			error = err instanceof Error ? err.stack || err.message : String(err);
-		}
 	} finally {
 		if (abortSignal.aborted) {
 			aborted = abortReason === "signal" || runtimeLimitExceeded || abortReason === undefined;

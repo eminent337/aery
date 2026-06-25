@@ -160,5 +160,6 @@
   },
   "patchedDependencies": {
     "@opentelemetry/core@2.7.1": "patches/@opentelemetry%2Fcore@2.7.1.patch"
-  }
+  },
+  "version": "0.0.1"
 }

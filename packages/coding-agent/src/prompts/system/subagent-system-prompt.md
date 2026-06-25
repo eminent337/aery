@@ -26,6 +26,11 @@ You NEVER modify files outside this tree or in the original repository.
 If you need additional information, you can find your conversation with the user in {{contextFile}} (`tail` or `grep` relevant terms).
 {{/if}}
 
+{{#if toolGuidance}}
+# Tool Guidance
+{{toolGuidance}}
+{{/if}}
+
 {{#if ircPeers}}
 # IRC Peers
 You can reach other live agents via the `irc` tool. Your id is `{{ircSelfId}}`. Currently visible peers:
