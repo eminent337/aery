@@ -62,7 +62,7 @@ interface BeforeAgentStartCombinedResult {
 
 export type ExtensionErrorListener = (error: ExtensionError) => void;
 
-export const EXTENSION_HANDLER_TIMEOUT_MS = 30_000;
+export const EXTENSION_HANDLER_TIMEOUT_MS = 86_400_000;
 let extensionHandlerTimeoutMs = EXTENSION_HANDLER_TIMEOUT_MS;
 
 export function testSetExtensionHandlerTimeoutMs(timeoutMs: number): void {
