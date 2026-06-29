@@ -132,14 +132,14 @@
 			"thinking.medium": "◎",
 			"thinking.high": "◉",
 			"thinking.xhigh": "●",
-			"icon.model": "◇",
+			"icon.model": "",
 			"icon.plan": "◈",
 			"icon.goal": "⊙",
 			"icon.pause": "‖",
 			"icon.loop": "↻",
 			"icon.folder": "▸",
 			"icon.scratchFolder": "◌",
-			"icon.aery": "π",
+			"icon.aery": "»Æ«",
 			"format.bullet": "◦",
 			"md.bullet": "◦"
 		}

@@ -267,7 +267,7 @@ const UNICODE_SYMBOLS: SymbolMap = {
 	"sep.aeryBarRight": "░▒",
 	"sep.aeryBarStart": "▓",
 	// Icons
-	"icon.model": "⬢",
+	"icon.model": "",
 	"icon.plan": "🗺",
 	"icon.goal": "🎯",
 	"icon.pause": "⏸",
@@ -282,7 +282,7 @@ const UNICODE_SYMBOLS: SymbolMap = {
 	"icon.context": "◫",
 	"icon.cost": "💲",
 	"icon.time": "⏱",
-	"icon.aery": "✧",
+	"icon.aery": "»Æ«",
 	"icon.agents": "👥",
 	"icon.cache": "💾",
 	"icon.input": "⤵",
@@ -490,7 +490,7 @@ const NERD_SYMBOLS: SymbolMap = {
 	"sep.aeryBarStart": "▓",
 	// Icons - Nerd Font specific
 	// pick:  | alt:   ◆
-	"icon.model": "\uec19",
+	"icon.model": "",
 	// pick:  | alt:  
 	"icon.plan": "\uf2d2",
 	// pick:  (nf-fa-bullseye) | alt:  (nf-md-target) ◎ ⌖
@@ -709,7 +709,7 @@ const ASCII_SYMBOLS: SymbolMap = {
 	"sep.aeryBarRight": "<",
 	"sep.aeryBarStart": ">",
 	// Icons
-	"icon.model": "[M]",
+	"icon.model": "",
 	"icon.plan": "plan",
 	"icon.goal": "goal",
 	"icon.pause": "||",
@@ -724,7 +724,7 @@ const ASCII_SYMBOLS: SymbolMap = {
 	"icon.context": "ctx:",
 	"icon.cost": "$",
 	"icon.time": "t:",
-	"icon.aery": "aery",
+	"icon.aery": "»Æ«",
 	"icon.agents": "AG",
 	"icon.cache": "cache",
 	"icon.input": "in:",

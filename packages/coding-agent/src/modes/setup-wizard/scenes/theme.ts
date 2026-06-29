@@ -36,7 +36,7 @@ function fillStyledLine(content: string, width: number): string {
 function renderMockStatusLine(width: number): string {
 	const sep = theme.fg("statusLineSep", ` ${theme.sep.pipe} `);
 	const left = [
-		theme.fg("statusLineModel", `${theme.icon.model} sonnet`),
+		theme.fg("statusLineModel", theme.icon.model ? `${theme.icon.model} sonnet` : "sonnet"),
 		theme.fg("statusLinePath", "~/project"),
 		theme.fg("statusLineGitDirty", `${theme.icon.git} main +2`),
 	].join(sep);
