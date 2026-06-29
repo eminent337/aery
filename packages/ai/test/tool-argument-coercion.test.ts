@@ -988,4 +988,55 @@ describe("Tool argument coercion", () => {
 		const result = validateToolArguments(tool, toolCall) as Record<string, unknown>;
 		expect(result.op).toBe("fix");
 	});
+
+	it("coerces JSON-encoded string to array", () => {
+		const tool: Tool = {
+			name: "test-array",
+			description: "test array coercion",
+			parameters: {
+				type: "object",
+				properties: {
+					items: { type: "array", items: { type: "string" } },
+				},
+				required: ["items"],
+			},
+		};
+		const toolCall: ToolCall = {
+			type: "toolCall",
+			id: "test-array-call",
+			name: "test-array",
+			arguments: { items: '["a","b"]' },
+		};
+		const result = validateToolArguments(tool, toolCall) as { items: string[] };
+		expect(result.items).toEqual(["a", "b"]);
+	});
+
+	it("coerces JSON-encoded string to object", () => {
+		const tool: Tool = {
+			name: "test-object",
+			description: "test object coercion",
+			parameters: {
+				type: "object",
+				properties: {
+					config: {
+						type: "object",
+						properties: {
+							enabled: { type: "boolean" },
+						},
+						required: ["enabled"],
+					},
+				},
+				required: ["config"],
+			},
+		};
+		const toolCall: ToolCall = {
+			type: "toolCall",
+			id: "test-object-call",
+			name: "test-object",
+			arguments: { config: '{"enabled":true}' },
+		};
+		const result = validateToolArguments(tool, toolCall) as { config: { enabled: boolean } };
+		expect(result.config).toEqual({ enabled: true });
+	});
 });
+
