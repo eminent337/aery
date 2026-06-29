@@ -719,6 +719,19 @@ export class StatusLineComponent implements Component {
 					}
 				}
 			}
+			// Shrink model before dropping left segments
+			const modelIdx = leftSegIds.indexOf("model");
+			if (modelIdx >= 0 && totalWidth() > topFillWidth) {
+				const overflow = totalWidth() - topFillWidth;
+				const currentModelVW = visibleWidth(left[modelIdx]);
+				const minModelVW = 10; // icon + 8 chars minimum
+				const shrinkable = currentModelVW - minModelVW;
+				if (shrinkable > 0) {
+					const shrinkBy = Math.min(shrinkable, overflow);
+					left[modelIdx] = truncateToWidth(left[modelIdx], currentModelVW - shrinkBy);
+					leftWidth = groupWidth(left, leftSepWidth);
+				}
+			}
 			while (totalWidth() > topFillWidth && left.length > 0) {
 				left.pop();
 				leftSegIds.pop();

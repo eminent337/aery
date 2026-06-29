@@ -87,6 +87,7 @@ const modelSegment: StatusLineSegment = {
 		if (modelName.startsWith("Claude ")) {
 			modelName = modelName.slice(7);
 		}
+		modelName = modelName.replace(/\s*\([^)]+\)/g, "");
 
 		// Fast-mode icon and thinking-level suffix trail the model name and are
 		// colored together with it as `statusLineModel`. The advisor "++" badge
