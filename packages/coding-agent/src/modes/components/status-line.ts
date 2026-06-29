@@ -736,7 +736,18 @@ export class StatusLineComponent implements Component {
 
 		const leftGroup = renderGroup(left);
 		const rightGroup = renderGroup(right);
-		if (!leftGroup && !rightGroup) return "";
+		if (!leftGroup && !rightGroup) {
+			// Nothing fit — render an absolute minimum: just the model name hard-truncated.
+			// This prevents the status row from disappearing entirely on narrow terminals.
+			if (topFillWidth > 0) {
+				const fallback = renderSegment("model", ctx);
+				if (fallback.visible && fallback.content) {
+					const truncated = truncateToWidth(fallback.content, topFillWidth);
+					return `${fgAnsi}${truncated}\x1b[0m`;
+				}
+			}
+			return "";
+		}
 
 		if (topFillWidth === 0 || left.length === 0 || right.length === 0) {
 			return leftGroup + (leftGroup && rightGroup ? " " : "") + rightGroup;
