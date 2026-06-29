@@ -118,6 +118,9 @@ export function registerKimchiModels(registry: ModelRegistry): void {
 			refreshToken: kimchiProvider.refreshToken,
 			getApiKey: kimchiProvider.getApiKey,
 		},
+		discovery: {
+			type: "openai-models-list",
+		},
 		models,
 	});
 }

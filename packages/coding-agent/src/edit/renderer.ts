@@ -59,6 +59,7 @@ export interface EditToolPerFileResult {
 	oldText?: string;
 	/** Source-of-truth content after the edit; `undefined` for delete operations. */
 	newText?: string;
+	snapshotsPruned?: boolean;
 }
 
 export interface EditToolDetails {
@@ -82,6 +83,7 @@ export interface EditToolDetails {
 	oldText?: string;
 	/** Source-of-truth content after the edit; `undefined` for delete operations. */
 	newText?: string;
+	snapshotsPruned?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

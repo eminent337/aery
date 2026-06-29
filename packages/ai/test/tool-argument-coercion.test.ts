@@ -1039,4 +1039,3 @@ describe("Tool argument coercion", () => {
 		expect(result.config).toEqual({ enabled: true });
 	});
 });
-

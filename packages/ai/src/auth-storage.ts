@@ -3279,7 +3279,9 @@ export class AuthStorage {
 		const oauthSelection = this.#selectCredentialByType(provider, "oauth");
 		if (oauthSelection) {
 			const expiresAt = oauthSelection.credential.expires;
-			if (Number.isFinite(expiresAt) && expiresAt > Date.now()) {
+			const isExpired =
+				expiresAt !== undefined && expiresAt !== null && Number.isFinite(expiresAt) && expiresAt <= Date.now();
+			if (!isExpired) {
 				if (provider === "github-copilot") {
 					return JSON.stringify({
 						token: oauthSelection.credential.access,

@@ -24,10 +24,12 @@ import applyPatchGrammar from "./modes/apply-patch.lark" with { type: "text" };
 import { executePatchSingle, type PatchEditEntry, type PatchParams, patchEditSchema } from "./modes/patch";
 import { executeReplaceSingle, type ReplaceEditEntry, type ReplaceParams, replaceEditSchema } from "./modes/replace";
 import { type EditToolDetails, type EditToolPerFileResult, getLspBatchRequest, type LspBatchRequest } from "./renderer";
+import { pruneOversizedEditSnapshots } from "./snapshot-details";
 
 export * from "@aryee337/hashline";
 export { DEFAULT_EDIT_MODE, type EditMode, normalizeEditMode } from "../utils/edit-mode";
 export * from "./apply-patch";
+export * from "./snapshot-details";
 export * from "./diff";
 export * from "./file-snapshot-store";
 export * from "./hashline";
@@ -126,7 +128,11 @@ async function executeApplyPatchPerFile(
 ): Promise<AgentToolResult<EditToolDetails, TInput>> {
 	if (fileEntries.length === 1) {
 		// Single file — just run directly, no wrapping
-		return fileEntries[0].run(outerBatchRequest);
+		const result = await fileEntries[0].run(outerBatchRequest);
+		if (result.details) {
+			result.details = pruneOversizedEditSnapshots(result.details);
+		}
+		return result;
 	}
 
 	const perFileResults: EditToolPerFileResult[] = [];
@@ -152,6 +158,7 @@ async function executeApplyPatchPerFile(
 				meta: details?.meta,
 				oldText: details?.oldText,
 				newText: details?.newText,
+				snapshotsPruned: details?.snapshotsPruned,
 			});
 			const text = result.content?.find(c => c.type === "text")?.text ?? "";
 			if (text) contentTexts.push(text);
@@ -166,28 +173,28 @@ async function executeApplyPatchPerFile(
 		if (!isLast && onUpdate) {
 			onUpdate({
 				content: [{ type: "text", text: contentTexts.join("\n") }],
-				details: {
+				details: pruneOversizedEditSnapshots({
 					diff: perFileResults
 						.map(r => r.diff)
 						.filter(Boolean)
 						.join("\n"),
 					firstChangedLine: perFileResults.find(r => r.firstChangedLine)?.firstChangedLine,
 					perFileResults: [...perFileResults],
-				},
+				}),
 			});
 		}
 	}
 
 	return {
 		content: [{ type: "text", text: contentTexts.join("\n") }],
-		details: {
+		details: pruneOversizedEditSnapshots({
 			diff: perFileResults
 				.map(r => r.diff)
 				.filter(Boolean)
 				.join("\n"),
 			firstChangedLine: perFileResults.find(r => r.firstChangedLine)?.firstChangedLine,
 			perFileResults,
-		},
+		}),
 	};
 }
 
@@ -198,7 +205,11 @@ async function executeSinglePathEntries(
 	onUpdate?: (partialResult: AgentToolResult<EditToolDetails, TInput>) => void,
 ): Promise<AgentToolResult<EditToolDetails, TInput>> {
 	if (runs.length === 1) {
-		return runs[0](outerBatchRequest);
+		const result = await runs[0](outerBatchRequest);
+		if (result.details) {
+			result.details = pruneOversizedEditSnapshots(result.details);
+		}
+		return result;
 	}
 
 	const contentTexts: string[] = [];
@@ -210,6 +221,7 @@ async function executeSinglePathEntries(
 	let firstOldText: string | undefined;
 	let hasLastNewText = false;
 	let lastNewText: string | undefined;
+	let snapshotsPruned = false;
 
 	for (let i = 0; i < runs.length; i++) {
 		const isLast = i === runs.length - 1;
@@ -233,6 +245,9 @@ async function executeSinglePathEntries(
 				lastNewText = details.newText;
 				hasLastNewText = true;
 			}
+			if (details?.snapshotsPruned) {
+				snapshotsPruned = true;
+			}
 			const text = result.content?.find(c => c.type === "text")?.text ?? "";
 			if (text) contentTexts.push(text);
 		} catch (err) {
@@ -244,10 +259,11 @@ async function executeSinglePathEntries(
 		if (!isLast && onUpdate) {
 			onUpdate({
 				content: [{ type: "text", text: contentTexts.join("\n") }],
-				details: {
+				details: pruneOversizedEditSnapshots({
 					diff: diffTexts.join("\n"),
 					firstChangedLine,
-				},
+					...(snapshotsPruned ? { snapshotsPruned } : {}),
+				}),
 				...(errorCount > 0 ? { isError: true } : {}),
 			});
 		}
@@ -255,13 +271,14 @@ async function executeSinglePathEntries(
 
 	return {
 		content: [{ type: "text", text: contentTexts.join("\n") }],
-		details: {
+		details: pruneOversizedEditSnapshots({
 			diff: diffTexts.join("\n"),
 			firstChangedLine,
 			path: metadataPath ?? path,
-			...(hasFirstOldText ? { oldText: firstOldText } : {}),
-			...(hasLastNewText ? { newText: lastNewText } : {}),
-		},
+			...(hasFirstOldText && !snapshotsPruned ? { oldText: firstOldText } : {}),
+			...(hasLastNewText && !snapshotsPruned ? { newText: lastNewText } : {}),
+			...(snapshotsPruned ? { snapshotsPruned } : {}),
+		}),
 		// Any per-entry failure marks the aggregate result as an error so the
 		// renderer takes the error branch instead of falling through to the
 		// streaming-edit preview (which displays the *proposed* diff and looks

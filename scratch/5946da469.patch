@@ -1,0 +1,449 @@
+commit 5946da46931cf742b399701730c1cbb0864573e7
+Author: Pedro <peter.brczan@cast.ai>
+Date:   Tue Jun 23 15:54:07 2026 +0200
+
+    fix(editor): render clipboard indicator in own row to avoid squeezing (#668)
+    
+    ## Linked issue
+    [LLM-2233](https://castai.atlassian.net/browse/LLM-2233)
+    Closes #0
+    
+    <!-- Every PR must link to an existing issue. PRs without a linked issue
+    will not be reviewed.
+         Use one of: Closes #N / Fixes #N / Resolves #N -->
+    
+    ## What does this PR do?
+    
+    <!-- Brief description of the change and why it's needed. -->
+    
+    ## Checklist
+    
+    - [ ] I have read [CONTRIBUTING.md](../CONTRIBUTING.md) and agree to the
+    CLA
+    - [ ] This PR links to an open issue above
+    - [ ] Tests pass locally (`pnpm run test`)
+    - [ ] Lint passes (`pnpm run check`)
+    - [ ] Documentation updated if behavior changed
+
+diff --git a/src/components/editor.test.ts b/src/components/editor.test.ts
+new file mode 100644
+index 000000000..cad4912e1
+--- /dev/null
++++ b/src/components/editor.test.ts
+@@ -0,0 +1,184 @@
++import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent"
++import { type EditorTheme, type TUI, visibleWidth } from "@earendil-works/pi-tui"
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
++import { PromptEditor } from "./editor.js"
++
++// Minimal stubs that satisfy what the upstream Editor constructor and our
++// `PromptEditor.render` actually touch. Anything not listed here is unused by
++// the render path; the cast at the bottom keeps the typechecker honest.
++
++function makeTui(): TUI {
++	const tui = {
++		requestRender: vi.fn(),
++		terminal: { rows: 40, cols: 80 },
++	} as unknown as TUI
++	return tui
++}
++
++function makeEditorTheme(): EditorTheme {
++	return {
++		borderColor: (s: string) => s,
++		selectList: {} as EditorTheme["selectList"],
++	}
++}
++
++function makeKeybindings(): KeybindingsManager {
++	return {
++		matches: (_data: string, _action: string) => false,
++	} as unknown as KeybindingsManager
++}
++
++function makeTheme(): Theme {
++	// Stub: only `getFgAnsi` is touched by PromptEditor.render. Cast keeps the
++	// typechecker honest while letting us return plain ANSI escapes.
++	return {
++		getFgAnsi: (_color: string) => "",
++	} as unknown as Theme
++}
++
++function makeEditor(): { editor: PromptEditor; tui: TUI } {
++	const tui = makeTui()
++	const editor = new PromptEditor(tui, makeEditorTheme(), makeKeybindings(), makeTheme())
++	return { editor, tui }
++}
++
++// Strip ANSI escape codes for assertions.
++// biome-ignore lint/suspicious/noControlCharactersInRegex: test-only helper
++const ANSI_RE = /\x1b\[[0-9;]*m/g
++function stripAnsi(s: string): string {
++	return s.replace(ANSI_RE, "")
++}
++
++describe("PromptEditor", () => {
++	describe("render — no indicator", () => {
++		it("renders top border, single content row, bottom border when empty", () => {
++			const { editor } = makeEditor()
++			const lines = editor.render(80).map(stripAnsi)
++			expect(lines).toHaveLength(3)
++			expect(lines[0].startsWith("─")).toBe(true)
++			expect(lines[1].startsWith("❯")).toBe(true)
++			expect(lines[2].startsWith("─")).toBe(true)
++		})
++
++		it("hides the placeholder when the editor is too narrow to fit it", () => {
++			const { editor } = makeEditor()
++			const lines = editor.render(8).map(stripAnsi)
++			// Even at 8 cols we still expect top border, content row, bottom border.
++			expect(lines).toHaveLength(3)
++			expect(lines[1].startsWith("❯")).toBe(true)
++			// Placeholder text is intentionally long; on a 8-col terminal it
++			// must be dropped entirely rather than truncated mid-word.
++			expect(lines[1]).not.toContain("ask anything")
++		})
++	})
++
++	describe("render — with indicator", () => {
++		let editor: PromptEditor
++
++		beforeEach(() => {
++			editor = makeEditor().editor
++			editor.setPendingImageIndicator("Image in clipboard · ctrl+v to paste")
++		})
++
++		afterEach(() => {
++			editor.setPendingImageIndicator(null)
++		})
++
++		it("inserts the indicator row between the top border and the content row", () => {
++			const lines = editor.render(80).map(stripAnsi)
++			// Empty editor with indicator: top border, indicator row, content row, bottom border.
++			expect(lines).toHaveLength(4)
++			expect(lines[0].startsWith("─")).toBe(true)
++			expect(lines[1]).toContain("Image in clipboard")
++			expect(lines[2].startsWith("❯")).toBe(true)
++			expect(lines[3].startsWith("─")).toBe(true)
++		})
++
++		it("right-aligns the indicator row", () => {
++			const lines = editor.render(80).map(stripAnsi)
++			const indicatorRow = lines[1]
++			// "Image in clipboard · ctrl+v to paste" is 36 visible cells; right
++			// edge must end with that text.
++			expect(indicatorRow.endsWith("Image in clipboard · ctrl+v to paste")).toBe(true)
++		})
++
++		it("does NOT squeeze the editor body when the indicator is set", () => {
++			// This is the regression: previously the editor was rendered at
++			// contentWidth − 36 − 1, squeezing user input into a narrow strip.
++			// After the fix, the editor body uses the full contentWidth.
++			editor.setText("fix the bug in the user authentication system today please")
++			const lines = editor.render(60).map(stripAnsi)
++			const contentWidth = 60 - 2 // CHEVRON_WIDTH
++			// Find the first content row (cursor row).
++			const cursorRow = lines.find((l) => l.startsWith("❯"))
++			expect(cursorRow).toBeDefined()
++			const cursorRowWidth = visibleWidth(cursorRow ?? "")
++			// The cursor row should span the full content width (minus the
++			// chevron prefix), not the previous squeezed width of ~21.
++			expect(cursorRowWidth).toBeGreaterThan(contentWidth / 2)
++		})
++
++		it("truncates the indicator with ellipsis when it does not fit the width", () => {
++			const lines = editor.render(20).map(stripAnsi)
++			// Find the indicator row — it sits between the top and bottom borders.
++			const indicatorRow = lines[1]
++			expect(indicatorRow).toBeDefined()
++			// No overflow: row is at most 20 cells wide.
++			expect(visibleWidth(indicatorRow)).toBeLessThanOrEqual(20)
++			// Truncation marker present (truncateToWidth appends "...").
++			expect(indicatorRow).toContain("...")
++		})
++	})
++
++	describe("render — indicator lifecycle", () => {
++		it("produces 3 rows (no indicator row) after setPendingImageIndicator(null)", () => {
++			const { editor } = makeEditor()
++			editor.setPendingImageIndicator("Image in clipboard · ctrl+v to paste")
++			expect(editor.render(80).map(stripAnsi)).toHaveLength(4)
++			editor.setPendingImageIndicator(null)
++			expect(editor.render(80).map(stripAnsi)).toHaveLength(3)
++		})
++
++		it("no-ops when setPendingImageIndicator receives the same value twice", () => {
++			const { editor, tui } = makeEditor()
++			const spy = vi.spyOn(tui, "requestRender")
++			editor.setPendingImageIndicator("hello")
++			editor.setPendingImageIndicator("hello")
++			expect(spy).toHaveBeenCalledTimes(1)
++		})
++	})
++
++	describe("render — session indicator", () => {
++		it("combines session indicator and pending image indicator with a space", () => {
++			const { editor } = makeEditor()
++			editor.setSessionIndicator("(host)")
++			editor.setPendingImageIndicator("📎 1 image (5 KB)")
++			const lines = editor.render(80).map(stripAnsi)
++			const indicatorRow = lines[1]
++			expect(indicatorRow).toContain("(host)")
++			expect(indicatorRow).toContain("📎 1 image (5 KB)")
++			// Space-separated.
++			expect(indicatorRow).toContain("(host) 📎 1 image (5 KB)")
++		})
++
++		it("shows only the session indicator when no pending image is set", () => {
++			const { editor } = makeEditor()
++			editor.setSessionIndicator("(host)")
++			const lines = editor.render(80).map(stripAnsi)
++			expect(lines).toHaveLength(4)
++			expect(lines[1]).toContain("(host)")
++			expect(lines[1]).not.toContain("clipboard")
++		})
++	})
++
++	describe("render — typed text with chevron", () => {
++		it("uses ❯ prefix only on the cursor row and two-space indent on other rows", () => {
++			const { editor } = makeEditor()
++			editor.setText("first line of input")
++			const lines = editor.render(80).map(stripAnsi)
++			// No indicator set, so 3 rows: top border, cursor row, bottom border.
++			expect(lines).toHaveLength(3)
++			expect(lines[1].startsWith("❯ ")).toBe(true)
++		})
++	})
++})
+diff --git a/src/components/editor.ts b/src/components/editor.ts
+index 7daf304d0..44b6a621e 100644
+--- a/src/components/editor.ts
++++ b/src/components/editor.ts
+@@ -28,23 +28,6 @@ export class PromptEditor extends CustomEditor {
+ 	private _pendingImageIndicator: string | null = null
+ 	private _sessionIndicator: string | null = null
+ 
+-	/**
+-	 * Computes the width available for the editor's content text when a
+-	 * right-aligned indicator is shown. Ensures at least 1 cell remains so
+-	 * super.render() doesn't receive a zero/negative width.
+-	 *
+-	 * Layout invariant: contentWidth = contentRenderWidth + indicatorVisibleWidth + indicatorGutter
+-	 * where indicatorGutter is 1 space between text and indicator when indicator is present, 0 otherwise.
+-	 */
+-	private computeContentWidth(contentWidth: number, indicatorRaw: string | null): number {
+-		const indicatorVisibleWidth = indicatorRaw ? visibleWidth(indicatorRaw) : 0
+-		const indicatorGutter = indicatorVisibleWidth > 0 ? 1 : 0
+-		return Math.max(
+-			1,
+-			indicatorVisibleWidth > 0 ? contentWidth - indicatorVisibleWidth - indicatorGutter : contentWidth,
+-		)
+-	}
+-
+ 	constructor(tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager, appTheme: Theme) {
+ 		super(tui, editorTheme, keybindings)
+ 		this.appTheme = appTheme
+@@ -56,10 +39,10 @@ export class PromptEditor extends CustomEditor {
+ 	}
+ 
+ 	/**
+-	 * Show a short status string right-aligned on the prompt's first line
+-	 * (the placeholder row). Stays visible regardless of editor content until
+-	 * cleared with `null`. Used by the clipboard-image extension to surface
+-	 * pending pasted attachments.
++	 * Show a short status string in its own row just inside the editor's top
++	 * border. Stays visible regardless of editor content until cleared with
++	 * `null`. Used by the clipboard-image extension to surface pending pasted
++	 * attachments.
+ 	 */
+ 	setPendingImageIndicator(text: string | null) {
+ 		if (this._pendingImageIndicator === text) return
+@@ -68,9 +51,9 @@ export class PromptEditor extends CustomEditor {
+ 	}
+ 
+ 	/**
+-	 * Show a short session label right-aligned on the prompt's first line.
+-	 * Used by the teleport extension to remind the user they are connected
+-	 * to a remote worker. Pass `null` to clear.
++	 * Show a short session label in its own row just inside the editor's top
++	 * border. Used by the teleport extension to remind the user they are
++	 * connected to a remote worker. Pass `null` to clear.
+ 	 */
+ 	setSessionIndicator(text: string | null) {
+ 		if (this._sessionIndicator === text) return
+@@ -78,6 +61,35 @@ export class PromptEditor extends CustomEditor {
+ 		this.tui.requestRender()
+ 	}
+ 
++	/**
++	 * Compose the current session + pending-image indicators into a single
++	 * raw string, or null if neither is set.
++	 */
++	private combinedIndicator(): string | null {
++		const parts: string[] = []
++		if (this._sessionIndicator) parts.push(this._sessionIndicator)
++		if (this._pendingImageIndicator) parts.push(this._pendingImageIndicator)
++		return parts.length > 0 ? parts.join(" ") : null
++	}
++
++	/**
++	 * Build a right-aligned, muted indicator row that fits inside `width`.
++	 * Truncates with an ellipsis if the indicator text is wider than the row.
++	 * Returns null when no indicator is set so the editor's row count stays
++	 * unchanged when nothing is pending.
++	 */
++	private renderIndicatorRow(width: number): string | null {
++		const raw = this.combinedIndicator()
++		if (!raw) return null
++		const muted = this.appTheme.getFgAnsi("muted")
++		// truncateToWidth handles the wider-than-width case via cell-aware
++		// truncation (preserves ANSI escapes, replaces the tail with "...").
++		const truncated = truncateToWidth(raw, width)
++		const tw = visibleWidth(truncated)
++		const pad = " ".repeat(Math.max(0, width - tw))
++		return `${pad}${muted}${truncated}${RST_FG}`
++	}
++
+ 	override handleInput(data: string) {
+ 		if (this.expandHandler && this.kb.matches(data, "app.tools.expand")) {
+ 			this.expandHandler()
+@@ -106,19 +118,10 @@ export class PromptEditor extends CustomEditor {
+ 		const innerWidth = width
+ 		const contentWidth = innerWidth - CHEVRON_WIDTH
+ 
+-		// When an attachment indicator is shown, the editor body must wrap one
+-		// indicator-width earlier on every row so the indicator (always pinned to
+-		// the first row's right edge) never collides with typed text. Computed
+-		// before super.render() because we need the *narrower* layout up front.
+-		const indicatorParts: string[] = []
+-		if (this._sessionIndicator) indicatorParts.push(this._sessionIndicator)
+-		if (this._pendingImageIndicator) indicatorParts.push(this._pendingImageIndicator)
+-		const indicatorRaw = indicatorParts.length > 0 ? indicatorParts.join(" ") : null
+-		const contentRenderWidth = this.computeContentWidth(contentWidth, indicatorRaw)
+-		const lines = super.render(contentRenderWidth)
+-
+-		const indicatorVisibleWidth = indicatorRaw ? visibleWidth(indicatorRaw) : 0
+-		const indicatorGutter = indicatorVisibleWidth > 0 ? 1 : 0
++		// Editor body always renders at the full content width — the indicator
++		// lives in its own row (renderIndicatorRow below), so the user's text
++		// is never squeezed to make room for a right-aligned status string.
++		const lines = super.render(contentWidth)
+ 
+ 		// Find bottom border: scan backwards for a line starting with ─
+ 		let bottomIdx = Math.min(2, lines.length - 1)
+@@ -134,30 +137,29 @@ export class PromptEditor extends CustomEditor {
+ 		const bottomBorder = rebuildBorder(lines[bottomIdx], innerWidth, border)
+ 		const result: string[] = [topBorder]
+ 
+-		// Right-aligned status segment pinned to the first content row of the
+-		// prompt. Always shown when set: typed text is wrapped one indicator-
+-		// width earlier (see contentRenderWidth above) so the indicator never
+-		// collides with text. Persists across empty/non-empty editor states
+-		// until cleared via setPendingImageIndicator(null).
+-		const indicatorStyled = indicatorRaw ? `${muted}${indicatorRaw}${RST_FG}` : ""
++		// Indicator row sits between the top border and the first content row,
++		// rendered at the full inner width (right-aligned, muted). When no
++		// indicator is set, this row is omitted entirely so the editor's row
++		// count is unchanged from the no-indicator case.
++		const indicatorRow = this.renderIndicatorRow(innerWidth)
++		if (indicatorRow !== null) {
++			result.push(indicatorRow)
++		}
+ 
+ 		if (this.getText().length === 0) {
+ 			const cursorMarker = "\x1b_pi:c\x07"
+ 			// Use terminal's native cursor — no custom styling
+ 			const cursor = `${cursorMarker} `
+-			// Reserve room for the indicator (plus one space gutter) on the right.
+-			// If the placeholder no longer fits, drop it entirely rather than
+-			// truncating mid-word — the cursor still anchors the row.
++			// The indicator no longer competes for placeholder space — it lives
++			// on its own row above this one.
+ 			const cursorCellWidth = 1 // width of the space the terminal-native cursor occupies
+ 			const leadWidth = CHEVRON_WIDTH + cursorCellWidth
+-			const placeholderBudget = innerWidth - leadWidth - indicatorVisibleWidth - indicatorGutter
++			const placeholderBudget = innerWidth - leadWidth
+ 			const placeholderText = placeholderBudget >= visibleWidth(PLACEHOLDER_TEXT) ? PLACEHOLDER_TEXT : ""
+ 			const placeholderRendered = placeholderText.length > 0 ? `${muted}${placeholderText}${RST_FG}` : ""
+-			const usedWidth = leadWidth + visibleWidth(placeholderText) + indicatorVisibleWidth + indicatorGutter
++			const usedWidth = leadWidth + visibleWidth(placeholderText)
+ 			const middlePad = " ".repeat(Math.max(0, innerWidth - usedWidth))
+-			result.push(
+-				`${chevronColor}❯${RST_FG} ${cursor}${placeholderRendered}${middlePad}${indicatorStyled}${indicatorGutter > 0 ? " " : ""}`,
+-			)
++			result.push(`${chevronColor}❯${RST_FG} ${cursor}${placeholderRendered}${middlePad}`)
+ 		} else {
+ 			const contentLines = lines.slice(1, bottomIdx)
+ 			let cursorIdx = contentLines.findIndex((l) => l.includes("\x1b_pi:c"))
+@@ -168,16 +170,8 @@ export class PromptEditor extends CustomEditor {
+ 				const styled = i === cursorIdx ? line.replace("\x1b[7m", "").replaceAll("\x1b[0m", `\x1b[0m${textColor}`) : line
+ 				const prefix = i === cursorIdx ? `${chevronColor}❯${RST_FG} ` : "  "
+ 				const styledWidth = visibleWidth(styled)
+-				if (i === 0 && indicatorVisibleWidth > 0) {
+-					// First row hosts the indicator. Editor body was rendered at
+-					// contentRenderWidth so styledWidth <= contentRenderWidth and the
+-					// gap below is always non-negative.
+-					const gap = " ".repeat(Math.max(0, contentWidth - styledWidth - indicatorVisibleWidth))
+-					result.push(`${prefix}${textColor}${styled}${RST_FG}${gap}${indicatorStyled}`)
+-				} else {
+-					const rightPad = " ".repeat(Math.max(0, contentWidth - styledWidth))
+-					result.push(`${prefix}${textColor}${styled}${rightPad}${RST_FG}`)
+-				}
++				const rightPad = " ".repeat(Math.max(0, contentWidth - styledWidth))
++				result.push(`${prefix}${textColor}${styled}${rightPad}${RST_FG}`)
+ 			}
+ 		}
+ 
+diff --git a/tests/e2e/tui/editor-narrow-layout.test.ts b/tests/e2e/tui/editor-narrow-layout.test.ts
+new file mode 100644
+index 000000000..3ad2a7481
+--- /dev/null
++++ b/tests/e2e/tui/editor-narrow-layout.test.ts
+@@ -0,0 +1,47 @@
++import { expect, test } from "@microsoft/tui-test"
++import { Shell } from "@microsoft/tui-test"
++import { INPUT_TIMEOUT_MS, fullText, waitForText } from "./support/assertions.js"
++import { runKimchiSession } from "./support/kimchi-fixture.js"
++
++// Regression test for the "indicator squeezes the editor" bug.
++//
++// When the editor is rendered in a narrow terminal and the user types a long
++// prompt, every content row must use the full content width — text must NOT
++// be wrapped into a narrow column.
++//
++// The fixture does not expose a clipboard seam, so this test exercises the
++// related "long input layout" path. The exact indicator-squeeze regression
++// is covered by `src/components/editor.test.ts` (see the
++// "does NOT squeeze the editor body when the indicator is set" case).
++test.use({ shell: Shell.Bash, rows: 30, columns: 60 })
++
++test("long prompt in narrow terminal does not get squeezed", async ({ terminal }) => {
++	const longPrompt = "write a comprehensive test suite for the new authentication module"
++	const promptLead = "write a comprehensive" // first words — robust to word-wrap newlines.
++	await runKimchiSession(
++		terminal,
++		{
++			artifactName: "editor-narrow-layout",
++			responses: [{ stream: ["ok"] }],
++		},
++		async (_fixture, trace) => {
++			terminal.submit(longPrompt)
++			trace.step("submitted long prompt")
++			// Wait for the leading portion of the prompt — the editor wraps the
++			// remainder onto subsequent rows, so the full string will not match.
++			await waitForText(terminal, promptLead, { timeoutMs: INPUT_TIMEOUT_MS, full: true })
++			trace.step("prompt visible in buffer")
++
++			const buffer = fullText(terminal)
++			const lines = buffer.split("\n")
++			// Find the cursor row (contains the chevron followed by typed text).
++			const cursorRow = lines.find((l) => l.includes("❯") && l.includes(promptLead))
++			expect(cursorRow).toBeDefined()
++
++			// The cursor row should use close to the full content width (60 - 2
++			// CHEVRON_WIDTH = 58). Pre-fix the indicator squeezed this to ~21.
++			const rowWidth = cursorRow ? cursorRow.length : 0
++			expect(rowWidth).toBeGreaterThan(40)
++		},
++	)
++})

@@ -26,6 +26,7 @@ import { outputMeta } from "../../tools/output-meta";
 import { generateDiffString } from "../diff";
 import { getFileSnapshotStore } from "../file-snapshot-store";
 import type { EditToolDetails, EditToolPerFileResult, LspBatchRequest } from "../renderer";
+import { pruneOversizedEditSnapshots } from "../snapshot-details";
 import { nativeBlockResolver } from "./block-resolver";
 import { HashlineFilesystem } from "./filesystem";
 import { type HashlineParams, hashlineEditParamsSchema } from "./params";
@@ -107,6 +108,8 @@ function renderSection(result: PatchSectionResult, diagnostics: FileDiagnosticsR
 				diagnostics,
 				op: result.op,
 				meta,
+				oldText: result.op !== "create" ? result.before : undefined,
+				newText: result.op !== "delete" ? result.after : undefined,
 			},
 		},
 		perFileResult: {
@@ -115,6 +118,8 @@ function renderSection(result: PatchSectionResult, diagnostics: FileDiagnosticsR
 			firstChangedLine,
 			diagnostics,
 			op: result.op,
+			oldText: result.op !== "create" ? result.before : undefined,
+			newText: result.op !== "delete" ? result.after : undefined,
 		},
 	};
 }
@@ -142,10 +147,13 @@ export async function executeHashlineSingle(
 		fs.setBatchRequest(narrowBatchRequest(options.batchRequest, true));
 		const prepared = await patcher.prepare(patch.sections[0]);
 		const sectionResult = await patcher.commit(prepared);
-		if (sectionResult.op === "noop") {
-			return renderSection(sectionResult, undefined).toolResult;
+		const rendered = sectionResult.op === "noop"
+			? renderSection(sectionResult, undefined)
+			: renderSection(sectionResult, fs.consumeDiagnostics(sectionResult.path));
+		if (rendered.toolResult.details) {
+			rendered.toolResult.details = pruneOversizedEditSnapshots(rendered.toolResult.details);
 		}
-		return renderSection(sectionResult, fs.consumeDiagnostics(sectionResult.path)).toolResult;
+		return rendered.toolResult;
 	}
 
 	// Multi-section: prepare every section up front so we fail fast before
@@ -177,10 +185,10 @@ export async function executeHashlineSingle(
 					.join("\n\n"),
 			},
 		],
-		details: {
+		details: pruneOversizedEditSnapshots({
 			diff: rendered.map(r => r.toolResult.details?.diff ?? "").join("\n"),
 			perFileResults: rendered.map(r => r.perFileResult),
-		},
+		}),
 	};
 }
 

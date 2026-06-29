@@ -1,0 +1,545 @@
+commit a1d057ff6e9c4ab8c4e29cc2d09276c8b08abbc3
+Author: Ihor Shchupliak <kodburn@gmail.com>
+Date:   Tue Jun 23 22:25:19 2026 +0300
+
+    fix: Add behaviors to the system prompt rules instead of passing them as a user prompt (#672)
+
+diff --git a/src/extensions/behaviours/engine.test.ts b/src/extensions/behaviours/engine.test.ts
+index 006539043..5f5161b5d 100644
+--- a/src/extensions/behaviours/engine.test.ts
++++ b/src/extensions/behaviours/engine.test.ts
+@@ -181,55 +181,6 @@ function bashCall(command: string): ToolCallEvent {
+ 	return { toolName: "bash", input: { command } }
+ }
+ 
+-describe("TriggerEngine.requeueLoaded", () => {
+-	it("repopulates pending with every loaded behaviour, preserving the loaded set", () => {
+-		const a = makeBehaviour({ name: "a", kind: "triggered", triggers: { session: cli("foo") } })
+-		const b = makeBehaviour({ name: "b", kind: "triggered", triggers: { session: cli("bar") } })
+-		const engine = new TriggerEngine([a, b])
+-		engine.evaluateSessionTriggers(makeContext({ clis: ["foo", "bar"] }), 0)
+-
+-		// Drain pending — simulating injector delivery on the first turn.
+-		expect(engine.takePending("a")).toBe(true)
+-		expect(engine.takePending("b")).toBe(true)
+-		expect(engine.pendingNames()).toEqual([])
+-
+-		const requeued = engine.requeueLoaded()
+-		expect(requeued).toEqual(["a", "b"])
+-		expect(engine.pendingNames()).toEqual(["a", "b"])
+-		expect(engine.loadedNames()).toEqual(["a", "b"])
+-	})
+-
+-	it("does nothing when nothing is loaded", () => {
+-		const engine = new TriggerEngine([])
+-		expect(engine.requeueLoaded()).toEqual([])
+-		expect(engine.pendingNames()).toEqual([])
+-	})
+-
+-	it("returns names in registry order regardless of load order", () => {
+-		const a = makeBehaviour({ name: "a", kind: "triggered", triggers: { tool: tool("bash") } })
+-		const b = makeBehaviour({ name: "b", kind: "triggered", triggers: { tool: tool("bash") } })
+-		const engine = new TriggerEngine([a, b])
+-		// Load b first via tool, then a — registry order is still [a, b].
+-		engine.evaluateToolTriggers(bashCall("ls"), 0)
+-		expect(engine.requeueLoaded()).toEqual(["a", "b"])
+-	})
+-
+-	it("does not re-emit load events when triggers are re-evaluated after requeue", () => {
+-		const ghCli = makeBehaviour({
+-			name: "gh-cli",
+-			kind: "triggered",
+-			triggers: { session: cli("gh") },
+-		})
+-		const engine = new TriggerEngine([ghCli])
+-		const ctx = makeContext({ clis: ["gh"] })
+-		expect(engine.evaluateSessionTriggers(ctx, 0)).toHaveLength(1)
+-		engine.takePending("gh-cli")
+-		engine.requeueLoaded()
+-		// A second evaluateSessionTriggers pass must not produce a second load event.
+-		expect(engine.evaluateSessionTriggers(ctx, 1)).toEqual([])
+-	})
+-})
+-
+ describe("TriggerEngine.loadRecord", () => {
+ 	it("captures session-trigger metadata", () => {
+ 		const ghCli = makeBehaviour({
+diff --git a/src/extensions/behaviours/engine.ts b/src/extensions/behaviours/engine.ts
+index 9f56f02bd..8cb5f2919 100644
+--- a/src/extensions/behaviours/engine.ts
++++ b/src/extensions/behaviours/engine.ts
+@@ -1,6 +1,6 @@
+ /**
+  * Trigger engine — pure state machine that decides when triggered behaviours
+- * load and tracks pending injections for the injector to drain.
++ * load and tracks pending one-shot injections for the in-turn steer path.
+  *
+  * Two evaluation paths share the same `loaded`/`pending` state:
+  * - `evaluateSessionTriggers` — runs probes against the resolved
+@@ -12,8 +12,15 @@
+  * also records the load circumstances (turn, trigger source, tool args) so
+  * downstream consumers (session summary) don't need a parallel side-table.
+  *
+- * On compaction the loaded set is preserved; `requeueLoaded` repopulates the
+- * pending queue so the injector re-delivers each loaded body once.
++ * Persistence across turns is handled by the system-prompt block registered
++ * for each triggered behaviour: the block renders its body iff the behaviour
++ * is loaded, so the loaded set surviving a session reset is sufficient —
++ * no explicit re-injection is required after compaction.
++ *
++ * The `pending` queue exists solely to gate the in-turn steer delivery from
++ * `tool_result`: a tool-triggered body is steered exactly once, the first
++ * time its tool result arrives after the trigger fires. Session-triggered
++ * bodies never go through this path — they only appear in the system prompt.
+  */
+ 
+ import type { SessionContext } from "./session-context.js"
+@@ -121,20 +128,4 @@ export class TriggerEngine {
+ 		this.loaded.clear()
+ 		this.pending.clear()
+ 	}
+-
+-	/**
+-	 * Repopulate the pending queue with every currently-loaded behaviour, in
+-	 * registry order. The loaded set is preserved — triggers do not re-fire
+-	 * and `behaviour_loaded` entries are not re-emitted. Used after compaction
+-	 * to re-inject bodies the summarisation step replaced.
+-	 */
+-	requeueLoaded(): string[] {
+-		const requeued: string[] = []
+-		for (const b of this.behaviours) {
+-			if (!this.loaded.has(b.name)) continue
+-			this.pending.add(b.name)
+-			requeued.push(b.name)
+-		}
+-		return requeued
+-	}
+ }
+diff --git a/src/extensions/behaviours/index.ts b/src/extensions/behaviours/index.ts
+index af5b66ab2..c7b10720d 100644
+--- a/src/extensions/behaviours/index.ts
++++ b/src/extensions/behaviours/index.ts
+@@ -6,18 +6,19 @@
+  *   to the system prompt at every turn. Always in effect, no per-call cost.
+  * - **Triggered** behaviours load when their session-probe triggers fire at
+  *   session start, or when their tool-call matchers fire on a tool_call event.
+- *   Loaded bodies are delivered as hidden custom messages on the next agent
+- *   turn, once per behaviour per session, plus once more after each
+- *   compaction (which summarises the body away).
++ *   Once loaded, the body joins the system prompt as a per-behaviour block
++ *   and persists for the rest of the session (survives compaction). For
++ *   in-turn context after a tool-triggered load, the body is also steered
++ *   once via `tool_result` so the model's next inference within that turn
++ *   sees it before the next system-prompt rebuild.
+  *
+  * On each tool-call event the eval engine runs first against the prior loaded
+  * set, then the trigger engine evaluates tool-call triggers; this ensures the
+  * call that loads a behaviour is not also scored against its own evaluators.
+  *
+- * Triggered loads, eval verdicts, post-compaction requeues, and a per-session
+- * summary are written into the active session JSONL (`behaviour_loaded`,
+- * `behaviour_eval`, `behaviour_requeued`, `behaviour_session_summary`) so
+- * decisions can be audited offline.
++ * Triggered loads, eval verdicts, and a per-session summary are written into
++ * the active session JSONL (`behaviour_loaded`, `behaviour_eval`,
++ * `behaviour_session_summary`) so decisions can be audited offline.
+  *
+  * The wiring layer lives in `wiring.ts` so tests can import it without
+  * resolving the markdown bodies pulled in by `registry.ts`.
+diff --git a/src/extensions/behaviours/stats.ts b/src/extensions/behaviours/stats.ts
+index ef395776e..cffb2dea7 100644
+--- a/src/extensions/behaviours/stats.ts
++++ b/src/extensions/behaviours/stats.ts
+@@ -1,20 +1,21 @@
+ /**
+  * Stats writer — defines the behaviour-related custom JSONL entry types
+- * appended via `pi.appendEntry`. Four entry types:
++ * appended via `pi.appendEntry`. Three entry types:
+  *
+  * - `behaviour_loaded` and `behaviour_eval` are per-event.
+- * - `behaviour_requeued` fires once per compaction per behaviour, signalling
+- *   that the body was re-injected after summarisation replaced it.
+  * - `behaviour_session_summary` is emitted once on `session_shutdown` and
+  *   carries the uncapped per-behaviour totals so cross-session aggregation is
+  *   a single jq pass.
++ *
++ * Bodies persist across turns via the system-prompt block registered for each
++ * loaded triggered behaviour, so no per-compaction re-injection entry is
++ * needed.
+  */
+ 
+ import type { EvalVerdict, TriggerSource } from "./types.js"
+ 
+ export const BEHAVIOUR_LOADED_TYPE = "behaviour_loaded"
+ export const BEHAVIOUR_EVAL_TYPE = "behaviour_eval"
+-export const BEHAVIOUR_REQUEUED_TYPE = "behaviour_requeued"
+ export const BEHAVIOUR_SESSION_SUMMARY_TYPE = "behaviour_session_summary"
+ 
+ export interface BehaviourLoadedData {
+@@ -32,11 +33,6 @@ export interface BehaviourEvalData {
+ 	toolArgs: unknown
+ }
+ 
+-export interface BehaviourRequeuedData {
+-	name: string
+-	turnIndex: number
+-}
+-
+ export interface BehaviourSummaryEntry {
+ 	name: string
+ 	loaded: boolean
+diff --git a/src/extensions/behaviours/wiring.smoke.test.ts b/src/extensions/behaviours/wiring.smoke.test.ts
+index 7b08866cb..8cee8e69d 100644
+--- a/src/extensions/behaviours/wiring.smoke.test.ts
++++ b/src/extensions/behaviours/wiring.smoke.test.ts
+@@ -10,12 +10,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
+ import { afterEach, describe, expect, it } from "vitest"
+ import { type EnvironmentInfo, buildSystemPrompt } from "../prompt-construction/system-prompt.js"
+ import type { ResolverIO } from "./session-context.js"
+-import {
+-	BEHAVIOUR_EVAL_TYPE,
+-	BEHAVIOUR_LOADED_TYPE,
+-	BEHAVIOUR_REQUEUED_TYPE,
+-	BEHAVIOUR_SESSION_SUMMARY_TYPE,
+-} from "./stats.js"
++import { BEHAVIOUR_EVAL_TYPE, BEHAVIOUR_LOADED_TYPE, BEHAVIOUR_SESSION_SUMMARY_TYPE } from "./stats.js"
+ import { cli, tool } from "./triggers.js"
+ import type { Behaviour } from "./types.js"
+ import { BEHAVIOUR_BODY_TYPE, wireBehaviours } from "./wiring.js"
+@@ -184,25 +179,31 @@ describe("wireBehaviours — session_start", () => {
+ 		expect(pi.entries(BEHAVIOUR_LOADED_TYPE)).toHaveLength(2)
+ 	})
+ 
+-	it("loads session-triggered behaviours before appendEntry is available", async () => {
++	it("renders session-triggered bodies in the system prompt before appendEntry is available", async () => {
+ 		const pi = setupWired([ghCli])
+ 		pi.setRuntimeReady(false)
+ 
+-		await pi.fire("session_start", {}, { cwd: "/tmp" })
++		await pi.fire(
++			"session_start",
++			{},
++			{
++				cwd: "/tmp",
++				sessionManager: { getSessionId: () => TEST_SESSION_ID },
++			},
++		)
+ 
+ 		expect(pi.entries(BEHAVIOUR_LOADED_TYPE)).toEqual([])
+ 
+-		const next = await pi.fire<{ message?: { customType: string; content: string; display: boolean } }>(
+-			"before_agent_start",
+-			{ prompt: "hi", systemPrompt: "BASE" },
+-		)
+-		expect(next.flatMap((r) => (r.message ? [r.message] : []))).toEqual([
+-			expect.objectContaining({
+-				customType: BEHAVIOUR_BODY_TYPE,
+-				content: "Use gh for GitHub.",
+-				display: false,
+-			}),
+-		])
++		// The system-prompt block renders the body as soon as the engine has
++		// loaded it, independent of when the deferred appendEntry fires.
++		const sp = buildSystemPrompt({
++			tools: [{ name: "read", description: "Read file contents" }],
++			env: testEnv,
++			contextFiles: [],
++			mode: "orchestrator",
++			sessionId: TEST_SESSION_ID,
++		})
++		expect(sp).toContain("Use gh for GitHub.")
+ 
+ 		pi.setRuntimeReady(true)
+ 		await flushDeferredActions()
+@@ -275,30 +276,37 @@ describe("wireBehaviours — tool_result", () => {
+ 			},
+ 		])
+ 
+-		// Pending drained: a later before_agent_start does NOT re-deliver the body.
+-		const next = await pi.fire<{ message?: unknown }>("before_agent_start", { prompt: "x", systemPrompt: "BASE" })
+-		expect(next.flatMap((r) => (r.message ? [r.message] : []))).toEqual([])
++		// Pending drained: a later tool_result with the same body must NOT re-steer.
++		const sentBefore = pi.sent.length
++		await pi.fire("tool_result", { toolName: "bash", input: { command: "glab mr list" } })
++		expect(pi.sent.length).toBe(sentBefore)
+ 	})
+ 
+-	it("does not steer for session-triggered bodies that are still pending", async () => {
++	it("does not steer session-triggered bodies; they appear in the system prompt instead", async () => {
+ 		const pi = setupWired([ghCli])
+-		await pi.fire("session_start", {}, { cwd: "/tmp" })
++		await pi.fire(
++			"session_start",
++			{},
++			{
++				cwd: "/tmp",
++				sessionManager: { getSessionId: () => TEST_SESSION_ID },
++			},
++		)
+ 		await flushDeferredActions()
+ 		await pi.fire("tool_result", { toolName: "bash", input: { command: "gh pr list" } })
+ 
++		// Session-triggered bodies never go through the steer path.
+ 		expect(pi.sent).toEqual([])
+ 
+-		const next = await pi.fire<{ message?: { customType: string; content: string; display: boolean } }>(
+-			"before_agent_start",
+-			{ prompt: "x", systemPrompt: "BASE" },
+-		)
+-		expect(next.flatMap((r) => (r.message ? [r.message] : []))).toEqual([
+-			expect.objectContaining({
+-				customType: BEHAVIOUR_BODY_TYPE,
+-				content: "Use gh for GitHub.",
+-				display: false,
+-			}),
+-		])
++		// The body is delivered via the system-prompt block instead.
++		const sp = buildSystemPrompt({
++			tools: [{ name: "read", description: "Read file contents" }],
++			env: testEnv,
++			contextFiles: [],
++			mode: "orchestrator",
++			sessionId: TEST_SESSION_ID,
++		})
++		expect(sp).toContain("Use gh for GitHub.")
+ 	})
+ })
+ 
+@@ -341,47 +349,113 @@ describe("wireBehaviours — before_agent_start", () => {
+ 		expect(sp.indexOf("## Rules")).toBeLessThan(sp.indexOf("Project rule."))
+ 	})
+ 
+-	it("delivers the body of a loaded triggered behaviour as a hidden message, exactly once", async () => {
++	it("renders a loaded triggered behaviour's body in the system prompt", async () => {
+ 		const pi = setupWired([ghCli])
+-		await pi.fire("session_start", {}, { cwd: "/tmp" })
++		await pi.fire(
++			"session_start",
++			{},
++			{
++				cwd: "/tmp",
++				sessionManager: { getSessionId: () => TEST_SESSION_ID },
++			},
++		)
++		await flushDeferredActions()
++
++		const sp = buildSystemPrompt({
++			tools: [{ name: "read", description: "Read file contents" }],
++			env: testEnv,
++			contextFiles: [],
++			mode: "orchestrator",
++			sessionId: TEST_SESSION_ID,
++		})
++
++		expect(sp).toContain("Use gh for GitHub.")
++		// Rendered as developer-role content, not as a user-role message.
++		const beforeAgentStartMessages = await pi.fire<{ message?: unknown }>("before_agent_start", {
++			prompt: "hi",
++			systemPrompt: "BASE",
++		})
++		expect(beforeAgentStartMessages.flatMap((r) => (r.message ? [r.message] : []))).toEqual([])
++	})
++
++	it("omits triggered bodies from the system prompt when they have not loaded", async () => {
++		const pi = setupWired([glabCli])
++		await pi.fire(
++			"session_start",
++			{},
++			{
++				cwd: "/tmp",
++				sessionManager: { getSessionId: () => TEST_SESSION_ID },
++			},
++		)
+ 		await flushDeferredActions()
+ 
+-		const first = await pi.fire<{ message?: { customType: string; content: string; display: boolean } }>(
+-			"before_agent_start",
+-			{ prompt: "hi", systemPrompt: "BASE" },
++		const sp = buildSystemPrompt({
++			tools: [{ name: "read", description: "Read file contents" }],
++			env: testEnv,
++			contextFiles: [],
++			mode: "orchestrator",
++			sessionId: TEST_SESSION_ID,
++		})
++
++		expect(sp).not.toContain("Use glab for GitLab.")
++	})
++
++	it("renders a tool-triggered body's content in the system prompt on subsequent turns", async () => {
++		const pi = setupWired([glabCli])
++		await pi.fire(
++			"session_start",
++			{},
++			{
++				cwd: "/tmp",
++				sessionManager: { getSessionId: () => TEST_SESSION_ID },
++			},
+ 		)
+-		const messages = first.flatMap((r) => (r.message ? [r.message] : []))
+-		expect(messages).toEqual([
+-			expect.objectContaining({
+-				customType: BEHAVIOUR_BODY_TYPE,
+-				content: "Use gh for GitHub.",
+-				display: false,
+-			}),
+-		])
++		await pi.fire("turn_start", { turnIndex: 1 })
++		await pi.fire("tool_call", { toolName: "bash", input: { command: "glab mr list" } })
++
++		const sp = buildSystemPrompt({
++			tools: [{ name: "read", description: "Read file contents" }],
++			env: testEnv,
++			contextFiles: [],
++			mode: "orchestrator",
++			sessionId: TEST_SESSION_ID,
++		})
+ 
+-		// Second turn — body already drained, no message returned.
+-		const second = await pi.fire<{ message?: unknown }>("before_agent_start", { prompt: "hi", systemPrompt: "BASE" })
+-		expect(second.flatMap((r) => (r.message ? [r.message] : []))).toEqual([])
++		expect(sp).toContain("Use glab for GitLab.")
+ 	})
+-})
+ 
+-describe("wireBehaviours — session_compact", () => {
+-	it("appends behaviour_requeued for each loaded behaviour and re-delivers the body", async () => {
++	it("keeps a triggered body in the system prompt after session_compact", async () => {
+ 		const pi = setupWired([ghCli])
+-		await pi.fire("session_start", {}, { cwd: "/tmp" })
++		await pi.fire(
++			"session_start",
++			{},
++			{
++				cwd: "/tmp",
++				sessionManager: { getSessionId: () => TEST_SESSION_ID },
++			},
++		)
+ 		await flushDeferredActions()
+-		await pi.fire("turn_start", { turnIndex: 5 })
+-		// Drain initial pending.
+-		await pi.fire("before_agent_start", { prompt: "hi", systemPrompt: "BASE" })
++
++		const beforeCompact = buildSystemPrompt({
++			tools: [{ name: "read", description: "Read file contents" }],
++			env: testEnv,
++			contextFiles: [],
++			mode: "orchestrator",
++			sessionId: TEST_SESSION_ID,
++		})
++		expect(beforeCompact).toContain("Use gh for GitHub.")
+ 
+ 		await pi.fire("session_compact", {})
+-		expect(pi.entries(BEHAVIOUR_REQUEUED_TYPE)).toEqual([
+-			{ type: BEHAVIOUR_REQUEUED_TYPE, data: { name: "gh-cli", turnIndex: 5 } },
+-		])
+ 
+-		// Body re-delivered on next agent start.
+-		const post = await pi.fire<{ message?: unknown }>("before_agent_start", { prompt: "hi", systemPrompt: "BASE" })
+-		expect(post.flatMap((r) => (r.message ? [r.message] : []))).toHaveLength(1)
++		const afterCompact = buildSystemPrompt({
++			tools: [{ name: "read", description: "Read file contents" }],
++			env: testEnv,
++			contextFiles: [],
++			mode: "orchestrator",
++			sessionId: TEST_SESSION_ID,
++		})
++		expect(afterCompact).toContain("Use gh for GitHub.")
+ 	})
+ })
+ 
+diff --git a/src/extensions/behaviours/wiring.ts b/src/extensions/behaviours/wiring.ts
+index 50a3d2742..0fd9c832a 100644
+--- a/src/extensions/behaviours/wiring.ts
++++ b/src/extensions/behaviours/wiring.ts
+@@ -18,11 +18,9 @@ import { type ResolverIO, resolveSessionContext } from "./session-context.js"
+ import {
+ 	BEHAVIOUR_EVAL_TYPE,
+ 	BEHAVIOUR_LOADED_TYPE,
+-	BEHAVIOUR_REQUEUED_TYPE,
+ 	BEHAVIOUR_SESSION_SUMMARY_TYPE,
+ 	type BehaviourEvalData,
+ 	type BehaviourLoadedData,
+-	type BehaviourRequeuedData,
+ 	type BehaviourSessionSummaryData,
+ 	type BehaviourSummaryEntry,
+ } from "./stats.js"
+@@ -124,11 +122,11 @@ export function wireBehaviours(pi: ExtensionAPI, behaviours: readonly Behaviour[
+ 
+ 	// Drain tool-triggered bodies as steer messages right after the tool result
+ 	// so the model sees them before its next inference within the same turn.
+-	// `before_agent_start` only fires per user prompt, so without this hook a
+-	// behaviour that loads on a tool_call mid-turn would never reach the model
+-	// in that session. Session-triggered bodies stay on the normal
+-	// before_agent_start path; injecting them here can wake custom-message
+-	// workflows after a host handoff, such as Ferment plan review.
++	// The system prompt is rebuilt only per user prompt, so without this hook
++	// a behaviour that loads on a tool_call mid-turn would only reach the model
++	// on the next user turn. The pending queue ensures each tool-triggered body
++	// is steered exactly once. Session-triggered bodies never go through this
++	// path — they appear in the system prompt via the registered block below.
+ 	pi.on("tool_result", async () => {
+ 		for (const b of triggered) {
+ 			if (engine.loadRecord(b.name)?.trigger !== "tool") continue
+@@ -145,19 +143,6 @@ export function wireBehaviours(pi: ExtensionAPI, behaviours: readonly Behaviour[
+ 		}
+ 	})
+ 
+-	// After compaction, the summarisation step replaces the conversation window
+-	// (including any prior behaviour bodies) with a synthesised summary. Re-queue
+-	// every loaded behaviour for re-injection on the next agent turn. The loaded
+-	// set is preserved — triggers do not re-fire, no duplicate `behaviour_loaded`
+-	// entries are emitted; instead a `behaviour_requeued` row signals the
+-	// re-injection so offline analysis can distinguish first load from re-deliver.
+-	pi.on("session_compact", async () => {
+-		const requeued = engine.requeueLoaded()
+-		for (const name of requeued) {
+-			pi.appendEntry<BehaviourRequeuedData>(BEHAVIOUR_REQUEUED_TYPE, { name, turnIndex: currentTurnIndex })
+-		}
+-	})
+-
+ 	// Summary fires on graceful shutdown only — a hard crash (kill -9, OOM,
+ 	// power loss) skips this handler and the session ends without a summary
+ 	// row. Loaded/eval rows are durable (appended live), so offline analysis
+@@ -187,29 +172,25 @@ export function wireBehaviours(pi: ExtensionAPI, behaviours: readonly Behaviour[
+ 		pi.appendEntry<BehaviourSessionSummaryData>(BEHAVIOUR_SESSION_SUMMARY_TYPE, { behaviours: entries })
+ 	})
+ 
++	// Register system-prompt blocks for baseline rules and each loaded
++	// triggered behaviour. Block render returns the body iff the engine has
++	// the behaviour loaded; otherwise undefined makes the block skip silently.
++	// This is what makes triggered bodies appear in the developer role
++	// (system prompt) instead of as user-role messages — the model treats them
++	// as standing guidance rather than fresh input to acknowledge. Persistence
++	// across turns is automatic: the loaded set survives reset only on a new
++	// session_start, and the same set survives compaction by definition.
++	const blocks = createSystemPromptBlocks(pi, "behaviours")
+ 	if (rulesBlock) {
+-		const blocks = createSystemPromptBlocks(pi, "behaviours")
+ 		blocks.register({
+ 			id: "rules",
+ 			render: () => rulesBlock.trim(),
+ 		})
+ 	}
+-
+-	// One injector handler per triggered behaviour. The runner aggregates
+-	// messages across all `before_agent_start` handlers, so multiple pending
+-	// bodies are delivered together on the next turn. Each handler closes over
+-	// its behaviour and emits the body iff the engine still has it pending.
+ 	for (const b of triggered) {
+-		pi.on("before_agent_start", async () => {
+-			if (!engine.takePending(b.name)) return
+-			return {
+-				message: {
+-					customType: BEHAVIOUR_BODY_TYPE,
+-					content: b.body,
+-					display: false,
+-					details: { name: b.name } satisfies BehaviourBodyDetails,
+-				},
+-			}
++		blocks.register({
++			id: `triggered:${b.name}`,
++			render: () => (engine.isLoaded(b.name) ? b.body : undefined),
+ 		})
+ 	}
+ }

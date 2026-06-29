@@ -874,6 +874,7 @@ export class ModelRegistry {
 	#customProviderApiKeys: Map<string, string> = new Map();
 	#keylessProviders: Set<string> = new Set();
 	#discoverableProviders: DiscoveryProviderConfig[] = [];
+	#runtimeDiscoverableProviders: DiscoveryProviderConfig[] = [];
 	#customModelOverlays: CustomModelOverlay[] = [];
 	#providerOverrides: Map<string, ProviderOverride> = new Map();
 	#modelOverrides: Map<string, Map<string, ModelOverride>> = new Map();
@@ -1144,8 +1145,11 @@ export class ModelRegistry {
 					premiumMultiplier: customModel.premiumMultiplier ?? existingModel.premiumMultiplier,
 				} as Model<Api>);
 			} else {
-				merged.push(finalizeCustomModel(customModel, { useDefaults: true }));
-				indexByKey.set(key, merged.length - 1);
+				const hasSuccessfulDiscovery = this.#providerDiscoveryStates.get(customModel.provider)?.status === "ok";
+				if (!hasSuccessfulDiscovery) {
+					merged.push(finalizeCustomModel(customModel, { useDefaults: true }));
+					indexByKey.set(key, merged.length - 1);
+				}
 			}
 		}
 		return merged;
@@ -1378,10 +1382,9 @@ export class ModelRegistry {
 		providerFilter?: ReadonlySet<string>,
 	): Promise<void> {
 		const disabledProviders = getDisabledProviderIdsFromSettings();
+		const allDiscoverable = [...this.#discoverableProviders, ...this.#runtimeDiscoverableProviders];
 		const selectedDiscoverableProviders = (
-			providerFilter
-				? this.#discoverableProviders.filter(provider => providerFilter.has(provider.provider))
-				: this.#discoverableProviders
+			providerFilter ? allDiscoverable.filter(provider => providerFilter.has(provider.provider)) : allDiscoverable
 		).filter(provider => !disabledProviders.has(provider.provider));
 		const configuredDiscoveriesPromise =
 			selectedDiscoverableProviders.length === 0
@@ -1409,6 +1412,12 @@ export class ModelRegistry {
 		const authoritativeProviders = providersWithAuthoritativeProjectCatalog(discoveredModels);
 		for (const provider of builtInDiscovery.authoritativeProviders) {
 			authoritativeProviders.add(provider);
+		}
+		for (const providerConfig of selectedDiscoverableProviders) {
+			const state = this.#providerDiscoveryStates.get(providerConfig.provider);
+			if (state?.status === "ok") {
+				authoritativeProviders.add(providerConfig.provider);
+			}
 		}
 		const baseModels =
 			authoritativeProviders.size > 0 ? dropProviderModels(this.#models, authoritativeProviders) : this.#models;
@@ -1528,7 +1537,10 @@ export class ModelRegistry {
 		providerFilter?: ReadonlySet<string>,
 	): Promise<BuiltInDiscoveryResult> {
 		// Skip providers already handled by configured discovery (e.g. user-configured ollama with discovery.type)
-		const configuredDiscoveryProviders = new Set(this.#discoverableProviders.map(p => p.provider));
+		const configuredDiscoveryProviders = new Set([
+			...this.#discoverableProviders.map(p => p.provider),
+			...this.#runtimeDiscoverableProviders.map(p => p.provider),
+		]);
 		const managerOptions = (await this.#collectBuiltInModelManagerOptions()).filter(opts => {
 			if (configuredDiscoveryProviders.has(opts.providerId)) {
 				return false;
@@ -1826,14 +1838,15 @@ export class ModelRegistry {
 
 	async #discoverOpenAIModelsList(providerConfig: DiscoveryProviderConfig): Promise<Model<Api>[]> {
 		const baseUrl = this.#normalizeOpenAIModelsListBaseUrl(providerConfig.baseUrl);
-		const modelsUrl = `${baseUrl}/models`;
-
+		const isKimchi = providerConfig.provider === "kimchi";
+		const modelsUrl = isKimchi
+			? "https://llm.kimchi.dev/v1/models/metadata?include_in_cli=true"
+			: `${baseUrl}/models`;
 		const headers: Record<string, string> = { ...(providerConfig.headers ?? {}) };
 		const apiKey = await this.authStorage.getApiKey(providerConfig.provider);
 		if (apiKey && apiKey !== DEFAULT_LOCAL_TOKEN && apiKey !== kNoAuth) {
 			headers.Authorization = `Bearer ${apiKey}`;
 		}
-
 		const response = await fetch(modelsUrl, {
 			headers,
 			signal: AbortSignal.timeout(10_000),
@@ -1841,32 +1854,69 @@ export class ModelRegistry {
 		if (!response.ok) {
 			throw new Error(`HTTP ${response.status} from ${modelsUrl}`);
 		}
-		const payload = (await response.json()) as { data?: Array<{ id: string }> };
-		const models = payload.data ?? [];
 		const discovered: Model<Api>[] = [];
-		for (const item of models) {
-			const id = item.id;
-			if (!id) continue;
-			discovered.push(
-				enrichModelThinking({
-					id,
-					name: id,
-					api: providerConfig.api,
-					provider: providerConfig.provider,
-					baseUrl,
-					reasoning: false,
-					input: ["text"],
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-					contextWindow: 128000,
-					maxTokens: discoveryDefaultMaxTokens(providerConfig.api),
-					headers,
-					compat: {
-						supportsStore: false,
-						supportsDeveloperRole: false,
-						supportsReasoningEffort: false,
-					},
-				}),
-			);
+		if (isKimchi) {
+			const payload = (await response.json()) as {
+				models?: Array<{
+					slug: string;
+					display_name?: string;
+					reasoning?: boolean;
+					input_modalities?: ("text" | "image")[];
+					limits?: { context_window?: number; max_output_tokens?: number };
+				}>;
+			};
+			const models = payload.models ?? [];
+			for (const item of models) {
+				const id = item.slug;
+				if (!id) continue;
+				discovered.push(
+					enrichModelThinking({
+						id,
+						name: item.display_name || id,
+						api: providerConfig.api,
+						provider: providerConfig.provider,
+						baseUrl,
+						reasoning: item.reasoning ?? false,
+						input: item.input_modalities ?? ["text"],
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+						contextWindow: item.limits?.context_window ?? 128000,
+						maxTokens: item.limits?.max_output_tokens ?? discoveryDefaultMaxTokens(providerConfig.api),
+						headers,
+						compat: {
+							supportsStore: false,
+							supportsDeveloperRole: false,
+							supportsReasoningEffort: false,
+						},
+					}),
+				);
+			}
+		} else {
+			const payload = (await response.json()) as { data?: Array<{ id: string }> };
+			const models = payload.data ?? [];
+			for (const item of models) {
+				const id = item.id;
+				if (!id) continue;
+				discovered.push(
+					enrichModelThinking({
+						id,
+						name: id,
+						api: providerConfig.api,
+						provider: providerConfig.provider,
+						baseUrl,
+						reasoning: false,
+						input: ["text"],
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+						contextWindow: 128000,
+						maxTokens: discoveryDefaultMaxTokens(providerConfig.api),
+						headers,
+						compat: {
+							supportsStore: false,
+							supportsDeveloperRole: false,
+							supportsReasoningEffort: false,
+						},
+					}),
+				);
+			}
 		}
 		return this.#applyProviderModelOverrides(providerConfig.provider, discovered);
 	}
@@ -2375,6 +2425,9 @@ export class ModelRegistry {
 			this.#runtimeProviderSourceByName.delete(providerName);
 			this.#clearRuntimeProviderState(providerName);
 		}
+		this.#runtimeDiscoverableProviders = this.#runtimeDiscoverableProviders.filter(p =>
+			this.#runtimeProviderSourceByName.has(p.provider),
+		);
 		this.#lastStaticLoadMtime = null;
 		this.#reloadStaticModels();
 		this.#rebuildCanonicalIndex();
@@ -2415,10 +2468,25 @@ export class ModelRegistry {
 				apiKey: config.apiKey,
 				api: config.api,
 				oauthConfigured: Boolean(config.oauth),
+				discovery: config.discovery,
 				models: (config.models ?? []) as ProviderValidationModel[],
 			},
 			"runtime-register",
 		);
+		if (config.discovery) {
+			this.#runtimeDiscoverableProviders = this.#runtimeDiscoverableProviders.filter(
+				p => p.provider !== providerName,
+			);
+			this.#runtimeDiscoverableProviders.push({
+				provider: providerName,
+				api: config.api ?? "openai-completions",
+				baseUrl: config.baseUrl,
+				headers: config.headers,
+				compat: config.compat,
+				discovery: config.discovery,
+				optional: false,
+			});
+		}
 
 		if (config.streamSimple && config.api) {
 			const streamSimple = config.streamSimple;
@@ -2586,6 +2654,7 @@ export interface ProviderConfigInput {
 		getApiKey?(credentials: OAuthCredentials): string;
 		modifyModels?(models: Model<Api>[], credentials: OAuthCredentials): Model<Api>[];
 	};
+	discovery?: ProviderDiscovery;
 	models?: Array<{
 		id: string;
 		name: string;
