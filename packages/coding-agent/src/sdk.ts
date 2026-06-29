@@ -1597,6 +1597,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			cwd,
 			sessionManager,
 			modelRegistry,
+			options.taskDepth ?? 0,
 		);
 
 		credentialDisabledTarget = extensionRunner;

@@ -205,6 +205,7 @@ export class ExtensionRunner {
 		private readonly cwd: string,
 		private readonly sessionManager: SessionManager,
 		private readonly modelRegistry: ModelRegistry,
+		private readonly taskDepth: number = 0,
 	) {
 		this.#uiContext = noOpUIContext;
 	}
@@ -465,6 +466,7 @@ export class ExtensionRunner {
 		return {
 			ui: this.#uiContext,
 			getContextUsage: () => this.#getContextUsageFn(),
+			taskDepth: this.taskDepth,
 			compact: instructionsOrOptions => this.#compactFn(instructionsOrOptions),
 			hasUI: this.hasUI(),
 			cwd: this.cwd,
