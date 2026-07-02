@@ -620,6 +620,86 @@ export class CommandController {
 		this.ctx.ui.requestRender();
 	}
 
+	async handleArtifactCommand(args: string): Promise<void> {
+		const dir = this.ctx.sessionManager.getArtifactsDir();
+		if (!dir) {
+			this.ctx.showError("No artifacts directory configured for this session.");
+			return;
+		}
+
+		const parsedArgs = args.trim();
+		const parts = parsedArgs.split(/\s+/).filter(Boolean);
+		const subcommand = parts[0]?.toLowerCase() || "list";
+		const targetFile = parts.slice(1).join(" ");
+
+		if (subcommand === "list") {
+			try {
+				const files = await fs.readdir(dir, { withFileTypes: true });
+				const visibleFiles = files.filter(
+					f => f.isFile() && !f.name.startsWith(".") && !f.name.endsWith(".metadata.json"),
+				);
+				if (visibleFiles.length === 0) {
+					this.ctx.showStatus("No artifacts found in this session.");
+					return;
+				}
+
+				// TUI interactive list view
+				const selectOptions = visibleFiles.map(f => f.name);
+				const choice = await this.ctx.showHookSelector("Select an artifact to view:", selectOptions);
+				if (choice) {
+					await this.handleArtifactCommand(`view ${choice}`);
+				}
+			} catch (err) {
+				this.ctx.showError(`Error listing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			return;
+		}
+
+		if (subcommand === "view") {
+			if (!targetFile) {
+				this.ctx.showError("Usage: /artifact view <filename>");
+				return;
+			}
+			const filePath = path.join(dir, targetFile);
+			if (!filePath.startsWith(path.resolve(dir))) {
+				this.ctx.showError("Access denied: File must be inside the artifacts directory.");
+				return;
+			}
+			try {
+				const content = await fs.readFile(filePath, "utf8");
+				showMarkdownPanel(this.ctx, `Artifact: ${targetFile}`, content);
+			} catch (err) {
+				this.ctx.showError(`Error reading artifact: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			return;
+		}
+
+		if (subcommand === "clear") {
+			try {
+				const files = await fs.readdir(dir, { withFileTypes: true });
+				let clearedCount = 0;
+				for (const file of files) {
+					if (file.isFile() && !file.name.startsWith(".") && !file.name.endsWith(".metadata.json")) {
+						await fs.unlink(path.join(dir, file.name));
+						const metaPath = path.join(dir, `${file.name}.metadata.json`);
+						try {
+							await fs.unlink(metaPath);
+						} catch {
+							// Ignore if no metadata exists
+						}
+						clearedCount++;
+					}
+				}
+				this.ctx.showStatus(`Successfully cleared ${clearedCount} artifact file(s).`);
+			} catch (err) {
+				this.ctx.showError(`Error clearing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			return;
+		}
+
+		this.ctx.showError("Usage: /artifact [list|view <filename>|clear]");
+	}
+
 	handleHotkeysCommand(): void {
 		const hotkeys = buildHotkeysMarkdown({ keybindings: this.ctx.keybindings });
 		showMarkdownPanel(this.ctx, "Keyboard Shortcuts", hotkeys);

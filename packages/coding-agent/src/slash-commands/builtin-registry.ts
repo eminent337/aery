@@ -346,6 +346,100 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "artifact",
+		description: "List, view, and clear session-scoped logs and outputs (artifacts)",
+		acpDescription: "Manage session-scoped logs and outputs (artifacts)",
+		acpInputHint: "[list|view <filename>|clear]",
+		subcommands: [
+			{ name: "list", description: "List all artifact files in this session" },
+			{ name: "view", description: "View the content of an artifact file", usage: "<filename>" },
+			{ name: "clear", description: "Delete all files in the artifacts directory" },
+		],
+		allowArgs: true,
+		handle: async (command, runtime) => {
+			const args = command.args.trim();
+			const parts = args.split(/\s+/).filter(Boolean);
+			const subcommand = parts[0]?.toLowerCase() || "list";
+			const targetFile = parts.slice(1).join(" ");
+
+			const dir = runtime.sessionManager.getArtifactsDir();
+			if (!dir) {
+				await runtime.output("No artifacts directory configured for this session.");
+				return commandConsumed();
+			}
+
+			if (subcommand === "list") {
+				try {
+					const files = await fs.readdir(dir, { withFileTypes: true });
+					const visibleFiles = files.filter(
+						f => f.isFile() && !f.name.startsWith(".") && !f.name.endsWith(".metadata.json"),
+					);
+					if (visibleFiles.length === 0) {
+						await runtime.output("No artifacts found.");
+						return commandConsumed();
+					}
+					const listLines = [];
+					for (const file of visibleFiles) {
+						const stats = await fs.stat(path.join(dir, file.name));
+						const sizeStr = `${(stats.size / 1024).toFixed(1)} KB`;
+						listLines.push(`- ${file.name} (${sizeStr}) - Modified: ${stats.mtime.toLocaleString()}`);
+					}
+					await runtime.output(`Artifacts in this session:\n${listLines.join("\n")}`);
+				} catch (err) {
+					await runtime.output(`Error listing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+				}
+				return commandConsumed();
+			}
+
+			if (subcommand === "view") {
+				if (!targetFile) {
+					return usage("Usage: /artifact view <filename>", runtime);
+				}
+				const filePath = path.join(dir, targetFile);
+				if (!filePath.startsWith(path.resolve(dir))) {
+					await runtime.output("Access denied: File must be inside the artifacts directory.");
+					return commandConsumed();
+				}
+				try {
+					const content = await fs.readFile(filePath, "utf8");
+					await runtime.output(`--- Artifact: ${targetFile} ---\n${content}`);
+				} catch (err) {
+					await runtime.output(`Error reading artifact: ${err instanceof Error ? err.message : String(err)}`);
+				}
+				return commandConsumed();
+			}
+
+			if (subcommand === "clear") {
+				try {
+					const files = await fs.readdir(dir, { withFileTypes: true });
+					let clearedCount = 0;
+					for (const file of files) {
+						if (file.isFile() && !file.name.startsWith(".") && !file.name.endsWith(".metadata.json")) {
+							await fs.unlink(path.join(dir, file.name));
+							const metaPath = path.join(dir, `${file.name}.metadata.json`);
+							try {
+								await fs.unlink(metaPath);
+							} catch {
+								// Ignore if no metadata exists
+							}
+							clearedCount++;
+						}
+					}
+					await runtime.output(`Successfully cleared ${clearedCount} artifact file(s).`);
+				} catch (err) {
+					await runtime.output(`Error clearing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+				}
+				return commandConsumed();
+			}
+
+			return usage("Usage: /artifact [list|view <filename>|clear]", runtime);
+		},
+		handleTui: async (command, runtime) => {
+			await runtime.ctx.handleArtifactCommand(command.args);
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
 		name: "export",
 		description: "Export session to HTML file",
 		inlineHint: "[path]",

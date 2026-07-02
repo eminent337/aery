@@ -1,4 +1,7 @@
 import { describe, expect, it, spyOn } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Settings } from "../src/config/settings";
 import type { AgentSession } from "../src/session/agent-session";
 import type { SessionManager } from "../src/session/session-manager";
@@ -95,11 +98,15 @@ function createRuntime() {
 	const fakeSessionManager = {
 		_sessionFile: undefined as string | undefined,
 		_cwd: "/tmp/project",
+		_artifactsDir: undefined as string | undefined | null,
 		_entries: [] as { type: string }[],
 		_customEntries: [] as Array<{ customType: string; data: unknown }>,
 		_movedTo: undefined as string | undefined,
 		_flushed: false,
 		_sessionName: undefined as string | undefined,
+		getArtifactsDir(): string | null {
+			return this._artifactsDir ?? null;
+		},
 		getSessionId(): string {
 			return "fake-session-id";
 		},
@@ -894,5 +901,76 @@ describe("wave 5 — adapters and polish", () => {
 		} finally {
 			discoverSpy.mockRestore();
 		}
+	});
+
+	describe("/artifact command", () => {
+		it("/artifact with no dir: outputs error", async () => {
+			const { output, runtime, fakeSessionManager } = createRuntime();
+			fakeSessionManager._artifactsDir = null;
+			const result = await executeAcpBuiltinSlashCommand("/artifact", runtime);
+			expect(result).toEqual({ consumed: true });
+			expect(output[0]).toContain("No artifacts directory configured");
+		});
+
+		it("/artifact list empty: reports no artifacts", async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-artifact-test-"));
+			try {
+				const { output, runtime, fakeSessionManager } = createRuntime();
+				fakeSessionManager._artifactsDir = tempDir;
+				const result = await executeAcpBuiltinSlashCommand("/artifact list", runtime);
+				expect(result).toEqual({ consumed: true });
+				expect(output[0]).toContain("No artifacts found.");
+			} finally {
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
+		it("/artifact list with files: lists files with details", async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-artifact-test-"));
+			try {
+				await fs.writeFile(path.join(tempDir, "test.txt"), "hello world");
+				const { output, runtime, fakeSessionManager } = createRuntime();
+				fakeSessionManager._artifactsDir = tempDir;
+				const result = await executeAcpBuiltinSlashCommand("/artifact list", runtime);
+				expect(result).toEqual({ consumed: true });
+				expect(output[0]).toContain("test.txt");
+				expect(output[0]).toContain("0.0 KB");
+			} finally {
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
+		it("/artifact view <filename>: reads and outputs file", async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-artifact-test-"));
+			try {
+				await fs.writeFile(path.join(tempDir, "hello.txt"), "hello artifact content");
+				const { output, runtime, fakeSessionManager } = createRuntime();
+				fakeSessionManager._artifactsDir = tempDir;
+				const result = await executeAcpBuiltinSlashCommand("/artifact view hello.txt", runtime);
+				expect(result).toEqual({ consumed: true });
+				expect(output[0]).toContain("--- Artifact: hello.txt ---");
+				expect(output[0]).toContain("hello artifact content");
+			} finally {
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
+		});
+
+		it("/artifact clear: deletes visible files and metadata", async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-artifact-test-"));
+			try {
+				await fs.writeFile(path.join(tempDir, "log.txt"), "log");
+				await fs.writeFile(path.join(tempDir, "log.txt.metadata.json"), "{}");
+				const { output, runtime, fakeSessionManager } = createRuntime();
+				fakeSessionManager._artifactsDir = tempDir;
+				const result = await executeAcpBuiltinSlashCommand("/artifact clear", runtime);
+				expect(result).toEqual({ consumed: true });
+				expect(output[0]).toContain("Successfully cleared 1 artifact file(s).");
+
+				const files = await fs.readdir(tempDir);
+				expect(files).toEqual([]);
+			} finally {
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
+		});
 	});
 });

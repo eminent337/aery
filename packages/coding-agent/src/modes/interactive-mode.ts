@@ -2660,6 +2660,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		await this.#commandController.handleChangelogCommand(showFull);
 	}
 
+	async handleArtifactCommand(args: string): Promise<void> {
+		await this.#commandController.handleArtifactCommand(args);
+	}
+
 	handleHotkeysCommand(): void {
 		this.#commandController.handleHotkeysCommand();
 	}
