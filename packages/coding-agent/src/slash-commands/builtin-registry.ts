@@ -1258,14 +1258,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			return commandConsumed();
 		},
 		handleTui: async (command, runtime) => {
-			const targetPath = command.args;
-			if (!targetPath) {
-				runtime.ctx.showError("Usage: /move <path>");
-				runtime.ctx.editor.setText("");
-				return;
-			}
 			runtime.ctx.editor.setText("");
-			await runtime.ctx.handleMoveCommand(targetPath);
+			await runtime.ctx.handleMoveCommand(command.args);
 		},
 	},
 	{

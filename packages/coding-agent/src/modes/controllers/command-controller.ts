@@ -29,6 +29,7 @@ import { BashExecutionComponent } from "../../modes/components/bash-execution";
 import { BorderedLoader } from "../../modes/components/bordered-loader";
 import { DynamicBorder } from "../../modes/components/dynamic-border";
 import { EvalExecutionComponent } from "../../modes/components/eval-execution";
+import { MoveOverlay, type MoveOverlayResult } from "../../modes/components/move-overlay";
 import { getMarkdownTheme, getSymbolTheme, theme } from "../../modes/theme/theme";
 import type { InteractiveModeContext } from "../../modes/types";
 import { computeContextBreakdown, renderContextUsage } from "../../modes/utils/context-usage";
@@ -1112,13 +1113,25 @@ export class CommandController {
 		this.ctx.ui.requestRender();
 	}
 
-	async handleMoveCommand(targetPath: string): Promise<void> {
+	async handleMoveCommand(targetPath?: string): Promise<void> {
 		if (this.ctx.session.isStreaming) {
 			this.ctx.showWarning("Wait for the current response to finish or abort it before moving.");
 			return;
 		}
 
-		const unquoted = stripOuterDoubleQuotes(targetPath);
+		let input: string | undefined = targetPath?.trim() || undefined;
+
+		// No argument in TUI mode: open the interactive path autocomplete overlay.
+		if (!input) {
+			const result = await this.ctx.showHookCustom<MoveOverlayResult | undefined>(
+				(_tui, _theme, _keybindings, done) => new MoveOverlay(this.ctx.sessionManager.getCwd(), done),
+				{ overlay: true },
+			);
+			if (!result) return; // cancelled
+			input = result.directory;
+		}
+
+		const unquoted = stripOuterDoubleQuotes(input);
 		if (!unquoted) {
 			this.ctx.showError("Usage: /move <path>");
 			return;
