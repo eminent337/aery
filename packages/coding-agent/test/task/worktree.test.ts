@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -6,6 +6,7 @@ import * as natives from "@aryee337/aery-engine";
 import {
 	captureBaseline,
 	captureDeltaPatch,
+	commitToBranch,
 	ensureIsolation,
 	getGitNoIndexNullPath,
 	mergeTaskBranches,
@@ -155,5 +156,140 @@ describe("worktree isolation helpers", () => {
 		expect(delta.rootPatch).toContain("+task output");
 		expect(delta.rootPatch).not.toContain("baseline dirty change");
 		expect(delta.rootPatch).not.toContain("preexisting.txt");
+	});
+
+	describe("with baseline WIP overlapping the agent's changes (#4136)", () => {
+		let parent: string;
+		let isolation: string;
+
+		beforeEach(async () => {
+			parent = await fs.mkdtemp(path.join(os.tmpdir(), "aery-parent-"));
+			isolation = await fs.mkdtemp(path.join(os.tmpdir(), "aery-isolation-"));
+			tempDirs.push(parent, isolation);
+
+			await runGit(parent, ["init"]);
+			await runGit(parent, ["config", "user.email", "parent@example.com"]);
+			await runGit(parent, ["config", "user.name", "Parent User"]);
+			await fs.writeFile(path.join(parent, "README.md"), "hello\n");
+			await runGit(parent, ["add", "README.md"]);
+			await runGit(parent, ["commit", "-q", "-m", "initial"]);
+
+			// Clone parent into isolation
+			await runGit(parent, ["clone", "-q", "--no-hardlinks", "--local", parent, isolation]);
+			await runGit(isolation, ["config", "user.email", "agent@example.com"]);
+			await runGit(isolation, ["config", "user.name", "Agent User"]);
+		});
+
+		async function seedWipFileFromParent(destRoot: string, relPath: string): Promise<void> {
+			await fs.mkdir(path.join(destRoot, path.dirname(relPath)), { recursive: true });
+			await fs.copyFile(path.join(parent, relPath), path.join(destRoot, relPath));
+		}
+
+		it("commits an agent-only delta via --3way when WIP and agent modify unrelated hunks of the same tracked file", async () => {
+			const fixture = "src/foo.py";
+			const head = Array.from({ length: 40 }, (_, i) => `# line ${i + 1}\n`).join("");
+			await fs.mkdir(path.join(parent, "src"), { recursive: true });
+			await fs.writeFile(path.join(parent, fixture), head);
+			await runGit(parent, ["add", "."]);
+			await runGit(parent, ["commit", "-q", "-m", "add fixture"]);
+
+			// Re-clone isolation to get the fixture
+			await fs.rm(isolation, { recursive: true, force: true });
+			await runGit(parent, ["clone", "-q", "--no-hardlinks", "--local", parent, isolation]);
+			await runGit(isolation, ["config", "user.email", "agent@example.com"]);
+			await runGit(isolation, ["config", "user.name", "Agent User"]);
+
+			// Parent WIP: change line 10
+			const wipLines = head.split("\n");
+			wipLines[9] = "# line 10 thinkingLevel: medium";
+			await fs.writeFile(path.join(parent, fixture), wipLines.join("\n"));
+			await seedWipFileFromParent(isolation, fixture);
+
+			// Agent modifies line 30
+			const agentLines = wipLines.slice();
+			agentLines[29] = "# line 30 def new_func()";
+			await fs.writeFile(path.join(isolation, fixture), agentLines.join("\n"));
+
+			const baseline = await captureBaseline(parent);
+			const result = await commitToBranch(isolation, baseline, "wip-tracked-file", undefined);
+			expect(result?.branchName).toBe("aery/task/wip-tracked-file");
+
+			const branchDiff = await runGit(parent, ["show", "--pretty=format:", result!.branchName!]);
+			expect(branchDiff).toContain("+# line 30 def new_func()");
+			expect(branchDiff).not.toContain("thinkingLevel: medium");
+		});
+
+		it("commits an untracked WIP file that the agent modifies inside isolation", async () => {
+			await fs.mkdir(path.join(parent, "src"), { recursive: true });
+			await fs.writeFile(path.join(parent, "src/new.py"), "WIP header\nunchanged\n");
+			await fs.mkdir(path.join(isolation, "src"), { recursive: true });
+			await fs.copyFile(path.join(parent, "src/new.py"), path.join(isolation, "src/new.py"));
+
+			await fs.writeFile(path.join(isolation, "src/new.py"), "WIP header\nagent-edit\n");
+
+			const baseline = await captureBaseline(parent);
+			expect(baseline.root.untracked).toContain("src/new.py");
+			const result = await commitToBranch(isolation, baseline, "wip-untracked", undefined);
+			expect(result?.branchName).toBe("aery/task/wip-untracked");
+
+			const branchDiff = await runGit(parent, ["show", "--pretty=format:", result!.branchName!]);
+			expect(branchDiff).toContain("new file mode");
+			expect(branchDiff).toContain("src/new.py");
+			expect(branchDiff).toContain("+WIP header");
+			expect(branchDiff).toContain("+agent-edit");
+		});
+
+		it("commits a staged-new WIP file that the agent modifies inside isolation", async () => {
+			await fs.writeFile(path.join(parent, "notes.md"), "l1\nl2\nl3\n");
+			await runGit(parent, ["add", "notes.md"]);
+			await fs.copyFile(path.join(parent, "notes.md"), path.join(isolation, "notes.md"));
+			await runGit(isolation, ["add", "notes.md"]);
+
+			await fs.writeFile(path.join(isolation, "notes.md"), "l1\nl2 agent\nl3\n");
+
+			const baseline = await captureBaseline(parent);
+			const result = await commitToBranch(isolation, baseline, "wip-staged-new", undefined);
+			expect(result?.branchName).toBe("aery/task/wip-staged-new");
+
+			const branchDiff = await runGit(parent, ["show", "--pretty=format:", result!.branchName!]);
+			expect(branchDiff).toContain("new file mode");
+			expect(branchDiff).toContain("notes.md");
+			expect(branchDiff).toContain("+l2 agent");
+		});
+
+		it("does not leak WIP-only files into the branch commit when the agent leaves them untouched", async () => {
+			await fs.mkdir(path.join(parent, "src"), { recursive: true });
+			await fs.writeFile(path.join(parent, "src/wanted.py"), "unchanged\n");
+			await fs.writeFile(path.join(parent, "src/wip-only.py"), "unchanged\n");
+			await runGit(parent, ["add", "."]);
+			await runGit(parent, ["commit", "-q", "-m", "seed"]);
+
+			// Re-clone
+			await fs.rm(isolation, { recursive: true, force: true });
+			await runGit(parent, ["clone", "-q", "--no-hardlinks", "--local", parent, isolation]);
+			await runGit(isolation, ["config", "user.email", "agent@example.com"]);
+			await runGit(isolation, ["config", "user.name", "Agent User"]);
+
+			await fs.writeFile(path.join(parent, "src/wip-only.py"), "wip edit\n");
+			await fs.writeFile(path.join(parent, "src/wanted.py"), "wip mixed\n");
+			await fs.copyFile(path.join(parent, "src/wip-only.py"), path.join(isolation, "src/wip-only.py"));
+			await fs.copyFile(path.join(parent, "src/wanted.py"), path.join(isolation, "src/wanted.py"));
+
+			await fs.writeFile(path.join(parent, "user-wip.txt"), "user wip\n");
+			await fs.copyFile(path.join(parent, "user-wip.txt"), path.join(isolation, "user-wip.txt"));
+
+			// Agent only changes wanted.py
+			await fs.writeFile(path.join(isolation, "src/wanted.py"), "wip mixed\nagent change\n");
+
+			const baseline = await captureBaseline(parent);
+			const result = await commitToBranch(isolation, baseline, "wip-untouched", undefined);
+			expect(result?.branchName).toBe("aery/task/wip-untouched");
+
+			const branchDiff = await runGit(parent, ["show", "--pretty=format:", result!.branchName!]);
+			expect(branchDiff).toContain("src/wanted.py");
+			expect(branchDiff).toContain("+agent change");
+			expect(branchDiff).not.toContain("wip-only.py");
+			expect(branchDiff).not.toContain("user-wip.txt");
+		});
 	});
 });

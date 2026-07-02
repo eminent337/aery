@@ -365,6 +365,154 @@ export async function cleanupIsolation(handle: IsolationHandle): Promise<void> {
 // Branch-mode isolation
 // ═══════════════════════════════════════════════════════════════════════════
 
+function baselineHasRootWip(baseline: RepoBaseline): boolean {
+	return !!(baseline.staged.trim() || baseline.unstaged.trim() || baseline.untrackedPatch.trim());
+}
+
+/**
+ * Baseline WIP context needed to safely apply a delta patch whose hunks were
+ * captured against `HEAD + WIP` (see {@link captureRepoDeltaPatch}). Passed
+ * whenever {@link baselineHasRootWip} is true so
+ * {@link commitPatchToBranchWorktree} can replay the WIP into the temp
+ * worktree first, then rewind WIP-only files after applying the delta.
+ */
+interface BaselineWipContext {
+	readonly staged: string;
+	readonly unstaged: string;
+	readonly untrackedPatch: string;
+	/** Untracked file paths present in the baseline (never in HEAD). */
+	readonly untracked: readonly string[];
+}
+
+function collectWipPatches(wip: BaselineWipContext | undefined): string[] {
+	if (!wip) return [];
+	return [wip.staged, wip.unstaged, wip.untrackedPatch].filter(p => p.trim());
+}
+
+function unquoteGitDiffPath(rawPath: string): string {
+	let value = rawPath;
+	if (value.startsWith('"') && value.endsWith('"')) {
+		try {
+			value = JSON.parse(value) as string;
+		} catch {
+			value = value.slice(1, -1);
+		}
+	}
+	return value.replace(/^[ab]\//, "");
+}
+
+function parseDiffGitLinePaths(line: string): string[] {
+	if (!line.startsWith("diff --git ")) return [];
+	const rest = line.slice("diff --git ".length);
+	const quoted = rest.match(/^("(?:\\.|[^"])+"|\/dev\/null) ("(?:\\.|[^"])+"|\/dev\/null)$/);
+	const parts = quoted ? [quoted[1], quoted[2]] : rest.split(" ");
+	if (parts.length < 2) return [];
+	const paths = parts
+		.slice(0, 2)
+		.map(unquoteGitDiffPath)
+		.filter(file => file && file !== "/dev/null");
+	return [...new Set(paths)];
+}
+
+function patchTouchedFiles(patch: string): string[] {
+	const files = new Set<string>();
+	for (const line of patch.split("\n")) {
+		for (const file of parseDiffGitLinePaths(line)) files.add(file);
+	}
+	return [...files];
+}
+
+async function applyDeltaOverBaselineWip(
+	tmpDir: string,
+	_taskId: string,
+	patchText: string,
+	wipPatches: readonly string[],
+	baselineWip: BaselineWipContext,
+): Promise<void> {
+	for (const wip of wipPatches) {
+		await git.patch.applyText(tmpDir, wip);
+	}
+	await git.patch.applyText(tmpDir, patchText);
+
+	const wipFiles = new Set(wipPatches.flatMap(patchTouchedFiles));
+	const deltaFiles = new Set(patchTouchedFiles(patchText));
+	const wipOnly = [...wipFiles].filter(f => !deltaFiles.has(f));
+	if (wipOnly.length === 0) return;
+
+	// Any wipOnly file baselined as untracked cannot be in HEAD.
+	// Everything else may or may not — verify against HEAD's tree.
+	const untrackedSet = new Set(baselineWip.untracked);
+	const candidates = wipOnly.filter(f => !untrackedSet.has(f));
+	const inHead = candidates.length > 0 ? new Set(await git.ls.tree(tmpDir, "HEAD", candidates)) : new Set<string>();
+	const toRestore = candidates.filter(f => inHead.has(f));
+	const toRemove = wipOnly.filter(f => !toRestore.includes(f));
+	if (toRestore.length > 0) {
+		await git.restore(tmpDir, { source: "HEAD", staged: true, worktree: true, files: toRestore });
+	}
+	for (const rel of toRemove) {
+		await fs.rm(path.join(tmpDir, rel), { force: true });
+	}
+}
+
+async function commitPatchToBranchWorktree(
+	tmpDir: string,
+	taskId: string,
+	patchText: string,
+	message: string,
+	baselineWip?: BaselineWipContext,
+): Promise<void> {
+	let plainErr: git.GitCommandError | undefined;
+	try {
+		await git.patch.applyText(tmpDir, patchText);
+	} catch (err) {
+		if (!(err instanceof git.GitCommandError)) throw err;
+		plainErr = err;
+	}
+	if (plainErr) {
+		let threeWayErr: git.GitCommandError | undefined;
+		try {
+			await git.patch.applyText(tmpDir, patchText, { threeWay: true });
+		} catch (err) {
+			if (!(err instanceof git.GitCommandError)) throw err;
+			threeWayErr = err;
+		}
+		if (threeWayErr) {
+			const wipPatches = collectWipPatches(baselineWip);
+			if (wipPatches.length === 0 || !baselineWip) {
+				const stderr = threeWayErr.result.stderr.slice(0, 2000);
+				logger.error("commitToBranch: git apply --3way failed", {
+					taskId,
+					exitCode: threeWayErr.result.exitCode,
+					stderr,
+					initialStderr: plainErr.result.stderr.slice(0, 2000),
+					patchSize: patchText.length,
+					patchHead: patchText.slice(0, 500),
+				});
+				throw new Error(`git apply --3way failed for task ${taskId}: ${stderr}`);
+			}
+			try {
+				await git.reset(tmpDir, { hard: true, target: "HEAD" });
+				await applyDeltaOverBaselineWip(tmpDir, taskId, patchText, wipPatches, baselineWip);
+			} catch (wipErr) {
+				if (!(wipErr instanceof git.GitCommandError)) throw wipErr;
+				const stderr = wipErr.result.stderr.slice(0, 2000);
+				logger.error("commitToBranch: git apply with baseline WIP failed", {
+					taskId,
+					exitCode: wipErr.result.exitCode,
+					stderr,
+					threeWayStderr: threeWayErr.result.stderr.slice(0, 2000),
+					initialStderr: plainErr.result.stderr.slice(0, 2000),
+					patchSize: patchText.length,
+					patchHead: patchText.slice(0, 500),
+				});
+				throw new Error(`git apply with baseline WIP failed for task ${taskId}: ${stderr}`);
+			}
+		}
+	}
+	await git.stage.files(tmpDir);
+	await git.commit(tmpDir, message);
+}
+
 export interface CommitToBranchResult {
 	branchName?: string;
 	nestedPatches: NestedRepoPatch[];
@@ -395,25 +543,9 @@ export async function commitToBranch(
 		const tmpDir = path.join(os.tmpdir(), `aery-branch-${Snowflake.next()}`);
 		try {
 			await git.worktree.add(repoRoot, tmpDir, branchName);
-			try {
-				await git.patch.applyText(tmpDir, rootPatch);
-			} catch (err) {
-				if (err instanceof git.GitCommandError) {
-					const stderr = err.result.stderr.slice(0, 2000);
-					logger.error("commitToBranch: git apply failed", {
-						taskId,
-						exitCode: err.result.exitCode,
-						stderr,
-						patchSize: rootPatch.length,
-						patchHead: rootPatch.slice(0, 500),
-					});
-					throw new Error(`git apply failed for task ${taskId}: ${stderr}`);
-				}
-				throw err;
-			}
-			await git.stage.files(tmpDir);
 			const msg = (commitMessage && (await commitMessage(rootPatch))) || fallbackMessage;
-			await git.commit(tmpDir, msg);
+			const wip = baselineHasRootWip(baseline.root) ? baseline.root : undefined;
+			await commitPatchToBranchWorktree(tmpDir, taskId, rootPatch, msg, wip);
 		} finally {
 			await git.worktree.tryRemove(repoRoot, tmpDir);
 			await fs.rm(tmpDir, { recursive: true, force: true });
