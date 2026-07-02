@@ -1893,9 +1893,20 @@ export class ModelRegistry {
 		} else {
 			const payload = (await response.json()) as { data?: Array<{ id: string }> };
 			const models = payload.data ?? [];
+			const bynaraFree = new Set([
+				"mimo-v2.5",
+				"mimo-v2.5-pro",
+				"mimo-v2.5-free",
+				"mimo-v2.5-pro-free",
+				"mistral-large",
+				"mistral-medium-3-5",
+			]);
 			for (const item of models) {
 				const id = item.id;
 				if (!id) continue;
+				if (providerConfig.provider === "bynara" && !bynaraFree.has(id)) {
+					continue;
+				}
 				discovered.push(
 					enrichModelThinking({
 						id,
@@ -2351,7 +2362,6 @@ export class ModelRegistry {
 	getProviderDiscoveryState(provider: string): ProviderDiscoveryState | undefined {
 		return this.#providerDiscoveryStates.get(provider);
 	}
-
 	/**
 	 * Find a model by provider and ID.
 	 */

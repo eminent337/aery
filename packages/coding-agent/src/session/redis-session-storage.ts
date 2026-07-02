@@ -465,6 +465,10 @@ class RedisSessionStorageWriter implements SessionStorageWriter {
 		await this.flush();
 	}
 
+	fsyncSync(): void {
+		if (this.#error) throw this.#error;
+	}
+
 	async close(): Promise<void> {
 		if (this.#closed) return;
 		this.#closed = true;

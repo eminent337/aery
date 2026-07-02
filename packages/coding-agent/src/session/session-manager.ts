@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as readline from "node:readline";
 import type {
 	ImageContent,
 	Message,
@@ -56,6 +57,10 @@ import type { SessionStorage, SessionStorageWriter } from "./session-storage";
 import { FileSessionStorage, MemorySessionStorage } from "./session-storage";
 
 export const CURRENT_SESSION_VERSION = 3;
+
+const STREAM_LOAD_THRESHOLD_BYTES = 8 * 1024 * 1024;
+const SUPERSEDED_COMPACTION_SUMMARY = "[Superseded compaction summary elided after a newer compaction]";
+const SUPERSEDED_COMPACTION_SHORT_SUMMARY = "Superseded compaction elided";
 
 export interface SessionHeader {
 	type: "session";
@@ -847,18 +852,95 @@ async function readTerminalBreadcrumb(cwd: string): Promise<string | null> {
 }
 
 /** Exported for testing */
+function elideCompactionSummary(entry: CompactionEntry | undefined): boolean {
+	if (!entry) return false;
+	if (
+		entry.summary === SUPERSEDED_COMPACTION_SUMMARY &&
+		entry.shortSummary === SUPERSEDED_COMPACTION_SHORT_SUMMARY &&
+		entry.preserveData === undefined
+	) {
+		return false;
+	}
+	entry.summary = SUPERSEDED_COMPACTION_SUMMARY;
+	entry.shortSummary = SUPERSEDED_COMPACTION_SHORT_SUMMARY;
+	entry.preserveData = undefined;
+	return true;
+}
+
+function collectActiveBranchIds(entries: FileEntry[]): Set<string> {
+	const byId = new Map<string, SessionEntry>();
+	for (const entry of entries) {
+		const id = (entry as SessionEntry).id;
+		if (typeof id === "string") byId.set(id, entry as SessionEntry);
+	}
+	const branchIds = new Set<string>();
+	let cursor = entries[entries.length - 1] as SessionEntry | undefined;
+	while (cursor && typeof cursor.id === "string" && !branchIds.has(cursor.id)) {
+		branchIds.add(cursor.id);
+		const parentId = cursor.parentId;
+		cursor = parentId ? byId.get(parentId) : undefined;
+	}
+	return branchIds;
+}
+
+function elideSupersededCompactionEntries(entries: FileEntry[]): void {
+	const branchIds = collectActiveBranchIds(entries);
+	let previousCompaction: CompactionEntry | undefined;
+	for (const entry of entries) {
+		if (entry.type !== "compaction") continue;
+		if (!branchIds.has(entry.id)) continue;
+		elideCompactionSummary(previousCompaction);
+		previousCompaction = entry;
+	}
+}
+
+async function loadEntriesFromFileStream(filePath: string): Promise<FileEntry[]> {
+	const entries: FileEntry[] = [];
+	let sawBodyLine = false;
+	const input = fs.createReadStream(filePath, { encoding: "utf8" });
+	const lines = readline.createInterface({ input, crlfDelay: Infinity });
+
+	try {
+		for await (const rawLine of lines) {
+			const line = rawLine.trim();
+			if (!line) continue;
+			if (!sawBodyLine) {
+				sawBodyLine = true;
+			}
+
+			let entry: FileEntry;
+			try {
+				entry = JSON.parse(line) as FileEntry;
+			} catch {
+				continue;
+			}
+			entries.push(entry);
+		}
+	} catch (err) {
+		input.destroy();
+		if (isEnoent(err)) return [];
+		throw err;
+	}
+
+	return entries;
+}
+
 export async function loadEntriesFromFile(
 	filePath: string,
 	storage: SessionStorage = new FileSessionStorage(),
 ): Promise<FileEntry[]> {
-	let content: string;
+	let entries: FileEntry[];
 	try {
-		content = await storage.readText(filePath);
+		const stat = storage.statSync(filePath);
+		entries =
+			storage instanceof FileSessionStorage && stat.size >= STREAM_LOAD_THRESHOLD_BYTES
+				? await loadEntriesFromFileStream(filePath)
+				: parseJsonlLenient<FileEntry>(await storage.readText(filePath));
 	} catch (err) {
 		if (isEnoent(err)) return [];
 		throw err;
 	}
-	const entries = parseJsonlLenient<FileEntry>(content);
+	elideSupersededCompactionEntries(entries);
 
 	// Validate session header
 	if (entries.length === 0) return entries;
@@ -1439,6 +1521,17 @@ class NdjsonFileWriter {
 		}
 	}
 
+	/** Synchronously fsync the underlying file descriptor to physical disk. */
+	fsyncSync(): void {
+		if (this.#closed) return;
+		if (this.#error) throw this.#error;
+		try {
+			this.#writer.fsyncSync();
+		} catch (err) {
+			throw this.#recordError(err);
+		}
+	}
+
 	/** Close the writer, flushing all data. */
 	async close(): Promise<void> {
 		if (this.#closed || this.#closing) return;
@@ -1610,20 +1703,21 @@ function countMessageMarkers(content: string): number {
 	return count;
 }
 
-function extractFirstUserMessageFromPrefix(content: string): string | undefined {
-	const roleIndex = content.indexOf('"role"');
-	if (roleIndex === -1) return undefined;
+function extractFirstDisplayMessageFromPrefix(content: string): string | undefined {
+	let fallback: string | undefined;
+	let index = content.indexOf('"role"');
 
-	let index = roleIndex;
 	while (index !== -1) {
 		const role = extractStringProperty(content, "role", index);
-		if (role === "user") {
-			return extractStringProperty(content, "content", index) ?? extractStringProperty(content, "text", index);
+		const text = extractStringProperty(content, "content", index) ?? extractStringProperty(content, "text", index);
+		if (text) {
+			if (role === "user") return text;
+			if (!fallback && (role === "developer" || role === "assistant")) fallback = text;
 		}
 		index = content.indexOf('"role"', index + 6);
 	}
 
-	return undefined;
+	return fallback;
 }
 
 interface SessionListHeader {
@@ -1703,13 +1797,17 @@ async function collectSessionFromFile(
 			if (entry.type === "message" && entry.message) {
 				parsedMessageCount++;
 
-				if (entry.message.role === "user" || entry.message.role === "assistant") {
+				if (
+					entry.message.role === "user" ||
+					entry.message.role === "assistant" ||
+					entry.message.role === "developer"
+				) {
 					const textContent = extractTextFromContent(entry.message.content);
 
 					if (textContent) {
 						allMessages.push(textContent);
 
-						if (!firstMessage && entry.message.role === "user") {
+						if (!firstMessage && (entry.message.role === "user" || entry.message.role === "developer")) {
 							firstMessage = textContent;
 						}
 					}
@@ -1717,7 +1815,7 @@ async function collectSessionFromFile(
 			}
 		}
 
-		firstMessage ||= extractFirstUserMessageFromPrefix(content) ?? "";
+		firstMessage ||= extractFirstDisplayMessageFromPrefix(content) ?? "";
 		const messageCount = Math.max(parsedMessageCount, countMessageMarkers(content));
 		const stats = storage.statSync(file);
 		return {
@@ -2430,6 +2528,107 @@ export class SessionManager {
 		if (this.#persistError) throw this.#persistError;
 	}
 
+	/**
+	 * Synchronously flush all in-memory entries to disk and fsync.
+	 * Use when the process may exit before an async flush settles.
+	 */
+	flushSync(): void {
+		if (!this.persist || !this.#sessionFile) return;
+		if (this.#persistError) throw this.#persistError;
+
+		// Hot path: writer is open and all entries have been written via writeSync.
+		// Just fsync the fd — the data is already in the kernel page cache.
+		if (this.#flushed && !this.#needsFullRewriteOnNextPersist) {
+			if (this.#persistWriter?.isOpen()) {
+				this.#persistWriter.fsyncSync();
+			}
+			return;
+		}
+
+		// Cold path: write all in-memory entries to a temp file and atomically
+		// replace the session file.
+		const dir = path.resolve(this.#sessionFile, "..");
+		const tempPath = path.join(dir, `.${path.basename(this.#sessionFile)}.${Snowflake.next()}.tmp`);
+
+		if (this.storage instanceof FileSessionStorage) {
+			const fd = fs.openSync(tempPath, "w");
+			try {
+				for (const entry of this.#fileEntries) {
+					const persisted = prepareEntryForPersistenceSync(entry, this.#blobStore);
+					const line = `${JSON.stringify(persisted)}\n`;
+					fs.writeSync(fd, line);
+				}
+				fs.fsyncSync(fd);
+			} finally {
+				fs.closeSync(fd);
+			}
+
+			// Atomic replace (with EPERM retry for Windows)
+			try {
+				fs.renameSync(tempPath, this.#sessionFile);
+			} catch (err) {
+				if (!hasFsCode(err, "EPERM")) {
+					try {
+						fs.unlinkSync(tempPath);
+					} catch {
+						/* best effort */
+					}
+					throw toError(err);
+				}
+				// Windows: move the old file aside, then rename
+				const backupPath = path.join(dir, `${path.basename(this.#sessionFile)}.${Snowflake.next()}.bak`);
+				try {
+					fs.renameSync(this.#sessionFile, backupPath);
+				} catch (moveAsideErr) {
+					if (isEnoent(moveAsideErr)) {
+						fs.renameSync(tempPath, this.#sessionFile);
+						return;
+					}
+					try {
+						fs.unlinkSync(tempPath);
+					} catch {
+						/* best effort */
+					}
+					throw toError(err);
+				}
+				try {
+					fs.renameSync(tempPath, this.#sessionFile);
+				} catch (replaceErr) {
+					// Roll back
+					try {
+						fs.renameSync(backupPath, this.#sessionFile);
+					} catch {
+						/* best effort */
+					}
+					throw toError(replaceErr);
+				}
+				try {
+					fs.unlinkSync(backupPath);
+				} catch {
+					/* best effort */
+				}
+			}
+		} else {
+			// MemorySessionStorage / custom storage
+			const lines = this.#fileEntries.map(entry => {
+				const persisted = prepareEntryForPersistenceSync(entry, this.#blobStore);
+				return JSON.stringify(persisted);
+			});
+			this.storage.writeTextSync(this.#sessionFile, `${lines.join("\n")}\n`);
+		}
+
+		// Re-open the persist writer in append mode so the hot path resumes.
+		if (this.#persistWriter) {
+			void this.#persistWriter.close().catch(() => {});
+		}
+		this.#persistWriter = new NdjsonFileWriter(this.storage, this.#sessionFile, {
+			onError: err => this.#recordPersistError(err),
+		});
+		this.#persistWriterPath = this.#sessionFile;
+		this.#flushed = true;
+		this.#needsFullRewriteOnNextPersist = false;
+	}
+
 	/** Close the persistent writer after flushing all pending data. */
 	async close(): Promise<void> {
 		if (!this.#persistWriter) return;
@@ -2851,6 +3050,26 @@ export class SessionManager {
 		return entry.id;
 	}
 
+	#elideSupersededCompactionsOnBranch(leafId: string | null): boolean {
+		if (!leafId) return false;
+		let changed = false;
+		for (const entry of this.getBranch(leafId)) {
+			if (entry.type !== "compaction") continue;
+			if (
+				entry.summary === SUPERSEDED_COMPACTION_SUMMARY &&
+				entry.shortSummary === SUPERSEDED_COMPACTION_SHORT_SUMMARY &&
+				entry.preserveData === undefined
+			) {
+				continue;
+			}
+			entry.summary = SUPERSEDED_COMPACTION_SUMMARY;
+			entry.shortSummary = SUPERSEDED_COMPACTION_SHORT_SUMMARY;
+			entry.preserveData = undefined;
+			changed = true;
+		}
+		return changed;
+	}
+
 	/** Append a compaction summary as child of current leaf, then advance leaf. Returns entry id. */
 	appendCompaction<T = unknown>(
 		summary: string,
@@ -2861,6 +3080,7 @@ export class SessionManager {
 		fromExtension?: boolean,
 		preserveData?: Record<string, unknown>,
 	): string {
+		const elidedSupersededCompactions = this.#elideSupersededCompactionsOnBranch(this.#leafId);
 		const entry: CompactionEntry<T> = {
 			type: "compaction",
 			id: generateId(this.#byId),
@@ -2875,6 +3095,9 @@ export class SessionManager {
 			preserveData,
 		};
 		this.#appendEntry(entry);
+		if (elidedSupersededCompactions) {
+			void this.#rewriteFile().catch(err => this.#recordPersistError(err));
+		}
 		return entry.id;
 	}
 

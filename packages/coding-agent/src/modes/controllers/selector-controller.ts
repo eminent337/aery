@@ -10,6 +10,7 @@ import {
 	listCustomOpenAICompatibleProviders,
 	removeCustomOpenAICompatibleProvider,
 	saveCustomOpenAICompatibleProvider,
+	updateCustomOpenAICompatibleProvider,
 } from "../../config/custom-openai-compatible";
 import { getRoleInfo } from "../../config/model-registry";
 import { formatModelSelectorValue } from "../../config/model-resolver";
@@ -1084,12 +1085,11 @@ export class SelectorController {
 			await this.#addCustomOpenAICompatibleProvider(modelsPath);
 		}
 	}
-
 	async #showCustomOpenAISubmenu(
 		existing: { providerId: string; baseUrl: string; models: { id: string; name: string }[] }[],
 		modelsPath: string,
 	): Promise<void> {
-		// First level: Add or Delete
+		// First level: Add, Edit, or Delete
 		const action = await new Promise<string | null>(resolve => {
 			this.showSelector(done => {
 				const items = [
@@ -1097,6 +1097,11 @@ export class SelectorController {
 						id: "__add__",
 						name: "Add new provider",
 						description: "Configure a new OpenAI-compatible endpoint",
+					},
+					{
+						id: "__edit__",
+						name: "Edit provider",
+						description: "Update baseUrl, apiKey, or modelId of an existing provider",
 					},
 					{
 						id: "__delete__",
@@ -1119,11 +1124,92 @@ export class SelectorController {
 				return { component: menu, focus: menu };
 			});
 		});
-
 		if (action === "__add__") {
 			await this.#addCustomOpenAICompatibleProvider(modelsPath);
+		} else if (action === "__edit__") {
+			await this.#showEditProviderMenu(existing, modelsPath);
 		} else if (action === "__delete__") {
 			await this.#showDeleteProviderMenu(existing, modelsPath);
+		}
+	}
+
+	async #showEditProviderMenu(
+		existing: { providerId: string; baseUrl: string; models: { id: string; name: string }[] }[],
+		modelsPath: string,
+	): Promise<void> {
+		// Second level: pick which provider to edit
+		const selectedId = await new Promise<string | null>(resolve => {
+			this.showSelector(done => {
+				const items = existing.map(p => ({
+					id: p.providerId,
+					name: p.baseUrl,
+					description: `models: ${p.models.map(m => m.id).join(", ")}`,
+				}));
+				const menu = new CustomOpenAICompatibleMenuComponent(
+					"Select provider to edit",
+					items,
+					selected => {
+						done();
+						resolve(selected.id);
+					},
+					() => {
+						done();
+						resolve(null);
+					},
+				);
+				return { component: menu, focus: menu };
+			});
+		});
+
+		if (selectedId) {
+			const provider = existing.find(p => p.providerId === selectedId);
+			if (provider) {
+				await this.#editCustomOpenAICompatibleProvider(modelsPath, provider);
+			}
+		}
+	}
+
+	async #editCustomOpenAICompatibleProvider(
+		modelsPath: string,
+		provider: { providerId: string; baseUrl: string; models: { id: string; name: string }[] },
+	): Promise<void> {
+		const restoreEditor = () => {
+			this.ctx.editorContainer.clear();
+			this.ctx.editorContainer.addChild(this.ctx.editor);
+			this.ctx.ui.setFocus(this.ctx.editor);
+			this.ctx.ui.requestRender();
+		};
+
+		try {
+			const baseUrl = (
+				await this.#promptInput(`Edit base URL (currently ${provider.baseUrl}):`, provider.baseUrl)
+			).trim();
+
+			const currentModelId = provider.models[0]?.id || "";
+			const modelId = (
+				await this.#promptInput(`Edit model ID (currently ${currentModelId}):`, currentModelId)
+			).trim();
+
+			const apiKeyInput = (await this.#promptInput("Edit API key (leave blank to keep current):", "")).trim();
+			const apiKey = apiKeyInput ? apiKeyInput : undefined;
+
+			updateCustomOpenAICompatibleProvider({
+				modelsPath,
+				providerId: provider.providerId,
+				baseUrl: baseUrl || undefined,
+				modelId: modelId || undefined,
+				apiKey,
+			});
+
+			await this.ctx.session.modelRegistry.refresh();
+			restoreEditor();
+			this.ctx.showStatus(`Updated ${provider.providerId}.`);
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.ctx.showError(`Failed to edit provider: ${errorMsg}`);
+			}
 		}
 	}
 

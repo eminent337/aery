@@ -29,7 +29,6 @@ import { pruneOversizedEditSnapshots } from "./snapshot-details";
 export * from "@aryee337/hashline";
 export { DEFAULT_EDIT_MODE, type EditMode, normalizeEditMode } from "../utils/edit-mode";
 export * from "./apply-patch";
-export * from "./snapshot-details";
 export * from "./diff";
 export * from "./file-snapshot-store";
 export * from "./hashline";
@@ -38,6 +37,7 @@ export * from "./modes/patch";
 export * from "./modes/replace";
 export * from "./normalize";
 export * from "./renderer";
+export * from "./snapshot-details";
 export * from "./streaming";
 
 type TInput =

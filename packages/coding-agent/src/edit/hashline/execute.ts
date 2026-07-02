@@ -109,7 +109,7 @@ function renderSection(result: PatchSectionResult, diagnostics: FileDiagnosticsR
 				op: result.op,
 				meta,
 				oldText: result.op !== "create" ? result.before : undefined,
-				newText: result.op !== "delete" ? result.after : undefined,
+				newText: (result.op as string) !== "delete" ? result.after : undefined,
 			},
 		},
 		perFileResult: {
@@ -119,7 +119,7 @@ function renderSection(result: PatchSectionResult, diagnostics: FileDiagnosticsR
 			diagnostics,
 			op: result.op,
 			oldText: result.op !== "create" ? result.before : undefined,
-			newText: result.op !== "delete" ? result.after : undefined,
+			newText: (result.op as string) !== "delete" ? result.after : undefined,
 		},
 	};
 }
@@ -147,9 +147,10 @@ export async function executeHashlineSingle(
 		fs.setBatchRequest(narrowBatchRequest(options.batchRequest, true));
 		const prepared = await patcher.prepare(patch.sections[0]);
 		const sectionResult = await patcher.commit(prepared);
-		const rendered = sectionResult.op === "noop"
-			? renderSection(sectionResult, undefined)
-			: renderSection(sectionResult, fs.consumeDiagnostics(sectionResult.path));
+		const rendered =
+			sectionResult.op === "noop"
+				? renderSection(sectionResult, undefined)
+				: renderSection(sectionResult, fs.consumeDiagnostics(sectionResult.path));
 		if (rendered.toolResult.details) {
 			rendered.toolResult.details = pruneOversizedEditSnapshots(rendered.toolResult.details);
 		}

@@ -224,6 +224,7 @@ export const PROVIDER_DESCRIPTORS: readonly ProviderDescriptor[] = [
 		"anthropic/claude-sonnet-4.5",
 		config => kiloModelManagerOptions(config),
 		catalog("Kilo Gateway", ["KILO_API_KEY"], { allowUnauthenticated: true }),
+		{ allowUnauthenticated: true, dynamicModelsAuthoritative: true },
 	),
 	catalogDescriptor(
 		"vercel-ai-gateway",

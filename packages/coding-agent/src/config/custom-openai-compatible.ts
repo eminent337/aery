@@ -211,3 +211,63 @@ export function removeCustomOpenAICompatibleProvider(modelsPath: string, provide
 	}
 	return true;
 }
+
+export interface UpdateCustomOpenAICompatibleProviderInput {
+	modelsPath: string;
+	providerId: string;
+	baseUrl?: string;
+	apiKey?: string;
+	modelId?: string;
+}
+
+export function updateCustomOpenAICompatibleProvider(input: UpdateCustomOpenAICompatibleProviderInput): boolean {
+	const config = loadModelsConfig(input.modelsPath);
+	const providers = config.providers as Record<string, unknown>;
+	const providerConfig = providers[input.providerId] as Record<string, unknown> | undefined;
+	if (!providerConfig) return false;
+
+	if (input.baseUrl !== undefined) {
+		providerConfig.baseUrl = input.baseUrl.trim().replace(/\/+$/g, "");
+	}
+	if (input.apiKey !== undefined) {
+		providerConfig.apiKey = input.apiKey;
+	}
+	if (input.modelId !== undefined) {
+		const newModelId = input.modelId.trim();
+		if (newModelId) {
+			const models = providerConfig.models;
+			if (Array.isArray(models)) {
+				if (models.length > 0 && isJsonObject(models[0])) {
+					const firstModel = models[0] as Record<string, unknown>;
+					firstModel.id = newModelId;
+					firstModel.name = newModelId;
+				} else {
+					providerConfig.models = [
+						{
+							id: newModelId,
+							name: newModelId,
+							...DEFAULT_MODEL_CONFIG,
+						},
+					];
+				}
+			} else {
+				providerConfig.models = [
+					{
+						id: newModelId,
+						name: newModelId,
+						...DEFAULT_MODEL_CONFIG,
+					},
+				];
+			}
+		}
+	}
+
+	mkdirSync(dirname(input.modelsPath), { recursive: true, mode: 0o700 });
+	if (input.modelsPath.endsWith(".yml") || input.modelsPath.endsWith(".yaml")) {
+		const { YAML } = require("bun");
+		writeFileSync(input.modelsPath, YAML.stringify(config, null, 2), "utf-8");
+	} else {
+		writeFileSync(input.modelsPath, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
+	}
+	return true;
+}

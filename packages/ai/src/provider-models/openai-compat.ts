@@ -1522,12 +1522,14 @@ export function kiloModelManagerOptions(config?: KiloModelManagerConfig): ModelM
 	const baseUrl = config?.baseUrl ?? "https://api.kilo.ai/api/gateway";
 	return {
 		providerId: "kilo",
+		dynamicModelsAuthoritative: true,
 		fetchDynamicModels: () =>
 			fetchOpenAICompatibleModels({
 				api: "openai-completions",
 				provider: "kilo",
 				baseUrl,
 				apiKey,
+				filterModel: entry => entry.isFree === true,
 			}),
 	};
 }

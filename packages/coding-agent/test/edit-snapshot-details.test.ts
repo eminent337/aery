@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { formatHashlineHeader } from "@aryee337/hashline";
 import { resetSettingsForTest, Settings } from "@aryee337/aery/config/settings";
 import {
 	DEFAULT_FUZZY_THRESHOLD,
@@ -17,7 +16,7 @@ import {
 } from "@aryee337/aery/edit";
 import { writethroughNoop } from "@aryee337/aery/lsp";
 import type { ToolSession } from "@aryee337/aery/tools";
-import { removeWithRetries } from "@aryee337/aery-utils";
+import { formatHashlineHeader } from "@aryee337/hashline";
 
 function makeSession(cwd: string): ToolSession {
 	return {
