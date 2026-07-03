@@ -386,7 +386,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 					}
 					await runtime.output(`Artifacts in this session:\n${listLines.join("\n")}`);
 				} catch (err) {
-					await runtime.output(`Error listing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+					if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+						await runtime.output("No artifacts found.");
+					} else {
+						await runtime.output(`Error listing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+					}
 				}
 				return commandConsumed();
 			}
@@ -427,7 +431,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 					}
 					await runtime.output(`Successfully cleared ${clearedCount} artifact file(s).`);
 				} catch (err) {
-					await runtime.output(`Error clearing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+					if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+						await runtime.output("Successfully cleared 0 artifact file(s).");
+					} else {
+						await runtime.output(`Error clearing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+					}
 				}
 				return commandConsumed();
 			}

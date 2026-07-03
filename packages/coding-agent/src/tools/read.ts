@@ -827,7 +827,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 		return null;
 	}
 
-	#buildInMemoryTextResult(
+	async #buildInMemoryTextResult(
 		text: string,
 		offset: number | undefined,
 		limit: number | undefined,
@@ -841,7 +841,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 			raw?: boolean;
 			immutable?: boolean;
 		},
-	): AgentToolResult<ReadToolDetails> {
+	): Promise<AgentToolResult<ReadToolDetails>> {
 		const displayMode = resolveFileDisplayMode(this.session, { raw: options.raw, immutable: options.immutable });
 		const details = options.details ?? {};
 		const allLines = text.split("\n");
@@ -956,6 +956,22 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 			outputText += `\n\n[${remaining} more lines in ${options.entityLabel}. Use :${nextOffset} to continue]`;
 		} else {
 			outputText = formatText(truncation.content, startLineDisplay);
+		}
+		let artifactId: string | undefined;
+		if (truncation.truncated || truncation.firstLineExceedsLimit) {
+			const alloc = await this.session.allocateOutputArtifact?.("read");
+			if (alloc?.path && alloc?.id) {
+				try {
+					await Bun.write(alloc.path, text);
+					artifactId = alloc.id;
+				} catch (error) {
+					logger.warn("Failed to write in-memory text artifact", { error });
+				}
+			}
+		}
+
+		if (artifactId) {
+			outputText += `\n\n[raw output: artifact://${artifactId}]`;
 		}
 
 		resultBuilder.text(outputText);
@@ -1237,7 +1253,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 						entityLabel: "archive entry",
 						raw,
 					})
-				: this.#buildInMemoryTextResult(
+				: await this.#buildInMemoryTextResult(
 						text,
 						selToOffsetLimit(parsedSel).offset,
 						selToOffsetLimit(parsedSel).limit,
@@ -1571,7 +1587,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 						preferCached: true,
 					},
 				);
-				return this.#buildInMemoryTextResult(cached.output, parsedUrlTarget.offset, parsedUrlTarget.limit, {
+				return await this.#buildInMemoryTextResult(cached.output, parsedUrlTarget.offset, parsedUrlTarget.limit, {
 					details: { ...cached.details },
 					sourceUrl: cached.details.finalUrl,
 					entityLabel: "URL output",
@@ -1748,7 +1764,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 				});
 			}
 			const { offset, limit } = selToOffsetLimit(parsed);
-			return this.#buildInMemoryTextResult(notebookText, offset, limit, {
+			return await this.#buildInMemoryTextResult(notebookText, offset, limit, {
 				details: { resolvedPath: absolutePath },
 				sourcePath: absolutePath,
 				entityLabel: "notebook",
@@ -1759,11 +1775,23 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 			if (result.ok) {
 				// Apply truncation to converted content
 				const truncation = truncateHead(result.content);
-				const outputText = truncation.content;
+				let outputText = truncation.content;
 
 				details = { truncation };
 				sourcePath = absolutePath;
 				truncationInfo = { result: truncation, options: { direction: "head", startLine: 1 } };
+
+				if (truncation.truncated) {
+					const alloc = await this.session.allocateOutputArtifact?.("read");
+					if (alloc?.path && alloc?.id) {
+						try {
+							await Bun.write(alloc.path, result.content);
+							outputText += `\n\n[raw output: artifact://${alloc.id}]`;
+						} catch (error) {
+							logger.warn("Failed to write read tool document artifact", { path: absolutePath, error });
+						}
+					}
+				}
 
 				content = [{ type: "text", text: outputText }];
 			} else if (result.error) {
@@ -1830,7 +1858,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 					if (bridgePromise !== undefined) {
 						try {
 							const bridgeText = await bridgePromise;
-							const bridgeResult = this.#buildInMemoryTextResult(bridgeText, offset, limit, {
+							const bridgeResult = await this.#buildInMemoryTextResult(bridgeText, offset, limit, {
 								details: { resolvedPath: absolutePath, suffixResolution },
 								sourcePath: absolutePath,
 								entityLabel: "file",
@@ -2051,6 +2079,23 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 						}
 					}
 
+					let artifactId: string | undefined;
+					if (truncation.truncated || truncation.firstLineExceedsLimit) {
+						const alloc = await this.session.allocateOutputArtifact?.("read");
+						if (alloc?.path && alloc?.id) {
+							try {
+								const fullContent = await Bun.file(absolutePath).text();
+								await Bun.write(alloc.path, fullContent);
+								artifactId = alloc.id;
+							} catch (error) {
+								logger.warn("Failed to write read tool disk artifact", { path: absolutePath, error });
+							}
+						}
+					}
+					if (artifactId) {
+						outputText += `\n\n[raw output: artifact://${artifactId}]`;
+					}
+
 					content = [{ type: "text", text: outputText }];
 				}
 			}
@@ -2210,7 +2255,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 		}
 
 		const { offset, limit } = selToOffsetLimit(parsedSel);
-		return this.#buildInMemoryTextResult(resource.content, offset, limit, {
+		return await this.#buildInMemoryTextResult(resource.content, offset, limit, {
 			details,
 			sourcePath: resource.sourcePath,
 			sourceInternal: url,

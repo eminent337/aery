@@ -651,7 +651,11 @@ export class CommandController {
 					await this.handleArtifactCommand(`view ${choice}`);
 				}
 			} catch (err) {
-				this.ctx.showError(`Error listing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+				if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+					this.ctx.showStatus("No artifacts found in this session.");
+				} else {
+					this.ctx.showError(`Error listing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+				}
 			}
 			return;
 		}
@@ -693,7 +697,11 @@ export class CommandController {
 				}
 				this.ctx.showStatus(`Successfully cleared ${clearedCount} artifact file(s).`);
 			} catch (err) {
-				this.ctx.showError(`Error clearing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+				if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+					this.ctx.showStatus("Successfully cleared 0 artifact file(s).");
+				} else {
+					this.ctx.showError(`Error clearing artifacts: ${err instanceof Error ? err.message : String(err)}`);
+				}
 			}
 			return;
 		}
