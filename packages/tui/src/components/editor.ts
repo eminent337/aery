@@ -1,10 +1,10 @@
 import { getProjectDir, logger } from "@aryee337/aery-utils";
 import {
+	type AutocompleteProvider,
+	type CombinedAutocompleteProvider,
 	findLeadingSlashCommandStart,
 	findTrailingSlashCommandStart,
 	isMidPromptSkillPrefix,
-	type AutocompleteProvider,
-	type CombinedAutocompleteProvider,
 } from "../autocomplete";
 import { BracketedPasteHandler } from "../bracketed-paste";
 import { getKeybindings, type KeybindingsManager } from "../keybindings";
@@ -2420,14 +2420,6 @@ export class Editor implements Component, Focusable {
 		return true;
 	}
 
-	// Slash commands execute only when the submitted prompt starts with the command.
-	#isAtStartOfSubmittedMessage(): boolean {
-		const currentLine = this.#state.lines[this.#state.cursorLine] || "";
-		const beforeCursor = currentLine.slice(0, this.#state.cursorCol);
-
-		return this.#hasOnlyWhitespaceBeforeCursorLine() && (beforeCursor.trim() === "" || beforeCursor.trim() === "/");
-	}
-
 	#isInSubmittedSlashCommandContext(): boolean {
 		const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 		const beforeCursor = currentLine.slice(0, this.#state.cursorCol);
@@ -2520,9 +2512,6 @@ export class Editor implements Component, Focusable {
 
 	#handleTabCompletion(): void {
 		if (!this.#autocompleteProvider) return;
-
-		const currentLine = this.#state.lines[this.#state.cursorLine] || "";
-		const beforeCursor = currentLine.slice(0, this.#state.cursorCol);
 
 		// Check if we're in a slash command or mid-prompt skill context
 		if (this.#isInSlashAutocompleteContext()) {

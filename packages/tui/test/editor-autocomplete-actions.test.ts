@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { CombinedAutocompleteProvider, type AutocompleteItem, type AutocompleteProvider } from "@aryee337/aery-tui/autocomplete";
+import {
+	type AutocompleteItem,
+	type AutocompleteProvider,
+	CombinedAutocompleteProvider,
+} from "@aryee337/aery-tui/autocomplete";
 import { Editor } from "@aryee337/aery-tui/components/editor";
 import { defaultEditorTheme } from "./test-themes";
 

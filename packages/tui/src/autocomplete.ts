@@ -252,10 +252,7 @@ function hasPromptTextBeforeSlash(
 	return textBeforeCursor.slice(0, slashStart).trim() !== "";
 }
 
-export function buildSlashCommandCompletions(
-	commands: CommandEntry[],
-	lowerPrefix: string,
-): AutocompleteItem[] {
+export function buildSlashCommandCompletions(commands: CommandEntry[], lowerPrefix: string): AutocompleteItem[] {
 	return commands
 		.filter(cmd => {
 			const name = getCommandName(cmd);
