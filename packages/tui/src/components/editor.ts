@@ -1,5 +1,11 @@
 import { getProjectDir, logger } from "@aryee337/aery-utils";
-import { findLeadingSlashCommandStart, type AutocompleteProvider, type CombinedAutocompleteProvider } from "../autocomplete";
+import {
+	findLeadingSlashCommandStart,
+	findTrailingSlashCommandStart,
+	isMidPromptSkillPrefix,
+	type AutocompleteProvider,
+	type CombinedAutocompleteProvider,
+} from "../autocomplete";
 import { BracketedPasteHandler } from "../bracketed-paste";
 import { getKeybindings, type KeybindingsManager } from "../keybindings";
 import { extractPrintableText, matchesKey } from "../keys";
@@ -1038,8 +1044,12 @@ export class Editor implements Component, Focusable {
 					return;
 				}
 
-				// If Enter was pressed on a slash command, apply completion and submit
-				if ((kb.matches(data, "tui.input.submit") || data === "\n") && this.#autocompletePrefix.startsWith("/")) {
+				// If Enter was pressed on a leading slash command, apply completion and submit
+				if (
+					(kb.matches(data, "tui.input.submit") || data === "\n") &&
+					this.#autocompletePrefix.startsWith("/") &&
+					this.#isInSubmittedSlashCommandContext()
+				) {
 					// Check for stale autocomplete state due to debounce
 					const currentLine = this.#state.lines[this.#state.cursorLine] ?? "";
 					const currentTextBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
@@ -1554,13 +1564,9 @@ export class Editor implements Component, Focusable {
 
 		// Check if we should trigger or update autocomplete
 		if (!this.#autocompleteState) {
-			// Auto-trigger for "/" (slash commands, including mid-prompt)
-			if (char === "/") {
-				const currentLine = this.#state.lines[this.#state.cursorLine] || "";
-				const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
-				if (this.#isAtStartOfSubmittedMessage() || findLeadingSlashCommandStart(textBeforeCursor) !== null) {
-					this.#tryTriggerAutocomplete();
-				}
+			// Auto-trigger for "/" at the start of a submitted command or a mid-prompt skill lookup.
+			if (char === "/" && this.#isInSlashAutocompleteContext()) {
+				this.#tryTriggerAutocomplete();
 			}
 			// Auto-trigger for "@" file reference (fuzzy search)
 			else if (char === "@") {
@@ -1580,8 +1586,8 @@ export class Editor implements Component, Focusable {
 			else if (/[a-zA-Z0-9.\-_/]/.test(char)) {
 				const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 				const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
-				// Check if we're in a slash command (with or without space for arguments)
-				if (this.#isInSubmittedSlashCommandContext() || findLeadingSlashCommandStart(textBeforeCursor) !== null) {
+				// Check if we're in a slash command or mid-prompt skill lookup.
+				if (this.#isInSlashAutocompleteContext()) {
 					this.#tryTriggerAutocomplete();
 				}
 				// Check if we're in an @ file reference context
@@ -1913,21 +1919,7 @@ export class Editor implements Component, Focusable {
 			this.onChange(this.getText());
 		}
 
-		if (this.#autocompleteState) {
-			this.#debouncedUpdateAutocomplete();
-		} else {
-			const currentLine = this.#state.lines[this.#state.cursorLine] || "";
-			const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
-			if (this.#isInSubmittedSlashCommandContext()) {
-				this.#tryTriggerAutocomplete();
-			} else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
-				this.#tryTriggerAutocomplete();
-			} else if (textBeforeCursor.match(/#[^\s#]*$/)) {
-				this.#tryTriggerAutocomplete();
-			} else if (this.#textTriggersUrlAutocomplete(textBeforeCursor)) {
-				this.#tryTriggerAutocomplete();
-			}
-		}
+		this.#retriggerAutocompleteAtCursor();
 	}
 
 	#matchesTransientUndoSnapshot(
@@ -2442,6 +2434,16 @@ export class Editor implements Component, Focusable {
 		return this.#hasOnlyWhitespaceBeforeCursorLine() && beforeCursor.trimStart().startsWith("/");
 	}
 
+	#isInMidPromptSkillSlashContext(): boolean {
+		const currentLine = this.#state.lines[this.#state.cursorLine] || "";
+		const beforeCursor = currentLine.slice(0, this.#state.cursorCol);
+		return isMidPromptSkillPrefix(beforeCursor);
+	}
+
+	#isInSlashAutocompleteContext(): boolean {
+		return this.#isInSubmittedSlashCommandContext() || this.#isInMidPromptSkillSlashContext();
+	}
+
 	#isSlashCommandNameAutocompleteSelection(): boolean {
 		if (this.#autocompleteState !== "regular") {
 			return false;
@@ -2522,8 +2524,8 @@ export class Editor implements Component, Focusable {
 		const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 		const beforeCursor = currentLine.slice(0, this.#state.cursorCol);
 
-		// Check if we're in a slash command context
-		if (this.#isInSubmittedSlashCommandContext() && !beforeCursor.trimStart().includes(" ")) {
+		// Check if we're in a slash command or mid-prompt skill context
+		if (this.#isInSlashAutocompleteContext()) {
 			this.#handleSlashCommandCompletion();
 		} else {
 			this.#forceFileAutocomplete(true);
@@ -2620,6 +2622,12 @@ https://github.com/EsotericSoftware/spine-runtimes/actions/runs/19536643416/job/
 			return /(?:^|\s)@[^\s]*$/.test(currentTextBeforeCursor);
 		}
 
+		const slashStart = findTrailingSlashCommandStart(currentTextBeforeCursor);
+		if (slashStart !== null) {
+			const token = currentTextBeforeCursor.slice(slashStart);
+			if (!token.includes(" ") && !token.slice(1).includes("/")) return true;
+		}
+
 		return false;
 	}
 
@@ -2629,7 +2637,7 @@ https://github.com/EsotericSoftware/spine-runtimes/actions/runs/19536643416/job/
 		} else {
 			const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 			const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
-			if (this.#isInSubmittedSlashCommandContext()) {
+			if (this.#isInSlashAutocompleteContext()) {
 				this.#tryTriggerAutocomplete();
 			} else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
 				this.#tryTriggerAutocomplete();
