@@ -285,7 +285,7 @@ fn git_apply_with_program(
 		})
 		.map_err(|err| IsoError::other(format!("spawn git apply stderr reader: {err}")))?;
 	let write_result = {
-		let mut stdin = child
+		let stdin = child
 			.stdin
 			.take()
 			.ok_or_else(|| IsoError::other("git apply: child stdin was not piped".to_string()));
