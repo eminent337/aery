@@ -218,6 +218,92 @@ export interface AutocompleteProvider {
 	trySyncInlineReplace?(textBeforeCursor: string): { replaceLen: number; insert: string } | null;
 }
 
+export type CommandEntry = AutocompleteCommand;
+
+export function findTrailingSlashCommandStart(text: string): number | null {
+	const match = /(?:^|\s)\/([^\s/]*)$/.exec(text);
+	if (!match || match.index === undefined) return null;
+	const slashOffset = match[0].indexOf("/");
+	return match.index + slashOffset;
+}
+
+export function findLeadingSlashCommandStart(text: string): number | null {
+	return findTrailingSlashCommandStart(text);
+}
+
+export function isMidPromptSkillPrefix(text: string): boolean {
+	const match = /(?:^|\s)\/([^\s/]*)$/.exec(text);
+	if (!match) return false;
+	const prefix = match[1] || "";
+	if (prefix === "") return false;
+	const lower = prefix.toLowerCase();
+	return "skill:".startsWith(lower) || lower.startsWith("skill:");
+}
+
+function hasPromptTextBeforeSlash(
+	lines: string[],
+	cursorLine: number,
+	textBeforeCursor: string,
+	slashStart: number,
+): boolean {
+	for (let i = 0; i < cursorLine; i += 1) {
+		if ((lines[i] || "").trim() !== "") return true;
+	}
+	return textBeforeCursor.slice(0, slashStart).trim() !== "";
+}
+
+export function buildSlashCommandCompletions(
+	commands: CommandEntry[],
+	lowerPrefix: string,
+): AutocompleteItem[] {
+	return commands
+		.filter(cmd => {
+			const name = getCommandName(cmd);
+			if (!name) return false;
+			if (fuzzyMatch(lowerPrefix, name.toLowerCase())) return true;
+			const desc = cmd.description?.toLowerCase();
+			return desc ? fuzzyMatch(lowerPrefix, desc) : false;
+		})
+		.map(cmd => {
+			const name = getCommandName(cmd);
+			const lowerName = name?.toLowerCase() ?? "";
+			const lowerDesc = cmd.description?.toLowerCase() ?? "";
+			const nameScore = fuzzyMatch(lowerPrefix, lowerName) ? fuzzyScore(lowerPrefix, lowerName) : 0;
+			const descScore = fuzzyMatch(lowerPrefix, lowerDesc) ? fuzzyScore(lowerPrefix, lowerDesc) * 0.5 : 0;
+			const hint = cmd.kind === "slash" && cmd.argumentHint ? cmd.argumentHint : undefined;
+			const desc = cmd.description ?? "";
+			let fullDesc = hint ? (desc ? `${hint} — ${desc}` : hint) : desc;
+
+			// Append subcommand preview if available
+			if (cmd.kind === "slash" && cmd.subcommands && cmd.subcommands.length > 0) {
+				const names = cmd.subcommands.slice(0, 3).map(s => s.name);
+				const preview = `(${names.join(", ")}${cmd.subcommands.length > 3 ? ", …" : ""})`;
+				fullDesc = fullDesc ? `${fullDesc} ${preview}` : preview;
+			}
+
+			return {
+				value: name ?? "",
+				label: cmd.kind === "slash" ? cmd.name : (cmd.label ?? ""),
+				score: Math.max(nameScore, descScore),
+				...(fullDesc && { description: fullDesc }),
+				...(cmd.category && { category: cmd.category }),
+			} as AutocompleteItem & { score: number };
+		})
+		.sort((a, b) => b.score - a.score)
+		.map(({ score: _, ...rest }) => rest);
+}
+
+function getCommandName(cmd: CommandEntry): string | undefined {
+	return cmd.kind === "slash" ? cmd.name : cmd.value;
+}
+
+function buildMidPromptSkillCompletions(commands: CommandEntry[], lowerPrefix: string): AutocompleteItem[] {
+	return buildSlashCommandCompletions(
+		commands.filter(cmd => getCommandName(cmd)?.startsWith("skill:")),
+		lowerPrefix,
+	);
+}
+
 // Combined provider that handles both slash commands and file paths.
 export class CombinedAutocompleteProvider implements AutocompleteProvider {
 	#commands: AutocompleteCommand[];
@@ -244,6 +330,21 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 	): Promise<{ items: AutocompleteItem[]; prefix: string } | null> {
 		const currentLine = lines[cursorLine] || "";
 		const textBeforeCursor = currentLine.slice(0, cursorCol);
+
+		// Check for mid-prompt skill lookup (/skill:...)
+		const trailingSlashStart = findTrailingSlashCommandStart(textBeforeCursor);
+		if (trailingSlashStart !== null) {
+			const slashPrefix = textBeforeCursor.slice(trailingSlashStart);
+			const lowerPrefix = slashPrefix.slice(1).toLowerCase();
+			const midPrompt = hasPromptTextBeforeSlash(lines, cursorLine, textBeforeCursor, trailingSlashStart);
+			if (midPrompt) {
+				const items = buildMidPromptSkillCompletions(this.#commands, lowerPrefix);
+				if (items.length > 0) {
+					return { items, prefix: slashPrefix };
+				}
+				return null;
+			}
+		}
 
 		// Check for @ file reference (fuzzy search) - must be after a delimiter or at start
 		const atPrefix = this.#extractAtPrefix(textBeforeCursor);
@@ -381,16 +482,14 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 
 		const afterCursor = currentLine.slice(cursorCol);
 
-		const slashStart = textBeforeCursor.indexOf("/");
-		const hasOnlyWhitespaceBeforeSlash = slashStart >= 0 && textBeforeCursor.slice(0, slashStart).trim() === "";
-
+		const trailingSlashStart = findTrailingSlashCommandStart(textBeforeCursor);
 		// Slash command suggestions can be accepted before the debounced refresh
 		// catches up to newly typed characters. Replace the live command token,
 		// not only the prefix captured when the suggestion list was rendered.
-		if (prefix.startsWith("/") && hasOnlyWhitespaceBeforeSlash) {
-			const slashPrefix = textBeforeCursor.slice(slashStart);
+		if (prefix.startsWith("/") && trailingSlashStart !== null) {
+			const slashPrefix = textBeforeCursor.slice(trailingSlashStart);
 			if (!slashPrefix.includes(" ") && !slashPrefix.slice(1).includes("/")) {
-				const beforeSlash = currentLine.slice(0, slashStart);
+				const beforeSlash = currentLine.slice(0, trailingSlashStart);
 				const newLine = `${beforeSlash}/${item.value} ${afterCursor}`;
 				const newLines = [...lines];
 				newLines[cursorLine] = newLine;
@@ -839,41 +938,7 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		return command.getInlineHint(argumentText);
 	}
 	#buildSlashCommandItems(lowerPrefix: string): AutocompleteItem[] {
-		return this.#commands
-			.filter(cmd => {
-				const name = cmd.kind === "slash" ? cmd.name : cmd.value;
-				if (!name) return false;
-				if (fuzzyMatch(lowerPrefix, name.toLowerCase())) return true;
-				const desc = cmd.description?.toLowerCase();
-				return desc ? fuzzyMatch(lowerPrefix, desc) : false;
-			})
-			.map(cmd => {
-				const name = cmd.kind === "slash" ? cmd.name : cmd.value;
-				const lowerName = name?.toLowerCase() ?? "";
-				const lowerDesc = cmd.description?.toLowerCase() ?? "";
-				const nameScore = fuzzyMatch(lowerPrefix, lowerName) ? fuzzyScore(lowerPrefix, lowerName) : 0;
-				const descScore = fuzzyMatch(lowerPrefix, lowerDesc) ? fuzzyScore(lowerPrefix, lowerDesc) * 0.5 : 0;
-				const hint = cmd.kind === "slash" && cmd.argumentHint ? cmd.argumentHint : undefined;
-				const desc = cmd.description ?? "";
-				let fullDesc = hint ? (desc ? `${hint} — ${desc}` : hint) : desc;
-
-				// Append subcommand preview if available
-				if (cmd.kind === "slash" && cmd.subcommands && cmd.subcommands.length > 0) {
-					const names = cmd.subcommands.slice(0, 3).map(s => s.name);
-					const preview = `(${names.join(", ")}${cmd.subcommands.length > 3 ? ", …" : ""})`;
-					fullDesc = fullDesc ? `${fullDesc} ${preview}` : preview;
-				}
-
-				return {
-					value: name,
-					label: cmd.kind === "slash" ? cmd.name : cmd.label,
-					score: Math.max(nameScore, descScore),
-					...(fullDesc && { description: fullDesc }),
-					...(cmd.category && { category: cmd.category }),
-				} as AutocompleteItem & { score: number };
-			})
-			.sort((a, b) => b.score - a.score)
-			.map(({ score: _, ...rest }) => rest);
+		return buildSlashCommandCompletions(this.#commands, lowerPrefix);
 	}
 
 	trySyncSlashCompletion(textBeforeCursor: string): { items: AutocompleteItem[]; prefix: string } | null {

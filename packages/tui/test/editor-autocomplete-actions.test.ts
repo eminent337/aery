@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { AutocompleteItem, AutocompleteProvider } from "@aryee337/aery-tui/autocomplete";
+import { CombinedAutocompleteProvider, type AutocompleteItem, type AutocompleteProvider } from "@aryee337/aery-tui/autocomplete";
 import { Editor } from "@aryee337/aery-tui/components/editor";
 import { defaultEditorTheme } from "./test-themes";
 
@@ -234,5 +234,106 @@ describe("Editor Enter handler sync slash completion", () => {
 		// then cancels autocomplete and submits the completed text.
 		expect(submitted).toBe("/model");
 		expect(suggestionsCallCount).toBeGreaterThan(0);
+	});
+
+	it("does not insert stale suggestions via Tab after Ctrl+W", async () => {
+		let applyCalled = false;
+		const provider: AutocompleteProvider = {
+			async getSuggestions(lines, cursorLine, cursorCol) {
+				const line = lines[0] || "";
+				const textBeforeCursor = line.slice(0, cursorCol);
+				if (textBeforeCursor.endsWith("@")) {
+					return {
+						prefix: "@",
+						items: [{ value: "@file.txt", label: "@file.txt" }],
+					};
+				}
+				return null;
+			},
+			applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+				applyCalled = true;
+				return { lines, cursorLine, cursorCol };
+			},
+		};
+
+		const editor = new Editor(defaultEditorTheme);
+		editor.setAutocompleteProvider(provider);
+
+		editor.handleInput("@");
+		await Bun.sleep(10); // Let async autocomplete resolve
+		expect(editor.isShowingAutocomplete()).toBe(true);
+
+		// Ctrl+W to delete word backwards (which deletes "@")
+		editor.handleInput(String.fromCharCode(23));
+
+		// Tab immediately
+		editor.handleInput("\t");
+
+		expect(applyCalled).toBe(false);
+		expect(editor.isShowingAutocomplete()).toBe(false);
+	});
+
+	it("does not insert stale suggestions via Tab after Ctrl+U", async () => {
+		let applyCalled = false;
+		const provider: AutocompleteProvider = {
+			async getSuggestions(lines, cursorLine, cursorCol) {
+				const line = lines[0] || "";
+				const textBeforeCursor = line.slice(0, cursorCol);
+				if (textBeforeCursor.endsWith("@")) {
+					return {
+						prefix: "@",
+						items: [{ value: "@file.txt", label: "@file.txt" }],
+					};
+				}
+				return null;
+			},
+			applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+				applyCalled = true;
+				return { lines, cursorLine, cursorCol };
+			},
+		};
+
+		const editor = new Editor(defaultEditorTheme);
+		editor.setAutocompleteProvider(provider);
+
+		editor.handleInput("@");
+		await Bun.sleep(10); // Let async autocomplete resolve
+		expect(editor.isShowingAutocomplete()).toBe(true);
+
+		// Ctrl+U to delete to start of line (which deletes "@")
+		editor.handleInput(String.fromCharCode(21));
+
+		// Tab immediately
+		editor.handleInput("\t");
+
+		expect(applyCalled).toBe(false);
+		expect(editor.isShowingAutocomplete()).toBe(false);
+	});
+
+	it("handles mid-prompt skill completions successfully", async () => {
+		const commands = [
+			{ kind: "slash" as const, name: "skill:web_search", description: "Search web" },
+			{ kind: "slash" as const, name: "skill:read_file", description: "Read file" },
+			{ kind: "slash" as const, name: "help", description: "Show help" },
+		];
+		const provider = new CombinedAutocompleteProvider(commands, "/project");
+		const editor = new Editor(defaultEditorTheme);
+		editor.setAutocompleteProvider(provider);
+
+		editor.setText("how to do /skill:w");
+		// Place cursor at the end of the line (index 18)
+		editor.handleInput("\t"); // Tab to trigger force completion
+		await Bun.sleep(10);
+
+		expect(editor.isShowingAutocomplete()).toBe(true);
+
+		const suggestions = await provider.getSuggestions(["how to do /skill:w"], 0, 18);
+		expect(suggestions).not.toBeNull();
+		expect(suggestions!.items.some(item => item.value === "skill:web_search")).toBe(true);
+		expect(suggestions!.items.some(item => item.value === "help")).toBe(false);
+
+		// Apply completion using enter
+		editor.handleInput("\r");
+		expect(editor.getText()).toBe("how to do /skill:web_search ");
 	});
 });

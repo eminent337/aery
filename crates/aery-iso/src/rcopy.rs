@@ -288,20 +288,26 @@ fn git_apply_with_program(
 		let mut stdin = child
 			.stdin
 			.take()
-			.ok_or_else(|| IsoError::other("git apply: child stdin was not piped".to_string()))?;
-		let result = stdin.write_all(patch);
-		drop(stdin);
+			.ok_or_else(|| IsoError::other("git apply: child stdin was not piped".to_string()));
+		let result = stdin.and_then(|mut s| {
+			s.write_all(patch)
+				.map_err(|err| IsoError::other(format!("write patch to git apply: {err}")))
+		});
 		result
 	};
+
 	let status = child
 		.wait()
-		.map_err(|err| IsoError::other(format!("wait git apply: {err}")))?;
+		.map_err(|err| IsoError::other(format!("wait git apply: {err}")));
+
 	let stderr = stderr_reader
 		.join()
 		.map_err(|_| IsoError::other("wait git apply: stderr reader panicked".to_string()))?
 		.map_err(|err| IsoError::other(format!("read git apply stderr: {err}")))?;
+
+	let status = status?;
 	if status.success() {
-		write_result.map_err(|err| IsoError::other(format!("write patch to git apply: {err}")))?;
+		write_result?;
 		return Ok(());
 	}
 	let stderr = String::from_utf8_lossy(&stderr).trim().to_string();

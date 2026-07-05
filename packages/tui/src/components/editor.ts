@@ -1,5 +1,5 @@
 import { getProjectDir, logger } from "@aryee337/aery-utils";
-import type { AutocompleteProvider, CombinedAutocompleteProvider } from "../autocomplete";
+import { findLeadingSlashCommandStart, type AutocompleteProvider, type CombinedAutocompleteProvider } from "../autocomplete";
 import { BracketedPasteHandler } from "../bracketed-paste";
 import { getKeybindings, type KeybindingsManager } from "../keybindings";
 import { extractPrintableText, matchesKey } from "../keys";
@@ -999,6 +999,14 @@ export class Editor implements Component, Focusable {
 
 				// If Tab was pressed, always apply the selection
 				if (kb.matches(data, "tui.input.tab")) {
+					const currentLine = this.#state.lines[this.#state.cursorLine] ?? "";
+					const currentTextBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
+					if (!this.#autocompletePrefixMatchesCursorText(currentTextBeforeCursor)) {
+						this.#cancelAutocomplete();
+						this.onAutocompleteUpdate?.();
+						return;
+					}
+
 					const selected = this.#autocompleteList.getSelectedItem();
 					if (selected && this.#autocompleteProvider) {
 						const shouldChainSlashCommandAutocomplete = this.#isSlashCommandNameAutocompleteSelection();
@@ -1035,7 +1043,7 @@ export class Editor implements Component, Focusable {
 					// Check for stale autocomplete state due to debounce
 					const currentLine = this.#state.lines[this.#state.cursorLine] ?? "";
 					const currentTextBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
-					if (currentTextBeforeCursor !== this.#autocompletePrefix) {
+					if (!this.#autocompletePrefixMatchesCursorText(currentTextBeforeCursor)) {
 						// Autocomplete is stale - cancel and fall through to normal submission
 						this.#cancelAutocomplete();
 					} else {
@@ -1060,6 +1068,14 @@ export class Editor implements Component, Focusable {
 				}
 				// If Enter was pressed on a file path, apply completion
 				else if (kb.matches(data, "tui.input.submit") || data === "\n") {
+					const currentLine = this.#state.lines[this.#state.cursorLine] ?? "";
+					const currentTextBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
+					if (!this.#autocompletePrefixMatchesCursorText(currentTextBeforeCursor)) {
+						this.#cancelAutocomplete();
+						this.onAutocompleteUpdate?.();
+						return;
+					}
+
 					const selected = this.#autocompleteList.getSelectedItem();
 					if (selected && this.#autocompleteProvider) {
 						const result = this.#autocompleteProvider.applyCompletion(
@@ -1538,9 +1554,13 @@ export class Editor implements Component, Focusable {
 
 		// Check if we should trigger or update autocomplete
 		if (!this.#autocompleteState) {
-			// Auto-trigger for "/" at the start of a line (slash commands)
-			if (char === "/" && this.#isAtStartOfSubmittedMessage()) {
-				this.#tryTriggerAutocomplete();
+			// Auto-trigger for "/" (slash commands, including mid-prompt)
+			if (char === "/") {
+				const currentLine = this.#state.lines[this.#state.cursorLine] || "";
+				const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
+				if (this.#isAtStartOfSubmittedMessage() || findLeadingSlashCommandStart(textBeforeCursor) !== null) {
+					this.#tryTriggerAutocomplete();
+				}
 			}
 			// Auto-trigger for "@" file reference (fuzzy search)
 			else if (char === "@") {
@@ -1561,7 +1581,7 @@ export class Editor implements Component, Focusable {
 				const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 				const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
 				// Check if we're in a slash command (with or without space for arguments)
-				if (this.#isInSubmittedSlashCommandContext()) {
+				if (this.#isInSubmittedSlashCommandContext() || findLeadingSlashCommandStart(textBeforeCursor) !== null) {
 					this.#tryTriggerAutocomplete();
 				}
 				// Check if we're in an @ file reference context
@@ -1753,29 +1773,7 @@ export class Editor implements Component, Focusable {
 		}
 
 		// Update or re-trigger autocomplete after backspace
-		if (this.#autocompleteState) {
-			this.#debouncedUpdateAutocomplete();
-		} else {
-			// If autocomplete was cancelled (no matches), re-trigger if we're in a completable context
-			const currentLine = this.#state.lines[this.#state.cursorLine] || "";
-			const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
-			// Slash command context
-			if (this.#isInSubmittedSlashCommandContext()) {
-				this.#tryTriggerAutocomplete();
-			}
-			// @ file reference context
-			else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
-				this.#tryTriggerAutocomplete();
-			}
-			// # prompt action context
-			else if (textBeforeCursor.match(/#[^\s#]*$/)) {
-				this.#tryTriggerAutocomplete();
-			}
-			// internal URL scheme context (e.g. local://, skill://)
-			else if (this.#textTriggersUrlAutocomplete(textBeforeCursor)) {
-				this.#tryTriggerAutocomplete();
-			}
-		}
+		this.#retriggerAutocompleteAtCursor();
 	}
 
 	/**
@@ -2011,6 +2009,7 @@ export class Editor implements Component, Focusable {
 		if (!text) return;
 		this.#insertTextAtCursor(text);
 		this.#lastAction = "yank";
+		this.#retriggerAutocompleteAtCursor();
 	}
 
 	#yankPop(): void {
@@ -2030,6 +2029,7 @@ export class Editor implements Component, Focusable {
 		});
 
 		this.#lastAction = "yank";
+		this.#retriggerAutocompleteAtCursor();
 	}
 
 	/**
@@ -2108,6 +2108,7 @@ export class Editor implements Component, Focusable {
 		if (this.onChange) {
 			this.onChange(this.getText());
 		}
+		this.#retriggerAutocompleteAtCursor();
 	}
 
 	#deleteToEndOfLine(): void {
@@ -2134,6 +2135,7 @@ export class Editor implements Component, Focusable {
 		if (this.onChange) {
 			this.onChange(this.getText());
 		}
+		this.#retriggerAutocompleteAtCursor();
 	}
 
 	#deleteWordBackwards(): void {
@@ -2168,6 +2170,7 @@ export class Editor implements Component, Focusable {
 		if (this.onChange) {
 			this.onChange(this.getText());
 		}
+		this.#retriggerAutocompleteAtCursor();
 	}
 
 	#deleteWordForwards(): void {
@@ -2197,6 +2200,7 @@ export class Editor implements Component, Focusable {
 		if (this.onChange) {
 			this.onChange(this.getText());
 		}
+		this.#retriggerAutocompleteAtCursor();
 	}
 
 	#handleForwardDelete(): void {
@@ -2230,28 +2234,7 @@ export class Editor implements Component, Focusable {
 		}
 
 		// Update or re-trigger autocomplete after forward delete
-		if (this.#autocompleteState) {
-			this.#debouncedUpdateAutocomplete();
-		} else {
-			const currentLine = this.#state.lines[this.#state.cursorLine] || "";
-			const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
-			// Slash command context
-			if (this.#isInSubmittedSlashCommandContext()) {
-				this.#tryTriggerAutocomplete();
-			}
-			// @ file reference context
-			else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
-				this.#tryTriggerAutocomplete();
-			}
-			// # prompt action context
-			else if (textBeforeCursor.match(/#[^\s#]*$/)) {
-				this.#tryTriggerAutocomplete();
-			}
-			// internal URL scheme context (e.g. local://, skill://)
-			else if (this.#textTriggersUrlAutocomplete(textBeforeCursor)) {
-				this.#tryTriggerAutocomplete();
-			}
-		}
+		this.#retriggerAutocompleteAtCursor();
 	}
 
 	/**
@@ -2617,6 +2600,44 @@ https://github.com/EsotericSoftware/spine-runtimes/actions/runs/19536643416/job/
 		this.#autocompletePrefix = "";
 		if (notifyCancel && wasAutocompleting) {
 			this.onAutocompleteCancel?.();
+		}
+	}
+
+	#autocompletePrefixMatchesCursorText(currentTextBeforeCursor: string): boolean {
+		if (currentTextBeforeCursor === this.#autocompletePrefix) return true;
+
+		if (currentTextBeforeCursor.endsWith(this.#autocompletePrefix)) return true;
+
+		if (findLeadingSlashCommandStart(this.#autocompletePrefix) !== null) {
+			const currentLeadingStart = findLeadingSlashCommandStart(currentTextBeforeCursor);
+			if (currentLeadingStart !== null) {
+				const token = currentTextBeforeCursor.slice(currentLeadingStart);
+				if (!token.includes(" ") && !token.slice(1).includes("/")) return true;
+			}
+		}
+
+		if (this.#autocompletePrefix.startsWith("@")) {
+			return /(?:^|\s)@[^\s]*$/.test(currentTextBeforeCursor);
+		}
+
+		return false;
+	}
+
+	#retriggerAutocompleteAtCursor(): void {
+		if (this.#autocompleteState) {
+			this.#debouncedUpdateAutocomplete();
+		} else {
+			const currentLine = this.#state.lines[this.#state.cursorLine] || "";
+			const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
+			if (this.#isInSubmittedSlashCommandContext()) {
+				this.#tryTriggerAutocomplete();
+			} else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
+				this.#tryTriggerAutocomplete();
+			} else if (textBeforeCursor.match(/#[^\s#]*$/)) {
+				this.#tryTriggerAutocomplete();
+			} else if (this.#textTriggersUrlAutocomplete(textBeforeCursor)) {
+				this.#tryTriggerAutocomplete();
+			}
 		}
 	}
 
