@@ -2903,6 +2903,18 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"task.subagentCompileCheck": {
+		type: "boolean",
+		default: false,
+		ui: {
+			tab: "tasks",
+			group: "Subagents",
+			label: "Subagent Compile Check",
+			description:
+				"After a subagent task succeeds, run `tsc --noEmit` / `cargo check` in its workspace to gate on compilation. OFF by default: a whole-repo type error or a missing toolchain would otherwise fail otherwise-successful runs, and every code subagent would pay the check cost. Enable only when you want compile-gating and the workspace is set up for it.",
+		},
+	},
+
 	"task.maxRecursionDepth": {
 		type: "number",
 		default: 2,

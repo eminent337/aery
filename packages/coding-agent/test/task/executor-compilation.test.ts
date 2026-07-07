@@ -92,6 +92,31 @@ function mockCreateAgentSession(session: AgentSession) {
 	return vi.spyOn(sdkModule, "createAgentSession").mockResolvedValue(createSessionResult(session));
 }
 
+function buildSuccessSession(): AgentSession {
+	return createMockSession(({ emit, state }) => {
+		const assistant = createAssistantStopMessage("some text");
+		state.messages.push(assistant);
+		emit({ type: "message_end", message: assistant });
+		emit({
+			type: "tool_execution_end",
+			toolCallId: "tool-1",
+			toolName: "yield",
+			result: {
+				content: [{ type: "text", text: "Result submitted." }],
+				details: { status: "success", data: { done: true } },
+			},
+			isError: false,
+		});
+	});
+}
+
+const baseAgent: AgentDefinition = {
+	name: "task",
+	description: "test",
+	systemPrompt: "test",
+	source: "bundled",
+};
+
 describe("runSubprocess compilation check", () => {
 	let tempDir: string;
 
@@ -101,32 +126,6 @@ describe("runSubprocess compilation check", () => {
 			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
 		}
 	});
-
-	const baseAgent: AgentDefinition = {
-		name: "task",
-		description: "test",
-		systemPrompt: "test",
-		source: "bundled",
-	};
-
-	function buildSuccessSession(): AgentSession {
-		return createMockSession(({ emit, state }) => {
-			const assistant = createAssistantStopMessage("some text");
-			state.messages.push(assistant);
-			emit({ type: "message_end", message: assistant });
-			emit({
-				type: "tool_execution_end",
-				toolCallId: "tool-1",
-				toolName: "yield",
-				result: {
-					content: [{ type: "text", text: "Result submitted." }],
-					details: { status: "success", data: { done: true } },
-				},
-				isError: false,
-			});
-		});
-	}
-
 	it("runs validation check when tsconfig.json is present and fails if tsc exits non-zero", async () => {
 		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-compile-tsc-"));
 		await fs.writeFile(path.join(tempDir, "tsconfig.json"), "{}");
@@ -164,6 +163,7 @@ describe("runSubprocess compilation check", () => {
 			id: "subagent-compile",
 			modelRegistry: { refresh: async () => {} } as unknown as ModelRegistry,
 			enableLsp: false,
+			subagentCompileCheck: true,
 		});
 
 		expect(result.exitCode).toBe(1);
@@ -209,6 +209,7 @@ describe("runSubprocess compilation check", () => {
 			id: "subagent-cargo",
 			modelRegistry: { refresh: async () => {} } as unknown as ModelRegistry,
 			enableLsp: false,
+			subagentCompileCheck: true,
 		});
 
 		expect(result.exitCode).toBe(1);
@@ -249,10 +250,145 @@ describe("runSubprocess compilation check", () => {
 			id: "subagent-success",
 			modelRegistry: { refresh: async () => {} } as unknown as ModelRegistry,
 			enableLsp: false,
+			subagentCompileCheck: true,
 		});
 
 		expect(result.exitCode).toBe(0);
 		expect(result.stderr).toBe("");
 		expect(mockSpawn).toHaveBeenCalled();
+	});
+});
+
+describe("runSubprocess compilation check — gating & safety", () => {
+	let tempDir: string;
+
+	afterEach(async () => {
+		vi.restoreAllMocks();
+		if (tempDir) {
+			await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+		}
+	});
+
+	it("skips the compile check when subagentCompileCheck is not enabled (default off)", async () => {
+		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-compile-off-"));
+		await fs.writeFile(path.join(tempDir, "tsconfig.json"), "{}");
+
+		const session = buildSuccessSession();
+		mockCreateAgentSession(session);
+
+		const mockSpawn = vi.spyOn(Bun, "spawn").mockReturnValue({
+			stdout: new ReadableStream({ start: c => c.close() }),
+			stderr: new ReadableStream({ start: c => c.close() }),
+			exited: Promise.resolve(1),
+			exitCode: 1,
+		} as any);
+
+		const result = await runSubprocess({
+			cwd: tempDir,
+			agent: baseAgent,
+			task: "compile test off",
+			index: 0,
+			id: "subagent-off",
+			modelRegistry: { refresh: async () => {} } as unknown as ModelRegistry,
+			enableLsp: false,
+			// subagentCompileCheck omitted -> defaults to off
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(mockSpawn).not.toHaveBeenCalled();
+	});
+
+	it("skips the compile check when no tsconfig.json/Cargo.toml is present", async () => {
+		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-compile-nocfg-"));
+		// No config files at all.
+		const session = buildSuccessSession();
+		mockCreateAgentSession(session);
+
+		const mockSpawn = vi.spyOn(Bun, "spawn").mockReturnValue({
+			stdout: new ReadableStream({ start: c => c.close() }),
+			stderr: new ReadableStream({ start: c => c.close() }),
+			exited: Promise.resolve(1),
+			exitCode: 1,
+		} as any);
+
+		const result = await runSubprocess({
+			cwd: tempDir,
+			agent: baseAgent,
+			task: "compile test nocfg",
+			index: 0,
+			id: "subagent-nocfg",
+			modelRegistry: { refresh: async () => {} } as unknown as ModelRegistry,
+			enableLsp: false,
+			subagentCompileCheck: true,
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(mockSpawn).not.toHaveBeenCalled();
+	});
+
+	it("preserves rawOutput on a failed compile check", async () => {
+		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-compile-raw-"));
+		await fs.writeFile(path.join(tempDir, "tsconfig.json"), "{}");
+
+		const session = buildSuccessSession();
+		mockCreateAgentSession(session);
+
+		vi.spyOn(Bun, "spawn").mockImplementation((args: any) => {
+			if (args[0] === "bunx" && args[1] === "tsc") {
+				return {
+					stdout: new ReadableStream({ start: c => c.close() }),
+					stderr: new ReadableStream({
+						start(c) {
+							c.enqueue(new TextEncoder().encode("type error"));
+							c.close();
+						},
+					}),
+					exited: Promise.resolve(1),
+					exitCode: 1,
+				} as any;
+			}
+			return { exited: Promise.resolve(0), exitCode: 0 } as any;
+		});
+
+		const result = await runSubprocess({
+			cwd: tempDir,
+			agent: baseAgent,
+			task: "compile test raw",
+			index: 0,
+			id: "subagent-raw",
+			modelRegistry: { refresh: async () => {} } as unknown as ModelRegistry,
+			enableLsp: false,
+			subagentCompileCheck: true,
+		});
+
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr).toContain("type error");
+	});
+
+	it("does not mask success when the compiler cannot be spawned", async () => {
+		tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-compile-throw-"));
+		await fs.writeFile(path.join(tempDir, "tsconfig.json"), "{}");
+
+		const session = buildSuccessSession();
+		mockCreateAgentSession(session);
+
+		// Simulate the compiler binary being entirely absent.
+		vi.spyOn(Bun, "spawn").mockImplementation(() => {
+			throw new Error("command not found: bunx");
+		});
+
+		const result = await runSubprocess({
+			cwd: tempDir,
+			agent: baseAgent,
+			task: "compile test throw",
+			index: 0,
+			id: "subagent-throw",
+			modelRegistry: { refresh: async () => {} } as unknown as ModelRegistry,
+			enableLsp: false,
+			subagentCompileCheck: true,
+		});
+
+		// The check could not run, so the successful agent result stands.
+		expect(result.exitCode).toBe(0);
 	});
 });

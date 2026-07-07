@@ -692,7 +692,6 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		const startTime = Date.now();
 		const { agents, projectAgentsDir } = await discoverAgents(this.session.cwd);
 		const { agent: agentName = "", context } = params;
-		const outputSchema = (params as any).schema;
 		const sharedContext = this.#isBatchEnabled() ? context?.trim() : undefined;
 		const isolationMode = this.session.settings.get("task.isolation.mode");
 		const isolationRequested = "isolated" in params ? params.isolated === true : false;
@@ -702,6 +701,9 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		const maxConcurrency = this.session.settings.get("task.maxConcurrency");
 		const taskDepth = this.session.taskDepth ?? 0;
 		const subagentLspEnabled = (this.session.enableLsp ?? true) && this.session.settings.get("task.enableLsp");
+		// Compile gate is opt-in (default off) to avoid masking successful runs
+		// with whole-repo type errors or missing toolchains.
+		const subagentCompileCheckEnabled = this.session.settings.get("task.subagentCompileCheck") === true;
 
 		if (isolationMode === "none" && "isolated" in params) {
 			return {
@@ -1077,6 +1079,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						artifactsDir: effectiveArtifactsDir,
 						contextFile: contextFilePath,
 						enableLsp: subagentLspEnabled,
+						subagentCompileCheck: subagentCompileCheckEnabled,
 						signal,
 						eventBus: this.session.eventBus,
 						onProgress: progress => {
@@ -1134,6 +1137,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						artifactsDir: effectiveArtifactsDir,
 						contextFile: contextFilePath,
 						enableLsp: subagentLspEnabled,
+						subagentCompileCheck: subagentCompileCheckEnabled,
 						signal,
 						eventBus: this.session.eventBus,
 						onProgress: progress => {

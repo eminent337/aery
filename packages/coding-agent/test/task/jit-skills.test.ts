@@ -54,3 +54,51 @@ describe("JIT Skill Resolver", () => {
 		}
 	});
 });
+
+describe("JIT Skill Resolver — lossy-detection edge cases", () => {
+	const mockSkills: Skill[] = [
+		{ name: "trust-issues", description: "A skill about trust" } as any,
+		{ name: "cargobay-loader", description: "Cargo bay loader doc" } as any,
+		{ name: "antitypescript-notes", description: "Notes" } as any,
+		{ name: "rusty-process", description: "A process that is rusty" } as any,
+		{ name: "Rust-Style-Guide", description: "Rust conventions" } as any,
+		{ name: "generic-helper", description: "Generic instructions" } as any,
+	];
+
+	it("does NOT wrongly exclude general skills whose name contains a language substring", () => {
+		// No .rs / .ts / .js / .py present -> language skills dropped, but the
+		// general-looking ones (trust-issues, cargobay-loader, antitypescript-notes,
+		// rusty-process) must NOT be treated as language-specific and dropped.
+		const filtered = filterSkillsJIT(mockSkills, ["cpp"]);
+		const names = filtered.map(s => s.name);
+		expect(names).toContain("trust-issues");
+		expect(names).toContain("cargobay-loader");
+		expect(names).toContain("antitypescript-notes");
+		expect(names).toContain("rusty-process");
+		expect(names).toContain("generic-helper");
+		// Only the genuinely rust-specific skill is dropped when no .rs exists.
+		expect(names).not.toContain("Rust-Style-Guide");
+	});
+
+	it("keeps a genuinely rust-specific skill when .rs is present", () => {
+		const filtered = filterSkillsJIT(mockSkills, ["rs"]);
+		const names = filtered.map(s => s.name);
+		expect(names).toContain("Rust-Style-Guide");
+		expect(names).toContain("generic-helper");
+		// The false-positive-prone names are NOT language-specific, so they stay.
+		expect(names).toContain("trust-issues");
+		expect(names).toContain("rusty-process");
+	});
+
+	it("keeps skills whose name only contains a language substring, but drops real language skills", () => {
+		// rusty-process contains 'rust' as a SUBSTRING (rust + y), not as a
+		// standalone token, so it is NOT treated as a rust-specific skill and is
+		// kept even when no .rs extension is present.
+		const filtered = filterSkillsJIT(mockSkills, ["py"]);
+		const names = filtered.map(s => s.name);
+		expect(names).toContain("rusty-process");
+		expect(names).not.toContain("Rust-Style-Guide");
+		expect(names).toContain("generic-helper");
+		expect(names).toContain("trust-issues");
+	});
+});

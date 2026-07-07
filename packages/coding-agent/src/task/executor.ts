@@ -202,7 +202,13 @@ export interface ExecutorOptions {
 	 */
 	parentTelemetry?: AgentTelemetryConfig;
 	/** Skills to autoload via sendCustomMessage before the first prompt */
-	autoloadSkills?: Skill[];
+	/**
+	 * When true, run a `tsc --noEmit` / `cargo check` compile gate in the
+	 * subagent's workspace after a successful run. Opt-in (default off) because
+	 * a whole-repo type error or a missing toolchain would otherwise fail
+	 * otherwise-successful runs, and every code subagent would pay the cost.
+	 */
+	subagentCompileCheck?: boolean;
 }
 
 function parseStringifiedJson(value: unknown): unknown {
@@ -543,6 +549,61 @@ function createSubagentSettings(baseSettings: Settings): Settings {
 		// to preserve unattended subagent execution. User `tools.approval` policies still apply.
 		"tools.approvalMode": "yolo",
 	});
+}
+
+/**
+ * Run a compiler validation (`tsc --noEmit` / `cargo check`) in `workspaceDir`
+ * and return the compiler's combined stdout+stderr on failure, or `undefined`
+ * when compilation passes. The check is bounded by a timeout so a stuck
+ * `bunx` install prompt or long `cargo check` cannot wedge the parent.
+ *
+ * If the compiler cannot be spawned at all (missing toolchain, bad cwd), the
+ * check is treated as "unable to verify" and returns `undefined` — we never
+ * mask a successful agent run with a checker that couldn't even start.
+ */
+async function runCompileCheck(
+	kind: "tsc" | "cargo",
+	workspaceDir: string,
+	signal?: AbortSignal,
+	timeoutMs = 120_000,
+): Promise<string | undefined> {
+	const timeout = AbortSignal.timeout(timeoutMs);
+	const combined = (sig?: AbortSignal) => (sig ? AbortSignal.any([timeout, sig]) : timeout);
+
+	let proc: ReturnType<typeof Bun.spawn>;
+	try {
+		if (kind === "tsc") {
+			// Prefer the workspace's own tsc so the check reflects local @types;
+			// fall back to `bunx --no-install` to avoid a network fetch.
+			const localTsc = path.join(workspaceDir, "node_modules", ".bin", "tsc");
+			let tscExists = false;
+			try {
+				tscExists = (await fs.stat(localTsc)).isFile();
+			} catch {
+				tscExists = false;
+			}
+			const tscArgs = tscExists ? [localTsc, "--noEmit"] : ["bunx", "tsc", "--noEmit", "--no-install"];
+			proc = Bun.spawn(tscArgs, { cwd: workspaceDir, stdout: "pipe", stderr: "pipe", signal: combined(signal) });
+		} else {
+			proc = Bun.spawn(["cargo", "check"], {
+				cwd: workspaceDir,
+				stdout: "pipe",
+				stderr: "pipe",
+				signal: combined(signal),
+			});
+		}
+		const stdoutText = await new Response(proc.stdout).text();
+		const stderrText = await new Response(proc.stderr).text();
+		await proc.exited;
+		if (proc.exitCode === 0) return undefined;
+		const label = kind === "tsc" ? "TypeScript compilation check failed:" : "Cargo check failed:";
+		return `${label}\n${stdoutText}\n${stderrText}`.trim();
+	} catch (err) {
+		// Spawn failed (command not found, bad cwd, aborted, timed out) — the
+		// checker itself couldn't run, so do not fail the agent on its account.
+		logger.warn(`Subagent ${kind} compile check could not run`, { error: String(err) });
+		return undefined;
+	}
 }
 
 /**
@@ -1686,46 +1747,36 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 	stderr = finalized.stderr;
 
 	if (exitCode === 0 && !done.aborted && !signal?.aborted) {
-		const workspaceDir = worktree ?? cwd;
-		try {
-			const hasTsConfig = await fs
-				.stat(path.join(workspaceDir, "tsconfig.json"))
-				.then(s => s.isFile())
-				.catch(() => false);
-			const hasCargoToml = await fs
-				.stat(path.join(workspaceDir, "Cargo.toml"))
-				.then(s => s.isFile())
-				.catch(() => false);
+		// Opt-in compile gate. Default OFF: a whole-repo type error or a missing
+		// toolchain would otherwise fail otherwise-successful runs, and every
+		// code subagent would pay the check cost. Only run when explicitly
+		// enabled via the task.subagentCompileCheck setting (or the option).
+		const compileCheckEnabled =
+			options.subagentCompileCheck ?? options.settings?.get("task.subagentCompileCheck") ?? false;
+		if (compileCheckEnabled) {
+			const workspaceDir = worktree ?? cwd;
+			try {
+				const hasTsConfig = await fs
+					.stat(path.join(workspaceDir, "tsconfig.json"))
+					.then(s => s.isFile())
+					.catch(() => false);
+				const hasCargoToml = await fs
+					.stat(path.join(workspaceDir, "Cargo.toml"))
+					.then(s => s.isFile())
+					.catch(() => false);
 
-			if (hasTsConfig) {
-				const proc = Bun.spawn(["bunx", "tsc", "--noEmit"], {
-					cwd: workspaceDir,
-					stdout: "pipe",
-					stderr: "pipe",
-				});
-				const stdoutText = await new Response(proc.stdout).text();
-				const stderrText = await new Response(proc.stderr).text();
-				await proc.exited;
-				if (proc.exitCode !== 0) {
+				const failure = hasTsConfig
+					? await runCompileCheck("tsc", workspaceDir, signal)
+					: hasCargoToml
+						? await runCompileCheck("cargo", workspaceDir, signal)
+						: undefined;
+				if (failure) {
 					exitCode = 1;
-					stderr = `TypeScript compilation check failed:\n${stdoutText}\n${stderrText}`.trim();
+					stderr = failure;
 				}
-			} else if (hasCargoToml) {
-				const proc = Bun.spawn(["cargo", "check"], {
-					cwd: workspaceDir,
-					stdout: "pipe",
-					stderr: "pipe",
-				});
-				const stdoutText = await new Response(proc.stdout).text();
-				const stderrText = await new Response(proc.stderr).text();
-				await proc.exited;
-				if (proc.exitCode !== 0) {
-					exitCode = 1;
-					stderr = `Cargo check failed:\n${stdoutText}\n${stderrText}`.trim();
-				}
+			} catch (err) {
+				logger.warn("Subagent compilation check failed to run", { error: String(err) });
 			}
-		} catch (err) {
-			logger.warn("Subagent compilation check failed to run", { error: String(err) });
 		}
 	}
 

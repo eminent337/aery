@@ -3,12 +3,24 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { Skill } from "../sdk"; // Adjust import path if needed
 
-const EXTENSION_MAP: Record<string, string[]> = {
-	ts: ["typescript", "ts-edit"],
-	js: ["javascript"],
-	rs: ["rust", "cargo"],
-	py: ["python"],
+const EXTENSION_KEYWORDS: Record<string, string[]> = {
+	ts: ["typescript", "ts-edit", "ts", "tsx"],
+	js: ["javascript", "js", "jsx"],
+	rs: ["rust", "cargo", "rs"],
+	py: ["python", "py"],
 };
+
+/**
+ * Match a language keyword against a skill name using word boundaries so that
+ * substring collisions don't misclassify skills. e.g. "trust-issues" must NOT
+ * match "rust", and "cargobay" must NOT match "cargo". We treat a keyword as a
+ * match only when it appears as a standalone token (preceded/followed by a
+ * non-alphanumeric boundary or string edge).
+ */
+function nameMatchesKeyword(lowerName: string, keyword: string): boolean {
+	const re = new RegExp(`(^|[^a-z0-9])${keyword}([^a-z0-9]|$)`, "i");
+	return re.test(lowerName);
+}
 
 export function filterSkillsJIT(skills: Skill[], fileExtensions: string[]): Skill[] {
 	if (fileExtensions.length === 0) {
@@ -23,8 +35,8 @@ export function filterSkillsJIT(skills: Skill[], fileExtensions: string[]): Skil
 		let isLanguageSpecific = false;
 		let isLanguagePresent = false;
 
-		for (const [ext, keywords] of Object.entries(EXTENSION_MAP)) {
-			const matchesKeywords = keywords.some(kw => lowerName.includes(kw));
+		for (const [ext, keywords] of Object.entries(EXTENSION_KEYWORDS)) {
+			const matchesKeywords = keywords.some(kw => nameMatchesKeyword(lowerName, kw));
 			if (matchesKeywords) {
 				isLanguageSpecific = true;
 				if (workspaceExtensions.has(ext)) {
