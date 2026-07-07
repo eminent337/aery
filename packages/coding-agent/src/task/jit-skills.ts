@@ -11,28 +11,37 @@ const EXTENSION_MAP: Record<string, string[]> = {
 };
 
 export function filterSkillsJIT(skills: Skill[], fileExtensions: string[]): Skill[] {
-	const activeKeywords = new Set<string>();
-	for (const ext of fileExtensions) {
-		const keywords = EXTENSION_MAP[ext.toLowerCase()];
-		if (keywords) {
-			for (const kw of keywords) activeKeywords.add(kw);
-		}
+	if (fileExtensions.length === 0) {
+		return skills; // Fall back to all if no extensions at all are found (e.g. empty directory)
 	}
 
-	if (activeKeywords.size === 0) {
-		return skills; // Fall back to all if no specific extensions match
-	}
+	const workspaceExtensions = new Set(fileExtensions.map(ext => ext.toLowerCase()));
 
 	return skills.filter(skill => {
 		const lowerName = skill.name.toLowerCase();
-		// Keep essential/generic skills, or skills matching the keywords
-		return (
-			lowerName.includes("essential") ||
-			lowerName.includes("generic") ||
-			Array.from(activeKeywords).some(kw => lowerName.includes(kw))
-		);
+
+		let isLanguageSpecific = false;
+		let isLanguagePresent = false;
+
+		for (const [ext, keywords] of Object.entries(EXTENSION_MAP)) {
+			const matchesKeywords = keywords.some(kw => lowerName.includes(kw));
+			if (matchesKeywords) {
+				isLanguageSpecific = true;
+				if (workspaceExtensions.has(ext)) {
+					isLanguagePresent = true;
+				}
+			}
+		}
+
+		if (!isLanguageSpecific) {
+			return true;
+		}
+		return isLanguagePresent;
 	});
 }
+
+const MAX_DEPTH = 3;
+const MAX_FILES = 1000;
 
 export async function getFileExtensions(dir: string): Promise<string[]> {
 	const extensions = new Set<string>();
@@ -52,7 +61,11 @@ export async function getFileExtensions(dir: string): Promise<string[]> {
 		".nuxt",
 	]);
 
-	async function walk(currentDir: string): Promise<void> {
+	let fileCount = 0;
+	let stopWalking = false;
+
+	async function walk(currentDir: string, depth: number): Promise<void> {
+		if (depth > MAX_DEPTH || stopWalking) return;
 		let entries: Dirent[];
 		try {
 			entries = await fs.readdir(currentDir, { withFileTypes: true });
@@ -60,10 +73,16 @@ export async function getFileExtensions(dir: string): Promise<string[]> {
 			return;
 		}
 		for (const entry of entries) {
+			if (stopWalking) return;
 			if (entry.isDirectory()) {
 				if (ignoredDirs.has(entry.name)) continue;
-				await walk(path.join(currentDir, entry.name));
+				await walk(path.join(currentDir, entry.name), depth + 1);
 			} else if (entry.isFile()) {
+				fileCount++;
+				if (fileCount > MAX_FILES) {
+					stopWalking = true;
+					return;
+				}
 				const ext = path.extname(entry.name);
 				if (ext) {
 					extensions.add(ext.slice(1));
@@ -72,6 +91,6 @@ export async function getFileExtensions(dir: string): Promise<string[]> {
 		}
 	}
 
-	await walk(dir);
+	await walk(dir, 0);
 	return Array.from(extensions);
 }

@@ -12,18 +12,23 @@ describe("JIT Skill Resolver", () => {
 		{ name: "Rust-Cargo-Verification", description: "Rust compilation checklist" } as any,
 	];
 
-	it("filters to typescript matching skills when ts is present", () => {
+	it("filters to typescript matching skills when ts is present, keeping generic skills", () => {
 		const filtered = filterSkillsJIT(mockSkills, ["ts"]);
 		expect(filtered.map(s => s.name)).toEqual(["generic-helper", "TypeScript-TDD"]);
 	});
 
-	it("filters to rust matching skills when rs is present", () => {
+	it("filters to rust matching skills when rs is present, keeping generic skills", () => {
 		const filtered = filterSkillsJIT(mockSkills, ["rs"]);
 		expect(filtered.map(s => s.name)).toEqual(["generic-helper", "Rust-Cargo-Verification"]);
 	});
 
-	it("returns all skills if no matching extensions are found", () => {
+	it("filters out language-specific skills when only unrelated extensions are found", () => {
 		const filtered = filterSkillsJIT(mockSkills, ["cpp"]);
+		expect(filtered.map(s => s.name)).toEqual(["generic-helper"]);
+	});
+
+	it("returns all skills if extensions list is empty (fallback)", () => {
+		const filtered = filterSkillsJIT(mockSkills, []);
 		expect(filtered).toEqual(mockSkills);
 	});
 

@@ -12,6 +12,7 @@ import { MCPManager } from "../mcp/manager";
 import subagentUserPromptTemplate from "../prompts/system/subagent-user-prompt.md" with { type: "text" };
 import * as taskDiscovery from "../task/discovery";
 import * as taskExecutor from "../task/executor";
+import { filterSkillsJIT, getFileExtensions } from "../task/jit-skills";
 import { AgentOutputManager } from "../task/output-manager";
 import type { AgentDefinition, AgentProgress } from "../task/types";
 import type { ToolSession } from "../tools";
@@ -210,7 +211,8 @@ export async function runEvalAgent(args: unknown, options: EvalAgentBridgeOption
 		activeModelPattern: parentActiveModelPattern,
 		fallbackModelPattern: options.session.getModelString?.(),
 	});
-	const availableSkills = [...(options.session.skills ?? [])];
+	const fileExtensions = await getFileExtensions(options.session.cwd);
+	const availableSkills = filterSkillsJIT([...(options.session.skills ?? [])], fileExtensions);
 	const resolvedAutoloadSkills =
 		effectiveAgent.autoloadSkills?.length && availableSkills.length > 0
 			? effectiveAgent.autoloadSkills
