@@ -4,6 +4,7 @@
  * Runs each subagent on the main thread and forwards AgentEvents for progress tracking.
  */
 
+import * as fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentEvent, AgentIdentity, AgentTelemetryConfig, ThinkingLevel } from "@aryee337/aery-core";
 import { recordHandoff, resolveTelemetry } from "@aryee337/aery-core";
@@ -1683,6 +1684,51 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 	rawOutput = finalized.rawOutput;
 	exitCode = finalized.exitCode;
 	stderr = finalized.stderr;
+
+	if (exitCode === 0 && !done.aborted && !signal?.aborted) {
+		const workspaceDir = worktree ?? cwd;
+		try {
+			const hasTsConfig = await fs
+				.stat(path.join(workspaceDir, "tsconfig.json"))
+				.then(s => s.isFile())
+				.catch(() => false);
+			const hasCargoToml = await fs
+				.stat(path.join(workspaceDir, "Cargo.toml"))
+				.then(s => s.isFile())
+				.catch(() => false);
+
+			if (hasTsConfig) {
+				const proc = Bun.spawn(["bunx", "tsc", "--noEmit"], {
+					cwd: workspaceDir,
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+				const stdoutText = await new Response(proc.stdout).text();
+				const stderrText = await new Response(proc.stderr).text();
+				await proc.exited;
+				if (proc.exitCode !== 0) {
+					exitCode = 1;
+					stderr = `TypeScript compilation check failed:\n${stdoutText}\n${stderrText}`.trim();
+				}
+			} else if (hasCargoToml) {
+				const proc = Bun.spawn(["cargo", "check"], {
+					cwd: workspaceDir,
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+				const stdoutText = await new Response(proc.stdout).text();
+				const stderrText = await new Response(proc.stderr).text();
+				await proc.exited;
+				if (proc.exitCode !== 0) {
+					exitCode = 1;
+					stderr = `Cargo check failed:\n${stdoutText}\n${stderrText}`.trim();
+				}
+			}
+		} catch (err) {
+			logger.warn("Subagent compilation check failed to run", { error: String(err) });
+		}
+	}
+
 	const lastYield = yieldItems?.[yieldItems.length - 1];
 	const yieldAbortReason = lastYield?.status === "aborted" ? lastYield.error || "Subagent aborted task" : undefined;
 	const { abortedViaYield, hasYield } = finalized;
