@@ -49,6 +49,7 @@ import { generateCommitMessage } from "../utils/commit-message-generator";
 import * as git from "../utils/git";
 import { discoverAgents, getAgent } from "./discovery";
 import { resumeSubprocess, runSubprocess } from "./executor";
+import { filterSkillsJIT, getFileExtensions } from "./jit-skills";
 import { AgentOutputManager } from "./output-manager";
 import { mapWithConcurrencyLimit, Semaphore } from "./parallel";
 import { renderResult, renderCall as renderTaskCall } from "./render";
@@ -972,7 +973,8 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			}
 			const tasksWithUniqueIds = tasks.map((t, i) => ({ ...t, id: uniqueIds[i] }));
 
-			const availableSkills = [...(this.session.skills ?? [])];
+			const fileExtensions = await getFileExtensions(this.session.cwd);
+			const availableSkills = filterSkillsJIT([...(this.session.skills ?? [])], fileExtensions);
 			// Resolve autoload skills from agent definition against available skills
 			const resolvedAutoloadSkills =
 				agent.autoloadSkills?.length && availableSkills.length > 0
