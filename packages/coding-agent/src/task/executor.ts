@@ -202,6 +202,7 @@ export interface ExecutorOptions {
 	 */
 	parentTelemetry?: AgentTelemetryConfig;
 	/** Skills to autoload via sendCustomMessage before the first prompt */
+	autoloadSkills?: Skill[];
 	/**
 	 * When true, run a `tsc --noEmit` / `cargo check` compile gate in the
 	 * subagent's workspace after a successful run. Opt-in (default off) because
@@ -592,8 +593,10 @@ async function runCompileCheck(
 				signal: combined(signal),
 			});
 		}
-		const stdoutText = await new Response(proc.stdout).text();
-		const stderrText = await new Response(proc.stderr).text();
+		// Bun.spawn with stdout/stderr set to "pipe" returns a ReadableStream, but typings allow number/undefined.
+		// We cast to ReadableStream<Uint8Array> to satisfy TypeScript without using 'any'.
+		const stdoutText = await new Response(proc.stdout as unknown as ReadableStream<Uint8Array>).text();
+		const stderrText = await new Response(proc.stderr as unknown as ReadableStream<Uint8Array>).text();
 		await proc.exited;
 		if (proc.exitCode === 0) return undefined;
 		const label = kind === "tsc" ? "TypeScript compilation check failed:" : "Cargo check failed:";

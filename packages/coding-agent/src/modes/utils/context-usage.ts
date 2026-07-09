@@ -74,29 +74,85 @@ export function estimateToolSchemaTokens(
  * cadence — non-message recomputed only when the inputs identity changes,
  * messages walked incrementally as new entries append.
  */
-export function computeNonMessageTokens(session: AgentSession): number {
-	const parts = computeNonMessageBreakdown(session);
-	return parts.systemPromptTokens + parts.systemContextTokens + parts.toolsTokens + parts.skillsTokens;
+const EMPTY_STRING_PARTS: readonly string[] = [];
+const EMPTY_TOOLS: ReadonlyArray<Pick<Tool, "name" | "description" | "parameters">> = [];
+const EMPTY_SKILLS: readonly Skill[] = [];
+
+interface NonMessageTokenCache {
+	systemPromptRef: readonly string[];
+	systemPromptLength: number;
+	toolsRef: ReadonlyArray<Pick<Tool, "name" | "description" | "parameters">>;
+	toolsLength: number;
+	skillsRef: readonly Skill[];
+	skillsLength: number;
+	tokens: number | undefined;
+	breakdown:
+		| {
+				skillsTokens: number;
+				toolsTokens: number;
+				systemContextTokens: number;
+				systemPromptTokens: number;
+		  }
+		| undefined;
 }
 
-/**
- * Shared helper for the four non-message token totals. Single source of truth
- * for both `computeNonMessageTokens` (status-line incremental cache) and
- * `computeContextBreakdown` (/context panel). The split avoids drift between
- * the two surfaces — they MUST report the same numbers.
- */
-function computeNonMessageBreakdown(session: AgentSession): {
+const nonMessageTokenCache = new WeakMap<AgentSession, NonMessageTokenCache>();
+
+function nonMessageTokenCacheEntry(session: AgentSession): NonMessageTokenCache {
+	const systemPromptRef = session.systemPrompt ?? EMPTY_STRING_PARTS;
+	const toolsRef = session.agent?.state?.tools ?? EMPTY_TOOLS;
+	const skillsRef = session.skills ?? EMPTY_SKILLS;
+	let entry = nonMessageTokenCache.get(session);
+	if (
+		entry &&
+		entry.systemPromptRef === systemPromptRef &&
+		entry.systemPromptLength === systemPromptRef.length &&
+		entry.toolsRef === toolsRef &&
+		entry.toolsLength === toolsRef.length &&
+		entry.skillsRef === skillsRef &&
+		entry.skillsLength === skillsRef.length
+	) {
+		return entry;
+	}
+	entry = {
+		systemPromptRef,
+		systemPromptLength: systemPromptRef.length,
+		toolsRef,
+		toolsLength: toolsRef.length,
+		skillsRef,
+		skillsLength: skillsRef.length,
+		tokens: undefined,
+		breakdown: undefined,
+	};
+	nonMessageTokenCache.set(session, entry);
+	return entry;
+}
+
+export function computeNonMessageTokens(session: AgentSession): number {
+	const entry = nonMessageTokenCacheEntry(session);
+	if (entry.tokens !== undefined) return entry.tokens;
+	const parts = computeNonMessageBreakdown(session);
+	const tokens = parts.systemPromptTokens + parts.systemContextTokens + parts.toolsTokens + parts.skillsTokens;
+	entry.tokens = tokens;
+	return tokens;
+}
+
+export function computeNonMessageBreakdown(session: AgentSession): {
 	skillsTokens: number;
 	toolsTokens: number;
 	systemContextTokens: number;
 	systemPromptTokens: number;
 } {
-	const skillsTokens = estimateSkillsTokens(session.skills ?? []);
-	const toolsTokens = estimateToolSchemaTokens(session.agent?.state?.tools ?? []);
-	const systemPromptParts = session.systemPrompt ?? [];
+	const entry = nonMessageTokenCacheEntry(session);
+	if (entry.breakdown) return entry.breakdown;
+	const skillsTokens = estimateSkillsTokens(session.skills ?? EMPTY_SKILLS);
+	const toolsTokens = estimateToolSchemaTokens(session.agent?.state?.tools ?? EMPTY_TOOLS);
+	const systemPromptParts = session.systemPrompt ?? EMPTY_STRING_PARTS;
 	const systemContextTokens = countTokens(systemPromptParts.slice(1));
 	const systemPromptTokens = Math.max(0, countTokens(systemPromptParts[0] ?? "") - skillsTokens);
-	return { skillsTokens, toolsTokens, systemContextTokens, systemPromptTokens };
+	const breakdown = { skillsTokens, toolsTokens, systemContextTokens, systemPromptTokens };
+	entry.breakdown = breakdown;
+	return breakdown;
 }
 
 /**
