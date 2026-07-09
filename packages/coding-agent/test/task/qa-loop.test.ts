@@ -148,7 +148,10 @@ describe("Two-Stage QA Review Loops", () => {
 					toolName: "yield",
 					result: {
 						content: [{ type: "text", text: "Quality is good" }],
-						details: { status: "success", data: { overall_correctness: "correct", explanation: "Code looks solid" } },
+						details: {
+							status: "success",
+							data: { overall_correctness: "correct", explanation: "Code looks solid" },
+						},
 					},
 					isError: false,
 				});
