@@ -2,7 +2,7 @@ import type { PresetDef, StatusLinePreset } from "./types";
 
 export const STATUS_LINE_PRESETS: Record<StatusLinePreset, PresetDef> = {
 	default: {
-		leftSegments: ["aery", "model", "mode", "path", "git", "pr", "memory_meter", "cost"],
+		leftSegments: ["aery", "model", "mode", "path", "git", "pr", "subagents", "memory_meter", "cost"],
 		rightSegments: ["session_name"],
 		separator: "slash",
 		segmentOptions: {
@@ -13,7 +13,7 @@ export const STATUS_LINE_PRESETS: Record<StatusLinePreset, PresetDef> = {
 	},
 
 	minimal: {
-		leftSegments: ["path", "git"],
+		leftSegments: ["path", "git", "subagents"],
 		rightSegments: ["session_name", "mode", "context_pct"],
 		separator: "slash",
 		segmentOptions: {
@@ -23,7 +23,7 @@ export const STATUS_LINE_PRESETS: Record<StatusLinePreset, PresetDef> = {
 	},
 
 	compact: {
-		leftSegments: ["model", "mode", "git", "pr"],
+		leftSegments: ["model", "mode", "git", "pr", "subagents"],
 		rightSegments: ["session_name", "cost", "context_pct"],
 		separator: "powerline-thin",
 		segmentOptions: {
@@ -82,7 +82,7 @@ export const STATUS_LINE_PRESETS: Record<StatusLinePreset, PresetDef> = {
 
 	ascii: {
 		// No Nerd Font dependencies
-		leftSegments: ["model", "mode", "path", "git", "pr"],
+		leftSegments: ["model", "mode", "path", "git", "pr", "subagents"],
 		rightSegments: ["session_name", "token_total", "cost", "context_pct"],
 		separator: "ascii",
 		segmentOptions: {
@@ -94,7 +94,7 @@ export const STATUS_LINE_PRESETS: Record<StatusLinePreset, PresetDef> = {
 
 	custom: {
 		// User-defined - these are just defaults that get overridden
-		leftSegments: ["model", "mode", "path", "git", "pr"],
+		leftSegments: ["model", "mode", "path", "git", "pr", "subagents"],
 		rightSegments: ["session_name", "token_total", "cost", "context_pct"],
 		separator: "powerline-thin",
 		segmentOptions: {},
