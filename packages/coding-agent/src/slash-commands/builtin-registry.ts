@@ -83,6 +83,14 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "hub",
+		description: "Open the active Subagents TUI Dashboard Overlay",
+		handleTui: (_command, runtime) => {
+			runtime.ctx.showSessionObserver();
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
 		name: "plan",
 		description: "Toggle plan mode (agent plans before executing)",
 		inlineHint: "[prompt]",

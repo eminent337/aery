@@ -48,7 +48,7 @@ import type { AgentSession } from "../session/agent-session";
 import { generateCommitMessage } from "../utils/commit-message-generator";
 import * as git from "../utils/git";
 import { discoverAgents, getAgent } from "./discovery";
-import { resumeSubprocess, runSubprocess, runSubprocessWithQa } from "./executor";
+import { resumeSubprocess, runSubprocessWithQa } from "./executor";
 import { filterSkillsJIT, getFileExtensions } from "./jit-skills";
 import { AgentOutputManager } from "./output-manager";
 import { mapWithConcurrencyLimit, Semaphore } from "./parallel";

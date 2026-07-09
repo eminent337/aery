@@ -15,9 +15,10 @@
  *   - Enter on main session -> close overlay (jump back)
  */
 import type { ToolResultMessage } from "@aryee337/aery-ai";
-import { Container, Markdown, type MarkdownTheme, matchesKey } from "@aryee337/aery-tui";
+import { Container, Markdown, type MarkdownTheme, matchesKey, visibleWidth } from "@aryee337/aery-tui";
 import { formatDuration, formatNumber, logger } from "@aryee337/aery-utils";
 import type { KeyId } from "../../config/keybindings";
+import { AgentRegistry } from "../../registry/agent-registry";
 import { isSilentAbort } from "../../session/messages";
 import type { SessionMessageEntry } from "../../session/session-manager";
 import { parseSessionEntries } from "../../session/session-manager";
@@ -42,7 +43,16 @@ const INDENT = "    ";
 
 /** Compute the max content width for the current terminal, accounting for indent and chrome. */
 function contentWidth(indent = INDENT): number {
-	return Math.max(TRUNCATE_LENGTHS.SHORT, (process.stdout.columns || 80) - indent.length - 2);
+	const termWidth = process.stdout.columns || 80;
+	const leftWidth = Math.floor(termWidth * 0.35);
+	const rightWidth = termWidth - leftWidth - 1;
+	return Math.max(TRUNCATE_LENGTHS.SHORT, rightWidth - indent.length - 2);
+}
+
+function padRight(str: string, width: number): string {
+	const w = visibleWidth(str);
+	if (w >= width) return str;
+	return str + " ".repeat(width - w);
 }
 
 /** Sanitize a line for TUI display: replace tabs, then truncate to viewport width. */
@@ -70,6 +80,7 @@ export class SessionObserverOverlayComponent extends Container {
 	#selectedSessionId?: string;
 	#observeKeys: KeyId[];
 	#transcriptCache?: { path: string; bytesRead: number; entries: SessionMessageEntry[]; model?: string };
+	#focusedPane: "list" | "viewer" = "list";
 
 	// Scroll state
 	#scrollOffset = 0;
@@ -97,15 +108,14 @@ export class SessionObserverOverlayComponent extends Container {
 		this.#onDone = onDone;
 		this.#observeKeys = observeKeys;
 
-		// Jump directly to the most recently active sub-agent
+		const sessions = this.#registry.getSessions();
 		const mostRecent = this.#getMostRecentSubagent();
 		if (mostRecent) {
 			this.#selectedSessionId = mostRecent.id;
-			this.#setupViewer();
-		} else {
-			// No sub-agents — close immediately
-			queueMicrotask(() => this.#onDone());
+		} else if (sessions.length > 0) {
+			this.#selectedSessionId = sessions[0].id;
 		}
+		this.#setupViewer();
 	}
 
 	/** Find the most recently updated sub-agent session (prefer active ones) */
@@ -119,7 +129,152 @@ export class SessionObserverOverlayComponent extends Container {
 	}
 
 	override render(width: number): string[] {
-		return this.#renderViewer(width);
+		const termHeight = process.stdout.rows || 40;
+
+		const leftWidth = Math.floor(width * 0.35);
+		const rightWidth = width - leftWidth - 1;
+
+		// 3 lines reserved at the bottom: 1 blank line, 1 stats line, 1 keybindings line
+		const panesHeight = Math.max(5, termHeight - 3);
+
+		const leftLines = this.#renderSessionList(leftWidth, panesHeight);
+		const rightLines = this.#renderLogViewer(rightWidth, panesHeight);
+
+		const lines: string[] = [];
+
+		const sep = theme.fg("border", "│");
+		for (let i = 0; i < panesHeight; i++) {
+			const left = leftLines[i] ?? " ".repeat(leftWidth);
+			const right = rightLines[i] ?? " ".repeat(rightWidth);
+			lines.push(`${left}${sep}${right}`);
+		}
+
+		lines.push("");
+
+		const sessions = this.#registry.getSessions();
+		const session = sessions.find(s => s.id === this.#selectedSessionId);
+		const statsLine = this.#buildStatsLine(session);
+		const scrollInfo =
+			this.#renderedLines.length > this.#viewportHeight
+				? `[${this.#scrollOffset + 1}-${Math.min(this.#scrollOffset + this.#viewportHeight, this.#renderedLines.length)}/${this.#renderedLines.length}]`
+				: "";
+
+		let footerStats = "";
+		if (statsLine && scrollInfo) {
+			footerStats = `${statsLine} ${theme.fg("dim", `· ${scrollInfo}`)}`;
+		} else if (statsLine) {
+			footerStats = statsLine;
+		} else if (scrollInfo) {
+			footerStats = theme.fg("dim", scrollInfo);
+		}
+		lines.push(` ${footerStats}`);
+
+		let keyInstructions = "";
+		if (this.#focusedPane === "list") {
+			keyInstructions = theme.fg(
+				"dim",
+				"j/k/Arrows: navigate  x/d: abort agent  Tab/→: focus viewer  Esc: close  Ctrl+S: close",
+			);
+		} else {
+			keyInstructions = theme.fg(
+				"dim",
+				"j/k/Arrows: scroll  Enter: expand/collapse  Tab/←: focus list  g/G: top/bottom  Esc: close  Ctrl+S: close",
+			);
+		}
+		lines.push(` ${keyInstructions}`);
+
+		return lines;
+	}
+
+	#renderSessionList(width: number, height: number): string[] {
+		const sessions = this.#registry.getSessions();
+		const lines: string[] = [];
+
+		const isFocused = this.#focusedPane === "list";
+		const borderColor = isFocused
+			? (str: string) => theme.fg("accent", str)
+			: (str: string) => theme.fg("border", str);
+		const border = new DynamicBorder(borderColor).render(width)[0];
+
+		lines.push(border);
+
+		const titleText = "[Sessions]";
+		const styledTitle = isFocused ? theme.bold(theme.fg("accent", titleText)) : theme.bold(titleText);
+		lines.push(padRight(truncateToWidth(` ${styledTitle}`, width), width));
+		lines.push(border);
+
+		const rowsHeight = height - 4;
+		let startIndex = 0;
+		const selectedIndex = sessions.findIndex(s => s.id === this.#selectedSessionId);
+		if (selectedIndex >= rowsHeight) {
+			startIndex = selectedIndex - rowsHeight + 1;
+		}
+		const visibleSessions = sessions.slice(startIndex, startIndex + rowsHeight);
+
+		for (const s of visibleSessions) {
+			const isSelected = s.id === this.#selectedSessionId;
+			const prefix = isSelected ? theme.fg("accent", "> ") : "  ";
+
+			let statusText = "";
+			if (s.status === "active") {
+				statusText = theme.fg("success", "[RUN]");
+			} else if (s.status === "completed") {
+				statusText = theme.fg("success", "[OK]");
+			} else if (s.status === "failed" || s.status === "aborted") {
+				statusText = theme.fg("error", "[ERR]");
+			} else {
+				statusText = theme.fg("dim", "[IDL]");
+			}
+
+			const label = s.label;
+			const rowContent = `${prefix}${statusText} ${label}`;
+			lines.push(padRight(truncateToWidth(rowContent, width), width));
+		}
+
+		const pad = rowsHeight - visibleSessions.length;
+		for (let i = 0; i < pad; i++) {
+			lines.push(" ".repeat(width));
+		}
+
+		lines.push(border);
+		return lines;
+	}
+
+	#renderLogViewer(width: number, height: number): string[] {
+		const lines: string[] = [];
+
+		const isFocused = this.#focusedPane === "viewer";
+		const borderColor = isFocused
+			? (str: string) => theme.fg("accent", str)
+			: (str: string) => theme.fg("border", str);
+		const border = new DynamicBorder(borderColor).render(width)[0];
+
+		lines.push(border);
+
+		for (const hl of this.#viewerHeaderLines) {
+			lines.push(padRight(truncateToWidth(` ${hl}`, width), width));
+		}
+		lines.push(border);
+
+		const chromeLines = this.#viewerHeaderLines.length + 3;
+		const viewportHeight = Math.max(1, height - chromeLines);
+		this.#viewportHeight = viewportHeight;
+
+		const maxScroll = Math.max(0, this.#renderedLines.length - viewportHeight);
+		this.#scrollOffset = Math.max(0, Math.min(this.#scrollOffset, maxScroll));
+
+		const visibleLines = this.#renderedLines.slice(this.#scrollOffset, this.#scrollOffset + viewportHeight);
+		for (const vl of visibleLines) {
+			lines.push(padRight(truncateToWidth(` ${vl}`, width), width));
+		}
+
+		const pad = viewportHeight - visibleLines.length;
+		for (let i = 0; i < pad; i++) {
+			lines.push(" ".repeat(width));
+		}
+
+		lines.push(border);
+		return lines;
 	}
 
 	#setupViewer(): void {
@@ -193,11 +348,6 @@ export class SessionObserverOverlayComponent extends Container {
 
 		// Footer
 		this.#viewerFooterLines = [];
-		const statsLine = this.#buildStatsLine(session);
-		if (statsLine) this.#viewerFooterLines.push(statsLine);
-		this.#viewerFooterLines.push(
-			theme.fg("dim", "j/k:scroll  Enter:expand  [/]/←→:cycle agents  Esc/Ctrl+S:close  g/G:top/bottom"),
-		);
 
 		// Auto-scroll to bottom if we were at bottom
 		if (this.#wasAtBottom) {
@@ -206,54 +356,7 @@ export class SessionObserverOverlayComponent extends Container {
 	}
 
 	/** Produce the final viewer output for the overlay system */
-	#renderViewer(width: number): string[] {
-		const termHeight = process.stdout.rows || 40;
-
-		// Compute viewport: total height minus header chrome and footer chrome
-		// Header: border(1) + headerLines + border(1) = headerLines.length + 2
-		// Footer: spacer(1) + scrollInfo(1) + footerLines + border(1) = footerLines.length + 2
-		const headerChrome = this.#viewerHeaderLines.length + 2;
-		const footerChrome = this.#viewerFooterLines.length + 2;
-		this.#viewportHeight = Math.max(5, termHeight - headerChrome - footerChrome);
-
-		// Clamp scroll offset
-		const maxScroll = Math.max(0, this.#renderedLines.length - this.#viewportHeight);
-		this.#scrollOffset = Math.max(0, Math.min(this.#scrollOffset, maxScroll));
-
-		const lines: string[] = [];
-
-		// --- Header ---
-		lines.push(...new DynamicBorder().render(width));
-		for (const hl of this.#viewerHeaderLines) {
-			lines.push(` ${hl}`);
-		}
-		lines.push(...new DynamicBorder().render(width));
-
-		// --- Scrolled content viewport ---
-		const visibleLines = this.#renderedLines.slice(this.#scrollOffset, this.#scrollOffset + this.#viewportHeight);
-		for (const vl of visibleLines) {
-			lines.push(` ${vl}`);
-		}
-		// Pad to fill viewport if content is shorter
-		const pad = this.#viewportHeight - visibleLines.length;
-		for (let i = 0; i < pad; i++) {
-			lines.push("");
-		}
-
-		// --- Footer ---
-		const scrollInfo =
-			this.#renderedLines.length > this.#viewportHeight
-				? ` ${theme.fg("dim", `[${this.#scrollOffset + 1}-${Math.min(this.#scrollOffset + this.#viewportHeight, this.#renderedLines.length)}/${this.#renderedLines.length}]`)}`
-				: "";
-		lines.push("");
-		lines.push(` ${this.#viewerFooterLines[0] ?? ""}${scrollInfo}`);
-		for (let i = 1; i < this.#viewerFooterLines.length; i++) {
-			lines.push(` ${this.#viewerFooterLines[i]}`);
-		}
-		lines.push(...new DynamicBorder().render(width));
-
-		return lines;
-	}
+	// Original renderViewer removed in favor of renderLogViewer
 
 	#buildBreadcrumb(session: ObservableSession | undefined): string {
 		const parts: string[] = ["Session Observer"];
@@ -397,7 +500,10 @@ export class SessionObserverOverlayComponent extends Container {
 
 	/** Render markdown text into indented lines using the theme's markdown renderer */
 	#renderMarkdownToLines(text: string, indent: string = INDENT): string[] {
-		const width = Math.max(40, (process.stdout.columns || 80) - indent.length - 4);
+		const termWidth = process.stdout.columns || 80;
+		const leftWidth = Math.floor(termWidth * 0.35);
+		const rightWidth = termWidth - leftWidth - 1;
+		const width = Math.max(40, rightWidth - indent.length - 4);
 		const md = new Markdown(text, 0, 0, this.#mdTheme);
 		const rendered = md.render(width);
 		return rendered.map(line => `${indent}${line.trimEnd()}`);
@@ -651,19 +757,79 @@ export class SessionObserverOverlayComponent extends Container {
 			}
 		}
 
-		this.#handleViewerInput(keyData);
+		// Escape — pop breadcrumb navigation or close overlay
+		if (matchesKey(keyData, "escape")) {
+			if (this.#navigationStack.length > 0) {
+				this.#navigateBack();
+			} else {
+				if (this.#focusedPane === "list") {
+					this.#onDone();
+				} else {
+					this.#focusedPane = "list";
+					this.#rebuildViewerContent();
+				}
+			}
+			return;
+		}
+
+		// Toggle focus with arrows or tab/shift+tab
+		if (matchesKey(keyData, "left") || matchesKey(keyData, "shift+tab")) {
+			this.#focusedPane = "list";
+			this.#rebuildViewerContent();
+			return;
+		}
+		if (matchesKey(keyData, "right") || matchesKey(keyData, "tab")) {
+			this.#focusedPane = "viewer";
+			this.#rebuildViewerContent();
+			return;
+		}
+
+		if (this.#focusedPane === "list") {
+			const sessions = this.#registry.getSessions();
+			const currentIdx = sessions.findIndex(s => s.id === this.#selectedSessionId);
+
+			// j / down — move selection down
+			if (keyData === "j" || matchesSelectDown(keyData)) {
+				if (sessions.length > 0 && currentIdx < sessions.length - 1) {
+					this.#selectedSessionId = sessions[currentIdx + 1].id;
+					this.#setupViewer();
+				}
+				return;
+			}
+
+			// k / up — move selection up
+			if (keyData === "k" || matchesSelectUp(keyData)) {
+				if (sessions.length > 0 && currentIdx > 0) {
+					this.#selectedSessionId = sessions[currentIdx - 1].id;
+					this.#setupViewer();
+				}
+				return;
+			}
+
+			// x / d — abort/kill selected subagent
+			if (keyData === "x" || keyData === "d") {
+				if (this.#selectedSessionId && this.#selectedSessionId !== "main") {
+					const ref = AgentRegistry.global().get(this.#selectedSessionId);
+					if (ref?.session) {
+						void ref.session.abort();
+					}
+				}
+				return;
+			}
+
+			// Enter — switch to viewer
+			if (matchesKey(keyData, "enter") || keyData === "\r" || keyData === "\n") {
+				this.#focusedPane = "viewer";
+				this.#rebuildViewerContent();
+				return;
+			}
+		} else {
+			this.#handleViewerInput(keyData);
+		}
 	}
 
 	#handleViewerInput(keyData: string): void {
 		const entryCount = this.#viewerEntries.length;
-
-		// Escape — pop breadcrumb navigation or close overlay
-		if (matchesKey(keyData, "escape")) {
-			if (!this.#navigateBack()) {
-				this.#onDone();
-			}
-			return;
-		}
 
 		// j / down — move selection down
 		if (keyData === "j" || matchesSelectDown(keyData)) {
@@ -688,7 +854,6 @@ export class SessionObserverOverlayComponent extends Container {
 			if (entryCount > 0) {
 				const prevIndex = this.#selectedEntryIndex;
 				this.#selectedEntryIndex = Math.min(this.#selectedEntryIndex + 5, entryCount - 1);
-				// If selection didn't move (bottom of list or single oversized entry), fall back to line scroll
 				if (this.#selectedEntryIndex === prevIndex) {
 					this.#scrollOffset = Math.min(
 						this.#scrollOffset + PAGE_SIZE,
@@ -710,7 +875,6 @@ export class SessionObserverOverlayComponent extends Container {
 			if (entryCount > 0) {
 				const prevIndex = this.#selectedEntryIndex;
 				this.#selectedEntryIndex = Math.max(this.#selectedEntryIndex - 5, 0);
-				// If selection didn't move (top of list or single oversized entry), fall back to line scroll
 				if (this.#selectedEntryIndex === prevIndex) {
 					this.#scrollOffset = Math.max(this.#scrollOffset - PAGE_SIZE, 0);
 				}
@@ -721,10 +885,9 @@ export class SessionObserverOverlayComponent extends Container {
 			return;
 		}
 
-		// Enter — toggle expand/collapse, or dive into nested session
+		// Enter — toggle expand/collapse
 		if (matchesKey(keyData, "enter") || keyData === "\r" || keyData === "\n") {
 			if (entryCount > 0 && this.#selectedEntryIndex < entryCount) {
-				// Toggle expand/collapse
 				if (this.#expandedEntries.has(this.#selectedEntryIndex)) {
 					this.#expandedEntries.delete(this.#selectedEntryIndex);
 				} else {
@@ -751,14 +914,14 @@ export class SessionObserverOverlayComponent extends Container {
 			return;
 		}
 
-		// ] / → / Tab — next sub-agent session
-		if (keyData === "]" || matchesKey(keyData, "tab") || matchesKey(keyData, "right")) {
+		// ] — cycle sessions forward
+		if (keyData === "]") {
 			this.#cycleSession(1);
 			return;
 		}
 
-		// [ / ← / Shift+Tab — previous sub-agent session
-		if (keyData === "[" || matchesKey(keyData, "shift+tab") || matchesKey(keyData, "left")) {
+		// [ — cycle sessions backward
+		if (keyData === "[") {
 			this.#cycleSession(-1);
 			return;
 		}
