@@ -22,6 +22,8 @@ export type { SegmentContext } from "./types";
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
+const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
 function withIcon(icon: string, text: string): string {
 	return icon ? `${icon} ${text}` : text;
 }
@@ -294,10 +296,13 @@ const prSegment: StatusLineSegment = {
 const subagentsSegment: StatusLineSegment = {
 	id: "subagents",
 	render(ctx) {
-		if (ctx.subagentCount === 0) {
+		const active = ctx.activeSubagents ?? [];
+		if (active.length === 0) {
 			return { content: "", visible: false };
 		}
-		const content = withIcon(theme.icon.agents, `${ctx.subagentCount}`);
+		const spinner = BRAILLE_FRAMES[Math.floor(Date.now() / 80) % BRAILLE_FRAMES.length];
+		const names = active.map(a => a.agent).join(", ");
+		const content = `${spinner} Running: ${names}`;
 		return { content: theme.fg("statusLineSubagents", content), visible: true };
 	},
 };
@@ -591,7 +596,6 @@ const memoryMeterSegment: StatusLineSegment = {
 // Working Indicator (alive spinner)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const WORKING_MESSAGES = ["Thinking...", "Working...", "Composing...", "Planning...", "Processing..."];
 let workingFrameIdx = 0;
 let lastRenderMs = Date.now();

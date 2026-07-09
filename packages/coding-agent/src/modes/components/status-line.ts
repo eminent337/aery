@@ -149,6 +149,7 @@ export class StatusLineComponent implements Component {
 	#autoCompactEnabled: boolean = true;
 	#hookStatuses: Map<string, string> = new Map();
 	#subagentCount: number = 0;
+	#activeSubagents: Array<{ id: string; agent: string; status: string }> = [];
 	#sessionStartTime: number = Date.now();
 	#planModeStatus: { enabled: boolean; paused: boolean } | null = null;
 	#loopModeStatus: { enabled: boolean } | null = null;
@@ -211,6 +212,10 @@ export class StatusLineComponent implements Component {
 
 	setSubagentCount(count: number): void {
 		this.#subagentCount = count;
+	}
+
+	setActiveSubagents(subagents: Array<{ id: string; agent: string; status: string }>): void {
+		this.#activeSubagents = subagents;
 	}
 
 	setSessionStartTime(time: number): void {
@@ -583,6 +588,7 @@ export class StatusLineComponent implements Component {
 			contextWindow,
 			autoCompactEnabled: this.#autoCompactEnabled,
 			subagentCount: this.#subagentCount,
+			activeSubagents: this.#activeSubagents,
 			sessionStartTime: this.#sessionStartTime,
 			git: {
 				branch: this.#getCurrentBranch(),

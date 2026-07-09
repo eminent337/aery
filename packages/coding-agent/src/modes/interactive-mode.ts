@@ -565,7 +565,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		this.#observerRegistry.setMainSession(this.sessionManager.getSessionFile() ?? undefined);
 		this.#observerRegistry.onChange(() => {
-			this.statusLine.setSubagentCount(this.#observerRegistry.getActiveSubagentCount());
+			const sessions = this.#observerRegistry.getSessions();
+			const activeSubagents = sessions
+				.filter(s => s.kind === "subagent" && s.status === "active")
+				.map(s => ({ id: s.id, agent: s.agent || s.label, status: s.status }));
+			this.statusLine.setActiveSubagents(activeSubagents);
+			this.statusLine.setSubagentCount(activeSubagents.length);
 			// Auto-checkmark todos whose matching subagent just succeeded, then
 			// re-render so the running override (the static "live" glyph when a
 			// subagent is doing the work for a still-pending todo) updates as
