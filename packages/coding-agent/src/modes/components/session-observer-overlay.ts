@@ -41,12 +41,11 @@ const PAGE_SIZE = 15;
 /** Left indent for content under entry headers */
 const INDENT = "    ";
 
+let currentRightWidth = 80;
+
 /** Compute the max content width for the current terminal, accounting for indent and chrome. */
 function contentWidth(indent = INDENT): number {
-	const termWidth = process.stdout.columns || 80;
-	const leftWidth = Math.floor(termWidth * 0.35);
-	const rightWidth = termWidth - leftWidth - 1;
-	return Math.max(TRUNCATE_LENGTHS.SHORT, rightWidth - indent.length - 2);
+	return Math.max(TRUNCATE_LENGTHS.SHORT, currentRightWidth - indent.length - 2);
 }
 
 function padRight(str: string, width: number): string {
@@ -133,6 +132,11 @@ export class SessionObserverOverlayComponent extends Container {
 
 		const leftWidth = Math.floor(width * 0.35);
 		const rightWidth = width - leftWidth - 1;
+
+		if (rightWidth !== currentRightWidth) {
+			currentRightWidth = rightWidth;
+			this.#rebuildViewerContent();
+		}
 
 		// 3 lines reserved at the bottom: 1 blank line, 1 stats line, 1 keybindings line
 		const panesHeight = Math.max(5, termHeight - 3);
