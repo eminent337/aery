@@ -60,7 +60,7 @@ export class SwarmScheduler {
 		this.#sem = new Semaphore(workflow.maxConcurrency ?? 3);
 	}
 
-	async execute(session: any): Promise<void> {
+	async execute(ctx: any): Promise<void> {
 		const tasks = topologicalSort(this.#workflow.tasks);
 		const tasksMap = new Map<string, SwarmTask>();
 		const inDegree = new Map<string, number>();
@@ -84,11 +84,15 @@ export class SwarmScheduler {
 			if (deg === 0) queue.push(id);
 		}
 
+		const repoRoot = ctx.sessionManager.getCwd();
+		const session = ctx.session;
+		const settings = ctx.settings;
+		const modelRegistry = session.modelRegistry;
+
 		const runNode = async (taskId: string) => {
 			const task = tasksMap.get(taskId)!;
 			await this.#sem.acquire();
 			try {
-				const repoRoot = session.cwd;
 				let parentBranch: string | undefined;
 
 				// Resolve baseline branch based on dependencies
@@ -119,17 +123,19 @@ export class SwarmScheduler {
 				}
 
 				// Resolve agent definition
-				const { agents } = await discoverAgents(session.cwd);
+				const { agents } = await discoverAgents(repoRoot);
 				const agentDef = getAgent(agents, task.agent) ?? getAgent(agents, "task")!;
 
 				const executorOpts = {
-					cwd: session.cwd,
+					cwd: repoRoot,
 					agent: agentDef,
 					task: task.assignment,
 					assignment: task.assignment,
 					index: 0,
 					id: task.id,
 					worktree: parentBranch ? worktreePath : undefined,
+					settings,
+					modelRegistry,
 				};
 
 				const result = await runSubprocessWithQa(executorOpts as any, agents, task.assignment);

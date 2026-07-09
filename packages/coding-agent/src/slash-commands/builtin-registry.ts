@@ -105,7 +105,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				runtime.ctx.showStatus("Usage: /swarm run <path/to/swarm.yaml>");
 				return;
 			}
-			const yamlPath = path.resolve(runtime.ctx.sessionManager.cwd, parts[1]);
+			const yamlPath = path.resolve(runtime.ctx.sessionManager.getCwd(), parts[1]);
 			try {
 				const content = await fs.readFile(yamlPath, "utf-8");
 				const { parseSwarmYaml } = await import("../task/swarm/parser");
@@ -113,7 +113,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				const workflow = parseSwarmYaml(content);
 				runtime.ctx.showStatus(`Starting swarm workflow: ${workflow.name}`);
 				const scheduler = new SwarmScheduler(workflow);
-				await scheduler.execute(runtime.ctx.sessionManager.session);
+				await scheduler.execute(runtime.ctx);
 				runtime.ctx.showStatus(`Swarm workflow completed: ${workflow.name}`);
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
