@@ -91,6 +91,38 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "swarm",
+		description: "Execute a multi-agent workflow from a YAML file",
+		inlineHint: "<path/to/swarm.yaml>",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			if (!command.args) {
+				runtime.ctx.showStatus("Usage: /swarm run <path/to/swarm.yaml>");
+				return;
+			}
+			const parts = command.args.trim().split(/\s+/);
+			if (parts[0] !== "run" || !parts[1]) {
+				runtime.ctx.showStatus("Usage: /swarm run <path/to/swarm.yaml>");
+				return;
+			}
+			const yamlPath = path.resolve(runtime.ctx.sessionManager.cwd, parts[1]);
+			try {
+				const content = await fs.readFile(yamlPath, "utf-8");
+				const { parseSwarmYaml } = await import("../task/swarm/parser");
+				const { SwarmScheduler } = await import("../task/swarm/scheduler");
+				const workflow = parseSwarmYaml(content);
+				runtime.ctx.showStatus(`Starting swarm workflow: ${workflow.name}`);
+				const scheduler = new SwarmScheduler(workflow);
+				await scheduler.execute(runtime.ctx.sessionManager.session);
+				runtime.ctx.showStatus(`Swarm workflow completed: ${workflow.name}`);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				runtime.ctx.showStatus(`Swarm execution failed: ${msg}`);
+			}
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
 		name: "plan",
 		description: "Toggle plan mode (agent plans before executing)",
 		inlineHint: "[prompt]",
