@@ -15,6 +15,7 @@ import oracleMd from "../prompts/agents/oracle.md" with { type: "text" };
 
 import planMd from "../prompts/agents/plan.md" with { type: "text" };
 import reviewerMd from "../prompts/agents/reviewer.md" with { type: "text" };
+import specReviewerMd from "../prompts/agents/spec-reviewer.md" with { type: "text" };
 import taskMd from "../prompts/agents/task.md" with { type: "text" };
 
 import type { AgentDefinition, AgentSource } from "./types";
@@ -46,6 +47,7 @@ const EMBEDDED_AGENT_DEFS: EmbeddedAgentDef[] = [
 	{ fileName: "plan.md", template: planMd },
 	{ fileName: "designer.md", template: designerMd },
 	{ fileName: "reviewer.md", template: reviewerMd },
+	{ fileName: "spec-reviewer.md", template: specReviewerMd },
 	{ fileName: "librarian.md", template: librarianMd },
 	{ fileName: "oracle.md", template: oracleMd },
 	{
