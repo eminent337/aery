@@ -41,6 +41,7 @@ import { buildOutputValidator, summarizeValidationFailure } from "../tools/outpu
 import { type ReportFindingDetails, toReviewFinding } from "../tools/review";
 import { ToolAbortError } from "../tools/tool-errors";
 import type { EventBus } from "../utils/event-bus";
+import * as git from "../utils/git";
 import { buildNamedToolChoice } from "../utils/tool-choice";
 import type { WorkspaceTree } from "../workspace-tree";
 import { subprocessToolRegistry } from "./subprocess-tool-registry";
@@ -1869,6 +1870,110 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		retryFailure: progress.retryFailure,
 		outputMeta,
 	};
+}
+
+export async function runSubprocessWithQa(
+	options: ExecutorOptions,
+	agents: AgentDefinition[],
+	originalAssignment: string,
+): Promise<SingleResult> {
+	let currentAssignment = originalAssignment;
+	let currentOptions = { ...options };
+	let attempts = 0;
+	const maxAttempts = 3;
+
+	while (attempts < maxAttempts) {
+		attempts++;
+		const result = await runSubprocess(currentOptions);
+		if (result.exitCode !== 0 || result.aborted) {
+			return result;
+		}
+
+		const workspacePath = options.worktree ?? options.cwd;
+		const hasChanges = await git.diff.has(workspacePath).catch(() => false);
+		if (!hasChanges) {
+			return result;
+		}
+
+		if (options.agent.name === "spec-reviewer" || options.agent.name === "reviewer") {
+			return result;
+		}
+
+		// 1. Run spec-reviewer
+		const specAgent = agents.find(a => a.name === "spec-reviewer");
+		if (specAgent) {
+			const specOptions: ExecutorOptions = {
+				...options,
+				id: `${options.id}-spec-review-${attempts}`,
+				agent: specAgent,
+				assignment: `Review this diff against the task: "${originalAssignment}"`,
+				task: `Review this diff against the task: "${originalAssignment}"`,
+				outputSchema: specAgent.output,
+			};
+			const specResult = await runSubprocess(specOptions);
+			if (specResult.exitCode === 0 && !specResult.aborted) {
+				const yieldItems = specResult.extractedToolData?.yield as any[] | undefined;
+				const specData = yieldItems?.[yieldItems.length - 1]?.data as
+					| { overall_correctness: string; explanation: string }
+					| undefined;
+				if (specData && specData.overall_correctness !== "correct") {
+					currentAssignment = `${originalAssignment}\n\n[SPEC COMPLIANCE FEEDBACK (Attempt ${attempts})]\nThe spec compliance reviewer rejected the changes with the following explanation:\n${specData.explanation}\n\nPlease correct the implementation.`;
+					currentOptions = {
+						...options,
+						assignment: currentAssignment,
+						task: currentAssignment,
+					};
+					continue;
+				}
+			}
+		}
+
+		// 2. Run code-quality reviewer
+		const qualityAgent = agents.find(a => a.name === "reviewer");
+		if (qualityAgent) {
+			const qualityOptions: ExecutorOptions = {
+				...options,
+				id: `${options.id}-quality-review-${attempts}`,
+				agent: qualityAgent,
+				assignment: "Review the quality of this diff",
+				task: "Review the quality of this diff",
+				outputSchema: qualityAgent.output,
+			};
+			const qualityResult = await runSubprocess(qualityOptions);
+			if (qualityResult.exitCode === 0 && !qualityResult.aborted) {
+				const yieldItems = qualityResult.extractedToolData?.yield as any[] | undefined;
+				const qualityData = yieldItems?.[yieldItems.length - 1]?.data as
+					| { overall_correctness: string; explanation: string }
+					| undefined;
+				if (qualityData && qualityData.overall_correctness !== "correct") {
+					const findingsText = (qualityResult.extractedToolData?.report_finding ?? [])
+						.map((f: any) => `- [P${f.priority}] ${f.title}: ${f.body}`)
+						.join("\n");
+					currentAssignment = `${originalAssignment}\n\n[CODE QUALITY FEEDBACK (Attempt ${attempts})]\nThe code quality reviewer rejected the changes with the following feedback:\n${qualityData.explanation}\n\nFindings:\n${findingsText}\n\nPlease correct the implementation.`;
+					currentOptions = {
+						...options,
+						assignment: currentAssignment,
+						task: currentAssignment,
+					};
+					continue;
+				}
+			}
+		}
+
+		return result;
+	}
+
+	return {
+		...options,
+		exitCode: 1,
+		output: "",
+		stderr: `QA Review loop failed: Exceeded maximum retry limit of ${maxAttempts} without passing reviews.`,
+		truncated: false,
+		durationMs: 0,
+		tokens: 0,
+		error: `QA Review loop failed: Exceeded maximum retry limit of ${maxAttempts} without passing reviews.`,
+		retryFailure: true,
+	} as any;
 }
 
 export interface ResumeExecutorOptions {

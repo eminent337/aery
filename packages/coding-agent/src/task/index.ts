@@ -48,7 +48,7 @@ import type { AgentSession } from "../session/agent-session";
 import { generateCommitMessage } from "../utils/commit-message-generator";
 import * as git from "../utils/git";
 import { discoverAgents, getAgent } from "./discovery";
-import { resumeSubprocess, runSubprocess } from "./executor";
+import { resumeSubprocess, runSubprocess, runSubprocessWithQa } from "./executor";
 import { filterSkillsJIT, getFileExtensions } from "./jit-skills";
 import { AgentOutputManager } from "./output-manager";
 import { mapWithConcurrencyLimit, Semaphore } from "./parallel";
@@ -1060,50 +1060,54 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 							outputSchema: effectiveOutputSchema,
 						});
 					}
-					return runSubprocess({
-						cwd: this.session.cwd,
-						agent: effectiveAgent,
-						task: renderSubagentUserPrompt(task.assignment ?? ""),
-						assignment: (task.assignment ?? "").trim(),
-						context: sharedContext,
-						description: task.description ?? "",
-						index,
-						id: task.id,
-						taskDepth,
-						modelOverride,
-						parentActiveModelPattern,
-						thinkingLevel: thinkingLevelOverride,
-						outputSchema: effectiveOutputSchema,
-						sessionFile,
-						persistArtifacts: !!artifactsDir,
-						artifactsDir: effectiveArtifactsDir,
-						contextFile: contextFilePath,
-						enableLsp: subagentLspEnabled,
-						subagentCompileCheck: subagentCompileCheckEnabled,
-						signal,
-						eventBus: this.session.eventBus,
-						onProgress: progress => {
-							progressMap.set(index, {
-								...structuredClone(progress),
-							});
-							emitProgress();
+					return runSubprocessWithQa(
+						{
+							cwd: this.session.cwd,
+							agent: effectiveAgent,
+							task: renderSubagentUserPrompt(task.assignment ?? ""),
+							assignment: (task.assignment ?? "").trim(),
+							context: sharedContext,
+							description: task.description ?? "",
+							index,
+							id: task.id,
+							taskDepth,
+							modelOverride,
+							parentActiveModelPattern,
+							thinkingLevel: thinkingLevelOverride,
+							outputSchema: effectiveOutputSchema,
+							sessionFile,
+							persistArtifacts: !!artifactsDir,
+							artifactsDir: effectiveArtifactsDir,
+							contextFile: contextFilePath,
+							enableLsp: subagentLspEnabled,
+							subagentCompileCheck: subagentCompileCheckEnabled,
+							signal,
+							eventBus: this.session.eventBus,
+							onProgress: progress => {
+								progressMap.set(index, {
+									...structuredClone(progress),
+								});
+								emitProgress();
+							},
+							authStorage: this.session.authStorage,
+							modelRegistry: this.session.modelRegistry,
+							settings: this.session.settings,
+							mcpManager,
+							contextFiles,
+							skills: availableSkills,
+							autoloadSkills: resolvedAutoloadSkills,
+							workspaceTree: this.session.workspaceTree,
+							promptTemplates,
+							localProtocolOptions,
+							parentArtifactManager,
+							parentHindsightSessionState: this.session.getHindsightSessionState?.(),
+							parentMnemopiSessionState: this.session.getMnemopiSessionState?.(),
+							parentTelemetry: this.session.getTelemetry?.(),
+							parentEvalSessionId,
 						},
-						authStorage: this.session.authStorage,
-						modelRegistry: this.session.modelRegistry,
-						settings: this.session.settings,
-						mcpManager,
-						contextFiles,
-						skills: availableSkills,
-						autoloadSkills: resolvedAutoloadSkills,
-						workspaceTree: this.session.workspaceTree,
-						promptTemplates,
-						localProtocolOptions,
-						parentArtifactManager,
-						parentHindsightSessionState: this.session.getHindsightSessionState?.(),
-						parentMnemopiSessionState: this.session.getMnemopiSessionState?.(),
-						parentTelemetry: this.session.getTelemetry?.(),
-						parentEvalSessionId,
-					});
+						agents,
+						task.assignment ?? "",
+					);
 				}
 
 				const taskStart = Date.now();
@@ -1117,51 +1121,55 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					isolationHandle = await ensureIsolation(repoRoot, task.id, preferredIsolationBackend);
 					const isolationDir = isolationHandle.mergedDir;
 
-					const result = await runSubprocess({
-						cwd: this.session.cwd,
-						worktree: isolationDir,
-						agent: effectiveAgentTask,
-						task: renderSubagentUserPrompt(task.assignment ?? ""),
-						assignment: (task.assignment ?? "").trim(),
-						context: sharedContext,
-						description: task.description ?? "",
-						index,
-						id: task.id,
-						taskDepth,
-						modelOverride,
-						parentActiveModelPattern,
-						thinkingLevel: thinkingLevelOverride,
-						outputSchema: effectiveOutputSchema,
-						sessionFile,
-						persistArtifacts: !!artifactsDir,
-						artifactsDir: effectiveArtifactsDir,
-						contextFile: contextFilePath,
-						enableLsp: subagentLspEnabled,
-						subagentCompileCheck: subagentCompileCheckEnabled,
-						signal,
-						eventBus: this.session.eventBus,
-						onProgress: progress => {
-							progressMap.set(index, {
-								...structuredClone(progress),
-							});
-							emitProgress();
+					const result = await runSubprocessWithQa(
+						{
+							cwd: this.session.cwd,
+							worktree: isolationDir,
+							agent: effectiveAgentTask,
+							task: renderSubagentUserPrompt(task.assignment ?? ""),
+							assignment: (task.assignment ?? "").trim(),
+							context: sharedContext,
+							description: task.description ?? "",
+							index,
+							id: task.id,
+							taskDepth,
+							modelOverride,
+							parentActiveModelPattern,
+							thinkingLevel: thinkingLevelOverride,
+							outputSchema: effectiveOutputSchema,
+							sessionFile,
+							persistArtifacts: !!artifactsDir,
+							artifactsDir: effectiveArtifactsDir,
+							contextFile: contextFilePath,
+							enableLsp: subagentLspEnabled,
+							subagentCompileCheck: subagentCompileCheckEnabled,
+							signal,
+							eventBus: this.session.eventBus,
+							onProgress: progress => {
+								progressMap.set(index, {
+									...structuredClone(progress),
+								});
+								emitProgress();
+							},
+							authStorage: this.session.authStorage,
+							modelRegistry: this.session.modelRegistry,
+							settings: this.session.settings,
+							mcpManager,
+							contextFiles,
+							skills: availableSkills,
+							autoloadSkills: resolvedAutoloadSkills,
+							workspaceTree: this.session.workspaceTree,
+							promptTemplates,
+							localProtocolOptions,
+							parentArtifactManager,
+							parentHindsightSessionState: this.session.getHindsightSessionState?.(),
+							parentMnemopiSessionState: this.session.getMnemopiSessionState?.(),
+							parentTelemetry: this.session.getTelemetry?.(),
+							parentEvalSessionId,
 						},
-						authStorage: this.session.authStorage,
-						modelRegistry: this.session.modelRegistry,
-						settings: this.session.settings,
-						mcpManager,
-						contextFiles,
-						skills: availableSkills,
-						autoloadSkills: resolvedAutoloadSkills,
-						workspaceTree: this.session.workspaceTree,
-						promptTemplates,
-						localProtocolOptions,
-						parentArtifactManager,
-						parentHindsightSessionState: this.session.getHindsightSessionState?.(),
-						parentMnemopiSessionState: this.session.getMnemopiSessionState?.(),
-						parentTelemetry: this.session.getTelemetry?.(),
-						parentEvalSessionId,
-					});
+						agents,
+						task.assignment ?? "",
+					);
 					if (mergeMode === "branch" && result.exitCode === 0) {
 						try {
 							const commitMsg =
