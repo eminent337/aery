@@ -289,11 +289,10 @@ fn git_apply_with_program(
 			.stdin
 			.take()
 			.ok_or_else(|| IsoError::other("git apply: child stdin was not piped".to_string()));
-		let result = stdin.and_then(|mut s| {
+		stdin.and_then(|mut s| {
 			s.write_all(patch)
 				.map_err(|err| IsoError::other(format!("write patch to git apply: {err}")))
-		});
-		result
+		})
 	};
 
 	let status = child
@@ -537,7 +536,8 @@ mod tests {
 		let fake_git = root.path().join("git");
 		fs::write(
 			&fake_git,
-			"#!/bin/sh\nprintf 'simulated apply failure\\n' >&2\nyes x | head -c 4194304 >&2\ncat >/dev/null\nexit 42\n",
+			"#!/bin/sh\nprintf 'simulated apply failure\\n' >&2\nyes x | head -c 4194304 >&2\ncat \
+			 >/dev/null\nexit 42\n",
 		)
 		.expect("write fake git");
 		fs::set_permissions(&fake_git, fs::Permissions::from_mode(0o755))
