@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { parseSwarmYaml } from "../../src/task/swarm/parser";
-import { topologicalSort } from "../../src/task/swarm/scheduler";
+import { SwarmScheduler, topologicalSort } from "../../src/task/swarm/scheduler";
 import type { SwarmTask } from "../../src/task/swarm/types";
 
 describe("Swarm Custom YAML Parser", () => {
@@ -43,5 +43,31 @@ describe("Swarm DAG Topological Sort", () => {
 			{ id: "taskB", agent: "task", assignment: "B", needs: ["taskA"] },
 		];
 		expect(() => topologicalSort(tasks)).toThrow("Circular dependency detected");
+	});
+});
+
+describe("SwarmScheduler States & Constructor", () => {
+	it("initializes states for all workflow tasks with pending status", () => {
+		const workflow = {
+			name: "Test",
+			tasks: [
+				{ id: "taskA", agent: "task", assignment: "A", maxRetries: 3 },
+				{ id: "taskB", agent: "task", assignment: "B", needs: ["taskA"] },
+			],
+		};
+		const scheduler = new SwarmScheduler(workflow);
+		expect(scheduler.taskStates.size).toBe(2);
+		expect(scheduler.taskStates.get("taskA")).toEqual({
+			id: "taskA",
+			status: "pending",
+			attempts: 0,
+			maxRetries: 3,
+		});
+		expect(scheduler.taskStates.get("taskB")).toEqual({
+			id: "taskB",
+			status: "pending",
+			attempts: 0,
+			maxRetries: 0,
+		});
 	});
 });
