@@ -46,6 +46,7 @@
     "@aryee337/aery-ai": "workspace:*",
     "@aryee337/aery-core": "workspace:*",
     "@aryee337/aery-engine": "workspace:*",
+    "@aryee337/aery-grpc-server": "workspace:*",
     "@aryee337/aery-mnemopi": "workspace:*",
     "@aryee337/aery-sdk": "workspace:*",
     "@aryee337/aery-stats": "workspace:*",

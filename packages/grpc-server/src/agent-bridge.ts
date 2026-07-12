@@ -1,4 +1,4 @@
-import { createAgentSession } from "@aryee337/aery/src/sdk";
+import { createAgentSession } from "@aryee337/aery/sdk";
 import { mapAgentEventToProto } from "./streaming";
 
 export class AgentBridge {
