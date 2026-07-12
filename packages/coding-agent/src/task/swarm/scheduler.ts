@@ -2,7 +2,7 @@ import { $ } from "bun";
 import { discoverAgents, getAgent } from "../discovery";
 import { runSubprocessWithQa } from "../executor";
 import { Semaphore } from "../parallel";
-import type { SwarmTask, SwarmWorkflow } from "./types";
+import type { SwarmTask, SwarmWorkflow, TaskState } from "./types";
 
 export function topologicalSort(tasks: SwarmTask[]): SwarmTask[] {
 	const graph = new Map<string, string[]>();
@@ -54,10 +54,19 @@ export class SwarmScheduler {
 	#workflow: SwarmWorkflow;
 	#sem: Semaphore;
 	#completedBranches = new Map<string, string>(); // taskId -> branchName
+	public taskStates = new Map<string, TaskState>();
 
 	constructor(workflow: SwarmWorkflow) {
 		this.#workflow = workflow;
 		this.#sem = new Semaphore(workflow.maxConcurrency ?? 3);
+		for (const t of workflow.tasks) {
+			this.taskStates.set(t.id, {
+				id: t.id,
+				status: "pending",
+				attempts: 0,
+				maxRetries: t.maxRetries ?? 0,
+			});
+		}
 	}
 
 	async execute(ctx: any): Promise<void> {
@@ -93,6 +102,11 @@ export class SwarmScheduler {
 			const task = tasksMap.get(taskId)!;
 			await this.#sem.acquire();
 			try {
+				const state = this.taskStates.get(taskId);
+				if (state) {
+					state.status = "running";
+					state.attempts++;
+				}
 				let parentBranch: string | undefined;
 
 				// Resolve baseline branch based on dependencies
@@ -144,6 +158,9 @@ export class SwarmScheduler {
 				}
 
 				this.#completedBranches.set(task.id, branchName);
+				if (state) {
+					state.status = "completed";
+				}
 
 				// Unblock downstream nodes
 				for (const neighbor of graph.get(task.id)!) {
@@ -152,6 +169,23 @@ export class SwarmScheduler {
 						void runNode(neighbor);
 					}
 				}
+			} catch (err) {
+				const state = this.taskStates.get(taskId);
+				if (state) {
+					state.status = "failed";
+					state.error = err instanceof Error ? err.message : String(err);
+				}
+				const markDownstreamBlocked = (failedId: string) => {
+					for (const neighbor of graph.get(failedId)!) {
+						const state = this.taskStates.get(neighbor);
+						if (state && state.status !== "blocked") {
+							state.status = "blocked";
+							markDownstreamBlocked(neighbor);
+						}
+					}
+				};
+				markDownstreamBlocked(taskId);
+				throw err;
 			} finally {
 				this.#sem.release();
 			}
