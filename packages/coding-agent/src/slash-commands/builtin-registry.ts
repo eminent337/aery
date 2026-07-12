@@ -123,6 +123,26 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "vim",
+		description: "Toggle Vim modal editing mode in the TUI",
+		handleTui: async (_command, runtime) => {
+			const { VimEditor } = await import("../modes/vim/vim-editor");
+			const isVim = runtime.ctx.editor instanceof VimEditor;
+			if (isVim) {
+				runtime.ctx.setEditorComponent(undefined);
+				runtime.ctx.showStatus("Vim mode disabled.");
+			} else {
+				runtime.ctx.setEditorComponent((_tui, theme) => {
+					const next = new VimEditor(theme);
+					next.setVimEnabled(true);
+					return next;
+				});
+				runtime.ctx.showStatus("Vim mode enabled.");
+			}
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
 		name: "plan",
 		description: "Toggle plan mode (agent plans before executing)",
 		inlineHint: "[prompt]",
