@@ -103,63 +103,89 @@ export class SwarmScheduler {
 			await this.#sem.acquire();
 			try {
 				const state = this.taskStates.get(taskId);
-				if (state) {
-					state.status = "running";
-					state.attempts++;
-				}
-				let parentBranch: string | undefined;
+				const maxAttempts = (task.maxRetries ?? 0) + 1;
+				let success = false;
+				let lastError: Error | undefined;
 
-				// Resolve baseline branch based on dependencies
-				if (task.needs && task.needs.length > 0) {
-					if (task.needs.length === 1) {
-						parentBranch = this.#completedBranches.get(task.needs[0]);
-					} else {
-						// Merge multiple parent branches
-						parentBranch = `aery/task/merged-${task.id}`;
-						const firstParent = this.#completedBranches.get(task.needs[0])!;
-						await $`git -C ${repoRoot} branch ${parentBranch} ${firstParent}`.quiet();
-						for (let i = 1; i < task.needs.length; i++) {
-							const otherParent = this.#completedBranches.get(task.needs[i])!;
-							await $`git -C ${repoRoot} merge ${otherParent} --no-edit`.quiet();
+				for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+					if (state) {
+						state.status = attempt > 1 ? "retrying" : "running";
+						state.attempts = attempt;
+					}
+
+					try {
+						const branchName = `aery/task/${task.id}`;
+						const worktreePath = `${repoRoot}/.aery/worktrees/${task.id}`;
+						if (attempt > 1) {
+							// Clean up previous attempt files to start fresh
+							await $`git -C ${repoRoot} worktree remove --force ${worktreePath}`.quiet().catch(() => {});
+							await $`git -C ${repoRoot} branch -D ${branchName}`.quiet().catch(() => {});
+
+							// Exponential backoff delay
+							const delay = (task.retryDelay ?? 1000) * Math.pow(2, attempt - 2);
+							await Bun.sleep(delay);
 						}
+
+						let parentBranch: string | undefined;
+
+						// Resolve baseline branch based on dependencies
+						if (task.needs && task.needs.length > 0) {
+							if (task.needs.length === 1) {
+								parentBranch = this.#completedBranches.get(task.needs[0]);
+							} else {
+								// Merge multiple parent branches
+								parentBranch = `aery/task/merged-${task.id}`;
+								const firstParent = this.#completedBranches.get(task.needs[0])!;
+								await $`git -C ${repoRoot} branch -D ${parentBranch}`.quiet().catch(() => {});
+								await $`git -C ${repoRoot} branch ${parentBranch} ${firstParent}`.quiet();
+								for (let i = 1; i < task.needs.length; i++) {
+									const otherParent = this.#completedBranches.get(task.needs[i])!;
+									await $`git -C ${repoRoot} merge ${otherParent} --no-edit`.quiet();
+								}
+							}
+						}
+
+						const startPoint = parentBranch ?? "main";
+						await $`git -C ${repoRoot} branch ${branchName} ${startPoint}`.quiet();
+
+						if (parentBranch) {
+							await $`git -C ${repoRoot} worktree add ${worktreePath} ${branchName}`.quiet();
+						}
+
+						// Resolve agent definition
+						const { agents } = await discoverAgents(repoRoot);
+						const agentDef = getAgent(agents, task.agent) ?? getAgent(agents, "task")!;
+
+						const executorOpts = {
+							cwd: repoRoot,
+							agent: agentDef,
+							task: task.assignment,
+							assignment: task.assignment,
+							index: 0,
+							id: task.id,
+							worktree: parentBranch ? worktreePath : undefined,
+							settings,
+							modelRegistry,
+						};
+
+						const result = await runSubprocessWithQa(executorOpts as any, agents, task.assignment);
+						if (result.exitCode !== 0 || result.aborted) {
+							throw new Error(`Task ${task.id} failed.`);
+						}
+
+						this.#completedBranches.set(task.id, branchName);
+						if (state) {
+							state.status = "completed";
+						}
+						success = true;
+						break;
+					} catch (err) {
+						lastError = err instanceof Error ? err : new Error(String(err));
 					}
 				}
 
-				// Create isolated worktree branch
-				const branchName = `aery/task/${task.id}`;
-				const startPoint = parentBranch ?? "main";
-				await $`git -C ${repoRoot} branch ${branchName} ${startPoint}`.quiet();
-
-				// Setup isolated worktree directory
-				const worktreePath = `${repoRoot}/.aery/worktrees/${task.id}`;
-				if (parentBranch) {
-					await $`git -C ${repoRoot} worktree add ${worktreePath} ${branchName}`.quiet();
-				}
-
-				// Resolve agent definition
-				const { agents } = await discoverAgents(repoRoot);
-				const agentDef = getAgent(agents, task.agent) ?? getAgent(agents, "task")!;
-
-				const executorOpts = {
-					cwd: repoRoot,
-					agent: agentDef,
-					task: task.assignment,
-					assignment: task.assignment,
-					index: 0,
-					id: task.id,
-					worktree: parentBranch ? worktreePath : undefined,
-					settings,
-					modelRegistry,
-				};
-
-				const result = await runSubprocessWithQa(executorOpts as any, agents, task.assignment);
-				if (result.exitCode !== 0 || result.aborted) {
-					throw new Error(`Task ${task.id} failed.`);
-				}
-
-				this.#completedBranches.set(task.id, branchName);
-				if (state) {
-					state.status = "completed";
+				if (!success) {
+					throw lastError ?? new Error(`Task ${task.id} failed after ${maxAttempts} attempts.`);
 				}
 
 				// Unblock downstream nodes
@@ -185,7 +211,6 @@ export class SwarmScheduler {
 					}
 				};
 				markDownstreamBlocked(taskId);
-				throw err;
 			} finally {
 				this.#sem.release();
 			}
