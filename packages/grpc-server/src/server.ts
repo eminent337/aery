@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import { AgentBridge } from "./agent-bridge";
 import { SessionManager } from "./session-manager";
 
 const PROTO_PATH = path.join(__dirname, "../proto/aery.proto");
@@ -19,6 +20,7 @@ const aeryProto = protoDescriptor.aery;
 export class GrpcServer {
 	#server: grpc.Server;
 	#sessionManager: SessionManager;
+	#agentBridge = new AgentBridge();
 	#port: number;
 	#host: string;
 
@@ -102,14 +104,6 @@ export class GrpcServer {
 	}
 
 	sendMessage(call: any): void {
-		call.on("data", (msg: any) => {
-			call.write({
-				session_id: msg.session_id,
-				text_chunk: { text: `Echo: ${msg.text?.content || ""}`, is_final: true },
-			});
-		});
-		call.on("end", () => {
-			call.end();
-		});
+		void this.#agentBridge.handleStream(call);
 	}
 }
