@@ -53,6 +53,8 @@ export type { BuiltinSlashCommand, SubcommandDef };
 /** TUI-specific runtime accepted by `executeBuiltinSlashCommand`. */
 export type BuiltinSlashCommandRuntime = TuiSlashCommandRuntime;
 
+let activeSwarmScheduler: any = null;
+
 function refreshStatusLine(ctx: InteractiveModeContext): void {
 	ctx.statusLine.invalidate();
 	ctx.updateEditorTopBorder();
@@ -113,11 +115,39 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				const workflow = parseSwarmYaml(content);
 				runtime.ctx.showStatus(`Starting swarm workflow: ${workflow.name}`);
 				const scheduler = new SwarmScheduler(workflow);
-				await scheduler.execute(runtime.ctx);
-				runtime.ctx.showStatus(`Swarm workflow completed: ${workflow.name}`);
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				runtime.ctx.showStatus(`Swarm execution failed: ${msg}`);
+				activeSwarmScheduler = scheduler;
+				void scheduler
+					.execute(runtime.ctx)
+					.then(() => {
+						runtime.ctx.showStatus(`Swarm workflow completed: ${workflow.name}`);
+					})
+					.catch(err => {
+						runtime.ctx.showStatus(`Swarm workflow failed: ${err.message}`);
+					})
+					.finally(() => {
+						if (activeSwarmScheduler === scheduler) {
+							activeSwarmScheduler = null;
+						}
+					});
+			} catch (error) {
+				runtime.ctx.showStatus(`Failed to start swarm workflow: ${(error as Error).message}`);
+			}
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
+		name: "coordinator",
+		description: "Display the active Swarm workflow coordinator dashboard",
+		handleTui: async (_command, runtime) => {
+			if (!activeSwarmScheduler) {
+				runtime.ctx.showStatus("No active swarm workflow is running.");
+			} else {
+				const { formatCoordinatorDashboard } = await import("../task/swarm/coordinator");
+				const lines = formatCoordinatorDashboard(activeSwarmScheduler.taskStates);
+				const { Text, Spacer } = await import("@aryee337/aery-tui");
+				runtime.ctx.chatContainer.addChild(new Spacer(1));
+				runtime.ctx.chatContainer.addChild(new Text(lines.join("\n"), 1, 0));
+				runtime.ctx.ui.requestRender();
 			}
 			runtime.ctx.editor.setText("");
 		},
