@@ -1,0 +1,128 @@
+syntax = "proto3";
+package aery;
+
+service AeryAgent {
+  rpc SendMessage (stream ClientMessage) returns (stream ServerMessage);
+  rpc CreateSession (CreateSessionRequest) returns (CreateSessionResponse);
+  rpc ListSessions (ListSessionsRequest) returns (ListSessionsResponse);
+  rpc GetSessionInfo (GetSessionInfoRequest) returns (SessionInfo);
+  rpc CancelRequest (CancelRequest) returns (CancelResponse);
+  rpc Ping (PingRequest) returns (PingResponse);
+}
+
+message ClientMessage {
+  string session_id = 1;
+  oneof payload {
+    TextMessage text = 2;
+    ToolResultMessage tool_result = 3;
+    PermissionResponse permission = 4;
+  }
+}
+
+message TextMessage {
+  string content = 1;
+  repeated string image_paths = 2;
+}
+
+message ToolResultMessage {
+  string tool_call_id = 1;
+  bool approved = 2;
+  string feedback = 3;
+}
+
+message PermissionResponse {
+  string tool_call_id = 1;
+  bool approved = 2;
+  string reason = 3;
+}
+
+message ServerMessage {
+  string session_id = 1;
+  oneof payload {
+    TextChunk text_chunk = 2;
+    ToolCallMessage tool_call = 3;
+    ToolResultMessage tool_result = 4;
+    StatusMessage status = 5;
+    DoneMessage done = 6;
+    ErrorMessage error = 7;
+    PermissionRequest permission_request = 8;
+  }
+}
+
+message TextChunk {
+  string text = 1;
+  bool is_final = 2;
+}
+
+message ToolCallMessage {
+  string tool_call_id = 1;
+  string tool_name = 2;
+  string arguments_json = 3;
+}
+
+message PermissionRequest {
+  string tool_call_id = 1;
+  string tool_name = 2;
+  string description = 3;
+  string arguments_summary = 4;
+}
+
+message StatusMessage {
+  string model = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  string phase = 4;
+}
+
+message DoneMessage {
+  int64 total_input_tokens = 1;
+  int64 total_output_tokens = 2;
+  string session_id = 3;
+}
+
+message ErrorMessage {
+  string code = 1;
+  string message = 2;
+  bool recoverable = 3;
+}
+
+message CreateSessionRequest {
+  string system_prompt = 1;
+  string model = 2;
+  string cwd = 3;
+  map<string, string> env = 4;
+}
+
+message CreateSessionResponse {
+  string session_id = 1;
+}
+
+message ListSessionsRequest {}
+message ListSessionsResponse {
+  repeated SessionInfo sessions = 1;
+}
+
+message SessionInfo {
+  string session_id = 1;
+  string model = 2;
+  int64 created_at = 3;
+  int64 message_count = 4;
+}
+
+message GetSessionInfoRequest {
+  string session_id = 1;
+}
+
+message CancelRequest {
+  string session_id = 1;
+}
+
+message CancelResponse {
+  bool success = 1;
+}
+
+message PingRequest {}
+message PingResponse {
+  string version = 1;
+  int64 uptime_ms = 2;
+}
