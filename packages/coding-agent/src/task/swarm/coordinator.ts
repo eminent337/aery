@@ -37,7 +37,9 @@ export function formatCoordinatorDashboard(taskStates: Map<string, TaskState>): 
 
 		const attemptInfo = state.attempts > 0 ? ` (${state.attempts} attempt${state.attempts > 1 ? "s" : ""})` : "";
 		const errorInfo = state.error ? ` - Error: ${state.error}` : "";
-		const taskLine = `│ ${state.id.padEnd(12)} ${statusColor(statusGlyph).padEnd(25)} ${attemptInfo}${errorInfo}`;
+		const paddedStatus = statusGlyph.padEnd(15);
+		const coloredStatus = statusColor(paddedStatus);
+		const taskLine = `│ ${state.id.padEnd(15)} ${coloredStatus} ${attemptInfo}${errorInfo}`;
 		lines.push(taskLine);
 	}
 

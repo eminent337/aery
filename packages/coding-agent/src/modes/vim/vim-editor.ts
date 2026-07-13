@@ -1,4 +1,5 @@
 import { CustomEditor } from "../components/custom-editor";
+import { highlightMagicKeywords } from "../magic-keywords";
 import { handleColonCommand } from "./colon";
 import { handleInsertMode } from "./modes/insert";
 import { handleNormalMode } from "./modes/normal";
@@ -30,6 +31,60 @@ export class VimEditor extends CustomEditor {
 			this.setPromptGutter("> ");
 		}
 	}
+
+	override decorateText = (text: string, lineIndex = 0, colOffset = 0): string => {
+		if (this.#active && this.#vimState.mode.startsWith("visual")) {
+			const startLine = this.#visualAnchor.startLine;
+			const startCol = this.#visualAnchor.startCol;
+			const endLine = this.getCursor().line;
+			const endCol = this.getCursor().col;
+
+			// Normalize bounds
+			let sL = startLine;
+			let sC = startCol;
+			let eL = endLine;
+			let eC = endCol;
+			if (sL > eL || (sL === eL && sC > eC)) {
+				sL = endLine;
+				sC = endCol;
+				eL = startLine;
+				eC = startCol;
+			}
+
+			const isVisualLine = this.#vimState.mode === "visual-line";
+			let highlighted = "";
+			const chars = [...text];
+
+			for (let idx = 0; idx < chars.length; idx++) {
+				const char = chars[idx];
+				const col = colOffset + idx;
+				let isSelected = false;
+
+				if (isVisualLine) {
+					isSelected = lineIndex >= sL && lineIndex <= eL;
+				} else {
+					if (lineIndex > sL && lineIndex < eL) {
+						isSelected = true;
+					} else if (lineIndex === sL && lineIndex === eL) {
+						isSelected = col >= sC && col <= eC;
+					} else if (lineIndex === sL && lineIndex < eL) {
+						isSelected = col >= sC;
+					} else if (lineIndex === eL && lineIndex > sL) {
+						isSelected = col <= eC;
+					}
+				}
+
+				if (isSelected) {
+					highlighted += `\x1b[7m${char}\x1b[27m`;
+				} else {
+					highlighted += char;
+				}
+			}
+			return highlighted;
+		}
+
+		return highlightMagicKeywords(text);
+	};
 
 	override handleInput(data: string): void {
 		if (!this.#active) {

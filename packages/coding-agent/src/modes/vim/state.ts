@@ -3,6 +3,7 @@ import type { VimMode, VimRegister } from "./types";
 export class VimState {
 	mode: VimMode = "normal";
 	count: number | null = null;
+	pendingKey = "";
 	registers = new Map<string, VimRegister>();
 	unnamedRegister: VimRegister = { name: '"', content: "", type: "char" };
 	searchPattern = "";

@@ -290,6 +290,8 @@ interface LayoutLine {
 	text: string;
 	hasCursor: boolean;
 	cursorPos?: number;
+	lineIndex?: number;
+	startIndex?: number;
 }
 
 export interface EditorTheme {
@@ -339,7 +341,7 @@ export class Editor implements Component, Focusable {
 	/** Optional hook that styles displayed input text with zero-width ANSI escapes.
 	 *  MUST preserve visible width (may only add SGR codes, never glyphs). Applied per
 	 *  layout line to the user-text segments — never to the cursor glyph or inline hint. */
-	decorateText: ((text: string) => string) | undefined;
+	decorateText: ((text: string, lineIndex: number, colOffset: number) => string) | undefined;
 	#promptGutter: string | undefined;
 
 	// Store last layout width for cursor navigation
@@ -598,11 +600,9 @@ export class Editor implements Component, Focusable {
 		return Math.max(1, this.#maxHeight - verticalChrome);
 	}
 
-	/** Apply the optional input decorator to a plain (ANSI-free) text segment.
-	 *  Decoration only adds zero-width SGR codes, so visible width is unchanged. */
-	#decorate(text: string): string {
+	#decorate(text: string, lineIndex?: number, colOffset?: number): string {
 		const decorate = this.decorateText;
-		return decorate !== undefined && text.length > 0 ? decorate(text) : text;
+		return decorate !== undefined && text.length > 0 ? decorate(text, lineIndex ?? 0, colOffset ?? 0) : text;
 	}
 
 	#getStyledInputCursor(): { text: string; width: number } {
@@ -834,10 +834,13 @@ export class Editor implements Component, Focusable {
 					const firstGrapheme = afterGraphemes[0]?.segment || "";
 					const restAfter = after.slice(firstGrapheme.length);
 					const cursor = `\x1b[7m${firstGrapheme}\x1b[0m`;
-					// Decorate the plain text on each side of the cursor glyph. The reverse-video
-					// reset (\x1b[0m) ends in "m" (a word char), so a boundary match on restAfter
-					// would fail in the whole-line fallback below — decorate the segments here.
-					displayText = this.#decorate(before) + marker + cursor + this.#decorate(restAfter);
+					const beforeDecorated = this.#decorate(before, layoutLine.lineIndex, layoutLine.startIndex);
+					const restAfterDecorated = this.#decorate(
+						restAfter,
+						layoutLine.lineIndex,
+						(layoutLine.startIndex ?? 0) + before.length + firstGrapheme.length,
+					);
+					displayText = beforeDecorated + marker + cursor + restAfterDecorated;
 					decorated = true;
 					// displayWidth stays the same - we're replacing, not adding
 				} else if (this.cursorOverride) {
@@ -889,7 +892,7 @@ export class Editor implements Component, Focusable {
 			// whole line. CURSOR_MARKER and cursor glyphs begin with ESC, so word boundaries
 			// around a decorated keyword stay intact when matched against the assembled line.
 			if (!decorated) {
-				displayText = this.#decorate(displayText);
+				displayText = this.#decorate(displayText, layoutLine.lineIndex, layoutLine.startIndex);
 			}
 
 			const linePad = padding(Math.max(0, lineContentWidth - displayWidth));

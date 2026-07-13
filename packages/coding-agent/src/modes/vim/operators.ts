@@ -101,3 +101,24 @@ export function pasteText(buf: EditorBuffer, state: VimState, after = true): Edi
 
 	return { lines, cursorLine, cursorCol };
 }
+
+export function deleteLine(buf: EditorBuffer, lineIdx: number, state: VimState): EditorBuffer {
+	const lines = [...buf.lines];
+	const lineText = lines[lineIdx] ?? "";
+	state.setYanked(lineText, "line");
+
+	if (lines.length <= 1) {
+		return { lines: [""], cursorLine: 0, cursorCol: 0 };
+	}
+
+	lines.splice(lineIdx, 1);
+	const cursorLine = Math.min(lines.length - 1, lineIdx);
+	const cursorCol = 0;
+	return { lines, cursorLine, cursorCol };
+}
+
+export function yankLine(buf: EditorBuffer, lineIdx: number, state: VimState): EditorBuffer {
+	const lineText = buf.lines[lineIdx] ?? "";
+	state.setYanked(lineText, "line");
+	return buf;
+}

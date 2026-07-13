@@ -27,14 +27,34 @@ export function handleVisualMode(
 
 	// Yank selection
 	if (key === "y") {
-		yankText(buf, anchor.startLine, anchor.startCol, buf.cursorLine, buf.cursorCol, state);
+		if (state.mode === "visual-line") {
+			const start = Math.min(anchor.startLine, buf.cursorLine);
+			const end = Math.max(anchor.startLine, buf.cursorLine);
+			const yankedLines = buf.lines.slice(start, end + 1).join("\n");
+			state.setYanked(yankedLines, "line");
+		} else {
+			yankText(buf, anchor.startLine, anchor.startCol, buf.cursorLine, buf.cursorCol, state);
+		}
 		return { buffer: buf, transitionMode: "normal" };
 	}
 
 	// Delete selection
 	if (key === "d" || key === "x") {
-		const { buffer } = deleteText(buf, anchor.startLine, anchor.startCol, buf.cursorLine, buf.cursorCol, state);
-		return { buffer, transitionMode: "normal" };
+		if (state.mode === "visual-line") {
+			const start = Math.min(anchor.startLine, buf.cursorLine);
+			const end = Math.max(anchor.startLine, buf.cursorLine);
+			const yankedLines = buf.lines.slice(start, end + 1).join("\n");
+			state.setYanked(yankedLines, "line");
+
+			const lines = [...buf.lines];
+			lines.splice(start, end - start + 1);
+			if (lines.length === 0) lines.push("");
+			const cursorLine = Math.min(lines.length - 1, start);
+			return { buffer: { lines, cursorLine, cursorCol: 0 }, transitionMode: "normal" };
+		} else {
+			const { buffer } = deleteText(buf, anchor.startLine, anchor.startCol, buf.cursorLine, buf.cursorCol, state);
+			return { buffer, transitionMode: "normal" };
+		}
 	}
 
 	return { buffer: buf, anchor };

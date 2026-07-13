@@ -54,7 +54,7 @@ export class CustomEditor extends Editor {
 
 	/** Gradient-highlight the "ultrathink" / "orchestrate" / "workflow" keywords as the user types
 	 *  them, skipping any occurrence inside code spans, fenced blocks, or XML sections. */
-	decorateText = (text: string): string => highlightMagicKeywords(text);
+	decorateText = (text: string, lineIndex?: number, colOffset?: number): string => highlightMagicKeywords(text);
 	onEscape?: () => void;
 	onClear?: () => void;
 	onExit?: () => void;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { handleNormalMode } from "../../src/modes/vim/modes/normal";
 import { moveDown, moveLeft, moveRight, moveUp } from "../../src/modes/vim/motions";
 import { deleteText, pasteText, yankText } from "../../src/modes/vim/operators";
 import { executeSearch } from "../../src/modes/vim/search";
@@ -67,5 +68,48 @@ describe("Vim Search", () => {
 
 		expect(newBuf.cursorLine).toBe(0);
 		expect(newBuf.cursorCol).toBe(0);
+	});
+});
+
+describe("Vim Double Keys & Operator Motions", () => {
+	it("handles gg to move to top of file", () => {
+		const state = new VimState();
+		const buf = { lines: ["line1", "line2", "line3"], cursorLine: 2, cursorCol: 0 };
+
+		// First 'g'
+		let res = handleNormalMode(buf, "g", state);
+		expect(state.pendingKey).toBe("g");
+
+		// Second 'g'
+		res = handleNormalMode(res.buffer, "g", state);
+		expect(state.pendingKey).toBe("");
+		expect(res.buffer.cursorLine).toBe(0);
+	});
+
+	it("handles dd to delete current line", () => {
+		const state = new VimState();
+		const buf = { lines: ["line1", "line2", "line3"], cursorLine: 1, cursorCol: 0 };
+
+		let res = handleNormalMode(buf, "d", state);
+		expect(state.pendingKey).toBe("d");
+
+		res = handleNormalMode(res.buffer, "d", state);
+		expect(state.pendingKey).toBe("");
+		expect(res.buffer.lines).toEqual(["line1", "line3"]);
+		expect(state.getYanked().content).toBe("line2");
+		expect(state.getYanked().type).toBe("line");
+	});
+
+	it("handles dw to delete word", () => {
+		const state = new VimState();
+		const buf = { lines: ["hello world test"], cursorLine: 0, cursorCol: 0 };
+
+		let res = handleNormalMode(buf, "d", state);
+		expect(state.pendingKey).toBe("d");
+
+		res = handleNormalMode(res.buffer, "w", state);
+		expect(state.pendingKey).toBe("");
+		expect(res.buffer.lines[0]).toBe("world test");
+		expect(state.getYanked().content).toBe("hello ");
 	});
 });
