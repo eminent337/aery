@@ -1431,6 +1431,18 @@ export class Editor implements Component, Focusable {
 		return { line: this.#state.cursorLine, col: this.#state.cursorCol };
 	}
 
+	setCursorPosition(line: number, col: number): void {
+		this.#state.cursorLine = Math.min(this.#state.lines.length - 1, Math.max(0, line));
+		this.#setCursorCol(Math.min(this.#state.lines[this.#state.cursorLine]?.length ?? 0, Math.max(0, col)));
+	}
+
+	setLines(lines: string[]): void {
+		this.#state.lines = [...lines];
+		if (this.onChange) {
+			this.onChange(this.getText());
+		}
+	}
+
 	moveToLineStart(): void {
 		this.#moveToLineStart();
 	}
