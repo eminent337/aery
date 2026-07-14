@@ -238,6 +238,11 @@ export interface ToolSession {
 	getSelectedDiscoveredToolNames?: () => string[];
 	/** Merge tool selections into the active session tool set. */
 	activateDiscoveredTools?: (toolNames: string[]) => Promise<string[]>;
+	/** Send a custom message into the session's conversation (e.g. a steer message from a tool). */
+	sendCustomMessage?: <T = unknown>(
+		message: { customType: string; content: unknown; display?: boolean; attribution?: string },
+		options?: { deliverAs?: "steer" | "followUp" | "nextTurn"; triggerTurn?: boolean },
+	) => Promise<void>;
 	/** The tool-choice queue used to force forthcoming tool invocations and carry invocation handlers. */
 	getToolChoiceQueue?(): ToolChoiceQueue;
 	/** Build a model-provider-specific ToolChoice that targets the named tool, or undefined if unsupported. */

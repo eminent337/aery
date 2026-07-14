@@ -393,8 +393,8 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 				"(3) If a single operation genuinely needs more time, increase the timeout — but do not " +
 				"repeatedly increase it without changing approach.";
 			if ("sendCustomMessage" in this.session) {
-				void (this.session as any)
-					.sendCustomMessage(
+				void this.session
+					.sendCustomMessage?.(
 						{
 							customType: "assistant-message",
 							content: steerMessage,
