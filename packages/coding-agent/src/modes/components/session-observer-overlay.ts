@@ -97,7 +97,6 @@ export class SessionObserverOverlayComponent extends Container {
 
 	// Cached header/footer for viewer (rebuilt on refresh)
 	#viewerHeaderLines: string[] = [];
-	#viewerFooterLines: string[] = [];
 	// Markdown rendering
 	#mdTheme: MarkdownTheme = getMarkdownTheme();
 
@@ -351,7 +350,6 @@ export class SessionObserverOverlayComponent extends Container {
 		this.#renderedLines = contentLines;
 
 		// Footer
-		this.#viewerFooterLines = [];
 
 		// Auto-scroll to bottom if we were at bottom
 		if (this.#wasAtBottom) {

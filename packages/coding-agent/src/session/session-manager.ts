@@ -77,6 +77,13 @@ export interface NewSessionOptions {
 	parentSession?: string;
 	/** Skip flushing the current session and delete it instead of saving. */
 	drop?: boolean;
+	sessionFile?: string;
+	suppressBreadcrumb?: boolean;
+}
+
+export interface ForkFromOptions {
+	sessionFile?: string;
+	suppressBreadcrumb?: boolean;
 }
 
 export interface SessionEntryBase {
@@ -2287,9 +2294,15 @@ export class SessionManager {
 		this.#inMemoryArtifactCounter = 0;
 
 		if (this.persist) {
-			const fileTimestamp = timestamp.replace(/[:.]/g, "-");
-			this.#sessionFile = path.join(this.getSessionDir(), `${fileTimestamp}_${this.#sessionId}.jsonl`);
-			writeTerminalBreadcrumb(this.cwd, this.#sessionFile);
+			if (options?.sessionFile) {
+				this.#sessionFile = path.resolve(options.sessionFile);
+			} else {
+				const fileTimestamp = timestamp.replace(/[:.]/g, "-");
+				this.#sessionFile = path.join(this.getSessionDir(), `${fileTimestamp}_${this.#sessionId}.jsonl`);
+			}
+			if (!options?.suppressBreadcrumb) {
+				writeTerminalBreadcrumb(this.cwd, this.#sessionFile);
+			}
 		}
 		return this.#sessionFile;
 	}
@@ -3569,6 +3582,7 @@ export class SessionManager {
 		cwd: string,
 		sessionDir?: string,
 		storage: SessionStorage = new FileSessionStorage(),
+		options?: ForkFromOptions,
 	): Promise<SessionManager> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const manager = new SessionManager(cwd, dir, true, storage);
@@ -3577,7 +3591,11 @@ export class SessionManager {
 		await resolveBlobRefsInEntries(forkEntries, manager.#blobStore);
 		const sourceHeader = forkEntries.find(e => e.type === "session") as SessionHeader | undefined;
 		const historyEntries = forkEntries.filter(entry => entry.type !== "session") as SessionEntry[];
-		manager.#newSessionSync({ parentSession: sourceHeader?.id });
+		manager.#newSessionSync({
+			parentSession: sourceHeader?.id,
+			sessionFile: options?.sessionFile,
+			suppressBreadcrumb: options?.suppressBreadcrumb,
+		});
 		const newHeader = manager.#fileEntries[0] as SessionHeader;
 		newHeader.title = sourceHeader?.title;
 		newHeader.titleSource = sourceHeader?.titleSource;

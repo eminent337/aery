@@ -111,6 +111,7 @@ import { MCPCommandController } from "./controllers/mcp-command-controller";
 import { OmfgController } from "./controllers/omfg-controller";
 import { SelectorController } from "./controllers/selector-controller";
 import { SSHCommandController } from "./controllers/ssh-command-controller";
+import { TanCommandController } from "./controllers/tan-command-controller";
 import { TodoCommandController } from "./controllers/todo-command-controller";
 import {
 	consumeLoopLimitIteration,
@@ -344,6 +345,7 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	readonly #btwController: BtwController;
 	readonly #omfgController: OmfgController;
+	readonly #tanController: TanCommandController;
 	readonly #commandController: CommandController;
 	readonly #todoCommandController: TodoCommandController;
 	readonly #eventController: EventController;
@@ -443,6 +445,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#uiHelpers = new UiHelpers(this);
 		this.#btwController = new BtwController(this);
 		this.#omfgController = new OmfgController(this);
+		this.#tanController = new TanCommandController(this);
 		this.#extensionUiController = new ExtensionUiController(this);
 		this.#eventController = new EventController(this);
 		this.#commandController = new CommandController(this);
@@ -2944,6 +2947,10 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	handleBtwEscape(): boolean {
 		return this.#btwController.handleEscape();
+	}
+
+	handleTanCommand(work: string): Promise<void> {
+		return this.#tanController.start(work);
 	}
 
 	handleOmfgCommand(complaint: string): Promise<void> {

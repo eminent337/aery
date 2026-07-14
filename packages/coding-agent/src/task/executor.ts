@@ -486,7 +486,7 @@ function getUsageTokens(usage: unknown): number {
 /**
  * Create proxy tools that reuse the parent's MCP connections.
  */
-function createMCPProxyTools(mcpManager: MCPManager): CustomTool[] {
+export function createMCPProxyTools(mcpManager: MCPManager): CustomTool[] {
 	return mcpManager.getTools().map(tool => {
 		const mcpTool = tool as { mcpToolName?: string; mcpServerName?: string };
 		return {
@@ -536,7 +536,7 @@ function createMCPProxyTools(mcpManager: MCPManager): CustomTool[] {
 	});
 }
 
-function createSubagentSettings(baseSettings: Settings): Settings {
+export function createSubagentSettings(baseSettings: Settings): Settings {
 	const snapshot: Partial<Record<SettingPath, unknown>> = {};
 	for (const key of Object.keys(SETTINGS_SCHEMA) as SettingPath[]) {
 		snapshot[key] = baseSettings.get(key);
@@ -1344,9 +1344,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 							ircSelfId: ircEnabled ? id : "",
 							toolGuidance: toolNames ? buildToolGuidance(toolNames) : "",
 						});
-						return defaultPrompt.length === 0
-							? [subagentPrompt]
-							: [...defaultPrompt.slice(0, -1), subagentPrompt, defaultPrompt[defaultPrompt.length - 1]];
+						return [subagentPrompt];
 					},
 					sessionManager,
 					hasUI: false,
@@ -1410,9 +1408,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 								ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
 								ircSelfId: ircEnabled ? id : "",
 							});
-							return defaultPrompt.length === 0
-								? [subagentPrompt]
-								: [...defaultPrompt.slice(0, -1), subagentPrompt, defaultPrompt[defaultPrompt.length - 1]];
+							return [subagentPrompt];
 						},
 						sessionManager: reopened,
 						hasUI: false,

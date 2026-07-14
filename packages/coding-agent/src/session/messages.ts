@@ -32,6 +32,15 @@ import type { OutputMeta } from "../tools/output-meta";
 import { formatOutputNotice } from "../tools/output-meta";
 
 export const SKILL_PROMPT_MESSAGE_TYPE = "skill-prompt";
+export const BACKGROUND_TAN_DISPATCH_MESSAGE_TYPE = "background-tan-dispatch";
+
+/** Details persisted on a `/tan` background-dispatch breadcrumb. */
+export interface BackgroundTanDispatchDetails {
+	jobId: string;
+	work: string;
+	/** Forked clone session file, named `<agentId>.jsonl`; the Agent Hub reads its transcript. */
+	sessionFile: string;
+}
 
 export interface SkillPromptDetails {
 	name: string;

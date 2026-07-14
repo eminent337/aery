@@ -6,6 +6,7 @@ import { settings } from "../../config/settings";
 import { getFileSnapshotStore } from "../../edit/file-snapshot-store";
 import { createAdvisorMessageCard } from "../../modes/components/advisor-message";
 import { AssistantMessageComponent } from "../../modes/components/assistant-message";
+import { BackgroundTanMessageComponent } from "../../modes/components/background-tan-message";
 import { BashExecutionComponent } from "../../modes/components/bash-execution";
 import { BranchSummaryMessageComponent } from "../../modes/components/branch-summary-message";
 import { CompactionSummaryMessageComponent } from "../../modes/components/compaction-summary-message";
@@ -23,6 +24,8 @@ import { UserMessageComponent } from "../../modes/components/user-message";
 import { theme } from "../../modes/theme/theme";
 import type { CompactionQueuedMessage, InteractiveModeContext } from "../../modes/types";
 import {
+	BACKGROUND_TAN_DISPATCH_MESSAGE_TYPE,
+	type BackgroundTanDispatchDetails,
 	type CustomMessage,
 	isSilentAbort,
 	SKILL_PROMPT_MESSAGE_TYPE,
@@ -157,6 +160,14 @@ export class UiHelpers {
 					}
 					if (message.customType === SKILL_PROMPT_MESSAGE_TYPE) {
 						const component = new SkillMessageComponent(message as CustomMessage<SkillPromptDetails>);
+						component.setExpanded(this.ctx.toolOutputExpanded);
+						this.ctx.chatContainer.addChild(component);
+						break;
+					}
+					if (message.customType === BACKGROUND_TAN_DISPATCH_MESSAGE_TYPE) {
+						const component = new BackgroundTanMessageComponent(
+							message as CustomMessage<BackgroundTanDispatchDetails>,
+						);
 						component.setExpanded(this.ctx.toolOutputExpanded);
 						this.ctx.chatContainer.addChild(component);
 						break;

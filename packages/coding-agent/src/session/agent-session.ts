@@ -3193,6 +3193,10 @@ export class AgentSession {
 		return this.agent.serviceTier;
 	}
 
+	getAgentId(): string | undefined {
+		return this.#agentId;
+	}
+
 	/** Whether agent is currently streaming a response */
 	get isStreaming(): boolean {
 		return this.agent.state.isStreaming || this.#promptInFlightCount > 0;

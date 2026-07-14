@@ -122,7 +122,7 @@ export class SwarmScheduler {
 							await $`git -C ${repoRoot} branch -D ${branchName}`.quiet().catch(() => {});
 
 							// Exponential backoff delay
-							const delay = (task.retryDelay ?? 1000) * Math.pow(2, attempt - 2);
+							const delay = (task.retryDelay ?? 1000) * 2 ** (attempt - 2);
 							await Bun.sleep(delay);
 						}
 

@@ -385,6 +385,28 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 			throw new ToolError(normalizeResultOutput(result) || "Command aborted");
 		}
 		if (isInteractiveResult(result) && result.timedOut) {
+			const steerMessage =
+				"A bash command timed out. Before retrying: " +
+				"(1) If the command runs multiple operations in sequence (loops, &&, batch scripts), " +
+				"run a single iteration first to measure how long each one takes, then set a realistic timeout. " +
+				"(2) Break batched work into smaller bash calls so partial results are not lost on timeout. " +
+				"(3) If a single operation genuinely needs more time, increase the timeout — but do not " +
+				"repeatedly increase it without changing approach.";
+			if ("sendCustomMessage" in this.session) {
+				void (this.session as any)
+					.sendCustomMessage(
+						{
+							customType: "assistant-message",
+							content: steerMessage,
+							display: true,
+							attribution: "system",
+						},
+						{ deliverAs: "steer", triggerTurn: false },
+					)
+					.catch((_err: unknown) => {
+						// Fire-and-forget; if the session is shutting down we don't care
+					});
+			}
 			throw new ToolError(normalizeResultOutput(result) || `Command timed out after ${timeoutSec} seconds`);
 		}
 		if (result.exitCode === undefined) {
