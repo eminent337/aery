@@ -239,7 +239,7 @@ export interface ToolSession {
 	/** Merge tool selections into the active session tool set. */
 	activateDiscoveredTools?: (toolNames: string[]) => Promise<string[]>;
 	/** Send a custom message into the session's conversation (e.g. a steer message from a tool). */
-	sendCustomMessage?: <T = unknown>(
+	sendCustomMessage?: (
 		message: { customType: string; content: unknown; display?: boolean; attribution?: string },
 		options?: { deliverAs?: "steer" | "followUp" | "nextTurn"; triggerTurn?: boolean },
 	) => Promise<void>;

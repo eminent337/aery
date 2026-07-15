@@ -69,7 +69,21 @@ export class SwarmScheduler {
 		}
 	}
 
-	async execute(ctx: any): Promise<void> {
+	async execute(ctx: import("../../modes/types").InteractiveModeContext): Promise<void> {
+		// Detect actual default branch to avoid hardcoded "main" assumption
+		const repoRoot = ctx.sessionManager.getCwd();
+		const session = ctx.session;
+		const settings = ctx.settings;
+		const modelRegistry = session.modelRegistry;
+
+		let defaultBranch = "main";
+		try {
+			const result = await $`git -C ${repoRoot} symbolic-ref --short HEAD`.quiet();
+			defaultBranch = result.stdout.toString().trim() || "main";
+		} catch {
+			// fallback to 'main' if not in a git repo or detached HEAD
+		}
+
 		const tasks = topologicalSort(this.#workflow.tasks);
 		const tasksMap = new Map<string, SwarmTask>();
 		const inDegree = new Map<string, number>();
@@ -87,16 +101,12 @@ export class SwarmScheduler {
 			}
 		}
 
-		const activePromises: Promise<void>[] = [];
+		// Track all in-flight promises so downstream failures propagate out of execute()
+		const pendingPromises = new Set<Promise<void>>();
 		const queue: string[] = [];
 		for (const [id, deg] of inDegree.entries()) {
 			if (deg === 0) queue.push(id);
 		}
-
-		const repoRoot = ctx.sessionManager.getCwd();
-		const session = ctx.session;
-		const settings = ctx.settings;
-		const modelRegistry = session.modelRegistry;
 
 		const runNode = async (taskId: string) => {
 			const task = tasksMap.get(taskId)!;
@@ -145,7 +155,7 @@ export class SwarmScheduler {
 							}
 						}
 
-						const startPoint = parentBranch ?? "main";
+						const startPoint = parentBranch ?? defaultBranch;
 						await $`git -C ${repoRoot} branch ${branchName} ${startPoint}`.quiet();
 
 						if (parentBranch) {
@@ -188,11 +198,12 @@ export class SwarmScheduler {
 					throw lastError ?? new Error(`Task ${task.id} failed after ${maxAttempts} attempts.`);
 				}
 
-				// Unblock downstream nodes
+				// Unblock downstream nodes — track their promises so failures propagate
 				for (const neighbor of graph.get(task.id)!) {
 					inDegree.set(neighbor, inDegree.get(neighbor)! - 1);
 					if (inDegree.get(neighbor) === 0) {
-						void runNode(neighbor);
+						const p = runNode(neighbor).finally(() => pendingPromises.delete(p));
+						pendingPromises.add(p);
 					}
 				}
 			} catch (err) {
@@ -216,11 +227,15 @@ export class SwarmScheduler {
 			}
 		};
 
-		// Start execution
+		// Start execution with root nodes
 		for (const rootId of queue) {
-			activePromises.push(runNode(rootId));
+			const p = runNode(rootId).finally(() => pendingPromises.delete(p));
+			pendingPromises.add(p);
 		}
 
-		await Promise.all(activePromises);
+		// Wait until all in-flight work (roots + all downstream) completes
+		while (pendingPromises.size > 0) {
+			await Promise.all([...pendingPromises]);
+		}
 	}
 }

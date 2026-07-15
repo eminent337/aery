@@ -400,6 +400,7 @@ export type * from "./extensibility/extensions";
 export type { Skill } from "./extensibility/skills";
 export type { FileSlashCommand } from "./extensibility/slash-commands";
 export type { MCPManager, MCPServerConfig, MCPServerConnection, MCPToolsLoadResult } from "./mcp";
+export type { AgentSession } from "./session/agent-session";
 export type { Tool } from "./tools";
 export { buildDirectoryTree, buildWorkspaceTree, type DirectoryTree, type WorkspaceTree } from "./workspace-tree";
 

@@ -1,24 +1,38 @@
+/**
+ * Maps real AgentSessionEvent types (from @aryee337/aery-core) to gRPC proto messages.
+ *
+ * Real event type strings (verified against agent-session.ts and AgentEvent):
+ *   text_delta         — assistant streaming text chunk
+ *   tool_execution_start — tool invocation started
+ *   tool_execution_end   — tool invocation completed
+ *   message_end        — assistant message finished (includes usage)
+ */
 export function mapAgentEventToProto(event: any, sessionId: string): any {
-	if (event.type === "chunk" || event.type === "text") {
+	// Streaming text delta
+	if (event.type === "text_delta") {
 		return {
 			session_id: sessionId,
 			text_chunk: {
-				text: event.text ?? event.content ?? "",
-				is_final: event.isFinal ?? false,
+				text: event.delta ?? event.text ?? "",
+				is_final: false,
 			},
 		};
 	}
-	if (event.type === "tool_call" || event.type === "call") {
+
+	// Tool call started
+	if (event.type === "tool_execution_start") {
 		return {
 			session_id: sessionId,
 			tool_call: {
-				tool_call_id: event.id ?? event.toolCallId ?? "",
-				tool_name: event.name ?? event.toolName ?? "",
-				arguments_json: JSON.stringify(event.arguments ?? {}),
+				tool_call_id: event.toolCallId ?? event.id ?? "",
+				tool_name: event.toolName ?? event.name ?? "",
+				arguments_json: JSON.stringify(event.args ?? event.arguments ?? {}),
 			},
 		};
 	}
-	if (event.type === "tool_execution_end" || event.type === "result") {
+
+	// Tool call completed
+	if (event.type === "tool_execution_end") {
 		return {
 			session_id: sessionId,
 			tool_result: {
@@ -28,16 +42,22 @@ export function mapAgentEventToProto(event: any, sessionId: string): any {
 			},
 		};
 	}
-	if (event.type === "usage" || event.type === "stats") {
-		return {
-			session_id: sessionId,
-			status: {
-				model: event.model ?? "",
-				input_tokens: event.inputTokens ?? event.usage?.input ?? 0,
-				output_tokens: event.outputTokens ?? event.usage?.output ?? 0,
-				phase: event.phase ?? "thinking",
-			},
-		};
+
+	// Message finished — emit usage stats if available
+	if (event.type === "message_end" && event.message?.role === "assistant") {
+		const usage = event.message?.usage;
+		if (usage) {
+			return {
+				session_id: sessionId,
+				status: {
+					model: usage.model ?? "",
+					input_tokens: usage.inputTokens ?? usage.input ?? 0,
+					output_tokens: usage.outputTokens ?? usage.output ?? 0,
+					phase: "done",
+				},
+			};
+		}
 	}
+
 	return null;
 }
