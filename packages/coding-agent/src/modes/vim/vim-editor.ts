@@ -1,3 +1,4 @@
+import { parseKey } from "@aryee337/aery-tui";
 import { CustomEditor } from "../components/custom-editor";
 import { highlightMagicKeywords } from "../magic-keywords";
 import { handleColonCommand } from "./colon";
@@ -93,22 +94,24 @@ export class VimEditor extends CustomEditor {
 			return;
 		}
 
+		const key = parseKey(data) || data;
+
 		// Buffer search or colon command input mode
-		if (this.#vimState.mode === "normal" && (data === ":" || data === "/" || data === "?")) {
+		if (this.#vimState.mode === "normal" && (key === ":" || key === "/" || key === "?")) {
 			this.#vimState.mode = "insert";
-			this.#inputBuffer = data;
-			this.setPromptGutter(`${data} `);
+			this.#inputBuffer = key;
+			this.setPromptGutter(`${key} `);
 			return;
 		}
 
 		if (this.#inputBuffer) {
-			if (data === "escape") {
+			if (key === "escape") {
 				this.#inputBuffer = "";
 				this.#vimState.mode = "normal";
 				this.updateBorder();
 				return;
 			}
-			if (data === "enter" || data === "\r" || data === "\n") {
+			if (key === "enter") {
 				const cmd = this.#inputBuffer;
 				this.#inputBuffer = "";
 				this.#vimState.mode = "normal";
@@ -137,7 +140,7 @@ export class VimEditor extends CustomEditor {
 				}
 				return;
 			}
-			if (data === "backspace") {
+			if (key === "backspace") {
 				this.#inputBuffer = this.#inputBuffer.slice(0, -1);
 				if (!this.#inputBuffer) {
 					this.#vimState.mode = "normal";
@@ -147,8 +150,8 @@ export class VimEditor extends CustomEditor {
 				}
 				return;
 			}
-			if (data.length === 1) {
-				this.#inputBuffer += data;
+			if (key.length === 1) {
+				this.#inputBuffer += key;
 				this.setPromptGutter(`${this.#inputBuffer} `);
 				return;
 			}
@@ -162,22 +165,22 @@ export class VimEditor extends CustomEditor {
 
 		if (this.#vimState.mode === "normal") {
 			// Enter in normal mode submits the message (equivalent to :wq)
-			if (data === "enter" || data === "\r" || data === "\n") {
+			if (key === "enter") {
 				this.onSubmit?.(this.getText());
 				return;
 			}
 			// Escape in normal mode propagates so the agent can be interrupted
-			if (data === "escape") {
+			if (key === "escape") {
 				super.handleInput(data);
 				return;
 			}
-			if (data === "n" || data === "N") {
-				const newBuf = repeatSearch(buffer, this.#vimState, data === "n");
+			if (key === "n" || key === "N") {
+				const newBuf = repeatSearch(buffer, this.#vimState, key === "n");
 				this.setCursorPosition(newBuf.cursorLine, newBuf.cursorCol);
 				return;
 			}
 
-			const { buffer: newBuf, transitionMode } = handleNormalMode(buffer, data, this.#vimState);
+			const { buffer: newBuf, transitionMode } = handleNormalMode(buffer, key, this.#vimState);
 			this.setLines(newBuf.lines);
 			this.setCursorPosition(newBuf.cursorLine, newBuf.cursorCol);
 
@@ -189,7 +192,7 @@ export class VimEditor extends CustomEditor {
 				this.updateBorder();
 			}
 		} else if (this.#vimState.mode.startsWith("visual")) {
-			const { buffer: newBuf, transitionMode } = handleVisualMode(buffer, data, this.#visualAnchor, this.#vimState);
+			const { buffer: newBuf, transitionMode } = handleVisualMode(buffer, key, this.#visualAnchor, this.#vimState);
 			this.setLines(newBuf.lines);
 			this.setCursorPosition(newBuf.cursorLine, newBuf.cursorCol);
 
@@ -198,15 +201,15 @@ export class VimEditor extends CustomEditor {
 				this.updateBorder();
 			}
 		} else if (this.#vimState.mode === "insert") {
-			const { buffer: newBuf } = handleInsertMode(buffer, data);
+			const { buffer: newBuf } = handleInsertMode(buffer, key);
 
-			if (data === "escape") {
+			if (key === "escape") {
 				// Escape: apply cursor-back and transition to normal; do NOT propagate
 				this.setLines(newBuf.lines);
 				this.setCursorPosition(newBuf.cursorLine, newBuf.cursorCol);
 				this.#vimState.mode = "normal";
 				this.updateBorder();
-			} else if (data === "enter" || data === "\r" || data === "\n") {
+			} else if (key === "enter") {
 				// Enter in insert mode: insert newline via base editor (handles submission logic)
 				super.handleInput(data);
 			} else {
