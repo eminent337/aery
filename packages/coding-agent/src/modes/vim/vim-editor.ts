@@ -16,6 +16,7 @@ export class VimEditor extends CustomEditor {
 	setVimEnabled(enabled: boolean): void {
 		this.#active = enabled;
 		this.#vimState.mode = enabled ? "normal" : "insert";
+		this.setBorderVisible(!enabled);
 		this.updateBorder();
 	}
 
