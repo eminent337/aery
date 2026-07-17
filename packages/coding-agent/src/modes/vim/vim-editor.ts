@@ -160,6 +160,16 @@ export class VimEditor extends CustomEditor {
 		};
 
 		if (this.#vimState.mode === "normal") {
+			// Enter in normal mode submits the message (equivalent to :wq)
+			if (data === "enter" || data === "\r" || data === "\n") {
+				this.onSubmit?.(this.getText());
+				return;
+			}
+			// Escape in normal mode propagates so the agent can be interrupted
+			if (data === "escape") {
+				super.handleInput(data);
+				return;
+			}
 			if (data === "n" || data === "N") {
 				const newBuf = repeatSearch(buffer, this.#vimState, data === "n");
 				this.setCursorPosition(newBuf.cursorLine, newBuf.cursorCol);
@@ -190,11 +200,16 @@ export class VimEditor extends CustomEditor {
 			const { buffer: newBuf } = handleInsertMode(buffer, data);
 
 			if (data === "escape") {
+				// Escape: apply cursor-back and transition to normal; do NOT propagate
 				this.setLines(newBuf.lines);
 				this.setCursorPosition(newBuf.cursorLine, newBuf.cursorCol);
 				this.#vimState.mode = "normal";
 				this.updateBorder();
+			} else if (data === "enter" || data === "\r" || data === "\n") {
+				// Enter in insert mode: insert newline via base editor (handles submission logic)
+				super.handleInput(data);
 			} else {
+				// All other insert-mode keys: delegate to base editor for proper handling
 				super.handleInput(data);
 			}
 		}
