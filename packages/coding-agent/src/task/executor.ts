@@ -1363,6 +1363,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					localProtocolOptions: options.localProtocolOptions,
 					telemetry: subagentTelemetry,
 					parentEvalSessionId: options.parentEvalSessionId,
+					eventBus: options.eventBus,
 				}),
 			);
 
@@ -1427,6 +1428,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 						localProtocolOptions: options.localProtocolOptions,
 						telemetry: subagentTelemetry,
 						parentEvalSessionId: options.parentEvalSessionId,
+						eventBus: options.eventBus,
 					});
 					installRegistryStatusSync(revived);
 					return revived;

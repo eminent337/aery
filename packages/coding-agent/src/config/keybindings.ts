@@ -50,6 +50,7 @@ interface AppKeybindings {
 	"app.plan.toggle": true;
 	"app.history.search": true;
 	"app.stt.toggle": true;
+	"app.task.background": true;
 }
 
 export type AppKeybinding = keyof AppKeybindings;
@@ -197,6 +198,10 @@ export const KEYBINDINGS = {
 	"app.history.search": {
 		defaultKeys: "ctrl+r",
 		description: "Search history",
+	},
+	"app.task.background": {
+		defaultKeys: "ctrl+b",
+		description: "Background task or run tangential work (/tan)",
 	},
 	"app.stt.toggle": {
 		defaultKeys: "alt+h",

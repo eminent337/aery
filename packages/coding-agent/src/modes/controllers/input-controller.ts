@@ -203,6 +203,17 @@ export class InputController {
 		for (const key of this.ctx.keybindings.getKeys("app.session.tree")) {
 			this.ctx.editor.setCustomKeyHandler(key, () => this.ctx.showTreeSelector());
 		}
+		for (const key of this.ctx.keybindings.getKeys("app.task.background")) {
+			this.ctx.editor.setCustomKeyHandler(key, () => {
+				const text = this.ctx.editor.getText().trim();
+				if (text) {
+					this.ctx.editor.setText("");
+					void this.ctx.handleTanCommand(text);
+				} else {
+					this.ctx.showStatus("Usage: type a prompt and press Ctrl+B to run it in the background (/tan)");
+				}
+			});
+		}
 		for (const key of this.ctx.keybindings.getKeys("app.session.fork")) {
 			this.ctx.editor.setCustomKeyHandler(key, () => this.ctx.showUserMessageSelector());
 		}

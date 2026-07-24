@@ -77,7 +77,7 @@ export function calculateRateLimitBackoffMs(reason: RateLimitReason): number {
 
 /** Detect usage/quota limit errors in error messages (persistent, requires credential switch). */
 const USAGE_LIMIT_PATTERN =
-	/usage.?limit|usage_limit_reached|usage_not_included|limit_reached|quota.?exceeded|resource.?exhausted/i;
+	/usage.?limit|usage_limit_reached|usage_not_included|limit_reached|quota.?(?:exceeded|reached|insufficient)|resource.?exhausted|exhausted your capacity|quota will reset|insufficient.?(?:balance|quota)|spend.?limit/i;
 
 export function isUsageLimitError(errorMessage: string): boolean {
 	return USAGE_LIMIT_PATTERN.test(errorMessage);
