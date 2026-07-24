@@ -29,6 +29,7 @@ import type { ModelRole } from "../config/model-registry";
 import { loadCapability } from "../discovery";
 import { isLightTheme, setAutoThemeMapping, setColorBlindMode, setSymbolPreset } from "../modes/theme/theme";
 import { AgentStorage } from "../session/agent-storage";
+import { expandTilde } from "../tools/path-utils";
 import { type EditMode, normalizeEditMode } from "../utils/edit-mode";
 import { withFileLock } from "./file-lock";
 import {
@@ -204,6 +205,11 @@ export class Settings {
 	#saveTimer?: NodeJS.Timeout;
 	#savePromise?: Promise<void>;
 
+	/** Config files list from AERY_CONFIG_FILES */
+	#configFiles: string[] = [];
+	/** Merged config overlays */
+	#configOverlay: RawSettings = {};
+
 	/** Whether to persist changes */
 	#persist: boolean;
 
@@ -212,6 +218,9 @@ export class Settings {
 		this.#agentDir = path.normalize(options.agentDir ?? getAgentDir());
 		this.#configPath = options.inMemory ? null : path.join(this.#agentDir, "config.yml");
 		this.#persist = !options.inMemory;
+
+		const configFiles = process.env.AERY_CONFIG_FILES?.split(path.delimiter).filter(Boolean) ?? [];
+		this.#configFiles = configFiles.map(file => path.resolve(this.#cwd, expandTilde(file)));
 
 		if (options.overrides) {
 			for (const [key, value] of Object.entries(options.overrides)) {
@@ -359,6 +368,8 @@ export class Settings {
 		cloned.#storage = this.#storage;
 		cloned.#global = structuredClone(this.#global);
 		cloned.#project = this.#persist ? await cloned.#loadProjectSettings() : structuredClone(this.#project);
+		cloned.#configFiles = [...this.#configFiles];
+		cloned.#configOverlay = structuredClone(this.#configOverlay);
 		cloned.#overrides = structuredClone(this.#overrides);
 		cloned.#rebuildMerged();
 		cloned.#fireAllHooks();
@@ -529,6 +540,7 @@ export class Settings {
 		}
 
 		this.#project = await projectPromise;
+		this.#configOverlay = await this.#loadConfigOverlays();
 
 		// Build merged view (global → project → overrides; project wins over global)
 		this.#rebuildMerged();
@@ -564,6 +576,14 @@ export class Settings {
 		} catch {
 			return {};
 		}
+	}
+
+	async #loadConfigOverlays(): Promise<RawSettings> {
+		let merged: RawSettings = {};
+		for (const filePath of this.#configFiles) {
+			merged = this.#deepMerge(merged, await this.#loadYaml(filePath));
+		}
+		return merged;
 	}
 
 	async #migrateFromLegacy(): Promise<void> {
@@ -838,6 +858,7 @@ export class Settings {
 
 	#rebuildMerged(): void {
 		this.#merged = this.#deepMerge(this.#deepMerge({}, this.#global), this.#project);
+		this.#merged = this.#deepMerge(this.#merged, this.#configOverlay);
 		this.#merged = this.#deepMerge(this.#merged, this.#overrides);
 	}
 

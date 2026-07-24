@@ -615,7 +615,7 @@ export class SelectorController {
 				tree,
 				realLeafId,
 				this.ctx.ui.terminal.rows,
-				async entryId => {
+				async (entryId, options) => {
 					// Selecting the current leaf is a no-op (already there)
 					if (entryId === realLeafId) {
 						done();
@@ -627,12 +627,14 @@ export class SelectorController {
 					done(); // Close selector first
 
 					// Loop until user makes a complete choice or cancels to tree
-					let wantsSummary = false;
+					// Shift+Enter in the tree selector pre-answers "Summarize" and
+					// skips the prompt entirely.
+					let wantsSummary = options.summarize;
 					let customInstructions: string | undefined;
 
 					const branchSummariesEnabled = settings.get("branchSummary.enabled");
 
-					while (branchSummariesEnabled) {
+					while (!wantsSummary && branchSummariesEnabled) {
 						const summaryChoice = await this.ctx.showHookSelector("Summarize branch?", [
 							"No summary",
 							"Summarize",
