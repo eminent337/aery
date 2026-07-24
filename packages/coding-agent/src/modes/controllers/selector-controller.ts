@@ -920,7 +920,23 @@ export class SelectorController {
 					}
 					if (useManualInput) {
 						this.ctx.chatContainer.addChild(new Spacer(1));
+						this.ctx.chatContainer.addChild(
+							new Text(theme.fg("warning", "Paste authorization code or redirect URL below and press Enter:"), 1, 0),
+						);
 						this.ctx.chatContainer.addChild(new Text(theme.fg("dim", MANUAL_LOGIN_TIP), 1, 0));
+						const codeInput = new Input();
+						codeInput.onSubmit = () => {
+							const code = codeInput.getValue().trim();
+							this.ctx.editorContainer.clear();
+							this.ctx.editorContainer.addChild(this.ctx.editor);
+							this.ctx.ui.setFocus(this.ctx.editor);
+							if (code) {
+								manualInput.submit(code);
+							}
+						};
+						this.ctx.editorContainer.clear();
+						this.ctx.editorContainer.addChild(codeInput);
+						this.ctx.ui.setFocus(codeInput);
 					}
 					this.ctx.ui.requestRender();
 					this.ctx.openInBrowser(info.url);
