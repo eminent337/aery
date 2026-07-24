@@ -775,6 +775,9 @@ export function buildRequest(
 	}
 
 	if (isAntigravity && isClaudeModel(model.id)) {
+		if (request.generationConfig?.maxOutputTokens && request.generationConfig.maxOutputTokens > 64000) {
+			request.generationConfig.maxOutputTokens = 64000;
+		}
 		request.toolConfig = {
 			functionCallingConfig: {
 				mode: "VALIDATED" as FunctionCallingConfigMode,
