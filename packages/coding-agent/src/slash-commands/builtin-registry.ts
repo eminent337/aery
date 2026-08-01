@@ -38,7 +38,10 @@ import { commandConsumed, errorMessage, parseSlashCommand, parseSubcommand, usag
 import { handleSshAcp } from "./helpers/ssh";
 import { handleTodoAcp } from "./helpers/todo";
 import { buildUsageReportText } from "./helpers/usage-report";
+import { kanbanCommand } from "./kanban-command";
 import { parsePluginScopeArgs } from "./marketplace-install-parser";
+import { pluginCommand } from "./plugin-command";
+import { skillCommand } from "./skill-command";
 import type {
 	BuiltinSlashCommand,
 	ParsedSlashCommand,
@@ -77,6 +80,9 @@ function parseShakeMode(args: string): ShakeMode | { error: string } {
 }
 
 const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+	kanbanCommand,
+	pluginCommand,
+	skillCommand,
 	{
 		name: "connect",
 		description: "Connect agent to external chat platforms",

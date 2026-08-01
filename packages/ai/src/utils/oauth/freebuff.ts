@@ -67,7 +67,8 @@ export async function loginFreebuff(callbacks: {
 
 	callbacks.onAuth?.({
 		url: data.loginUrl,
-		instructions: "Sign in with your Freebuff / Codebuff account in the browser (use GitHub or Email if Google SSO shows redirect_uri_mismatch)",
+		instructions:
+			"Sign in with your Freebuff / Codebuff account in the browser (use GitHub or Email if Google SSO shows redirect_uri_mismatch)",
 	});
 
 	callbacks.onProgress?.("Waiting for web sign-in in browser...");

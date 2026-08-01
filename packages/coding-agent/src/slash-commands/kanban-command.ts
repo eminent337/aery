@@ -1,5 +1,5 @@
-import type { SlashCommandSpec } from "./types";
 import { launchKanban } from "../task/kanban";
+import type { SlashCommandSpec } from "./types";
 
 export const kanbanCommand: SlashCommandSpec = {
 	name: "kanban",

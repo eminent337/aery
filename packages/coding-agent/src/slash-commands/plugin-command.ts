@@ -15,7 +15,7 @@ async function runPluginCli(
 	cwd: string,
 ): Promise<void> {
 	// Aery's CLI entry point is at the root of the src directory relative to this file
-	const cliPath = join(__dirname, "..", "cli.ts");
+	const cliPath = join(import.meta.dir, "..", "cli.ts");
 	const args = ["run", cliPath, "plugin", ...userArgs];
 	const isWindows = process.platform === "win32";
 
@@ -106,7 +106,6 @@ export const pluginCommand: SlashCommandSpec = {
 
 		runtime.ctx.editor.setText("");
 		// Reload plugins so the agent sees new capabilities immediately
-		// @ts-expect-error - Ignore reloadPlugins error for now
-		await runtime.ctx.reloadPlugins();
+		await runtime.ctx.refreshSlashCommandState();
 	},
 };
