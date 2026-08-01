@@ -9,20 +9,23 @@ export type { AcpBuiltinSlashCommandResult } from "./types";
  * Commands advertised to ACP clients. Entries without a text-mode `handle`
  * (e.g. `/quit`, `/login`, dashboards) are filtered out so the client doesn't
  * see commands it cannot drive.
+ *
+ * Lazily evaluated to avoid TDZ circular-import issues between this module
+ * and builtin-registry.ts.
  */
-export const ACP_BUILTIN_SLASH_COMMANDS: AvailableCommand[] = BUILTIN_SLASH_COMMANDS_INTERNAL.filter(
-	command => command.handle !== undefined,
-).map(command => {
-	// Honor mode-specific copy: ACP clients receive concise text-mode
-	// descriptions/hints when the spec sets `acpDescription` / `acpInputHint`,
-	// otherwise fall back to the unified `description` / `inlineHint`.
-	const hint = command.acpInputHint ?? command.inlineHint;
-	return {
-		name: command.name,
-		description: command.acpDescription ?? command.description,
-		input: hint ? { hint } : undefined,
-	};
-});
+export function getAcpBuiltinSlashCommands(): AvailableCommand[] {
+	return BUILTIN_SLASH_COMMANDS_INTERNAL.filter(command => command.handle !== undefined).map(command => {
+		// Honor mode-specific copy: ACP clients receive concise text-mode
+		// descriptions/hints when the spec sets `acpDescription` / `acpInputHint`,
+		// otherwise fall back to the unified `description` / `inlineHint`.
+		const hint = command.acpInputHint ?? command.inlineHint;
+		return {
+			name: command.name,
+			description: command.acpDescription ?? command.description,
+			input: hint ? { hint } : undefined,
+		};
+	});
+}
 
 /**
  * Dispatch a slash command in ACP/text mode. Returns:
