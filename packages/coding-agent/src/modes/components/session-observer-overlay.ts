@@ -14,6 +14,9 @@
  *   - Esc from picker -> close overlay
  *   - Enter on main session -> close overlay (jump back)
  */
+
+import * as fs from "node:fs";
+import * as os from "node:os";
 import type { ToolResultMessage } from "@aryee337/aery-ai";
 import { Container, Markdown, type MarkdownTheme, matchesKey, visibleWidth } from "@aryee337/aery-tui";
 import { formatDuration, formatNumber, logger } from "@aryee337/aery-utils";
@@ -22,7 +25,8 @@ import { AgentRegistry } from "../../registry/agent-registry";
 import { isSilentAbort } from "../../session/messages";
 import type { SessionMessageEntry } from "../../session/session-manager";
 import { parseSessionEntries } from "../../session/session-manager";
-import { renderBoard } from "../../task/kanban/board.js";
+import { getCards, renderBoard } from "../../task/kanban/board.js";
+import { globalScheduler } from "../../task/schedule/scheduler.js";
 import { PREVIEW_LIMITS, replaceTabs, TRUNCATE_LENGTHS, truncateToWidth } from "../../tools/render-utils";
 import { toPathList } from "../../tools/search";
 import type { ObservableSession, SessionObserverRegistry } from "../session-observer-registry";
@@ -178,6 +182,9 @@ export class SessionObserverOverlayComponent extends Container {
 		}
 		lines.push(` ${footerStats}`);
 
+		const infoStrip = this.#renderInfoStrip(width, session);
+		lines.push(infoStrip);
+
 		let keyInstructions = "";
 		if (this.#focusedPane === "list") {
 			keyInstructions = theme.fg(
@@ -193,6 +200,26 @@ export class SessionObserverOverlayComponent extends Container {
 		lines.push(` ${keyInstructions}`);
 
 		return lines;
+	}
+
+	#renderInfoStrip(width: number, session: ObservableSession | undefined): string {
+		const todos = getCards().filter(c => c.status !== "done").length;
+		const jobs = globalScheduler.getSchedules().filter(s => s.enabled).length;
+
+		let tokensStr = "-";
+		if (session?.progress?.contextTokens && session?.progress?.contextWindow) {
+			const pct = Math.round((session.progress.contextTokens / session.progress.contextWindow) * 100);
+			tokensStr = `${pct}%`;
+		}
+
+		const agents = AgentRegistry.global()
+			.list()
+			.filter(a => a.status === "running").length;
+
+		const memoryStatus = fs.existsSync(`${os.homedir()}/.aery/skills/`) ? "loaded" : "none";
+
+		const text = `  📋 Todos: ${todos}  |  🔄 Jobs: ${jobs}  |  🪙 Tokens: ${tokensStr}  |  🤖 Agents: ${agents}  |  💾 Memory: ${memoryStatus}`;
+		return padRight(truncateToWidth(text, width), width);
 	}
 
 	#renderKanbanBoard(width: number, height: number): string[] {
@@ -1032,7 +1059,6 @@ export class SessionObserverOverlayComponent extends Container {
 }
 
 // Sync helpers for render path
-import * as fs from "node:fs";
 
 function readFileIncremental(filePath: string, fromByte: number): { text: string; newSize: number } | null {
 	try {

@@ -27,7 +27,7 @@ import type { Ferment } from "../ferment/types.js";
 import { getMarketplaceArgumentCompletions } from "../marketplace/marketplace.js";
 import { resolveMemoryBackend } from "../memory-backend";
 import type { InteractiveModeContext } from "../modes/types";
-import { formatShakeSummary, type ShakeMode } from "../session/shake-types";
+import type { ShakeMode } from "../session/shake-types";
 import { globalScheduler } from "../task/schedule/scheduler";
 import { getChangelogPath, parseChangelog } from "../utils/changelog";
 import { buildContextReportText } from "./helpers/context-report";
@@ -56,7 +56,7 @@ export type { BuiltinSlashCommand, SubcommandDef };
 /** TUI-specific runtime accepted by `executeBuiltinSlashCommand`. */
 export type BuiltinSlashCommandRuntime = TuiSlashCommandRuntime;
 
-let activeSwarmScheduler: any = null;
+const activeSwarmScheduler: any = null;
 
 function refreshStatusLine(ctx: InteractiveModeContext): void {
 	ctx.statusLine.invalidate();
@@ -193,66 +193,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			runtime.ctx.editor.setText("");
 		},
 	},
-	{
-		name: "swarm",
-		description: "Execute a multi-agent workflow from a YAML file",
-		inlineHint: "<path/to/swarm.yaml>",
-		allowArgs: true,
-		handleTui: async (command, runtime) => {
-			if (!command.args) {
-				runtime.ctx.showStatus("Usage: /swarm run <path/to/swarm.yaml>");
-				return;
-			}
-			const parts = command.args.trim().split(/\s+/);
-			if (parts[0] !== "run" || !parts[1]) {
-				runtime.ctx.showStatus("Usage: /swarm run <path/to/swarm.yaml>");
-				return;
-			}
-			const yamlPath = path.resolve(runtime.ctx.sessionManager.getCwd(), parts[1]);
-			try {
-				const content = await fs.readFile(yamlPath, "utf-8");
-				const { parseSwarmYaml } = await import("../task/swarm/parser");
-				const { SwarmScheduler } = await import("../task/swarm/scheduler");
-				const workflow = parseSwarmYaml(content);
-				runtime.ctx.showStatus(`Starting swarm workflow: ${workflow.name}`);
-				const scheduler = new SwarmScheduler(workflow);
-				activeSwarmScheduler = scheduler;
-				void scheduler
-					.execute(runtime.ctx)
-					.then(() => {
-						runtime.ctx.showStatus(`Swarm workflow completed: ${workflow.name}`);
-					})
-					.catch(err => {
-						runtime.ctx.showStatus(`Swarm workflow failed: ${err.message}`);
-					})
-					.finally(() => {
-						if (activeSwarmScheduler === scheduler) {
-							activeSwarmScheduler = null;
-						}
-					});
-			} catch (error) {
-				runtime.ctx.showStatus(`Failed to start swarm workflow: ${(error as Error).message}`);
-			}
-			runtime.ctx.editor.setText("");
-		},
-	},
-	{
-		name: "coordinator",
-		description: "Display the active Swarm workflow coordinator dashboard",
-		handleTui: async (_command, runtime) => {
-			if (!activeSwarmScheduler) {
-				runtime.ctx.showStatus("No active swarm workflow is running.");
-			} else {
-				const { formatCoordinatorDashboard } = await import("../task/swarm/coordinator");
-				const lines = formatCoordinatorDashboard(activeSwarmScheduler.taskStates);
-				const { Text, Spacer } = await import("@aryee337/aery-tui");
-				runtime.ctx.chatContainer.addChild(new Spacer(1));
-				runtime.ctx.chatContainer.addChild(new Text(lines.join("\n"), 1, 0));
-				runtime.ctx.ui.requestRender();
-			}
-			runtime.ctx.editor.setText("");
-		},
-	},
+
 	{
 		name: "vim",
 		description: "Toggle Vim modal editing mode in the TUI",
@@ -316,17 +257,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			runtime.ctx.editor.setText("");
 		},
 	},
-	{
-		name: "loop",
-		description:
-			"Toggle loop mode. While enabled, the next prompt you send re-submits after every yield. Esc cancels the current iteration; /loop again to disable.",
-		inlineHint: "[count|duration]",
-		allowArgs: true,
-		handleTui: async (command, runtime) => {
-			await runtime.ctx.handleLoopCommand(command.args);
-			runtime.ctx.editor.setText("");
-		},
-	},
+
 	{
 		name: "model",
 		aliases: ["models"],
@@ -442,100 +373,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			runtime.ctx.editor.setText("");
 		},
 	},
-	{
-		name: "advisor",
-		description: "Toggle the advisor (a second model that reviews each turn and injects notes)",
-		acpDescription: "Toggle advisor",
-		acpInputHint: "[on|off|status|dump [raw]]",
-		subcommands: [
-			{ name: "on", description: "Enable the advisor" },
-			{ name: "off", description: "Disable the advisor" },
-			{ name: "status", description: "Show advisor status" },
-			{ name: "dump", description: "Copy the advisor's transcript to clipboard", usage: "[raw]" },
-		],
-		allowArgs: true,
-		handle: async (command, runtime) => {
-			const { verb, rest } = parseSubcommand(command.args);
-			if (!verb || verb === "toggle") {
-				const active = runtime.session.toggleAdvisorEnabled();
-				const configured = runtime.session.settings.get("advisor.enabled") as boolean;
-				if (active) {
-					await runtime.output("Advisor enabled.");
-				} else if (configured) {
-					await runtime.output("Advisor setting enabled, but no model is assigned to the 'advisor' role.");
-				} else {
-					await runtime.output("Advisor disabled.");
-				}
-				return commandConsumed();
-			}
-			if (verb === "on") {
-				const active = runtime.session.setAdvisorEnabled(true);
-				await runtime.output(
-					active ? "Advisor enabled." : "Advisor setting enabled, but no model is assigned to the 'advisor' role.",
-				);
-				return commandConsumed();
-			}
-			if (verb === "off") {
-				runtime.session.setAdvisorEnabled(false);
-				await runtime.output("Advisor disabled.");
-				return commandConsumed();
-			}
-			if (verb === "status") {
-				await runtime.output(runtime.session.formatAdvisorStatus());
-				return commandConsumed();
-			}
-			if (verb === "dump") {
-				const isRaw = rest.toLowerCase() === "raw";
-				const text = runtime.session.formatAdvisorHistoryAsText({ compact: !isRaw });
-				await runtime.output(text ?? "Advisor is not active for this session.");
-				return commandConsumed();
-			}
-			return usage("Usage: /advisor [on|off|status|dump [raw]]", runtime);
-		},
-		handleTui: async (command, runtime) => {
-			const { verb, rest } = parseSubcommand(command.args);
-			if (!verb || verb === "toggle") {
-				const active = runtime.ctx.session.toggleAdvisorEnabled();
-				const configured = runtime.ctx.session.settings.get("advisor.enabled") as boolean;
-				if (active) {
-					runtime.ctx.showStatus("Advisor enabled.");
-				} else if (configured) {
-					runtime.ctx.showStatus("Advisor setting enabled, but no model is assigned to the 'advisor' role.");
-				} else {
-					runtime.ctx.showStatus("Advisor disabled.");
-				}
-				runtime.ctx.editor.setText("");
-				return;
-			}
-			if (verb === "on") {
-				const active = runtime.ctx.session.setAdvisorEnabled(true);
-				runtime.ctx.showStatus(
-					active ? "Advisor enabled." : "Advisor setting enabled, but no model is assigned to the 'advisor' role.",
-				);
-				runtime.ctx.editor.setText("");
-				return;
-			}
-			if (verb === "off") {
-				runtime.ctx.session.setAdvisorEnabled(false);
-				runtime.ctx.showStatus("Advisor disabled.");
-				runtime.ctx.editor.setText("");
-				return;
-			}
-			if (verb === "status") {
-				await runtime.ctx.handleAdvisorStatusCommand();
-				runtime.ctx.editor.setText("");
-				return;
-			}
-			if (verb === "dump") {
-				const isRaw = rest.toLowerCase() === "raw";
-				runtime.ctx.handleAdvisorDumpCommand(isRaw);
-				runtime.ctx.editor.setText("");
-				return;
-			}
-			runtime.ctx.showStatus("Usage: /advisor [on|off|status|dump [raw]]");
-			runtime.ctx.editor.setText("");
-		},
-	},
+
 	{
 		name: "artifact",
 		description: "List, view, and clear session-scoped logs and outputs (artifacts)",
@@ -1208,66 +1046,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			await runtime.ctx.handleDropCommand();
 		},
 	},
-	{
-		name: "compact",
-		description: "Manually compact the session context",
-		acpDescription: "Compact the conversation",
-		inlineHint: "[focus instructions]",
-		allowArgs: true,
-		handle: async (command, runtime) => {
-			const before = runtime.session.getContextUsage?.();
-			const beforeTokens = before?.tokens;
-			try {
-				await runtime.session.compact(command.args || undefined);
-			} catch (err) {
-				// Compaction precondition failures (no model, already compacted, too
-				// small) and provider errors propagate as plain Errors; surface them
-				// via runtime.output so they don't fail the ACP prompt turn.
-				return usage(`Compaction failed: ${errorMessage(err)}`, runtime);
-			}
-			const after = runtime.session.getContextUsage?.();
-			const afterTokens = after?.tokens;
-			if (beforeTokens != null && afterTokens != null) {
-				const saved = beforeTokens - afterTokens;
-				await runtime.output(`Compaction complete. Tokens: ${beforeTokens} -> ${afterTokens} (saved ${saved}).`);
-			} else {
-				await runtime.output("Compaction complete.");
-			}
-			return commandConsumed();
-		},
-		handleTui: async (command, runtime) => {
-			const customInstructions = command.args || undefined;
-			runtime.ctx.editor.setText("");
-			await runtime.ctx.handleCompactCommand(customInstructions);
-		},
-	},
-	{
-		name: "shake",
-		description: "Drop heavy content from context (tool results, large blocks)",
-		acpDescription: "Shake heavy content out of the conversation context",
-		subcommands: [
-			{ name: "elide", description: "Strip tool results + large blocks (default)" },
-			{ name: "images", description: "Strip image blocks" },
-		],
-		acpInputHint: "[elide|images]",
-		allowArgs: true,
-		handle: async (command, runtime) => {
-			const mode = parseShakeMode(command.args);
-			if (typeof mode !== "string") return usage(mode.error, runtime);
-			const result = await runtime.session.shake(mode);
-			await runtime.output(formatShakeSummary(result));
-			return commandConsumed();
-		},
-		handleTui: async (command, runtime) => {
-			runtime.ctx.editor.setText("");
-			const mode = parseShakeMode(command.args);
-			if (typeof mode !== "string") {
-				runtime.ctx.showWarning(mode.error);
-				return;
-			}
-			await runtime.ctx.handleShakeCommand(mode);
-		},
-	},
+
 	{
 		name: "handoff",
 		description: "Hand off session context to a new session",
@@ -1287,48 +1066,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			runtime.ctx.editor.setText("");
 		},
 	},
-	{
-		name: "btw",
-		description: "Ask an ephemeral side question using the current session context",
-		inlineHint: "<question>",
-		allowArgs: true,
-		handleTui: async (command, runtime) => {
-			const question = command.text.slice(`/${command.name}`.length).trim();
-			runtime.ctx.editor.setText("");
-			await runtime.ctx.handleBtwCommand(question);
-		},
-	},
-	{
-		name: "omfg",
-		description: "Forge a TTSR rule from a complaint to stop a recurring behavior",
-		inlineHint: "<complaint>",
-		allowArgs: true,
-		handleTui: async (command, runtime) => {
-			const complaint = command.text.slice(`/${command.name}`.length).trim();
-			runtime.ctx.editor.setText("");
-			await runtime.ctx.handleOmfgCommand(complaint);
-		},
-	},
-	{
-		name: "retry",
-		description: "Retry the last failed agent turn",
-		handleTui: async (_command, runtime) => {
-			const didRetry = await runtime.ctx.session.retry();
-			if (!didRetry) {
-				runtime.ctx.showStatus("Nothing to retry");
-			}
-			runtime.ctx.editor.setText("");
-		},
-	},
-	{
-		name: "background",
-		aliases: ["bg"],
-		description: "Detach UI and continue running in background",
-		handleTui: (_command, runtime) => {
-			runtime.ctx.editor.setText("");
-			runtime.handleBackgroundCommand();
-		},
-	},
+
 	{
 		name: "debug",
 		description: "Open debug tools selector",
