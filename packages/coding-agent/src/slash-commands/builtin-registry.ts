@@ -117,17 +117,37 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			return commandConsumed();
 		},
 		handleTui: async (command, runtime) => {
-			runtime.ctx.editor.setText("");
 			const args = command.args.trim().split(/\s+/);
 			const connectorName = args[0];
 			if (!connectorName) {
-				runtime.ctx.showStatus("Usage: /connect <slack|telegram> --bot-token=...");
+				runtime.ctx.showStatus("Enter the connector name (slack or telegram):");
+				runtime.ctx.editor.setText("/connect ");
+				if (typeof runtime.ctx.editor.setCursorPosition === "function") {
+					runtime.ctx.editor.setCursorPosition(0, 9);
+				}
 				return;
 			}
 			const tokenArg = args.find(a => a.startsWith("--bot-token="));
 			const botToken = tokenArg ? tokenArg.split("=")[1] : undefined;
-			if (!botToken) {
-				runtime.ctx.showStatus("Missing --bot-token=...");
+			if (!botToken || botToken === '""') {
+				if (connectorName === "slack") {
+					runtime.ctx.showStatus("Paste your Slack tokens below and hit Enter!");
+					const template = `/connect slack --bot-token="" --app-token=""`;
+					runtime.ctx.editor.setText(template);
+					if (typeof runtime.ctx.editor.setCursorPosition === "function") {
+						runtime.ctx.editor.setCursorPosition(0, 28); // Inside the first quotes
+					}
+				} else if (connectorName === "telegram") {
+					runtime.ctx.showStatus("Paste your Telegram bot token below and hit Enter!");
+					const template = `/connect telegram --bot-token=""`;
+					runtime.ctx.editor.setText(template);
+					if (typeof runtime.ctx.editor.setCursorPosition === "function") {
+						runtime.ctx.editor.setCursorPosition(0, 31); // Inside the quotes
+					}
+				} else {
+					runtime.ctx.showStatus("Usage: /connect <slack|telegram> --bot-token=...");
+					runtime.ctx.editor.setText("");
+				}
 				return;
 			}
 			const appTokenArg = args.find(a => a.startsWith("--app-token="));
