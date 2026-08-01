@@ -1541,6 +1541,49 @@ export function kiloModelManagerOptions(config?: KiloModelManagerConfig): ModelM
 }
 
 // ---------------------------------------------------------------------------
+// 10.7 Cline & ClinePass
+// ---------------------------------------------------------------------------
+
+export interface ClineModelManagerConfig {
+	apiKey?: string;
+	baseUrl?: string;
+}
+
+export function clineModelManagerOptions(config?: ClineModelManagerConfig): ModelManagerOptions<"openai-completions"> {
+	const apiKey = config?.apiKey;
+	const baseUrl = config?.baseUrl ?? "https://api.cline.bot/api/v1";
+	return {
+		providerId: "cline",
+		dynamicModelsAuthoritative: true,
+		fetchDynamicModels: () =>
+			fetchOpenAICompatibleModels({
+				api: "openai-completions",
+				provider: "cline",
+				baseUrl,
+				apiKey,
+			}),
+	};
+}
+
+export function clinePassModelManagerOptions(
+	config?: ClineModelManagerConfig,
+): ModelManagerOptions<"openai-completions"> {
+	const apiKey = config?.apiKey;
+	const baseUrl = config?.baseUrl ?? "https://api.cline.bot/api/v1";
+	return {
+		providerId: "cline-pass",
+		dynamicModelsAuthoritative: true,
+		fetchDynamicModels: () =>
+			fetchOpenAICompatibleModels({
+				api: "openai-completions",
+				provider: "cline-pass",
+				baseUrl,
+				apiKey,
+			}),
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Alibaba Coding Plan
 // ---------------------------------------------------------------------------
 

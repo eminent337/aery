@@ -188,6 +188,8 @@ const serviceProviderMap: Record<string, KeyResolver> = {
 	"wafer-serverless": "WAFER_SERVERLESS_API_KEY",
 	openrouter: "OPENROUTER_API_KEY",
 	kilo: "KILO_API_KEY",
+	cline: "CLINE_API_KEY",
+	"cline-pass": "CLINE_API_KEY",
 	"vercel-ai-gateway": "AI_GATEWAY_API_KEY",
 	zai: "ZAI_API_KEY",
 	"zhipu-coding-plan": "ZHIPU_API_KEY",

@@ -145,7 +145,9 @@ export type KnownProvider =
 	| "wafer-pass"
 	| "wafer-serverless"
 	| "zenmux"
-	| "lm-studio";
+	| "lm-studio"
+	| "cline"
+	| "cline-pass";
 export type Provider = KnownProvider | string;
 
 import type { Effort } from "./model-thinking";
