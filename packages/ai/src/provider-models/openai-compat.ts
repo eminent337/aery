@@ -1599,7 +1599,9 @@ const FREEBUFF_FREE_MODELS: ReadonlyArray<{
 		name: "MiniMax M3",
 		reasoning: true,
 		input: ["text", "image"],
-		contextWindow: 128_000,
+		// Measured by Codebuff from a real provider rejection ("model maximum
+		// context length: 524287"): minimax-m3 enforces a 524,288-token window.
+		contextWindow: 524_288,
 		maxTokens: 8192,
 	},
 	{
@@ -1607,7 +1609,10 @@ const FREEBUFF_FREE_MODELS: ReadonlyArray<{
 		name: "GPT-5.6 Luna",
 		reasoning: true,
 		input: ["text", "image"],
-		contextWindow: 200_000,
+		// Not in Codebuff's measured FREEBUFF_MODEL_CONTEXT_WINDOWS table, so it
+		// falls back to FREEBUFF_DEFAULT_CONTEXT_WINDOW (131,072) — the
+		// deliberately conservative window Codebuff's context pruner assumes.
+		contextWindow: 131_072,
 		maxTokens: 16_384,
 	},
 	{
@@ -1615,7 +1620,8 @@ const FREEBUFF_FREE_MODELS: ReadonlyArray<{
 		name: "MiMo 2.5 Pro",
 		reasoning: true,
 		input: ["text"],
-		contextWindow: 128_000,
+		// Unmeasured upstream — Codebuff defaults to 131,072.
+		contextWindow: 131_072,
 		maxTokens: 8192,
 	},
 	{
@@ -1623,7 +1629,8 @@ const FREEBUFF_FREE_MODELS: ReadonlyArray<{
 		name: "MiMo 2.5",
 		reasoning: false,
 		input: ["text", "image"],
-		contextWindow: 128_000,
+		// Unmeasured upstream — Codebuff defaults to 131,072.
+		contextWindow: 131_072,
 		maxTokens: 4096,
 	},
 ];
