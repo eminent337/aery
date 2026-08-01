@@ -53,7 +53,31 @@ describe("freebuff provider support", () => {
 		expect(options.staticModels).toBeDefined();
 		const staticIds = options.staticModels?.map(m => m.id);
 		expect(staticIds).toContain("deepseek/deepseek-v4-flash");
-		expect(staticIds).toContain("z-ai/glm-5.2");
-		expect(staticIds).toContain("poolside/laguna-s-2.1");
+		expect(staticIds).toContain("deepseek/deepseek-v4-pro");
+		expect(staticIds).toContain("minimax/minimax-m3");
+		expect(staticIds).toContain("openai/gpt-5.6-luna");
+		expect(staticIds).toContain("mimo/mimo-v2.5-pro");
+		expect(staticIds).toContain("mimo/mimo-v2.5");
+		expect(staticIds).not.toContain("z-ai/glm-5.2");
+		expect(staticIds).not.toContain("poolside/laguna-s-2.1");
+	});
+	test("auto-syncs models from the freebuff session endpoint when authenticated", async () => {
+		global.fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						rateLimitsByModel: {
+							"deepseek/deepseek-v4-flash": { model: "deepseek/deepseek-v4-flash" },
+							"mimo/mimo-v2.5": { model: "mimo/mimo-v2.5" },
+						},
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+		) as unknown as typeof fetch;
+		const options = freebuffModelManagerOptions({ apiKey: "freebuff-test-key" });
+		const models = await options.fetchDynamicModels?.();
+		expect(models).toBeDefined();
+		const ids = models?.map(m => m.id);
+		expect(ids).toEqual(["deepseek/deepseek-v4-flash", "mimo/mimo-v2.5"]);
 	});
 });

@@ -1569,122 +1569,103 @@ export interface FreebuffModelManagerConfig {
 	apiKey?: string;
 	baseUrl?: string;
 }
+/** Known model metadata for the Freebuff free-mode allowlist. */
+const FREEBUFF_FREE_MODELS: ReadonlyArray<{
+	id: string;
+	name: string;
+	reasoning: boolean;
+	input: string[];
+	contextWindow: number;
+	maxTokens: number;
+}> = [
+	{
+		id: "deepseek/deepseek-v4-flash",
+		name: "DeepSeek V4 Flash",
+		reasoning: true,
+		input: ["text"],
+		contextWindow: 131_072,
+		maxTokens: 8192,
+	},
+	{
+		id: "deepseek/deepseek-v4-pro",
+		name: "DeepSeek V4 Pro",
+		reasoning: true,
+		input: ["text"],
+		contextWindow: 131_072,
+		maxTokens: 8192,
+	},
+	{
+		id: "minimax/minimax-m3",
+		name: "MiniMax M3",
+		reasoning: true,
+		input: ["text", "image"],
+		contextWindow: 128_000,
+		maxTokens: 8192,
+	},
+	{
+		id: "openai/gpt-5.6-luna",
+		name: "GPT-5.6 Luna",
+		reasoning: true,
+		input: ["text", "image"],
+		contextWindow: 200_000,
+		maxTokens: 16_384,
+	},
+	{
+		id: "mimo/mimo-v2.5-pro",
+		name: "MiMo 2.5 Pro",
+		reasoning: true,
+		input: ["text"],
+		contextWindow: 128_000,
+		maxTokens: 8192,
+	},
+	{
+		id: "mimo/mimo-v2.5",
+		name: "MiMo 2.5",
+		reasoning: false,
+		input: ["text", "image"],
+		contextWindow: 128_000,
+		maxTokens: 4096,
+	},
+];
+function toFreebuffModel(
+	meta: { id: string; name: string; reasoning: boolean; input: string[]; contextWindow: number; maxTokens: number },
+	baseUrl: string,
+): Model<"openai-completions"> {
+	return {
+		id: meta.id,
+		name: meta.name,
+		api: "openai-completions",
+		provider: "freebuff",
+		baseUrl,
+		reasoning: meta.reasoning,
+		input: meta.input as Model<"openai-completions">["input"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: meta.contextWindow,
+		maxTokens: meta.maxTokens,
+	};
+}
 export function freebuffModelManagerOptions(
 	config?: FreebuffModelManagerConfig,
 ): ModelManagerOptions<"openai-completions"> {
 	const apiKey = config?.apiKey;
-	const baseUrl = config?.baseUrl ?? "https://codebuff.com/api/v1";
-	const staticModels: Model<"openai-completions">[] = [
-		{
-			id: "deepseek/deepseek-v4-flash",
-			name: "DeepSeek V4 Flash",
-			api: "openai-completions",
-			provider: "freebuff",
-			baseUrl,
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 131_072,
-			maxTokens: 8192,
-		},
-		{
-			id: "z-ai/glm-5.2",
-			name: "GLM 5.2",
-			api: "openai-completions",
-			provider: "freebuff",
-			baseUrl,
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 131_072,
-			maxTokens: 8192,
-		},
-		{
-			id: "poolside/laguna-s-2.1",
-			name: "Laguna S 2.1",
-			api: "openai-completions",
-			provider: "freebuff",
-			baseUrl,
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 131_072,
-			maxTokens: 4096,
-		},
-		{
-			id: "google/gemini-3.1-pro-preview",
-			name: "Gemini 3.1 Pro Preview",
-			api: "openai-completions",
-			provider: "freebuff",
-			baseUrl,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 1_000_000,
-			maxTokens: 8192,
-		},
-		{
-			id: "openai/gpt-5.6-luna",
-			name: "GPT 5.6 Luna",
-			api: "openai-completions",
-			provider: "freebuff",
-			baseUrl,
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 200_000,
-			maxTokens: 16_384,
-		},
-		{
-			id: "minimax/m3",
-			name: "MiniMax M3",
-			api: "openai-completions",
-			provider: "freebuff",
-			baseUrl,
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128_000,
-			maxTokens: 8192,
-		},
-		{
-			id: "mimo/v2.5",
-			name: "MiMo V2.5",
-			api: "openai-completions",
-			provider: "freebuff",
-			baseUrl,
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128_000,
-			maxTokens: 4096,
-		},
-		{
-			id: "inclusionai/ling-3.0-flash:free",
-			name: "Ling 3.0 Flash",
-			api: "openai-completions",
-			provider: "freebuff",
-			baseUrl,
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 131_072,
-			maxTokens: 4096,
-		},
-	];
+	const baseUrl = config?.baseUrl ?? "https://www.codebuff.com/api/v1";
+	const staticModels: Model<"openai-completions">[] = FREEBUFF_FREE_MODELS.map(meta => toFreebuffModel(meta, baseUrl));
 	return {
 		providerId: "freebuff",
 		dynamicModelsAuthoritative: true,
 		staticModels,
 		fetchDynamicModels: async () => {
 			if (!apiKey) return staticModels;
-			const fetched = await fetchOpenAICompatibleModels({
-				api: "openai-completions",
-				provider: "freebuff",
-				baseUrl,
-				apiKey,
-			});
-			return fetched && fetched.length > 0 ? fetched : staticModels;
+			const { fetchFreebuffActiveModels } = await import("../utils/oauth/freebuff");
+			const activeIds = await fetchFreebuffActiveModels({ apiKey, baseUrl });
+			if (!activeIds || activeIds.length === 0) return staticModels;
+			const models = activeIds
+				.map(id => {
+					const meta = FREEBUFF_FREE_MODELS.find(entry => entry.id === id);
+					return meta ? toFreebuffModel(meta, baseUrl) : undefined;
+				})
+				.filter((model): model is Model<"openai-completions"> => model !== undefined);
+			return models.length > 0 ? models : staticModels;
 		},
 	};
 }

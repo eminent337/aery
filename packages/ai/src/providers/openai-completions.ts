@@ -52,7 +52,7 @@ import {
 } from "../utils/idle-iterator";
 import { parseStreamingJson, parseStreamingJsonThrottled } from "../utils/json-parse";
 import { getClineCommonHeaders } from "../utils/oauth/cline";
-import { getFreebuffCommonHeaders } from "../utils/oauth/freebuff";
+import { createFreebuffFetch, getFreebuffCommonHeaders } from "../utils/oauth/freebuff";
 import { parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
 import { getKimiCommonHeaders } from "../utils/oauth/kimi";
 import { notifyProviderResponse } from "../utils/provider-response";
@@ -1044,7 +1044,10 @@ async function createClient(
 		azureDefaultQuery = { "api-version": apiVersion };
 	}
 	let capturedErrorResponse: CapturedHttpErrorResponse | undefined;
-	const baseFetch = fetchOverride ?? fetch;
+	const baseFetch =
+		model.provider === "freebuff"
+			? createFreebuffFetch({ apiKey, baseUrl, fetch: fetchOverride ?? fetch })
+			: (fetchOverride ?? fetch);
 	const wrappedFetch = Object.assign(
 		async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
 			const response = await baseFetch(input, init);

@@ -1,16 +1,20 @@
 /**
  * Freebuff / Codebuff Web Device Authentication flow.
  *
- * Connects to Codebuff CLI Auth API (https://codebuff.com):
- * 1. Requests a CLI login URL from https://codebuff.com/api/auth/cli/code
+ * Connects to Codebuff CLI Auth API (https://www.codebuff.com):
+ * 1. Requests a CLI login URL from https://www.codebuff.com/api/auth/cli/code
  * 2. Opens the browser to the login URL for user sign in.
- * 3. Polls https://codebuff.com/api/auth/cli/status until approved.
+ * 3. Polls https://www.codebuff.com/api/auth/cli/status until approved.
  * 4. Returns the Freebuff authentication token.
+ *
+ * The token is only accepted on the `www.` host — requests to `codebuff.com`
+ * (no www) return 401 `Missing or invalid Authorization header`, so every
+ * endpoint constant below uses the www host.
  */
-
+import type { FetchImpl } from "../../types";
 import type { OAuthCredentials } from "./types";
 
-const CODEBUFF_BASE_URL = "https://codebuff.com";
+export const CODEBUFF_BASE_URL = "https://www.codebuff.com";
 const CODE_URL = `${CODEBUFF_BASE_URL}/api/auth/cli/code`;
 const STATUS_URL = `${CODEBUFF_BASE_URL}/api/auth/cli/status`;
 
@@ -112,6 +116,7 @@ export async function loginFreebuff(callbacks: {
 
 	throw new Error("Web authentication timed out. Please try again.");
 }
+
 /**
  * Common HTTP headers required by Codebuff/Freebuff endpoints.
  */
@@ -119,4 +124,162 @@ export function getFreebuffCommonHeaders(): Record<string, string> {
 	return {
 		"User-Agent": "ai-sdk/openai-compatible/3.5.0/codebuff",
 	};
+}
+const FREEBUFF_ACTING_USER_HEADER = "x-freebuff-acting-user-id";
+/**
+ * Normalize a base URL so an `/api/v1` suffix is applied exactly once.
+ * Accepts either the origin (`https://www.codebuff.com`) or a base that
+ * already ends in `/api/v1`, and always returns the origin form with the
+ * `/api/v1` prefix (no trailing slash).
+ */
+export function resolveFreebuffApiBase(baseUrl?: string): string {
+	const origin = (baseUrl ?? CODEBUFF_BASE_URL).replace(/\/+$/, "").replace(/\/api\/v1$/, "");
+	return `${origin}/api/v1`;
+}
+
+/**
+ * Start a Freebuff agent run and return its `runId`. The chat-completions
+ * endpoint rejects requests without a valid `codebuff_metadata.run_id`
+ * (`400 {"message":"No runId found in request body"}`), so every completion
+ * must first create a run via `POST /api/v1/agent-runs`.
+ */
+export async function startFreebuffAgentRun(options: {
+	apiKey: string;
+	baseUrl?: string;
+	agentId?: string;
+	userId?: string;
+	signal?: AbortSignal;
+}): Promise<string | null> {
+	const { apiKey } = options;
+	const baseUrl = options.baseUrl;
+	const apiBase = resolveFreebuffApiBase(baseUrl);
+	const agentId = options.agentId ?? "base2-free";
+	const userId = options.userId;
+	try {
+		const response = await fetch(`${apiBase}/agent-runs`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${apiKey}`,
+				...(userId ? { [FREEBUFF_ACTING_USER_HEADER]: userId } : {}),
+			},
+			body: JSON.stringify({
+				action: "START",
+				agentId,
+				ancestorRunIds: [],
+			}),
+			signal: options.signal ?? AbortSignal.timeout(20_000),
+		});
+		if (!response.ok) {
+			return null;
+		}
+		const body = (await response.json()) as { runId?: unknown };
+		return typeof body.runId === "string" && body.runId.length > 0 ? body.runId : null;
+	} catch {
+		return null;
+	}
+}
+
+const freebuffRunCache = new Map<string, string | null>();
+
+/**
+ * Cached startFreebuffAgentRun for the given (baseUrl, apiKey) pair — one run
+ * per process per credential. Returns null when starting fails.
+ */
+export async function ensureFreebuffRunId(options: {
+	apiKey: string;
+	baseUrl?: string;
+	agentId?: string;
+	userId?: string;
+	signal?: AbortSignal;
+}): Promise<string | null> {
+	const cacheKey = `${options.baseUrl ?? CODEBUFF_BASE_URL}:${options.apiKey}:${options.agentId ?? "base2-free"}`;
+	if (freebuffRunCache.has(cacheKey)) {
+		const cached = freebuffRunCache.get(cacheKey);
+		if (typeof cached === "string") return cached;
+	}
+	const runId = await startFreebuffAgentRun(options);
+	freebuffRunCache.set(cacheKey, runId);
+	return runId;
+}
+
+/**
+ * Wrap a fetch so every `/chat/completions` POST gets `codebuff_metadata.run_id`
+ * injected into the JSON body (required by the Codebuff backend) and the
+ * standard Freebuff headers attached. Falls back to plain fetch when the run
+ * cannot be started.
+ */
+export function createFreebuffFetch(options: {
+	apiKey: string;
+	baseUrl?: string;
+	userId?: string;
+	fetch?: FetchImpl;
+}): FetchImpl {
+	const baseFetch = options.fetch ?? globalThis.fetch;
+	const baseUrl = options.baseUrl ?? CODEBUFF_BASE_URL;
+	const apiKey = options.apiKey;
+	const userId = options.userId;
+	return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+		const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+		if (url.includes("/chat/completions") && init?.body) {
+			const runId = await ensureFreebuffRunId({ apiKey, baseUrl, userId });
+			if (runId) {
+				let bodyObj: Record<string, unknown>;
+				try {
+					bodyObj = JSON.parse(String(init.body)) as Record<string, unknown>;
+				} catch {
+					bodyObj = {};
+				}
+				const metadata = (bodyObj.codebuff_metadata ?? {}) as Record<string, unknown>;
+				bodyObj.codebuff_metadata = { ...metadata, run_id: runId };
+				init = {
+					...init,
+					body: JSON.stringify(bodyObj),
+					headers: {
+						...getFreebuffCommonHeaders(),
+						...(init.headers as Record<string, string> | undefined),
+					},
+				};
+			}
+		}
+		return baseFetch(input, init);
+	}) as FetchImpl;
+}
+
+/**
+ * Fetch the Freebuff session and enumerate the models this account can
+ * actually use. `GET /api/v1/freebuff/session` with the include-unused
+ * header returns `rateLimitsByModel` keyed by model id — the authoritative
+ * "active free models for this user" list (varies by access tier: limited
+ * tiers get DeepSeek V4 Flash + MiMo V2.5; full tiers get the whole
+ * free-mode allowlist).
+ */
+export async function fetchFreebuffActiveModels(options: {
+	apiKey: string;
+	baseUrl?: string;
+	signal?: AbortSignal;
+}): Promise<string[] | null> {
+	const { apiKey } = options;
+	const apiBase = resolveFreebuffApiBase(options.baseUrl);
+	try {
+		const response = await fetch(`${apiBase}/freebuff/session`, {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				"x-freebuff-include-unused-rate-limits": "1",
+			},
+			signal: options.signal ?? AbortSignal.timeout(10_000),
+		});
+		if (!response.ok) {
+			return null;
+		}
+		const payload = (await response.json()) as { rateLimitsByModel?: Record<string, unknown> };
+		if (!payload.rateLimitsByModel || typeof payload.rateLimitsByModel !== "object") {
+			return null;
+		}
+		const ids = Object.keys(payload.rateLimitsByModel).filter(id => id.length > 0);
+		return ids.length > 0 ? ids : null;
+	} catch {
+		return null;
+	}
 }
