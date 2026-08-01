@@ -1923,7 +1923,10 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				return commandConsumed();
 			}
 
-			return usage("Usage: /schedule [create|list|delete|pause|resume|trigger]", runtime);
+			runtime.output(
+				'Usage: /schedule [create|list|delete|pause|resume|trigger]\n\nTip: To create a schedule, use:\n/schedule create "MyTask" --cron "0 9 * * *" --prompt "What do you want me to do?"',
+			);
+			return commandConsumed();
 		},
 		handleTui: async (command, runtime) => {
 			const { verb, rest } = parseSubcommand(command.args);
@@ -2020,6 +2023,16 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				const success = await globalScheduler.triggerSchedule(id, runtime.ctx);
 				runtime.ctx.showStatus(success ? `Schedule ${id} triggered.` : `Schedule ${id} not found.`);
 				runtime.ctx.editor.setText("");
+				return;
+			}
+
+			if (!verb) {
+				runtime.ctx.showStatus("Fill out the schedule details below and hit Enter!");
+				const template = `/schedule create MyTask --cron "0 9 * * 1-5" --prompt ""`;
+				runtime.ctx.editor.setText(template);
+				if (typeof runtime.ctx.editor.setCursorPosition === "function") {
+					runtime.ctx.editor.setCursorPosition(template.length - 1);
+				}
 				return;
 			}
 

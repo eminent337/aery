@@ -1584,6 +1584,11 @@ export class AuthStorage {
 			case "cline": {
 				const { loginCline } = await import("./utils/oauth/cline");
 				const clineCredentials = await loginCline(ctrl);
+				// Remove any prior cline credential (e.g. a stale api_key holding
+				// the WorkOS token from an older flow) — getApiKey prefers
+				// api_key over oauth, so a leftover api_key would keep winning
+				// and requests would keep 401ing against api.cline.bot.
+				await this.remove("cline");
 				const newCredential: OAuthCredential = { type: "oauth", ...clineCredentials };
 				await this.#upsertOAuthCredential("cline", newCredential);
 				return;

@@ -55,24 +55,36 @@ function mockClineFetchFlow() {
 describe("cline AuthStorage.login integration", () => {
 	test("persists OAuth credential and getApiKey returns the Cline access token", async () => {
 		mockClineFetchFlow();
-
 		const store = await SqliteAuthCredentialStore.open(":memory:");
 		const storage = new AuthStorage(store);
 		await storage.reload();
-
 		await storage.login("cline", {
 			onAuth: () => {},
 			onPrompt: async () => "",
 		});
-
 		expect(storage.hasAuth("cline")).toBe(true);
-
 		const credential = storage.getOAuthCredential("cline");
 		expect(credential?.type).toBe("oauth");
 		expect(credential?.access).toBe("cline-integration-access-token");
 		expect(credential?.refresh).toBe("cline-integration-refresh-token");
-
 		const apiKey = await storage.getApiKey("cline");
 		expect(apiKey).toBe("cline-integration-access-token");
+	});
+	test("replaces a stale api_key credential so getApiKey returns the Cline token", async () => {
+		mockClineFetchFlow();
+		const store = await SqliteAuthCredentialStore.open(":memory:");
+		const storage = new AuthStorage(store);
+		await storage.reload();
+		// Seed a stale api_key holding a WorkOS token (the pre-fix state).
+		await storage.set("cline", { type: "api_key", key: "workos-stale-token" });
+		expect(await storage.getApiKey("cline")).toBe("workos-stale-token");
+		await storage.login("cline", {
+			onAuth: () => {},
+			onPrompt: async () => "",
+		});
+		// getApiKey must now return the real Cline token, not the stale WorkOS one.
+		const apiKey = await storage.getApiKey("cline");
+		expect(apiKey).toBe("cline-integration-access-token");
+		expect(storage.getOAuthCredential("cline")?.type).toBe("oauth");
 	});
 });
