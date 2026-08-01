@@ -35,6 +35,14 @@ interface WorkOSTokenResponse {
 }
 
 interface ClineRegisterResponse {
+	success?: boolean;
+	data?: {
+		accessToken?: string;
+		refreshToken?: string;
+		tokenType?: string;
+		expiresAt?: string;
+		userInfo?: unknown;
+	};
 	accessToken?: string;
 	apiKey?: string;
 	token?: string;
@@ -109,16 +117,14 @@ export async function loginCline(callbacks: OAuthController): Promise<string> {
 							refreshToken: tokenData.refresh_token,
 						}),
 					});
-
 					if (registerResponse.ok) {
 						const regData = (await registerResponse.json()) as ClineRegisterResponse;
-						const key = regData.apiKey || regData.accessToken || regData.token;
+						const key = regData.data?.accessToken || regData.apiKey || regData.accessToken || regData.token;
 						if (key) return key;
 					}
 				} catch {
 					// Ignore registration error and fall back to WorkOS access token
 				}
-
 				return tokenData.access_token;
 			}
 		} else {
