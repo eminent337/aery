@@ -1581,8 +1581,7 @@ export class AuthStorage {
 				await saveApiKeyCredential(apiKey);
 				return;
 			}
-			case "cline":
-			case "cline-pass": {
+			case "cline": {
 				const { loginCline } = await import("./utils/oauth/cline");
 				const apiKey = await loginCline(ctrl);
 				await saveApiKeyCredential(apiKey);

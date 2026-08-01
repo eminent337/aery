@@ -13,7 +13,6 @@ import {
 	anthropicModelManagerOptions,
 	cerebrasModelManagerOptions,
 	clineModelManagerOptions,
-	clinePassModelManagerOptions,
 	cloudflareAiGatewayModelManagerOptions,
 	deepseekModelManagerOptions,
 	firepassModelManagerOptions,
@@ -237,13 +236,6 @@ export const PROVIDER_DESCRIPTORS: readonly ProviderDescriptor[] = [
 		"anthropic/claude-sonnet-4.6",
 		config => clineModelManagerOptions(config),
 		catalog("Cline", ["CLINE_API_KEY"], { allowUnauthenticated: true }),
-		{ allowUnauthenticated: true, dynamicModelsAuthoritative: true },
-	),
-	catalogDescriptor(
-		"cline-pass",
-		"anthropic/claude-sonnet-4.6",
-		config => clinePassModelManagerOptions(config),
-		catalog("ClinePass", ["CLINE_API_KEY"], { allowUnauthenticated: true }),
 		{ allowUnauthenticated: true, dynamicModelsAuthoritative: true },
 	),
 	catalogDescriptor(
