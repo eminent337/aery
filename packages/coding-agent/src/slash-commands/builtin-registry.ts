@@ -27,7 +27,6 @@ import type { Ferment } from "../ferment/types.js";
 import { getMarketplaceArgumentCompletions } from "../marketplace/marketplace.js";
 import { resolveMemoryBackend } from "../memory-backend";
 import type { InteractiveModeContext } from "../modes/types";
-import type { ShakeMode } from "../session/shake-types";
 import { globalScheduler } from "../task/schedule/scheduler";
 import { getChangelogPath, parseChangelog } from "../utils/changelog";
 import { buildContextReportText } from "./helpers/context-report";
@@ -56,8 +55,6 @@ export type { BuiltinSlashCommand, SubcommandDef };
 /** TUI-specific runtime accepted by `executeBuiltinSlashCommand`. */
 export type BuiltinSlashCommandRuntime = TuiSlashCommandRuntime;
 
-const activeSwarmScheduler: any = null;
-
 function refreshStatusLine(ctx: InteractiveModeContext): void {
 	ctx.statusLine.invalidate();
 	ctx.updateEditorTopBorder();
@@ -69,14 +66,6 @@ const shutdownHandlerTui = (_command: ParsedSlashCommand, runtime: TuiSlashComma
 	void runtime.ctx.shutdown();
 	return commandConsumed();
 };
-
-/** Parse the `/shake` subcommand into a {@link ShakeMode}; empty defaults to elide. */
-function parseShakeMode(args: string): ShakeMode | { error: string } {
-	const verb = args.trim().toLowerCase();
-	if (verb === "" || verb === "elide") return "elide";
-	if (verb === "images") return "images";
-	return { error: `Unknown /shake mode "${verb}". Use elide or images.` };
-}
 
 const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	pluginCommand,
