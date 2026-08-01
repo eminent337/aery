@@ -189,6 +189,7 @@ const serviceProviderMap: Record<string, KeyResolver> = {
 	openrouter: "OPENROUTER_API_KEY",
 	kilo: "KILO_API_KEY",
 	cline: "CLINE_API_KEY",
+	freebuff: () => $pickenv("FREEBUFF_API_KEY", "CODEBUFF_API_KEY"),
 	"vercel-ai-gateway": "AI_GATEWAY_API_KEY",
 	zai: "ZAI_API_KEY",
 	"zhipu-coding-plan": "ZHIPU_API_KEY",

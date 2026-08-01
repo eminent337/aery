@@ -2,6 +2,7 @@
 // High-level API
 // ============================================================================
 import { formatClineApiKey, loginCline, refreshClineToken } from "./cline";
+import { formatFreebuffApiKey, loginFreebuff } from "./freebuff";
 import type {
 	OAuthCredentials,
 	OAuthProvider,
@@ -206,6 +207,11 @@ const builtInOAuthProviders: OAuthProviderInfo[] = [
 		available: true,
 	},
 	{
+		id: "freebuff",
+		name: "Freebuff (Codebuff)",
+		available: true,
+	},
+	{
 		id: "zenmux",
 		name: "ZenMux",
 		available: true,
@@ -268,6 +274,15 @@ const customOAuthProviders = new Map<string, OAuthProviderInterface>([
 			login: loginCline,
 			refreshToken: refreshClineToken,
 			getApiKey: credentials => formatClineApiKey(credentials.access),
+		},
+	],
+	[
+		"freebuff",
+		{
+			id: "freebuff",
+			name: "Freebuff",
+			login: loginFreebuff,
+			getApiKey: credentials => formatFreebuffApiKey(credentials.access),
 		},
 	],
 ]);

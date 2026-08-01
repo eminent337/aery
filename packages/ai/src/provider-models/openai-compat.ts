@@ -1565,6 +1565,128 @@ export function clineModelManagerOptions(config?: ClineModelManagerConfig): Mode
 		fetchDynamicModels: () => fetchClineRecommendedFreeModels({ baseUrl, apiKey }),
 	};
 }
+export interface FreebuffModelManagerConfig {
+	apiKey?: string;
+	baseUrl?: string;
+}
+export function freebuffModelManagerOptions(
+	config?: FreebuffModelManagerConfig,
+): ModelManagerOptions<"openai-completions"> {
+	const apiKey = config?.apiKey;
+	const baseUrl = config?.baseUrl ?? "https://codebuff.com/api/v1";
+	const staticModels: Model<"openai-completions">[] = [
+		{
+			id: "deepseek/deepseek-v4-flash",
+			name: "DeepSeek V4 Flash",
+			api: "openai-completions",
+			provider: "freebuff",
+			baseUrl,
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 131_072,
+			maxTokens: 8192,
+		},
+		{
+			id: "z-ai/glm-5.2",
+			name: "GLM 5.2",
+			api: "openai-completions",
+			provider: "freebuff",
+			baseUrl,
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 131_072,
+			maxTokens: 8192,
+		},
+		{
+			id: "poolside/laguna-s-2.1",
+			name: "Laguna S 2.1",
+			api: "openai-completions",
+			provider: "freebuff",
+			baseUrl,
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 131_072,
+			maxTokens: 4096,
+		},
+		{
+			id: "google/gemini-3.1-pro-preview",
+			name: "Gemini 3.1 Pro Preview",
+			api: "openai-completions",
+			provider: "freebuff",
+			baseUrl,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 1_000_000,
+			maxTokens: 8192,
+		},
+		{
+			id: "openai/gpt-5.6-luna",
+			name: "GPT 5.6 Luna",
+			api: "openai-completions",
+			provider: "freebuff",
+			baseUrl,
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 200_000,
+			maxTokens: 16_384,
+		},
+		{
+			id: "minimax/m3",
+			name: "MiniMax M3",
+			api: "openai-completions",
+			provider: "freebuff",
+			baseUrl,
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 128_000,
+			maxTokens: 8192,
+		},
+		{
+			id: "mimo/v2.5",
+			name: "MiMo V2.5",
+			api: "openai-completions",
+			provider: "freebuff",
+			baseUrl,
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 128_000,
+			maxTokens: 4096,
+		},
+		{
+			id: "inclusionai/ling-3.0-flash:free",
+			name: "Ling 3.0 Flash",
+			api: "openai-completions",
+			provider: "freebuff",
+			baseUrl,
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 131_072,
+			maxTokens: 4096,
+		},
+	];
+	return {
+		providerId: "freebuff",
+		staticModels,
+		fetchDynamicModels: async () => {
+			if (!apiKey) return staticModels;
+			const fetched = await fetchOpenAICompatibleModels({
+				api: "openai-completions",
+				provider: "freebuff",
+				baseUrl,
+				apiKey,
+			});
+			return fetched && fetched.length > 0 ? fetched : staticModels;
+		},
+	};
+}
 async function fetchClineRecommendedFreeModels(options: {
 	baseUrl: string;
 	apiKey?: string;

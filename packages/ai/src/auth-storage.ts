@@ -1593,6 +1593,14 @@ export class AuthStorage {
 				await this.#upsertOAuthCredential("cline", newCredential);
 				return;
 			}
+			case "freebuff": {
+				const { loginFreebuff } = await import("./utils/oauth/freebuff");
+				const freebuffCredentials = await loginFreebuff(ctrl);
+				await this.remove("freebuff");
+				const newCredential: OAuthCredential = { type: "oauth", ...freebuffCredentials };
+				await this.#upsertOAuthCredential("freebuff", newCredential);
+				return;
+			}
 			case "lm-studio": {
 				const { loginLmStudio } = await import("./utils/oauth/lm-studio");
 				const apiKey = await loginLmStudio(ctrl);

@@ -55,6 +55,7 @@ export type OAuthProvider =
 	| "xiaomi"
 	| "zenmux"
 	| "cline"
+	| "freebuff"
 	| "zai"
 	| "zhipu-coding-plan";
 

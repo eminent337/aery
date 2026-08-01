@@ -17,6 +17,7 @@ import {
 	deepseekModelManagerOptions,
 	firepassModelManagerOptions,
 	fireworksModelManagerOptions,
+	freebuffModelManagerOptions,
 	githubCopilotModelManagerOptions,
 	groqModelManagerOptions,
 	huggingfaceModelManagerOptions,
@@ -237,6 +238,13 @@ export const PROVIDER_DESCRIPTORS: readonly ProviderDescriptor[] = [
 		config => clineModelManagerOptions(config),
 		catalog("Cline", ["CLINE_API_KEY"], { allowUnauthenticated: true }),
 		{ allowUnauthenticated: true, dynamicModelsAuthoritative: true },
+	),
+	catalogDescriptor(
+		"freebuff",
+		"deepseek/deepseek-v4-flash",
+		config => freebuffModelManagerOptions(config),
+		catalog("Freebuff (Codebuff)", ["FREEBUFF_API_KEY", "CODEBUFF_API_KEY"], { allowUnauthenticated: true }),
+		{ allowUnauthenticated: true },
 	),
 	catalogDescriptor(
 		"vercel-ai-gateway",
