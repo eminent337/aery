@@ -62,6 +62,11 @@ describe("freebuff provider support", () => {
 		expect(staticIds).not.toContain("z-ai/glm-5.2");
 		expect(staticIds).not.toContain("poolside/laguna-s-2.1");
 	});
+	test("fetchDynamicModels returns null without a key so static models stay non-authoritative", async () => {
+		const options = freebuffModelManagerOptions();
+		const dynamic = await options.fetchDynamicModels?.();
+		expect(dynamic).toBeNull();
+	});
 	test("auto-syncs models from the freebuff session endpoint when authenticated", async () => {
 		global.fetch = vi.fn(
 			async () =>

@@ -1681,10 +1681,18 @@ export function freebuffModelManagerOptions(
 		dynamicModelsAuthoritative: true,
 		staticModels,
 		fetchDynamicModels: async () => {
-			if (!apiKey) return staticModels;
+			// Must return null (not the static list) when the live sync cannot
+			// run, so the model manager does not mark the hand-curated static
+			// allowlist as an authoritative per-account result. A non-null
+			// return is treated as a successful dynamic sync and cached with
+			// `dynamicModelsAuthoritative`, which is how 6 static models ended
+			// up cached as authoritative for a limited-tier account that only
+			// has 2. Static models still appear as the non-authoritative
+			// fallback via `staticModels` in the options.
+			if (!apiKey) return null;
 			const { fetchFreebuffActiveModels } = await import("../utils/oauth/freebuff");
 			const activeIds = await fetchFreebuffActiveModels({ apiKey, baseUrl });
-			if (!activeIds || activeIds.length === 0) return staticModels;
+			if (!activeIds || activeIds.length === 0) return null;
 			// Auto-update: the session endpoint is the authoritative source of
 			// *this account's* free models. Known IDs reuse full metadata; unknown
 			// IDs (newly added upstream) are synthesized with safe defaults instead
