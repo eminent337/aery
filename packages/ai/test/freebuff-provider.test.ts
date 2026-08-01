@@ -81,6 +81,31 @@ describe("freebuff provider support", () => {
 		const ids = models?.map(m => m.id);
 		expect(ids).toEqual(["deepseek/deepseek-v4-flash", "mimo/mimo-v2.5"]);
 	});
+	test("auto-sync surfaces brand-new upstream model IDs instead of dropping them", async () => {
+		// If Codebuff adds a new free model tomorrow, its ID arrives in
+		// rateLimitsByModel but is not in the hardcoded allowlist yet. The
+		// fetcher must still surface it so the list tracks upstream.
+		global.fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						rateLimitsByModel: {
+							"deepseek/deepseek-v4-flash": { model: "deepseek/deepseek-v4-flash" },
+							"vendor/brand-new-free-model": { model: "vendor/brand-new-free-model" },
+						},
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+		) as unknown as typeof fetch;
+		const options = freebuffModelManagerOptions({ apiKey: "freebuff-test-key" });
+		const models = await options.fetchDynamicModels?.();
+		const ids = models?.map(m => m.id);
+		expect(ids).toContain("deepseek/deepseek-v4-flash");
+		expect(ids).toContain("vendor/brand-new-free-model");
+		const fresh = models?.find(m => m.id === "vendor/brand-new-free-model");
+		expect(fresh?.cost.input).toBe(0);
+		expect(fresh?.contextWindow).toBeGreaterThan(0);
+	});
 	test("createFreebuffFetch preserves Headers-instance auth and injects run_id", async () => {
 		// The OpenAI SDK passes a `Headers` instance (not a plain object) in
 		// `init.headers`. Spreading it with `{...init.headers}` yields `{}` and

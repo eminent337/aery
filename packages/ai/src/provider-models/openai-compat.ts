@@ -1644,6 +1644,32 @@ function toFreebuffModel(
 		maxTokens: meta.maxTokens,
 	};
 }
+/**
+ * Synthesize safe default metadata for a Freebuff model ID returned by the
+ * live session endpoint that isn't in the hardcoded allowlist yet. This is
+ * what makes auto-update work: when Codebuff adds a new free model, its ID
+ * arrives in `rateLimitsByModel` and must surface as a usable model entry
+ * even before we've hand-curated its metadata. Name falls back to the ID
+ * slug; capacity uses conservative generic values.
+ */
+function freebuffFallbackMeta(id: string): {
+	id: string;
+	name: string;
+	reasoning: boolean;
+	input: string[];
+	contextWindow: number;
+	maxTokens: number;
+} {
+	const slug = id.split("/").pop() ?? id;
+	return {
+		id,
+		name: slug.replace(/[-_]/g, " ").replace(/\b\w/g, char => char.toUpperCase()),
+		reasoning: true,
+		input: ["text"],
+		contextWindow: 131_072,
+		maxTokens: 8192,
+	};
+}
 export function freebuffModelManagerOptions(
 	config?: FreebuffModelManagerConfig,
 ): ModelManagerOptions<"openai-completions"> {
@@ -1659,13 +1685,15 @@ export function freebuffModelManagerOptions(
 			const { fetchFreebuffActiveModels } = await import("../utils/oauth/freebuff");
 			const activeIds = await fetchFreebuffActiveModels({ apiKey, baseUrl });
 			if (!activeIds || activeIds.length === 0) return staticModels;
-			const models = activeIds
-				.map(id => {
-					const meta = FREEBUFF_FREE_MODELS.find(entry => entry.id === id);
-					return meta ? toFreebuffModel(meta, baseUrl) : undefined;
-				})
-				.filter((model): model is Model<"openai-completions"> => model !== undefined);
-			return models.length > 0 ? models : staticModels;
+			// Auto-update: the session endpoint is the authoritative source of
+			// *this account's* free models. Known IDs reuse full metadata; unknown
+			// IDs (newly added upstream) are synthesized with safe defaults instead
+			// of being dropped, so the list tracks Codebuff's allowlist changes.
+			const models = activeIds.map(id => {
+				const meta = FREEBUFF_FREE_MODELS.find(entry => entry.id === id);
+				return meta ? toFreebuffModel(meta, baseUrl) : toFreebuffModel(freebuffFallbackMeta(id), baseUrl);
+			});
+			return models;
 		},
 	};
 }
