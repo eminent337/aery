@@ -351,11 +351,15 @@ export async function refreshOAuthToken(
 			newCredentials = await refreshXAIOAuthToken(credentials.refresh);
 			break;
 		}
+		case "cline": {
+			const { refreshClineToken } = await import("./cline");
+			newCredentials = await refreshClineToken(credentials);
+			break;
+		}
 		case "kilo":
 		case "perplexity":
 		case "huggingface":
 		case "opencode-zen":
-		case "cline":
 		case "opencode-go":
 		case "openrouter":
 		case "cerebras":

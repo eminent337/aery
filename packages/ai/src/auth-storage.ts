@@ -1583,8 +1583,9 @@ export class AuthStorage {
 			}
 			case "cline": {
 				const { loginCline } = await import("./utils/oauth/cline");
-				const apiKey = await loginCline(ctrl);
-				await saveApiKeyCredential(apiKey);
+				const clineCredentials = await loginCline(ctrl);
+				const newCredential: OAuthCredential = { type: "oauth", ...clineCredentials };
+				await this.#upsertOAuthCredential("cline", newCredential);
 				return;
 			}
 			case "lm-studio": {

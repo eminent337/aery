@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe("cline web device authentication", () => {
-	test("returns the Cline access token from the register endpoint response", async () => {
+	test("returns Cline OAuth credentials from the register endpoint response", async () => {
 		const calls: string[] = [];
 		global.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
 			const url = String(input);
@@ -56,18 +56,22 @@ describe("cline web device authentication", () => {
 			return new Response("{}", { status: 404 });
 		}) as unknown as typeof fetch;
 
-		const apiKey = await loginCline({
+		const credentials = await loginCline({
 			onAuth: () => {},
-			onPrompt: async () => "",
+			onProgress: () => {},
 		});
 
-		expect(apiKey).toBe("cline-api-key-123");
-		// Verify register was called with the WorkOS access token
+		expect(credentials.access).toBe("cline-api-key-123");
+		expect(credentials.refresh).toBe("cline-refresh-token");
+		expect(credentials.expires).toBe(Date.parse("2099-01-01T00:00:00Z"));
+		expect(credentials.accountId).toBe("user-1");
+		expect(credentials.email).toBe("test@example.com");
+		// Verify register was called with the WorkOS access + refresh tokens
 		const registerCall = calls.find(url => url.includes("/api/v1/auth/register"));
 		expect(registerCall).toBeDefined();
 	});
 
-	test("falls back to WorkOS access token when register fails", async () => {
+	test("throws when register fails instead of persisting the WorkOS token", async () => {
 		global.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
 			const url = String(input);
 			if (url.includes("/user_management/authorize/device")) {
@@ -97,11 +101,11 @@ describe("cline web device authentication", () => {
 			return new Response("{}", { status: 404 });
 		}) as unknown as typeof fetch;
 
-		const apiKey = await loginCline({
-			onAuth: () => {},
-			onPrompt: async () => "",
-		});
-
-		expect(apiKey).toBe("workos-access-token");
+		await expect(
+			loginCline({
+				onAuth: () => {},
+				onProgress: () => {},
+			}),
+		).rejects.toThrow(/registration failed/);
 	});
 });
