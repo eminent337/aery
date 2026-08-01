@@ -275,6 +275,7 @@ export function getExtraHelpText(): string {
   XAI_API_KEY                - xAI Grok models
   OPENROUTER_API_KEY         - OpenRouter aggregated models
   KILO_API_KEY               - Kilo Gateway models
+  CLINE_API_KEY              - Cline API endpoint models (api.cline.bot)
   MISTRAL_API_KEY            - Mistral models
   ZAI_API_KEY                - z.ai models (ZhipuAI/GLM)
   MINIMAX_API_KEY            - MiniMax models
