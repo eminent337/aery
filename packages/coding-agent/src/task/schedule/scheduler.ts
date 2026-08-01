@@ -77,7 +77,7 @@ export class AgentScheduler {
 		if (!run || !run.enabled) return;
 
 		try {
-			const interval = cronParser.parseExpression(run.cronPattern);
+			const interval = cronParser.CronExpressionParser.parse(run.cronPattern);
 			const next = interval.next().getTime();
 			run.nextRunAt = next;
 
