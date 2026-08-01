@@ -107,7 +107,8 @@ export class FasRunner {
 				const { SwarmScheduler } = await import("../../task/swarm/scheduler.js");
 				const scheduler = new SwarmScheduler(plannerResult.workflow);
 
-				this.#config.planner?._config?.onProgress?.(`Executing Swarm workflow: ${plannerResult.workflow.name}`);
+				const swarmName = plannerResult.workflow.name;
+				console.log(`Executing Swarm workflow: ${swarmName}`);
 
 				await scheduler.execute({
 					sessionManager: this.#config.session.sessionManager,
@@ -132,7 +133,7 @@ export class FasRunner {
 				} as Ferment;
 			}
 
-			ferment = plannerResult;
+			ferment = plannerResult as Ferment;
 		}
 
 		this.#currentFerment = ferment;
