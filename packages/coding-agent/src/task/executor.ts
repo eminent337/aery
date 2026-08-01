@@ -1344,7 +1344,9 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 							ircSelfId: ircEnabled ? id : "",
 							toolGuidance: toolNames ? buildToolGuidance(toolNames) : "",
 						});
-						return [subagentPrompt];
+						const result = [...defaultPrompt];
+						result.splice(Math.max(0, result.length - 1), 0, subagentPrompt);
+						return result;
 					},
 					sessionManager,
 					hasUI: false,
@@ -1409,7 +1411,9 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 								ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
 								ircSelfId: ircEnabled ? id : "",
 							});
-							return [subagentPrompt];
+							const result = [...defaultPrompt];
+							result.splice(Math.max(0, result.length - 1), 0, subagentPrompt);
+							return result;
 						},
 						sessionManager: reopened,
 						hasUI: false,

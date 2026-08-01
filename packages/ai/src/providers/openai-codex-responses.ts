@@ -45,6 +45,7 @@ import {
 	getOpenAIResponsesHistoryItems,
 	getOpenAIResponsesHistoryPayload,
 	normalizeSystemPrompts,
+	resolveCacheRetention,
 } from "../utils";
 import { AssistantMessageEventStream } from "../utils/event-stream";
 import { finalizeErrorMessage, type RawHttpRequestDump } from "../utils/http-inspector";
@@ -1781,9 +1782,10 @@ export async function prewarmOpenAICodexResponses(
 	state.prewarmed = true;
 }
 
-function resolveCodexPromptCacheKey(
-	options: Pick<OpenAICodexResponsesOptions, "promptCacheKey" | "sessionId"> | undefined,
+export function resolveCodexPromptCacheKey(
+	options: Pick<OpenAICodexResponsesOptions, "promptCacheKey" | "sessionId" | "cacheRetention"> | undefined,
 ): string | undefined {
+	if (resolveCacheRetention(options?.cacheRetention) === "none") return undefined;
 	return normalizeOpenAIResponsesPromptCacheKey(options?.promptCacheKey ?? options?.sessionId);
 }
 

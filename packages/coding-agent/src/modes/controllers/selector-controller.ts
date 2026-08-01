@@ -921,7 +921,11 @@ export class SelectorController {
 					if (useManualInput) {
 						this.ctx.chatContainer.addChild(new Spacer(1));
 						this.ctx.chatContainer.addChild(
-							new Text(theme.fg("warning", "Paste authorization code or redirect URL below and press Enter:"), 1, 0),
+							new Text(
+								theme.fg("warning", "Paste authorization code or redirect URL below and press Enter:"),
+								1,
+								0,
+							),
 						);
 						this.ctx.chatContainer.addChild(new Text(theme.fg("dim", MANUAL_LOGIN_TIP), 1, 0));
 						const codeInput = new Input();
