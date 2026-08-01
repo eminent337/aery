@@ -28,6 +28,7 @@ import { getMarketplaceArgumentCompletions } from "../marketplace/marketplace.js
 import { resolveMemoryBackend } from "../memory-backend";
 import type { InteractiveModeContext } from "../modes/types";
 import { formatShakeSummary, type ShakeMode } from "../session/shake-types";
+import { globalScheduler } from "../task/schedule/scheduler";
 import { getChangelogPath, parseChangelog } from "../utils/changelog";
 import { buildContextReportText } from "./helpers/context-report";
 import { formatDuration } from "./helpers/format";
@@ -76,6 +77,82 @@ function parseShakeMode(args: string): ShakeMode | { error: string } {
 }
 
 const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+	{
+		name: "connect",
+		description: "Connect agent to external chat platforms",
+		subcommands: [
+			{ name: "slack", description: "Connect to Slack" },
+			{ name: "telegram", description: "Connect to Telegram" },
+		],
+		allowArgs: true,
+		handle: async (command, runtime) => {
+			const args = command.args.trim().split(/\s+/);
+			const connectorName = args[0];
+			if (!connectorName) return usage("Usage: /connect <slack|telegram> --bot-token=...", runtime);
+
+			const tokenArg = args.find(a => a.startsWith("--bot-token="));
+			const botToken = tokenArg ? tokenArg.split("=")[1] : undefined;
+			if (!botToken) return usage("Missing --bot-token=...", runtime);
+
+			const appTokenArg = args.find(a => a.startsWith("--app-token="));
+			const appToken = appTokenArg ? appTokenArg.split("=")[1] : undefined;
+
+			const { startSlackConnector } = await import("../connectors/slack.js");
+			const { startTelegramConnector } = await import("../connectors/telegram.js");
+
+			try {
+				if (connectorName === "slack") {
+					await startSlackConnector(
+						{ botToken, appToken, cwd: runtime.cwd },
+						async msg => await runtime.output(msg),
+					);
+				} else if (connectorName === "telegram") {
+					await startTelegramConnector({ botToken, cwd: runtime.cwd }, async msg => await runtime.output(msg));
+				} else {
+					return usage(`Unknown connector: ${connectorName}`, runtime);
+				}
+			} catch (err: any) {
+				return usage(`Connector error: ${err.message}`, runtime);
+			}
+			return commandConsumed();
+		},
+		handleTui: async (command, runtime) => {
+			runtime.ctx.editor.setText("");
+			const args = command.args.trim().split(/\s+/);
+			const connectorName = args[0];
+			if (!connectorName) {
+				runtime.ctx.showStatus("Usage: /connect <slack|telegram> --bot-token=...");
+				return;
+			}
+			const tokenArg = args.find(a => a.startsWith("--bot-token="));
+			const botToken = tokenArg ? tokenArg.split("=")[1] : undefined;
+			if (!botToken) {
+				runtime.ctx.showStatus("Missing --bot-token=...");
+				return;
+			}
+			const appTokenArg = args.find(a => a.startsWith("--app-token="));
+			const appToken = appTokenArg ? appTokenArg.split("=")[1] : undefined;
+
+			const { startSlackConnector } = await import("../connectors/slack.js");
+			const { startTelegramConnector } = await import("../connectors/telegram.js");
+
+			try {
+				if (connectorName === "slack") {
+					await startSlackConnector({ botToken, appToken, cwd: runtime.ctx.sessionManager.getCwd() }, msg =>
+						runtime.ctx.showStatus(msg),
+					);
+				} else if (connectorName === "telegram") {
+					await startTelegramConnector({ botToken, cwd: runtime.ctx.sessionManager.getCwd() }, msg =>
+						runtime.ctx.showStatus(msg),
+					);
+				} else {
+					runtime.ctx.showStatus(`Unknown connector: ${connectorName}`);
+				}
+			} catch (err: any) {
+				runtime.ctx.showStatus(`Connector error: ${err.message}`);
+			}
+		},
+	},
 	{
 		name: "settings",
 		description: "Open settings menu",
@@ -1755,6 +1832,200 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		name: "quit",
 		description: "Quit the application",
 		handleTui: shutdownHandlerTui,
+	},
+	{
+		name: "schedule",
+		description: "Create and manage scheduled agent runs",
+		acpDescription: "Manage agent cron schedules",
+		acpInputHint: "<subcommand>",
+		subcommands: [
+			{
+				name: "create",
+				description: "Create a new schedule",
+				usage: "<name> --cron <pattern> --prompt <task> [--agent <agent>]",
+			},
+			{ name: "list", description: "List all schedules" },
+			{ name: "delete", description: "Delete a schedule", usage: "<id>" },
+			{ name: "pause", description: "Pause a schedule", usage: "<id>" },
+			{ name: "resume", description: "Resume a schedule", usage: "<id>" },
+			{ name: "trigger", description: "Trigger a schedule immediately", usage: "<id>" },
+		],
+		allowArgs: true,
+		handle: async (command, runtime) => {
+			const { verb, rest } = parseSubcommand(command.args);
+
+			if (verb === "list") {
+				const schedules = globalScheduler.getSchedules();
+				if (schedules.length === 0) {
+					await runtime.output("No schedules found.");
+					return commandConsumed();
+				}
+				const lines = schedules.map(
+					s =>
+						`- ${s.id}: ${s.name} (cron: ${s.cronPattern}) [${s.enabled ? "active" : "paused"}]\n  prompt: ${s.prompt}`,
+				);
+				await runtime.output(`Schedules:\n${lines.join("\\n")}`);
+				return commandConsumed();
+			}
+
+			if (verb === "create") {
+				const parts = rest.split(" --");
+				const name = parts[0].trim();
+				let cronPattern = "";
+				let prompt = "";
+				let agent;
+
+				for (let i = 1; i < parts.length; i++) {
+					const p = parts[i].trim();
+					if (p.startsWith("cron ")) cronPattern = p.slice(5).trim();
+					else if (p.startsWith("prompt ")) prompt = p.slice(7).trim();
+					else if (p.startsWith("agent ")) agent = p.slice(6).trim();
+				}
+
+				if (!name || !cronPattern || !prompt) {
+					return usage("Usage: /schedule create <name> --cron <pattern> --prompt <task>", runtime);
+				}
+
+				const run = globalScheduler.createSchedule({ name, cronPattern, prompt, agent });
+				await runtime.output(`Schedule created: ${run.id} (${run.name})`);
+				return commandConsumed();
+			}
+
+			if (verb === "delete") {
+				const id = rest.trim();
+				if (!id) return usage("Usage: /schedule delete <id>", runtime);
+				const deleted = globalScheduler.deleteSchedule(id);
+				await runtime.output(deleted ? `Schedule ${id} deleted.` : `Schedule ${id} not found.`);
+				return commandConsumed();
+			}
+
+			if (verb === "pause") {
+				const id = rest.trim();
+				if (!id) return usage("Usage: /schedule pause <id>", runtime);
+				const run = globalScheduler.pauseSchedule(id);
+				await runtime.output(run ? `Schedule ${id} paused.` : `Schedule ${id} not found.`);
+				return commandConsumed();
+			}
+
+			if (verb === "resume") {
+				const id = rest.trim();
+				if (!id) return usage("Usage: /schedule resume <id>", runtime);
+				const run = globalScheduler.resumeSchedule(id);
+				await runtime.output(run ? `Schedule ${id} resumed.` : `Schedule ${id} not found.`);
+				return commandConsumed();
+			}
+
+			if (verb === "trigger") {
+				const id = rest.trim();
+				if (!id) return usage("Usage: /schedule trigger <id>", runtime);
+				const success = await globalScheduler.triggerSchedule(id, runtime);
+				await runtime.output(success ? `Schedule ${id} triggered.` : `Schedule ${id} not found.`);
+				return commandConsumed();
+			}
+
+			return usage("Usage: /schedule [create|list|delete|pause|resume|trigger]", runtime);
+		},
+		handleTui: async (command, runtime) => {
+			const { verb, rest } = parseSubcommand(command.args);
+
+			if (verb === "list") {
+				const schedules = globalScheduler.getSchedules();
+				if (schedules.length === 0) {
+					runtime.ctx.showStatus("No schedules found.");
+					runtime.ctx.editor.setText("");
+					return;
+				}
+				const lines = schedules.map(
+					s =>
+						`- ${s.id}: ${s.name} (cron: ${s.cronPattern}) [${s.enabled ? "active" : "paused"}]\n  prompt: ${s.prompt}`,
+				);
+				runtime.ctx.showStatus(`Schedules:\n${lines.join("\\n")}`);
+				runtime.ctx.editor.setText("");
+				return;
+			}
+
+			if (verb === "create") {
+				const parts = rest.split(" --");
+				const name = parts[0].trim();
+				let cronPattern = "";
+				let prompt = "";
+				let agent;
+
+				for (let i = 1; i < parts.length; i++) {
+					const p = parts[i].trim();
+					if (p.startsWith("cron ")) cronPattern = p.slice(5).trim();
+					else if (p.startsWith("prompt ")) prompt = p.slice(7).trim();
+					else if (p.startsWith("agent ")) agent = p.slice(6).trim();
+				}
+
+				if (!name || !cronPattern || !prompt) {
+					runtime.ctx.showStatus("Usage: /schedule create <name> --cron <pattern> --prompt <task>");
+					runtime.ctx.editor.setText("");
+					return;
+				}
+
+				const run = globalScheduler.createSchedule({ name, cronPattern, prompt, agent });
+				runtime.ctx.showStatus(`Schedule created: ${run.id} (${run.name})`);
+				runtime.ctx.editor.setText("");
+				return;
+			}
+
+			if (verb === "delete") {
+				const id = rest.trim();
+				if (!id) {
+					runtime.ctx.showStatus("Usage: /schedule delete <id>");
+					runtime.ctx.editor.setText("");
+					return;
+				}
+				const deleted = globalScheduler.deleteSchedule(id);
+				runtime.ctx.showStatus(deleted ? `Schedule ${id} deleted.` : `Schedule ${id} not found.`);
+				runtime.ctx.editor.setText("");
+				return;
+			}
+
+			if (verb === "pause") {
+				const id = rest.trim();
+				if (!id) {
+					runtime.ctx.showStatus("Usage: /schedule pause <id>");
+					runtime.ctx.editor.setText("");
+					return;
+				}
+				const run = globalScheduler.pauseSchedule(id);
+				runtime.ctx.showStatus(run ? `Schedule ${id} paused.` : `Schedule ${id} not found.`);
+				runtime.ctx.editor.setText("");
+				return;
+			}
+
+			if (verb === "resume") {
+				const id = rest.trim();
+				if (!id) {
+					runtime.ctx.showStatus("Usage: /schedule resume <id>");
+					runtime.ctx.editor.setText("");
+					return;
+				}
+				const run = globalScheduler.resumeSchedule(id);
+				runtime.ctx.showStatus(run ? `Schedule ${id} resumed.` : `Schedule ${id} not found.`);
+				runtime.ctx.editor.setText("");
+				return;
+			}
+
+			if (verb === "trigger") {
+				const id = rest.trim();
+				if (!id) {
+					runtime.ctx.showStatus("Usage: /schedule trigger <id>");
+					runtime.ctx.editor.setText("");
+					return;
+				}
+				// We pass runtime.ctx to execute the background task properly
+				const success = await globalScheduler.triggerSchedule(id, runtime.ctx);
+				runtime.ctx.showStatus(success ? `Schedule ${id} triggered.` : `Schedule ${id} not found.`);
+				runtime.ctx.editor.setText("");
+				return;
+			}
+
+			runtime.ctx.showStatus("Usage: /schedule [create|list|delete|pause|resume|trigger]");
+			runtime.ctx.editor.setText("");
+		},
 	},
 ];
 
