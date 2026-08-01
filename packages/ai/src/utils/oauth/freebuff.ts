@@ -42,6 +42,7 @@ export function formatFreebuffApiKey(apiKey: string): string {
 export async function loginFreebuff(callbacks: {
 	onAuth?: (info: { url: string; instructions?: string }) => void;
 	onProgress?: (message: string) => void;
+	onPrompt?: (prompt: { message: string; placeholder?: string; allowEmpty?: boolean }) => Promise<string>;
 	signal?: AbortSignal;
 }): Promise<OAuthCredentials> {
 	callbacks.onProgress?.("Initiating web sign-in for Freebuff...");
@@ -66,7 +67,7 @@ export async function loginFreebuff(callbacks: {
 
 	callbacks.onAuth?.({
 		url: data.loginUrl,
-		instructions: "Sign in with your Freebuff / Codebuff account in the browser",
+		instructions: "Sign in with your Freebuff / Codebuff account in the browser (use GitHub or Email if Google SSO shows redirect_uri_mismatch)",
 	});
 
 	callbacks.onProgress?.("Waiting for web sign-in in browser...");
