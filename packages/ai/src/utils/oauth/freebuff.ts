@@ -219,6 +219,12 @@ export function createFreebuffFetch(options: {
 	const baseUrl = options.baseUrl ?? CODEBUFF_BASE_URL;
 	const apiKey = options.apiKey;
 	const userId = options.userId;
+	const mergeHeaders = (incoming: RequestInit["headers"]): Record<string, string> => {
+		if (!incoming) return {};
+		if (incoming instanceof Headers) return Object.fromEntries(incoming.entries());
+		if (Array.isArray(incoming)) return Object.fromEntries(incoming);
+		return { ...(incoming as Record<string, string>) };
+	};
 	return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
 		const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 		if (url.includes("/chat/completions") && init?.body) {
@@ -237,7 +243,7 @@ export function createFreebuffFetch(options: {
 					body: JSON.stringify(bodyObj),
 					headers: {
 						...getFreebuffCommonHeaders(),
-						...(init.headers as Record<string, string> | undefined),
+						...mergeHeaders(init.headers),
 					},
 				};
 			}

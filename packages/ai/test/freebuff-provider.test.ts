@@ -3,6 +3,7 @@ import { DEFAULT_MODEL_PER_PROVIDER, PROVIDER_DESCRIPTORS } from "../src/provide
 import { freebuffModelManagerOptions } from "../src/provider-models/openai-compat";
 import { getEnvApiKey } from "../src/stream";
 import { getOAuthProviders } from "../src/utils/oauth";
+import { createFreebuffFetch } from "../src/utils/oauth/freebuff";
 
 const originalFreebuffApiKey = Bun.env.FREEBUFF_API_KEY;
 const originalCodebuffApiKey = Bun.env.CODEBUFF_API_KEY;
@@ -79,5 +80,40 @@ describe("freebuff provider support", () => {
 		expect(models).toBeDefined();
 		const ids = models?.map(m => m.id);
 		expect(ids).toEqual(["deepseek/deepseek-v4-flash", "mimo/mimo-v2.5"]);
+	});
+	test("createFreebuffFetch preserves Headers-instance auth and injects run_id", async () => {
+		// The OpenAI SDK passes a `Headers` instance (not a plain object) in
+		// `init.headers`. Spreading it with `{...init.headers}` yields `{}` and
+		// silently drops Authorization/Content-Type — a 401. Regression test.
+		const calls: Array<{ url: string; headers: Record<string, string>; body: string }> = [];
+		global.fetch = vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+			const url = String(input);
+			const headers =
+				init?.headers instanceof Headers
+					? Object.fromEntries(init.headers.entries())
+					: ((init?.headers ?? {}) as Record<string, string>);
+			calls.push({ url, headers, body: String(init?.body ?? "") });
+			if (url.includes("/agent-runs")) {
+				return new Response(JSON.stringify({ runId: "run-123" }), { status: 200 });
+			}
+			return new Response(JSON.stringify({ choices: [] }), { status: 200 });
+		}) as unknown as typeof fetch;
+		const fbFetch = createFreebuffFetch({ apiKey: "fb-key", baseUrl: "https://www.codebuff.com/api/v1" });
+		const authHeaders = new Headers({ Authorization: "Bearer fb-key", "Content-Type": "application/json" });
+		const res = await fbFetch("https://www.codebuff.com/api/v1/chat/completions", {
+			method: "POST",
+			headers: authHeaders,
+			body: JSON.stringify({ model: "deepseek/deepseek-v4-flash", messages: [] }),
+		});
+		expect(res.status).toBe(200);
+		const chatCall = calls.find(c => c.url.includes("/chat/completions"));
+		expect(chatCall).toBeDefined();
+		const lowerHeaders = Object.fromEntries(
+			Object.entries(chatCall?.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
+		);
+		expect(lowerHeaders.authorization).toBe("Bearer fb-key");
+		expect(lowerHeaders["content-type"]).toBe("application/json");
+		const body = JSON.parse(chatCall?.body ?? "{}") as { codebuff_metadata?: { run_id?: string } };
+		expect(body.codebuff_metadata?.run_id).toBe("run-123");
 	});
 });
