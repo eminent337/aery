@@ -10,6 +10,7 @@
 
 import { type BashResult, executeBash } from "../../exec/bash-executor.js";
 import type { AgentSession } from "../../session/agent-session.js";
+import { addCard, moveCard } from "../../task/kanban/board.js";
 import type { FermentCommand } from "../commands.js";
 import { applyTransition } from "../state-machine.js";
 import type { Ferment, Phase, Step, StepResult } from "../types.js";
@@ -87,11 +88,51 @@ export class FasRunner {
 				throw new Error(`Ferment "${options.resumeId}" not found.`);
 			}
 			ferment = loaded;
+
+			// Re-hydrate kanban board
+			for (const phase of ferment.phases) {
+				for (const step of phase.steps) {
+					addCard(`[${phase.name}] ${step.description}`, step.id);
+					if (step.status === "running") moveCard(step.id, "in_progress");
+					else if (step.status === "done" || step.status === "verified") moveCard(step.id, "done");
+				}
+			}
 		} else {
 			if (!this.#config.planner) {
 				throw new Error("No planner configured and no resumeId provided.");
 			}
-			ferment = await this.#config.planner.create();
+			const plannerResult = await this.#config.planner.create();
+
+			if ("type" in plannerResult && plannerResult.type === "swarm") {
+				const { SwarmScheduler } = await import("../../task/swarm/scheduler.js");
+				const scheduler = new SwarmScheduler(plannerResult.workflow);
+
+				this.#config.planner?._config?.onProgress?.(`Executing Swarm workflow: ${plannerResult.workflow.name}`);
+
+				await scheduler.execute({
+					sessionManager: this.#config.session.sessionManager,
+					session: this.#config.session,
+					settings: this.#config.session.settings,
+				});
+
+				const now = new Date().toISOString();
+				this.#isRunning = false;
+				return {
+					id: `swarm-${Date.now()}`,
+					name: plannerResult.workflow.name,
+					status: "complete",
+					goal: _goal,
+					worktree: { path: process.cwd() },
+					scoping: {},
+					phases: [],
+					decisions: [],
+					memories: [],
+					createdAt: now,
+					updatedAt: now,
+				} as Ferment;
+			}
+
+			ferment = plannerResult;
 		}
 
 		this.#currentFerment = ferment;
@@ -253,6 +294,7 @@ export class FasRunner {
 		if ("error" in transitioned) {
 			throw new Error(`start_step transition failed: ${transitioned.error}`);
 		}
+		moveCard(stepId, "in_progress");
 		fermentState = transitioned;
 		this.#currentFerment = fermentState;
 		this.#config.engine.setFerment(fermentState);
@@ -292,6 +334,7 @@ export class FasRunner {
 			if ("error" in next) {
 				throw new Error(`complete_step transition failed: ${next.error}`);
 			}
+			moveCard(stepId, "done");
 			this.#currentFerment = next;
 			this.#config.engine.setFerment(next);
 			this.#config.state.save(next);
@@ -389,6 +432,7 @@ export class FasRunner {
 			if ("error" in transitioned) {
 				throw new Error(`verify_step transition failed: ${transitioned.error}`);
 			}
+			moveCard(stepId, "done");
 			this.#currentFerment = transitioned;
 			this.#config.engine.setFerment(transitioned);
 			this.#config.state.save(transitioned);

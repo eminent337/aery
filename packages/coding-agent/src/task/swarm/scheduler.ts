@@ -69,7 +69,11 @@ export class SwarmScheduler {
 		}
 	}
 
-	async execute(ctx: import("../../modes/types").InteractiveModeContext): Promise<void> {
+	async execute(ctx: {
+		sessionManager: { getCwd(): string };
+		session: { modelRegistry: any };
+		settings: any;
+	}): Promise<void> {
 		// Detect actual default branch to avoid hardcoded "main" assumption
 		const repoRoot = ctx.sessionManager.getCwd();
 		const session = ctx.session;

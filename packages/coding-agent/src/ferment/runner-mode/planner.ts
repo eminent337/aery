@@ -5,7 +5,9 @@
  * then parses the response and constructs a Ferment object.
  */
 
+import * as yaml from "yaml";
 import type { AgentSession } from "../../session/agent-session.js";
+import { addCard } from "../../task/kanban/board.js";
 import type { FermentCommand, ScopePhaseInput } from "../commands.js";
 import { applyTransition } from "../state-machine.js";
 import { FermentStore } from "../store.js";
@@ -17,16 +19,11 @@ const PLANNER_PROMPT = `You are a project planner. Given the goal below, create 
 
 Goal: {goal}
 
-Produce a plan with:
-1. A concise title (1 sentence)
-2. Success criteria (how to verify the goal is met)
-3. Constraints (limitations, e.g., time, tech stack)
-4. Phases (2-5 phases). Each phase has:
-   - name
-   - goal
-   - steps (2-6 steps). Each step has a description and optional verification command.
+If the goal is large, complex, and can be parallelized, generate a Swarm YAML workflow.
+Otherwise, produce a standard linear plan in JSON.
 
-Output STRICT JSON in this format (no markdown code blocks):
+OPTION 1: Standard Linear Plan (JSON)
+Produce STRICT JSON in this format (no markdown code blocks):
 {{
   "title": "...",
   "goal": "...",
@@ -41,7 +38,23 @@ Output STRICT JSON in this format (no markdown code blocks):
       ]
     }}
   ]
-}}`;
+}}
+
+OPTION 2: Swarm Workflow (YAML)
+Output a STRICT YAML block (wrapped in \`\`\`yaml) that defines a Swarm workflow. The workflow should break the goal down into parallelizable tasks.
+\`\`\`yaml
+name: Workflow name
+maxConcurrency: 3
+tasks:
+  - id: step1
+    agent: coder
+    assignment: "..."
+  - id: step2
+    agent: coder
+    assignment: "..."
+    needs: [step1]
+\`\`\`
+`;
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -69,6 +82,10 @@ export interface PlanOutput {
 	phases: PlannedPhase[];
 }
 
+export type PlanExtraction =
+	| { type: "linear"; plan: PlanOutput }
+	| { type: "swarm"; workflow: import("../../task/swarm/types.js").SwarmWorkflow };
+
 // ─── JSON parsing helpers ─────────────────────────────────────────────────────
 
 /**
@@ -89,18 +106,29 @@ function stripMarkdownJson(text: string): string {
 }
 
 /**
- * Extract JSON from agent response text.
- * Handles markdown-wrapped JSON and bare JSON.
+ * Extract JSON or YAML from agent response text.
  */
-function extractJson(text: string): PlanOutput {
+function extractPlan(text: string): PlanExtraction {
+	const yamlMatch = text.match(/```yaml\s*([\s\S]*?)```/i);
+	if (yamlMatch) {
+		try {
+			return {
+				type: "swarm",
+				workflow: yaml.parse(yamlMatch[1].trim()) as import("../../task/swarm/types.js").SwarmWorkflow,
+			};
+		} catch (err) {
+			throw new Error(`Failed to parse Swarm YAML:\n${err}`);
+		}
+	}
+
 	const stripped = stripMarkdownJson(text);
 	// Try to find JSON object in the text
 	const jsonMatch = stripped.match(/\{[\s\S]*\}/);
 	if (!jsonMatch) {
-		throw new Error(`No JSON found in response:\n${text.slice(0, 500)}`);
+		throw new Error(`No JSON or YAML found in response:\n${text.slice(0, 500)}`);
 	}
 	try {
-		return JSON.parse(jsonMatch[0]) as PlanOutput;
+		return { type: "linear", plan: JSON.parse(jsonMatch[0]) as PlanOutput };
 	} catch {
 		throw new Error(`Failed to parse JSON from response:\n${jsonMatch[0].slice(0, 500)}`);
 	}
@@ -155,10 +183,10 @@ export class FasPlanner {
 
 	/**
 	 * Drive the agent to scope and plan a new ferment.
-	 * Sends a structured prompt, parses the JSON response, builds a Ferment,
+	 * Sends a structured prompt, parses the JSON or YAML response, builds a Ferment or SwarmWorkflow,
 	 * and applies the scope transition to move it to "planned" status.
 	 */
-	async create(): Promise<Ferment> {
+	async create(): Promise<Ferment | { type: "swarm"; workflow: import("../../task/swarm/types.js").SwarmWorkflow }> {
 		this.#config.onProgress?.("Starting planner: scoping goal...");
 
 		// Build the planner prompt with the goal
@@ -176,15 +204,21 @@ export class FasPlanner {
 		// tool-based approach.
 		const responseText = this.#getAgentResponseText();
 
-		let plan: PlanOutput;
+		let extraction: PlanExtraction;
 		try {
-			plan = extractJson(responseText);
+			extraction = extractPlan(responseText);
 		} catch (err) {
 			throw new Error(
 				`Failed to parse plan from agent response. ${err instanceof Error ? err.message : String(err)}\n\nRaw response:\n${responseText.slice(0, 1000)}`,
 			);
 		}
 
+		if (extraction.type === "swarm") {
+			this.#config.onProgress?.(`Swarm workflow received: ${extraction.workflow.tasks?.length ?? 0} tasks.`);
+			return extraction;
+		}
+
+		const plan = extraction.plan;
 		this.#config.onProgress?.(`Plan received: ${plan.phases.length} phases.`);
 
 		// Build initial draft ferment
@@ -199,8 +233,10 @@ export class FasPlanner {
 			type: "scope",
 			title: plan.title,
 			goal: plan.goal,
-			successCriteria: plan.successCriteria ? plan.successCriteria.split("\n").filter(s => s.trim()) : undefined,
-			constraints: plan.constraints ? plan.constraints.split("\n").filter(s => s.trim()) : undefined,
+			successCriteria: plan.successCriteria
+				? plan.successCriteria.split("\n").filter((s: string) => s.trim())
+				: undefined,
+			constraints: plan.constraints ? plan.constraints.split("\n").filter((s: string) => s.trim()) : undefined,
 			phases: scopePhases,
 		};
 
@@ -212,6 +248,13 @@ export class FasPlanner {
 		// Persist the scoped ferment
 		const store = FermentStore.open();
 		store.save(result);
+
+		// Add kanban cards for all newly planned steps
+		for (const phase of result.phases) {
+			for (const step of phase.steps) {
+				addCard(`[${phase.name}] ${step.description}`, step.id);
+			}
+		}
 
 		this.#config.onProgress?.(`Ferment "${result.name}" created with ${result.phases.length} phases.`);
 

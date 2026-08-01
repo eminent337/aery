@@ -22,6 +22,7 @@ import { AgentRegistry } from "../../registry/agent-registry";
 import { isSilentAbort } from "../../session/messages";
 import type { SessionMessageEntry } from "../../session/session-manager";
 import { parseSessionEntries } from "../../session/session-manager";
+import { renderBoard } from "../../task/kanban/board.js";
 import { PREVIEW_LIMITS, replaceTabs, TRUNCATE_LENGTHS, truncateToWidth } from "../../tools/render-utils";
 import { toPathList } from "../../tools/search";
 import type { ObservableSession, SessionObserverRegistry } from "../session-observer-registry";
@@ -140,7 +141,12 @@ export class SessionObserverOverlayComponent extends Container {
 		// 3 lines reserved at the bottom: 1 blank line, 1 stats line, 1 keybindings line
 		const panesHeight = Math.max(5, termHeight - 3);
 
-		const leftLines = this.#renderSessionList(leftWidth, panesHeight);
+		const kanbanHeight = Math.floor(panesHeight / 2);
+		const sessionsHeight = panesHeight - kanbanHeight;
+
+		const kanbanLines = this.#renderKanbanBoard(leftWidth, kanbanHeight);
+		const sessionLines = this.#renderSessionList(leftWidth, sessionsHeight);
+		const leftLines = [...kanbanLines, ...sessionLines];
 		const rightLines = this.#renderLogViewer(rightWidth, panesHeight);
 
 		const lines: string[] = [];
@@ -186,6 +192,33 @@ export class SessionObserverOverlayComponent extends Container {
 		}
 		lines.push(` ${keyInstructions}`);
 
+		return lines;
+	}
+
+	#renderKanbanBoard(width: number, height: number): string[] {
+		const lines: string[] = [];
+		const borderColor = (str: string) => theme.fg("border", str);
+		const border = new DynamicBorder(borderColor).render(width)[0];
+
+		lines.push(border);
+		const titleText = "[Kanban]";
+		lines.push(padRight(truncateToWidth(` ${theme.bold(titleText)}`, width), width));
+		lines.push(border);
+
+		const rowsHeight = height - 4;
+		const boardLines = renderBoard().split("\n");
+		// Skip the first and last decorative lines from renderBoard
+		const contentLines = boardLines.slice(1, boardLines.length - 1);
+
+		for (let i = 0; i < rowsHeight; i++) {
+			if (i < contentLines.length) {
+				lines.push(padRight(truncateToWidth(` ${contentLines[i]}`, width), width));
+			} else {
+				lines.push(" ".repeat(width));
+			}
+		}
+
+		lines.push(border);
 		return lines;
 	}
 

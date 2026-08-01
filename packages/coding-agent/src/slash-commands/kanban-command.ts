@@ -1,4 +1,4 @@
-import { addCard, getCards, type KanbanStatus, moveCard, removeCard, renderBoard } from "../task/kanban/board";
+import { addCard, type KanbanStatus, moveCard, removeCard, renderBoard } from "../task/kanban/board";
 import { commandConsumed } from "./helpers/parse";
 import type { SlashCommandSpec } from "./types";
 
