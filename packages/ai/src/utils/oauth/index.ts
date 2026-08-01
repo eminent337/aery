@@ -200,6 +200,16 @@ const builtInOAuthProviders: OAuthProviderInfo[] = [
 		available: true,
 	},
 	{
+		id: "cline",
+		name: "Cline",
+		available: true,
+	},
+	{
+		id: "cline-pass",
+		name: "ClinePass",
+		available: true,
+	},
+	{
 		id: "zenmux",
 		name: "ZenMux",
 		available: true,
@@ -350,6 +360,8 @@ export async function refreshOAuthToken(
 		case "perplexity":
 		case "huggingface":
 		case "opencode-zen":
+		case "cline":
+		case "cline-pass":
 		case "opencode-go":
 		case "openrouter":
 		case "cerebras":
