@@ -1,6 +1,7 @@
 // ============================================================================
 // High-level API
 // ============================================================================
+import { formatClineApiKey, loginCline, refreshClineToken } from "./cline";
 import type {
 	OAuthCredentials,
 	OAuthProvider,
@@ -258,8 +259,18 @@ const builtInOAuthProviders: OAuthProviderInfo[] = [
 	},
 ];
 
-const customOAuthProviders = new Map<string, OAuthProviderInterface>();
-
+const customOAuthProviders = new Map<string, OAuthProviderInterface>([
+	[
+		"cline",
+		{
+			id: "cline",
+			name: "Cline",
+			login: loginCline,
+			refreshToken: refreshClineToken,
+			getApiKey: credentials => formatClineApiKey(credentials.access),
+		},
+	],
+]);
 /**
  * Register a custom OAuth provider.
  */
@@ -467,20 +478,22 @@ export async function getOAuthApiKey(
 	// For providers that need request-time credential metadata, return JSON.
 	const needsStructuredApiKey =
 		provider === "github-copilot" || provider === "google-gemini-cli" || provider === "google-antigravity";
-	const apiKey = needsStructuredApiKey
-		? JSON.stringify({
-				token: creds.access,
-				enterpriseUrl: creds.enterpriseUrl,
-				projectId: creds.projectId,
-				refreshToken: creds.refresh,
-				expiresAt: creds.expires,
-				email: creds.email,
-				accountId: creds.accountId,
-			})
-		: creds.access;
+	const apiKey =
+		provider === "cline"
+			? formatClineApiKey(creds.access)
+			: needsStructuredApiKey
+				? JSON.stringify({
+						token: creds.access,
+						enterpriseUrl: creds.enterpriseUrl,
+						projectId: creds.projectId,
+						refreshToken: creds.refresh,
+						expiresAt: creds.expires,
+						email: creds.email,
+						accountId: creds.accountId,
+					})
+				: creds.access;
 	return { newCredentials: creds, apiKey };
 }
-
 /**
  * Get list of OAuth providers.
  */

@@ -1962,8 +1962,12 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				}
 
 				if (!name || !cronPattern || !prompt) {
-					runtime.ctx.showStatus("Usage: /schedule create <name> --cron <pattern> --prompt <task>");
-					runtime.ctx.editor.setText("");
+					runtime.ctx.showStatus("Fill out the schedule details below and hit Enter!");
+					const template = `/schedule create MyTask --cron "0 9 * * 1-5" --prompt ""`;
+					runtime.ctx.editor.setText(template);
+					if (typeof runtime.ctx.editor.setCursorPosition === "function") {
+						runtime.ctx.editor.setCursorPosition(0, template.length - 1);
+					}
 					return;
 				}
 
@@ -2031,7 +2035,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				const template = `/schedule create MyTask --cron "0 9 * * 1-5" --prompt ""`;
 				runtime.ctx.editor.setText(template);
 				if (typeof runtime.ctx.editor.setCursorPosition === "function") {
-					runtime.ctx.editor.setCursorPosition(template.length - 1);
+					runtime.ctx.editor.setCursorPosition(0, template.length - 1);
 				}
 				return;
 			}

@@ -51,6 +51,7 @@ import {
 	iterateWithIdleTimeout,
 } from "../utils/idle-iterator";
 import { parseStreamingJson, parseStreamingJsonThrottled } from "../utils/json-parse";
+import { getClineCommonHeaders } from "../utils/oauth/cline";
 import { parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
 import { getKimiCommonHeaders } from "../utils/oauth/kimi";
 import { notifyProviderResponse } from "../utils/provider-response";
@@ -1007,6 +1008,9 @@ async function createClient(
 	Object.assign(headers, extraHeaders);
 	if (model.provider === "kimi-code") {
 		headers = { ...getKimiCommonHeaders(), ...headers };
+	}
+	if (model.provider === "cline") {
+		headers = { ...getClineCommonHeaders(), ...headers };
 	}
 	let copilotPremiumRequests: number | undefined;
 

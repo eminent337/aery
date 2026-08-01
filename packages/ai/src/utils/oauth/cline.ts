@@ -229,3 +229,24 @@ export async function refreshClineToken(current: OAuthCredentials): Promise<OAut
 	}
 	return toClineCredentials(responseData);
 }
+/**
+ * Format a Cline access token with the required `workos:` prefix if missing.
+ */
+export function formatClineApiKey(accessToken: string): string {
+	const token = accessToken.trim();
+	return token.toLowerCase().startsWith("workos:") ? token : `workos:${token}`;
+}
+/**
+ * Common HTTP headers required by api.cline.bot endpoints.
+ */
+export function getClineCommonHeaders(): Record<string, string> {
+	return {
+		"User-Agent": "Cline/3.5.0",
+		"HTTP-Referer": "https://cline.bot",
+		"X-Title": "Cline",
+		"X-IS-MULTIROOT": "false",
+		"X-CLIENT-TYPE": "cline-cli",
+		"X-CLIENT-VERSION": "3.5.0",
+		"X-CORE-VERSION": "3.5.0",
+	};
+}

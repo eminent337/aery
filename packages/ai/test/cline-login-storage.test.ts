@@ -68,7 +68,7 @@ describe("cline AuthStorage.login integration", () => {
 		expect(credential?.access).toBe("cline-integration-access-token");
 		expect(credential?.refresh).toBe("cline-integration-refresh-token");
 		const apiKey = await storage.getApiKey("cline");
-		expect(apiKey).toBe("cline-integration-access-token");
+		expect(apiKey).toBe("workos:cline-integration-access-token");
 	});
 	test("replaces a stale api_key credential so getApiKey returns the Cline token", async () => {
 		mockClineFetchFlow();
@@ -84,7 +84,7 @@ describe("cline AuthStorage.login integration", () => {
 		});
 		// getApiKey must now return the real Cline token, not the stale WorkOS one.
 		const apiKey = await storage.getApiKey("cline");
-		expect(apiKey).toBe("cline-integration-access-token");
+		expect(apiKey).toBe("workos:cline-integration-access-token");
 		expect(storage.getOAuthCredential("cline")?.type).toBe("oauth");
 	});
 });
