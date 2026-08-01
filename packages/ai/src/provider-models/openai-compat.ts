@@ -1560,6 +1560,17 @@ export function clineModelManagerOptions(config?: ClineModelManagerConfig): Mode
 				provider: "cline",
 				baseUrl,
 				apiKey,
+				filterModel: (entry, model) => {
+					const lowerId = model.id.toLowerCase();
+					return (
+						entry.isFree === true ||
+						(entry as { free?: boolean }).free === true ||
+						lowerId.endsWith("-free") ||
+						lowerId.includes("-free/") ||
+						lowerId.startsWith("cline-free/") ||
+						lowerId.includes(":free")
+					);
+				},
 			}),
 	};
 }
