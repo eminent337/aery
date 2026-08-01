@@ -1238,6 +1238,7 @@ function openCodeModelManagerOptions(
 	const references = createBundledReferenceMap<Api>(providerId);
 	return {
 		providerId,
+		dynamicModelsAuthoritative: true,
 		...(apiKey && {
 			fetchDynamicModels: () =>
 				fetchOpenAICompatibleModels<Api>({
@@ -1245,6 +1246,11 @@ function openCodeModelManagerOptions(
 					provider: providerId,
 					baseUrl: discoveryBaseUrl,
 					apiKey,
+					filterModel: (entry, model) => {
+						if (providerId !== "opencode-zen") return true;
+						const lowerId = model.id.toLowerCase();
+						return lowerId.endsWith("-free") || lowerId === "big-pickle";
+					},
 					mapModel: (entry, defaults) => {
 						const reference = references.get(defaults.id);
 						const name = toModelName(entry.name, reference?.name ?? defaults.name);
