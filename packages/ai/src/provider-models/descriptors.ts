@@ -244,7 +244,7 @@ export const PROVIDER_DESCRIPTORS: readonly ProviderDescriptor[] = [
 		"deepseek/deepseek-v4-flash",
 		config => freebuffModelManagerOptions(config),
 		catalog("Freebuff (Codebuff)", ["FREEBUFF_API_KEY", "CODEBUFF_API_KEY"], { allowUnauthenticated: true }),
-		{ allowUnauthenticated: true },
+		{ allowUnauthenticated: true, dynamicModelsAuthoritative: true },
 	),
 	catalogDescriptor(
 		"vercel-ai-gateway",

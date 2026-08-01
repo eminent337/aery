@@ -1674,6 +1674,7 @@ export function freebuffModelManagerOptions(
 	];
 	return {
 		providerId: "freebuff",
+		dynamicModelsAuthoritative: true,
 		staticModels,
 		fetchDynamicModels: async () => {
 			if (!apiKey) return staticModels;
