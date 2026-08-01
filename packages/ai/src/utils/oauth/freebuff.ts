@@ -112,3 +112,11 @@ export async function loginFreebuff(callbacks: {
 
 	throw new Error("Web authentication timed out. Please try again.");
 }
+/**
+ * Common HTTP headers required by Codebuff/Freebuff endpoints.
+ */
+export function getFreebuffCommonHeaders(): Record<string, string> {
+	return {
+		"User-Agent": "ai-sdk/openai-compatible/3.5.0/codebuff",
+	};
+}

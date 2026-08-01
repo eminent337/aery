@@ -52,6 +52,7 @@ import {
 } from "../utils/idle-iterator";
 import { parseStreamingJson, parseStreamingJsonThrottled } from "../utils/json-parse";
 import { getClineCommonHeaders } from "../utils/oauth/cline";
+import { getFreebuffCommonHeaders } from "../utils/oauth/freebuff";
 import { parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
 import { getKimiCommonHeaders } from "../utils/oauth/kimi";
 import { notifyProviderResponse } from "../utils/provider-response";
@@ -1011,6 +1012,9 @@ async function createClient(
 	}
 	if (model.provider === "cline") {
 		headers = { ...getClineCommonHeaders(), ...headers };
+	}
+	if (model.provider === "freebuff") {
+		headers = { ...getFreebuffCommonHeaders(), ...headers };
 	}
 	let copilotPremiumRequests: number | undefined;
 

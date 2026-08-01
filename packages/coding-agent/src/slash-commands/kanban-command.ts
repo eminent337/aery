@@ -1,36 +1,123 @@
-import { launchKanban } from "../task/kanban";
+import { addCard, getCards, type KanbanStatus, moveCard, removeCard, renderBoard } from "../task/kanban/board";
+import { commandConsumed } from "./helpers/parse";
 import type { SlashCommandSpec } from "./types";
 
 export const kanbanCommand: SlashCommandSpec = {
 	name: "kanban",
-	description: "Launch the Kanban board",
-	subcommands: [],
-	async handle(_command, runtime) {
-		if (runtime.output) {
-			await runtime.output("Launching Kanban board...");
+	description: "Manage your in-session Kanban task board",
+	allowArgs: true,
+	subcommands: [
+		{ name: "add", description: "Add a card to To Do", usage: "<title>" },
+		{ name: "move", description: "Move a card to a new column", usage: "<id> <todo|in_progress|done>" },
+		{ name: "rm", description: "Remove a card by ID", usage: "<id>" },
+		{ name: "list", description: "Show the board" },
+	],
+	handle: async (command, runtime) => {
+		const text = command.args.trim();
+		const [verb, ...rest] = text.split(/\s+/);
+
+		if (!verb || verb === "list") {
+			await runtime.output(renderBoard());
+			return commandConsumed();
 		}
-		const code = await launchKanban({
-			output: (text: string) => runtime.output(text),
-			outputErr: (text: string) => runtime.output(text),
-		});
-		if (runtime.output) {
-			await runtime.output(`Kanban board exited with code ${code}`);
+
+		if (verb === "add") {
+			const title = rest.join(" ");
+			if (!title) {
+				await runtime.output("Usage: /kanban add <title>");
+				return commandConsumed();
+			}
+			const card = addCard(title);
+			await runtime.output(`Added card [${card.id}]: ${card.title}`);
+			return commandConsumed();
 		}
-		return { consumed: true };
+
+		if (verb === "move") {
+			const [id, status] = rest;
+			if (!id || !status) {
+				await runtime.output("Usage: /kanban move <id> <todo|in_progress|done>");
+				return commandConsumed();
+			}
+			const card = moveCard(id, status as KanbanStatus);
+			if (!card) {
+				await runtime.output(`Card ${id} not found.`);
+			} else {
+				await runtime.output(`Moved card [${card.id}] to ${status}.`);
+			}
+			return commandConsumed();
+		}
+
+		if (verb === "rm") {
+			const id = rest[0];
+			if (!id) {
+				await runtime.output("Usage: /kanban rm <id>");
+				return commandConsumed();
+			}
+			const ok = removeCard(id);
+			await runtime.output(ok ? `Removed card ${id}.` : `Card ${id} not found.`);
+			return commandConsumed();
+		}
+
+		await runtime.output("Usage: /kanban [add|move|rm|list]");
+		return commandConsumed();
 	},
-	async handleTui(_command, runtime) {
-		runtime.ctx.showStatus("Launching Kanban board...");
+
+	handleTui: async (command, runtime) => {
+		const text = command.args.trim();
+		const [verb, ...rest] = text.split(/\s+/);
+
+		if (!verb || verb === "list") {
+			runtime.ctx.showStatus(renderBoard());
+			runtime.ctx.editor.setText("");
+			return;
+		}
+
+		if (verb === "add") {
+			const title = rest.join(" ");
+			if (!title) {
+				runtime.ctx.showStatus("Fill in the card title:");
+				runtime.ctx.editor.setText("/kanban add ");
+				if (typeof runtime.ctx.editor.setCursorPosition === "function") {
+					runtime.ctx.editor.setCursorPosition(0, 12);
+				}
+				return;
+			}
+			const card = addCard(title);
+			runtime.ctx.showStatus(`Added [${card.id}]: ${card.title}\n${renderBoard()}`);
+			runtime.ctx.editor.setText("");
+			return;
+		}
+
+		if (verb === "move") {
+			const [id, status] = rest;
+			if (!id || !status) {
+				runtime.ctx.showStatus("Usage: /kanban move <id> <todo|in_progress|done>");
+				runtime.ctx.editor.setText(`/kanban move `);
+				return;
+			}
+			const card = moveCard(id, status as KanbanStatus);
+			runtime.ctx.showStatus(card ? `Moved [${card.id}] → ${status}\n${renderBoard()}` : `Card ${id} not found.`);
+			runtime.ctx.editor.setText("");
+			return;
+		}
+
+		if (verb === "rm") {
+			const id = rest[0];
+			if (!id) {
+				runtime.ctx.showStatus("Usage: /kanban rm <id>");
+				runtime.ctx.editor.setText("/kanban rm ");
+				return;
+			}
+			const ok = removeCard(id);
+			runtime.ctx.showStatus(ok ? `Removed card ${id}.\n${renderBoard()}` : `Card ${id} not found.`);
+			runtime.ctx.editor.setText("");
+			return;
+		}
+
+		// No args — show the board and hint
+		runtime.ctx.showStatus(
+			`${renderBoard()}\n\nTip: /kanban add <title> | /kanban move <id> <status> | /kanban rm <id>`,
+		);
 		runtime.ctx.editor.setText("");
-
-		// Note: The UI may need to be suspended for a terminal application to take over stdio.
-		// We launch it and wait for it to exit, but this might clobber the TUI until we find
-		// the proper way to suspend it.
-		const code = await launchKanban({
-			output: (text: string) => runtime.ctx.showStatus(text),
-			outputErr: (text: string) => runtime.ctx.showStatus(`Error: ${text}`),
-		});
-
-		runtime.ctx.showStatus(`Kanban exited with code ${code}`);
-		return { consumed: true };
 	},
 };
