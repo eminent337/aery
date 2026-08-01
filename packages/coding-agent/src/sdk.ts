@@ -114,6 +114,7 @@ import { resolveAuthBrokerConfig } from "./session/auth-broker-config";
 import { AuthBrokerClient, AuthStorage, RemoteAuthCredentialStore } from "./session/auth-storage";
 import { type CustomMessage, convertToLlm } from "./session/messages";
 import { getRestorableSessionModels, SessionManager } from "./session/session-manager";
+import { loadAerySkills } from "./skills/loader";
 import { closeAllConnections } from "./ssh/connection-manager";
 import { unmountAll } from "./ssh/sshfs-mount";
 import {
@@ -522,10 +523,17 @@ export async function discoverSkills(
 	_agentDir?: string,
 	settings?: SkillsSettings,
 ): Promise<{ skills: Skill[]; warnings: SkillWarning[] }> {
-	return await loadSkillsInternal({
+	const result = await loadSkillsInternal({
 		...settings,
 		cwd: cwd ?? getProjectDir(),
 	});
+	const aerySkills = await loadAerySkills();
+	for (const skill of aerySkills) {
+		if (!result.skills.some(s => s.name === skill.name)) {
+			result.skills.push(skill);
+		}
+	}
+	return result;
 }
 
 /**
