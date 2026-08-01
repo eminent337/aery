@@ -36,37 +36,37 @@ describe("cline provider support & free model filtering", () => {
 		expect(provider?.name).toBe("Cline");
 	});
 
-	test("fetches dynamic models and filters for free models only", async () => {
+	test("fetches free models from the public recommended-models endpoint", async () => {
 		global.fetch = vi.fn(
 			async () =>
 				new Response(
 					JSON.stringify({
-						object: "list",
-						data: [
-							{ id: "cline-free/claude-sonnet-4.5", name: "Claude Sonnet 4.5 Free", isFree: true },
-							{ id: "deepseek-r1-free", name: "DeepSeek R1 Free" },
-							{ id: "paid-gpt-5.4", name: "Paid GPT 5.4", isFree: false },
+						recommended: [{ id: "anthropic/claude-opus-5", name: "claude-opus-5" }],
+						free: [
+							{ id: "deepseek/deepseek-v4-flash", name: "deepseek-v4-flash" },
+							{ id: "cline-free/glm-5.2", name: "cline-free/glm-5.2" },
+							{ id: "poolside/laguna-s-2.1:free", name: "laguna-s-2.1:free" },
+							{ id: "stepfun/step-3.7-flash", name: "step-3.7-flash" },
 						],
 					}),
 					{ status: 200, headers: { "Content-Type": "application/json" } },
 				),
 		) as unknown as typeof fetch;
-
 		const options = clineModelManagerOptions({ apiKey: "cline-test-key" });
 		expect(options.providerId).toBe("cline");
 		expect(options.fetchDynamicModels).toBeDefined();
-
 		const models = await options.fetchDynamicModels?.();
 		expect(models).toBeDefined();
 		expect(global.fetch).toHaveBeenCalledWith(
-			"https://api.cline.bot/api/v1/models",
+			"https://api.cline.bot/api/v1/ai/cline/recommended-models",
 			expect.objectContaining({ method: "GET" }),
 		);
-
-		// Paid model paid-gpt-5.4 must be filtered out
 		const modelIds = models?.map(m => m.id);
-		expect(modelIds).toContain("cline-free/claude-sonnet-4.5");
-		expect(modelIds).toContain("deepseek-r1-free");
-		expect(modelIds).not.toContain("paid-gpt-5.4");
+		expect(modelIds).toEqual([
+			"cline-free/glm-5.2",
+			"deepseek/deepseek-v4-flash",
+			"poolside/laguna-s-2.1:free",
+			"stepfun/step-3.7-flash",
+		]);
 	});
 });

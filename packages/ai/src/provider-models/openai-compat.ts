@@ -1548,31 +1548,105 @@ export interface ClineModelManagerConfig {
 	apiKey?: string;
 	baseUrl?: string;
 }
+/**
+ * Free model IDs for the Cline provider, mirroring how the Cline CLI builds
+ * its Free section: it reads the public `recommended-models` endpoint and
+ * shows the `free` array verbatim (no auth required). Using that same source
+ * keeps the count in lockstep with the Cline CLI (currently 4 free models)
+ * instead of relying on heuristic id suffix matching over the auth-gated
+ * `/v1/models` catalog.
+ */
 export function clineModelManagerOptions(config?: ClineModelManagerConfig): ModelManagerOptions<"openai-completions"> {
 	const apiKey = config?.apiKey;
 	const baseUrl = config?.baseUrl ?? "https://api.cline.bot/api/v1";
 	return {
 		providerId: "cline",
 		dynamicModelsAuthoritative: true,
-		fetchDynamicModels: () =>
-			fetchOpenAICompatibleModels({
+		fetchDynamicModels: () => fetchClineRecommendedFreeModels({ baseUrl, apiKey }),
+	};
+}
+async function fetchClineRecommendedFreeModels(options: {
+	baseUrl: string;
+	apiKey?: string;
+}): Promise<Model<"openai-completions">[] | null> {
+	const { baseUrl, apiKey } = options;
+	const recommendedModelsUrl = resolveClineRecommendedModelsUrl(baseUrl);
+	try {
+		const response = await fetch(recommendedModelsUrl, {
+			method: "GET",
+			headers: { Accept: "application/json" },
+			signal: AbortSignal.timeout(5_000),
+		});
+		if (!response.ok) {
+			return null;
+		}
+		const payload = (await response.json()) as { free?: unknown };
+		if (!Array.isArray(payload.free)) {
+			return null;
+		}
+		const models: Model<"openai-completions">[] = [];
+		for (const entry of payload.free) {
+			if (!entry || typeof entry !== "object") {
+				continue;
+			}
+			const record = entry as { id?: unknown; name?: unknown };
+			if (typeof record.id !== "string" || record.id.length === 0) {
+				continue;
+			}
+			const name = typeof record.name === "string" && record.name.length > 0 ? record.name : record.id;
+			models.push({
+				id: record.id,
+				name,
 				api: "openai-completions",
 				provider: "cline",
 				baseUrl,
-				apiKey,
-				filterModel: (entry, model) => {
-					const lowerId = model.id.toLowerCase();
-					return (
-						entry.isFree === true ||
-						(entry as { free?: boolean }).free === true ||
-						lowerId.endsWith("-free") ||
-						lowerId.includes("-free/") ||
-						lowerId.startsWith("cline-free/") ||
-						lowerId.includes(":free")
-					);
-				},
-			}),
-	};
+				reasoning: false,
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: UNK_CONTEXT_WINDOW,
+				maxTokens: UNK_MAX_TOKENS,
+			});
+		}
+		if (models.length === 0) {
+			return null;
+		}
+		return models.sort((left, right) => left.id.localeCompare(right.id));
+	} catch {
+		// Degraded fallback: if the recommended-models endpoint is unreachable,
+		// fall back to the auth-gated catalog with a free-id heuristic.
+		const apiKeyForFetch = apiKey;
+		if (!apiKeyForFetch) {
+			return null;
+		}
+		return fetchOpenAICompatibleModels({
+			api: "openai-completions",
+			provider: "cline",
+			baseUrl,
+			apiKey: apiKeyForFetch,
+			filterModel: (entry, model) => {
+				const lowerId = model.id.toLowerCase();
+				return (
+					entry.isFree === true ||
+					(entry as { free?: boolean }).free === true ||
+					lowerId.endsWith("-free") ||
+					lowerId.includes("-free/") ||
+					lowerId.startsWith("cline-free/") ||
+					lowerId.includes(":free")
+				);
+			},
+		});
+	}
+}
+/**
+ * Resolve the recommended-models URL from a provider base URL, mirroring the
+ * Cline CLI (`/api/v1` suffix is stripped then re-appended before the path).
+ */
+function resolveClineRecommendedModelsUrl(baseUrl: string): string {
+	const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
+	const apiBaseUrl = normalizedBaseUrl.endsWith("/api/v1")
+		? normalizedBaseUrl.slice(0, -"/api/v1".length)
+		: normalizedBaseUrl;
+	return `${apiBaseUrl}/api/v1/ai/cline/recommended-models`;
 }
 // ---------------------------------------------------------------------------
 // Alibaba Coding Plan

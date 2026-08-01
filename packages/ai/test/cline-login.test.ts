@@ -11,7 +11,7 @@ afterEach(() => {
 describe("cline web device authentication", () => {
 	test("returns the Cline access token from the register endpoint response", async () => {
 		const calls: string[] = [];
-		global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+		global.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
 			const url = String(input);
 			calls.push(url);
 			if (url.includes("/user_management/authorize/device")) {
@@ -68,7 +68,7 @@ describe("cline web device authentication", () => {
 	});
 
 	test("falls back to WorkOS access token when register fails", async () => {
-		global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+		global.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
 			const url = String(input);
 			if (url.includes("/user_management/authorize/device")) {
 				return new Response(
