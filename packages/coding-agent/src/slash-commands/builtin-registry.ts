@@ -632,33 +632,6 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
-		name: "todo",
-		description: "View or modify the agent's todo list",
-		acpDescription: "Manage todos",
-		acpInputHint: "<subcommand>",
-		subcommands: [
-			{ name: "edit", description: "Open todos in $EDITOR (Markdown round-trip)" },
-			{ name: "copy", description: "Copy todos as Markdown to clipboard" },
-			{ name: "export", description: "Write todos as Markdown to a file (default: TODO.md)", usage: "[<path>]" },
-			{ name: "import", description: "Replace todos from a Markdown file (default: TODO.md)", usage: "[<path>]" },
-			{
-				name: "append",
-				description: "Append a task; phase fuzzy-matched or auto-created",
-				usage: "[<phase>] <task...>",
-			},
-			{ name: "start", description: "Mark task in_progress (fuzzy-matched)", usage: "<task>" },
-			{ name: "done", description: "Mark task/phase/all completed (fuzzy-matched)", usage: "[<task|phase>]" },
-			{ name: "drop", description: "Mark task/phase/all abandoned (fuzzy-matched)", usage: "[<task|phase>]" },
-			{ name: "rm", description: "Remove task/phase/all (fuzzy-matched)", usage: "[<task|phase>]" },
-		],
-		allowArgs: true,
-		handle: handleTodoAcp,
-		handleTui: async (command, runtime) => {
-			await runtime.ctx.handleTodoCommand(command.args);
-			runtime.ctx.editor.setText("");
-		},
-	},
-	{
 		name: "session",
 		description: "Session management commands",
 		acpDescription: "Show session information",
@@ -713,57 +686,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
-		name: "jobs",
-		description: "Show async background jobs status",
-		acpDescription: "Show background jobs",
-		handle: async (_command, runtime) => {
-			const snapshot = runtime.session.getAsyncJobSnapshot({ recentLimit: 5 });
-			if (!snapshot || (snapshot.running.length === 0 && snapshot.recent.length === 0)) {
-				await runtime.output(
-					"No background jobs running. (Background jobs run async tools — e.g. long-running bash, debug, or task subagents that would otherwise tie up a turn. They appear here while alive and for ~5 minutes after.)",
-				);
-				return commandConsumed();
-			}
-			const now = Date.now();
-			const lines: string[] = ["Background Jobs", `Running: ${snapshot.running.length}`];
-			if (snapshot.running.length > 0) {
-				lines.push("", "Running Jobs");
-				for (const job of snapshot.running) {
-					lines.push(`  [${job.id}] ${job.type} (${job.status}) — ${formatDuration(now - job.startTime)}`);
-					lines.push(`    ${job.label}`);
-				}
-			}
-			if (snapshot.recent.length > 0) {
-				lines.push("", "Recent Jobs");
-				for (const job of snapshot.recent) {
-					lines.push(`  [${job.id}] ${job.type} (${job.status}) — ${formatDuration(now - job.startTime)}`);
-					lines.push(`    ${job.label}`);
-				}
-			}
-			await runtime.output(lines.join("\n"));
-			return commandConsumed();
-		},
-		handleTui: async (_command, runtime) => {
-			await runtime.ctx.handleJobsCommand();
-			runtime.ctx.editor.setText("");
-		},
-	},
-	{
 		name: "usage",
 		description: "Show provider usage and limits",
-		acpDescription: "Show token usage",
-		handle: async (_command, runtime) => {
-			await runtime.output(await buildUsageReportText(runtime));
-			return commandConsumed();
-		},
-		handleTui: async (_command, runtime) => {
-			await runtime.ctx.handleUsageCommand();
-			runtime.ctx.editor.setText("");
-		},
-	},
-	{
-		name: "tokens",
-		description: "Show cumulative token usage tracking",
 		acpDescription: "Show token usage",
 		handle: async (_command, runtime) => {
 			await runtime.output(await buildUsageReportText(runtime));
@@ -832,32 +756,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
-		name: "context",
-		description: "Show estimated context usage breakdown",
-		acpDescription: "Show context usage",
-		handle: async (_command, runtime) => {
-			await runtime.output(buildContextReportText(runtime));
-			return commandConsumed();
-		},
-		handleTui: (_command, runtime) => {
-			runtime.ctx.handleContextCommand();
-			runtime.ctx.editor.setText("");
-		},
-	},
-	{
 		name: "extensions",
 		aliases: ["status"],
 		description: "Open Extension Control Center dashboard",
 		handleTui: (_command, runtime) => {
 			runtime.ctx.showExtensionsDashboard();
-			runtime.ctx.editor.setText("");
-		},
-	},
-	{
-		name: "agents",
-		description: "Open Agent Control Center dashboard",
-		handleTui: (_command, runtime) => {
-			runtime.ctx.showAgentsDashboard();
 			runtime.ctx.editor.setText("");
 		},
 	},
@@ -1062,78 +965,6 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		handleTui: (_command, runtime) => {
 			runtime.ctx.showDebugSelector();
 			runtime.ctx.editor.setText("");
-		},
-	},
-	{
-		name: "memory",
-		description: "Inspect and operate memory maintenance",
-		acpDescription: "Manage memory",
-		acpInputHint: "<subcommand>",
-		subcommands: [
-			{ name: "view", description: "Show current memory injection payload" },
-			{ name: "stats", description: "Show memory backend statistics" },
-			{ name: "diagnose", description: "Run memory backend diagnostics" },
-			{ name: "clear", description: "Clear persisted memory data and artifacts" },
-			{ name: "reset", description: "Alias for clear" },
-			{ name: "enqueue", description: "Enqueue memory consolidation maintenance" },
-			{ name: "rebuild", description: "Alias for enqueue" },
-			{ name: "mm list", description: "List mental models on the active bank" },
-			{ name: "mm show", description: "Show one mental model (id required)" },
-			{
-				name: "mm refresh",
-				description: "Refresh auto-refresh models bank-wide, or one model by id",
-			},
-			{ name: "mm history", description: "Diff the change history of a mental model" },
-			{ name: "mm seed", description: "Create any built-in mental models that are missing" },
-			{ name: "mm delete", description: "Delete a mental model from the bank (id required)" },
-			{ name: "mm reload", description: "Re-pull the cached <mental_models> block" },
-		],
-		allowArgs: true,
-		handle: async (command, runtime) => {
-			const verb = (command.args.trim().split(/\s+/)[0] ?? "").toLowerCase() || "view";
-			const backend = resolveMemoryBackend(runtime.settings);
-			switch (verb) {
-				case "view": {
-					const payload = await backend.buildDeveloperInstructions(
-						runtime.settings.getAgentDir(),
-						runtime.settings,
-						runtime.session,
-					);
-					await runtime.output(payload || "Memory payload is empty.");
-					return commandConsumed();
-				}
-				case "clear":
-				case "reset": {
-					await backend.clear(runtime.settings.getAgentDir(), runtime.cwd, runtime.session);
-					await runtime.session.refreshBaseSystemPrompt();
-					await runtime.output("Memory cleared.");
-					return commandConsumed();
-				}
-				case "enqueue":
-				case "rebuild": {
-					await backend.enqueue(runtime.settings.getAgentDir(), runtime.cwd, runtime.session);
-					await runtime.output("Memory consolidation enqueued.");
-					return commandConsumed();
-				}
-				case "stats":
-				case "diagnose": {
-					const hook = verb === "stats" ? backend.stats : backend.diagnose;
-					const payload = await hook?.(runtime.settings.getAgentDir(), runtime.cwd, runtime.session);
-					await runtime.output(payload ?? `Memory ${verb} is not available for the ${backend.id} backend.`);
-					return commandConsumed();
-				}
-				case "mm":
-					return usage(
-						"Mental-model maintenance via /memory mm is unsupported in ACP mode; use the hindsight HTTP API directly.",
-						runtime,
-					);
-				default:
-					return usage("Usage: /memory <view|stats|diagnose|clear|reset|enqueue|rebuild>", runtime);
-			}
-		},
-		handleTui: async (command, runtime) => {
-			runtime.ctx.editor.setText("");
-			await runtime.ctx.handleMemoryCommand(command.text);
 		},
 	},
 	{
