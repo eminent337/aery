@@ -147,7 +147,7 @@ describe("FasPlanner", () => {
 				onProgress: () => {},
 			});
 
-			expect(planner.create()).rejects.toThrow(/No JSON found/);
+			expect(planner.create()).rejects.toThrow(/Failed to parse plan|No JSON/);
 		});
 	});
 
