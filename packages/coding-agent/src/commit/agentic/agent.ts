@@ -18,7 +18,7 @@ import { createCommitTools } from "./tools";
 export interface CommitAgentInput {
 	cwd: string;
 	model: Model<Api>;
-	thinkingLevel?: ThinkingLevel;
+	thinkingLevel?: ThinkingLevel; // synced from upstream reasoning tokens
 	settings: Settings;
 	modelRegistry: ModelRegistry;
 	authStorage: AuthStorage;

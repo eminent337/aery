@@ -197,6 +197,15 @@ export class InputController {
 			this.ctx.editor.setCustomKeyHandler(key, () => void this.ctx.handlePlanModeCommand());
 		}
 
+		for (const key of this.ctx.keybindings.getKeys("app.autoApprove.toggle")) {
+			this.ctx.editor.setCustomKeyHandler(key, () => {
+				const current = settings.get("tools.approvalMode");
+				const next = current === "yolo" ? "always-ask" : "yolo";
+				settings.set("tools.approvalMode", next);
+				this.ctx.showStatus(`Auto-approve mode: ${next === "yolo" ? "ON (YOLO)" : "OFF (Always Ask)"}`);
+			});
+		}
+
 		for (const key of this.ctx.keybindings.getKeys("app.session.new")) {
 			this.ctx.editor.setCustomKeyHandler(key, () => this.ctx.handleClearCommand());
 		}

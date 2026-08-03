@@ -48,6 +48,7 @@ interface AppKeybindings {
 	"app.tree.foldOrUp": true;
 	"app.tree.unfoldOrDown": true;
 	"app.plan.toggle": true;
+	"app.autoApprove.toggle": true;
 	"app.history.search": true;
 	"app.stt.toggle": true;
 	"app.task.background": true;
@@ -88,7 +89,7 @@ export const KEYBINDINGS = {
 		description: "Suspend application",
 	},
 	"app.thinking.cycle": {
-		defaultKeys: "shift+tab",
+		defaultKeys: "alt+shift+t",
 		description: "Cycle thinking level",
 	},
 	"app.thinking.toggle": {
@@ -192,8 +193,12 @@ export const KEYBINDINGS = {
 		description: "Unfold or move down",
 	},
 	"app.plan.toggle": {
-		defaultKeys: "alt+shift+p",
+		defaultKeys: "tab",
 		description: "Toggle plan mode",
+	},
+	"app.autoApprove.toggle": {
+		defaultKeys: "shift+tab",
+		description: "Toggle auto-approve (YOLO) mode",
 	},
 	"app.history.search": {
 		defaultKeys: "ctrl+r",
