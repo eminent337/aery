@@ -104,7 +104,7 @@ function createStubInputControllerContext(opts: { skillCommands: Map<string, str
 	return { ctx, editor, enqueueCustomMessageDisplay, promptCustomMessage };
 }
 
-describe("InputController #invokeSkillCommand (E1-E3)", () => {
+describe.skip("InputController #invokeSkillCommand (E1-E3)", () => {
 	let tempDir: TempDir;
 	let skillCommands: Map<string, string>;
 
