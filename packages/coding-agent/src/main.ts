@@ -1,3 +1,4 @@
+import { IdleHeapRelease } from "./performance/idle-gc";
 /**
  * Main entry point for the coding agent CLI.
  *
@@ -1053,6 +1054,10 @@ export async function runRootCommand(
 		if (parsedArgs.apiKey && !sessionOptions.model && session.model) {
 			authStorage.setRuntimeApiKey(session.model.provider, parsedArgs.apiKey);
 		}
+
+		// Initialize Idle Heap GC Release watchdog
+		const idleHeapRelease = new IdleHeapRelease(session);
+		idleHeapRelease.start();
 
 		if (modelFallbackMessage) {
 			notifs.push({ kind: "warn", message: modelFallbackMessage });

@@ -151,6 +151,22 @@ export class FermentStore {
 		return ferments;
 	}
 
+	/** List all ferments with a specific status. */
+	listByStatus(status: string): Ferment[] {
+		const rows = this.#db.prepare("SELECT data FROM ferments WHERE status = ?").all(status) as Array<{
+			data: string;
+		}>;
+		const ferments: Ferment[] = [];
+		for (const row of rows) {
+			try {
+				ferments.push(JSON.parse(row.data) as Ferment);
+			} catch (err) {
+				logger.warn("FermentStore failed to parse ferment in listByStatus", { error: String(err) });
+			}
+		}
+		return ferments;
+	}
+
 	/** Delete a ferment and its events. Clears from cache. */
 	delete(id: string): void {
 		const tx = this.#db.transaction(() => {
