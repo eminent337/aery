@@ -493,12 +493,6 @@ async function isLinkedWorktreeAsync(repository: GitRepository): Promise<boolean
 	);
 }
 
-function primaryRootFromRepositorySync(repository: GitRepository): string {
-	if (path.basename(repository.commonDir) === ".git") return path.dirname(repository.commonDir);
-	if (isLinkedWorktree(repository)) return repository.commonDir;
-	return repository.repoRoot;
-}
-
 async function primaryRootFromRepository(repository: GitRepository): Promise<string> {
 	if (path.basename(repository.commonDir) === ".git") return path.dirname(repository.commonDir);
 	if (await isLinkedWorktreeAsync(repository)) return repository.commonDir;
