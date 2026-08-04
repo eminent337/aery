@@ -44,6 +44,7 @@ import { type CliConfig, run } from "@aryee337/aery-utils/cli";
 import { APP_NAME, MIN_BUN_VERSION, VERSION } from "@aryee337/aery-utils/dirs";
 import { commands, isSubcommand } from "./cli-commands";
 import { recoverStrandedFerments } from "./ferment/recovery.js";
+import { startSwarmWatchdog } from "./task/swarm/watchdog.js";
 
 if (Bun.semver.order(Bun.version, MIN_BUN_VERSION) < 0) {
 	process.stderr.write(
@@ -128,6 +129,8 @@ async function runTinyWorker(): Promise<void> {
 /** Run the CLI with the given argv (no `process.argv` prefix). */
 export async function runCli(argv: string[]): Promise<void> {
 	recoverStrandedFerments();
+	// Start the swarm watchdog (with null ctx for now; a full implementation would pass the app context)
+	startSwarmWatchdog(null).catch(() => {});
 
 	if (argv[0] === "--smoke-test") {
 		await runSmokeTest();
