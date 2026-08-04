@@ -9,6 +9,8 @@ export interface PersistedSwarm {
 	id: string;
 	workflow: SwarmWorkflow;
 	taskStates: Record<string, TaskState>;
+	/** taskId -> git branchName that was created when that task completed. */
+	completedBranches?: Record<string, string>;
 	status: "active" | "completed" | "failed" | "paused";
 	createdAt: number;
 	updatedAt: number;

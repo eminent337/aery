@@ -58,7 +58,7 @@ export class SwarmScheduler {
 	public taskStates = new Map<string, TaskState>();
 	public swarmId: string;
 
-	constructor(workflow: SwarmWorkflow, swarmId?: string) {
+	constructor(workflow: SwarmWorkflow, swarmId?: string, completedBranches?: Record<string, string>) {
 		this.#workflow = workflow;
 		this.swarmId = swarmId ?? `swarm-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 		this.#sem = new Semaphore(workflow.maxConcurrency ?? 3);
@@ -70,6 +70,13 @@ export class SwarmScheduler {
 				maxRetries: t.maxRetries ?? 0,
 			});
 		}
+		// Restore branch provenance so a crash-resumed multi-parent swarm can
+		// re-base downstream work onto the branches that already succeeded.
+		if (completedBranches) {
+			for (const [taskId, branchName] of Object.entries(completedBranches)) {
+				this.#completedBranches.set(taskId, branchName);
+			}
+		}
 	}
 
 	#persist(): void {
@@ -78,14 +85,40 @@ export class SwarmScheduler {
 		for (const [id, state] of this.taskStates) {
 			statesRecord[id] = state;
 		}
+		// Persist completed-branch provenance so a crash-resumed swarm can
+		// re-base multi-parent downstream tasks onto the right branches.
+		const completedBranches: Record<string, string> = {};
+		for (const [taskId, branchName] of this.#completedBranches) {
+			completedBranches[taskId] = branchName;
+		}
 		store.save({
 			id: this.swarmId,
 			workflow: this.#workflow,
 			taskStates: statesRecord,
+			completedBranches,
 			status: "active",
 			createdAt: 0, // will be auto-set by store if 0
 			updatedAt: 0,
 		});
+	}
+
+	/**
+	 * Reconstruct a scheduler from a persisted swarm, restoring both task
+	 * states and completed-branch provenance so execution can resume.
+	 */
+	static fromPersisted(swarm: {
+		workflow: SwarmWorkflow;
+		id: string;
+		taskStates: Record<string, TaskState>;
+		completedBranches?: Record<string, string>;
+	}): SwarmScheduler {
+		const scheduler = new SwarmScheduler(swarm.workflow, swarm.id, swarm.completedBranches);
+		for (const [taskId, state] of Object.entries(swarm.taskStates)) {
+			if (scheduler.taskStates.has(taskId)) {
+				scheduler.taskStates.set(taskId, state);
+			}
+		}
+		return scheduler;
 	}
 
 	async execute(ctx: {
