@@ -2,7 +2,6 @@ import { logger } from "@aryee337/aery-utils";
 import type { AgentSession } from "../session/agent-session";
 
 const IDLE_TRIM_AFTER_MS = 60 * 1000;
-const RETENTION_CHECK_INTERVAL_MS = 30 * 1000;
 const IDLE_RETRIM_INTERVAL_MS = 300 * 1000;
 
 export class IdleHeapRelease {
@@ -10,6 +9,7 @@ export class IdleHeapRelease {
 	#trimmedThisIdlePeriod = false;
 	#lastIdleTrimTime = 0;
 	#timer: ReturnType<typeof setInterval> | null = null;
+	#unsubscribe: (() => void) | null = null;
 	#session: AgentSession;
 
 	constructor(session: AgentSession) {
@@ -22,8 +22,10 @@ export class IdleHeapRelease {
 	start(): void {
 		if (this.#timer) return;
 
-		// Listen to all agent session events as a sign of activity
-		this.#session.subscribe(() => this.bumpActivity());
+		// Listen to all agent session events as a sign of activity.
+		// Keep the unsubscribe handle so stop() can fully tear the watchdog
+		// down when the session is disposed (no leaked listener or interval).
+		this.#unsubscribe = this.#session.subscribe(() => this.bumpActivity());
 
 		this.#timer = setInterval(() => {
 			this.#checkIdleState();
@@ -31,10 +33,17 @@ export class IdleHeapRelease {
 		this.#timer.unref(); // Don't keep the event loop alive just for this
 	}
 
+	/**
+	 * Stop the watchdog and release its session subscription. Idempotent.
+	 */
 	stop(): void {
 		if (this.#timer) {
 			clearInterval(this.#timer);
 			this.#timer = null;
+		}
+		if (this.#unsubscribe) {
+			this.#unsubscribe();
+			this.#unsubscribe = null;
 		}
 	}
 
@@ -44,6 +53,13 @@ export class IdleHeapRelease {
 	bumpActivity(): void {
 		this.#lastActivityTime = Date.now();
 		this.#trimmedThisIdlePeriod = false;
+	}
+
+	/**
+	 * Whether the watchdog is currently running (started and not stopped).
+	 */
+	get isRunning(): boolean {
+		return this.#timer !== null;
 	}
 
 	#checkIdleState(): void {

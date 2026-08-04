@@ -1090,6 +1090,7 @@ export async function runRootCommand(
 				process.exit(1);
 			}
 			await runFermentMode(session, { goal });
+			idleHeapRelease.stop();
 			await session.dispose();
 			stopThemeWatcher();
 			await postmortem.quit(0);
@@ -1132,6 +1133,9 @@ export async function runRootCommand(
 				initialMessage,
 				initialImages,
 			);
+			// runInteractiveMode disposes the session internally; tear down the
+			// idle-GC watchdog here so it doesn't outlive the session.
+			idleHeapRelease.stop();
 		} else {
 			await runPrintMode(session, {
 				mode,
@@ -1142,6 +1146,7 @@ export async function runRootCommand(
 			if ($env.PI_TIMING) {
 				logger.printTimings();
 			}
+			idleHeapRelease.stop();
 			await session.dispose();
 			stopThemeWatcher();
 			await postmortem.quit(0);

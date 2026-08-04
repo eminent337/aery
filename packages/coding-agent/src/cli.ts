@@ -128,7 +128,13 @@ async function runTinyWorker(): Promise<void> {
 
 /** Run the CLI with the given argv (no `process.argv` prefix). */
 export async function runCli(argv: string[]): Promise<void> {
-	recoverStrandedFerments();
+	// Defer ferment crash recovery out of the synchronous startup hot path so a
+	// large ferments table can't block arg parsing / subcommand dispatch. Runs
+	// post-init, non-blocking; stranded "running" ferments are marked "paused"
+	// as soon as the event loop is free.
+	setImmediate(() => {
+		recoverStrandedFerments();
+	});
 	// Start the swarm watchdog (with null ctx for now; a full implementation would pass the app context)
 	startSwarmWatchdog(null).catch(() => {});
 

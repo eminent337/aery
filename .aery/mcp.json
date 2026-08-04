@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "linear": {
+      "command": "npx",
+      "args": ["-y", "linear-mcp-server@0.1.0"],
+      "env": {
+        "LINEAR_API_KEY": "<INSERT_YOUR_LINEAR_API_KEY_HERE>"
+      }
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    }
+  }
+}
