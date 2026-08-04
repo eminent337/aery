@@ -112,7 +112,6 @@ import { OmfgController } from "./controllers/omfg-controller";
 import { SelectorController } from "./controllers/selector-controller";
 import { SSHCommandController } from "./controllers/ssh-command-controller";
 import { TanCommandController } from "./controllers/tan-command-controller";
-import { TodoCommandController } from "./controllers/todo-command-controller";
 import {
 	consumeLoopLimitIteration,
 	createLoopLimitRuntime,
@@ -347,7 +346,6 @@ export class InteractiveMode implements InteractiveModeContext {
 	readonly #omfgController: OmfgController;
 	readonly #tanController: TanCommandController;
 	readonly #commandController: CommandController;
-	readonly #todoCommandController: TodoCommandController;
 	readonly #eventController: EventController;
 	readonly #extensionUiController: ExtensionUiController;
 	readonly #inputController: InputController;
@@ -449,7 +447,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#extensionUiController = new ExtensionUiController(this);
 		this.#eventController = new EventController(this);
 		this.#commandController = new CommandController(this);
-		this.#todoCommandController = new TodoCommandController(this);
 		this.#selectorController = new SelectorController(this);
 		this.#inputController = new InputController(this);
 		this.#observerRegistry = new SessionObserverRegistry();
@@ -2644,20 +2641,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		return this.#commandController.handleCopyCommand(sub);
 	}
 
-	handleTodoCommand(args: string): Promise<void> {
-		return this.#todoCommandController.handleTodoCommand(args);
-	}
-
 	handleSessionCommand(): Promise<void> {
 		return this.#commandController.handleSessionCommand();
 	}
 
 	handleAdvisorStatusCommand(): Promise<void> {
 		return this.#commandController.handleAdvisorStatusCommand();
-	}
-
-	handleJobsCommand(): Promise<void> {
-		return this.#commandController.handleJobsCommand();
 	}
 
 	handleUsageCommand(reports?: UsageReport[] | null): Promise<void> {
@@ -2678,10 +2667,6 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	handleToolsCommand(): void {
 		this.#commandController.handleToolsCommand();
-	}
-
-	handleContextCommand(): void {
-		this.#commandController.handleContextCommand();
 	}
 
 	#prepareSessionSwitch(): void {
@@ -2713,10 +2698,6 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	handleRenameCommand(title: string): Promise<void> {
 		return this.#commandController.handleRenameCommand(title);
-	}
-
-	handleMemoryCommand(text: string): Promise<void> {
-		return this.#commandController.handleMemoryCommand(text);
 	}
 
 	async handleSTTToggle(): Promise<void> {
@@ -2867,10 +2848,6 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	showExtensionsDashboard(): void {
 		void this.#selectorController.showExtensionsDashboard();
-	}
-
-	showAgentsDashboard(): void {
-		void this.#selectorController.showAgentsDashboard();
 	}
 
 	showModelSelector(options?: { temporaryOnly?: boolean }): void {

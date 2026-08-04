@@ -217,16 +217,13 @@ export interface InteractiveModeContext {
 	handleExportCommand(text: string): Promise<void>;
 	handleShareCommand(): Promise<void>;
 	handleCopyCommand(sub?: string): void;
-	handleTodoCommand(args: string): Promise<void>;
 	handleSessionCommand(): Promise<void>;
 	handleAdvisorStatusCommand(): Promise<void>;
-	handleJobsCommand(): Promise<void>;
 	handleUsageCommand(reports?: UsageReport[] | null): Promise<void>;
 	handleChangelogCommand(showFull?: boolean): Promise<void>;
 	handleArtifactCommand(args: string): Promise<void>;
 	handleHotkeysCommand(): void;
 	handleToolsCommand(): void;
-	handleContextCommand(): void;
 	handleDumpCommand(isRaw?: boolean): void;
 	handleAdvisorDumpCommand(isRaw?: boolean): void;
 	handleDebugTranscriptCommand(): Promise<void>;
@@ -242,7 +239,6 @@ export interface InteractiveModeContext {
 	handleShakeCommand(mode: ShakeMode): Promise<void>;
 	handleMoveCommand(targetPath?: string): Promise<void>;
 	handleRenameCommand(title: string): Promise<void>;
-	handleMemoryCommand(text: string): Promise<void>;
 	handleSTTToggle(): Promise<void>;
 	executeCompaction(
 		customInstructionsOrOptions?: string | CompactOptions,
@@ -256,7 +252,6 @@ export interface InteractiveModeContext {
 	showSettingsSelector(): void;
 	showHistorySearch(): void;
 	showExtensionsDashboard(): void;
-	showAgentsDashboard(): void;
 	showModelSelector(options?: { temporaryOnly?: boolean }): void;
 	showPluginSelector(mode?: "install" | "uninstall"): void;
 	showUserMessageSelector(): void;
