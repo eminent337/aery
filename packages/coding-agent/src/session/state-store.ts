@@ -7,7 +7,7 @@ import { getAgentDbPath, logger } from "@aryee337/aery-utils";
 export interface PersistedSessionState {
 	sessionId: string;
 	status: "running" | "paused" | "completed" | "crashed";
-	snapshot: Record<string, any>;
+	snapshot: Record<string, unknown>;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -40,7 +40,7 @@ export class SessionStateStore {
 	static open(dbPath?: string): SessionStateStore {
 		const resolved = dbPath ?? getAgentDbPath();
 		const storePath = path.join(path.dirname(resolved), "session_state.db");
-		
+
 		const existing = instances.get(storePath);
 		if (existing) return existing;
 
@@ -66,18 +66,22 @@ export class SessionStateStore {
 		state.updatedAt = now;
 		if (!state.createdAt) state.createdAt = now;
 
-		this.#db.prepare(
-			`INSERT INTO session_states (session_id, data, status, created_at, updated_at)
+		this.#db
+			.prepare(
+				`INSERT INTO session_states (session_id, data, status, created_at, updated_at)
 			 VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT(session_id) DO UPDATE SET
 			   data = excluded.data,
 			   status = excluded.status,
-			   updated_at = excluded.updated_at`
-		).run(state.sessionId, JSON.stringify(state), state.status, state.createdAt, state.updatedAt);
+			   updated_at = excluded.updated_at`,
+			)
+			.run(state.sessionId, JSON.stringify(state), state.status, state.createdAt, state.updatedAt);
 	}
 
 	get(sessionId: string): PersistedSessionState | null {
-		const row = this.#db.prepare("SELECT data FROM session_states WHERE session_id = ?").get(sessionId) as { data: string } | undefined;
+		const row = this.#db.prepare("SELECT data FROM session_states WHERE session_id = ?").get(sessionId) as
+			| { data: string }
+			| undefined;
 		if (!row) return null;
 
 		try {
@@ -89,7 +93,9 @@ export class SessionStateStore {
 	}
 
 	listByStatus(status: string): PersistedSessionState[] {
-		const rows = this.#db.prepare("SELECT data FROM session_states WHERE status = ?").all(status) as Array<{ data: string }>;
+		const rows = this.#db.prepare("SELECT data FROM session_states WHERE status = ?").all(status) as Array<{
+			data: string;
+		}>;
 		const states: PersistedSessionState[] = [];
 		for (const row of rows) {
 			try {

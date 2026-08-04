@@ -248,6 +248,7 @@ import type {
 } from "./session-manager";
 import { getLatestCompactionEntry, getRestorableSessionModels } from "./session-manager";
 import type { ShakeMode, ShakeResult } from "./shake-types";
+import { SessionStateStore } from "./state-store.js";
 import { ToolChoiceQueue } from "./tool-choice-queue";
 import { classifyUnexpectedStop, isUnexpectedStopCandidate } from "./unexpected-stop-classifier";
 import { YieldQueue } from "./yield-queue";
@@ -1293,6 +1294,8 @@ export class AgentSession {
 		this.#unsubscribeAgent = this.agent.subscribe(this.#handleAgentEvent);
 		// Re-evaluate append-only context mode when the setting changes at runtime.
 		this.#unsubscribeAppendOnly = onAppendOnlyModeChanged(_value => this.#syncAppendOnlyContext(this.model));
+
+		this.#persistSessionState("running");
 	}
 	// -------------------------------------------------------------------------
 	// Advisor runtime lifecycle
@@ -3075,6 +3078,7 @@ export class AgentSession {
 	}
 
 	async dispose(): Promise<void> {
+		this.#persistSessionState("completed");
 		this.beginDispose();
 		try {
 			if (this.#extensionRunner?.hasHandlers("session_shutdown")) {
@@ -4210,6 +4214,28 @@ export class AgentSession {
 	/** Update the MCP prompt commands list. Called when server prompts are (re)loaded. */
 	setMCPPromptCommands(commands: LoadedCustomCommand[]): void {
 		this.#mcpPromptCommands = commands;
+	}
+
+	#persistSessionState(status: "running" | "paused" | "completed" | "crashed"): void {
+		try {
+			const store = SessionStateStore.open();
+			const snapshot = {
+				agentId: this.#agentId,
+				mode: this.#goalModeState ? "goal" : this.#planModeState ? "plan" : "standard",
+				activeTools: this.getActiveToolNames(),
+				cwd: this.sessionManager.getCwd(),
+				branch: this.sessionManager.getBranch(),
+			};
+			store.save({
+				sessionId: this.sessionManager.getSessionId(),
+				status,
+				snapshot,
+				createdAt: 0,
+				updatedAt: 0,
+			});
+		} catch (error) {
+			logger.warn("Failed to persist session state snapshot", { error: String(error) });
+		}
 	}
 
 	// =========================================================================

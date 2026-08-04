@@ -2,6 +2,7 @@ import { $ } from "bun";
 import { discoverAgents, getAgent } from "../discovery";
 import { runSubprocessWithQa } from "../executor";
 import { Semaphore } from "../parallel";
+import { SwarmStore } from "./store.js";
 import type { SwarmTask, SwarmWorkflow, TaskState } from "./types";
 
 export function topologicalSort(tasks: SwarmTask[]): SwarmTask[] {
@@ -55,9 +56,11 @@ export class SwarmScheduler {
 	#sem: Semaphore;
 	#completedBranches = new Map<string, string>(); // taskId -> branchName
 	public taskStates = new Map<string, TaskState>();
+	public swarmId: string;
 
-	constructor(workflow: SwarmWorkflow) {
+	constructor(workflow: SwarmWorkflow, swarmId?: string) {
 		this.#workflow = workflow;
+		this.swarmId = swarmId ?? `swarm-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 		this.#sem = new Semaphore(workflow.maxConcurrency ?? 3);
 		for (const t of workflow.tasks) {
 			this.taskStates.set(t.id, {
@@ -67,6 +70,22 @@ export class SwarmScheduler {
 				maxRetries: t.maxRetries ?? 0,
 			});
 		}
+	}
+
+	#persist(): void {
+		const store = SwarmStore.open();
+		const statesRecord: Record<string, TaskState> = {};
+		for (const [id, state] of this.taskStates) {
+			statesRecord[id] = state;
+		}
+		store.save({
+			id: this.swarmId,
+			workflow: this.#workflow,
+			taskStates: statesRecord,
+			status: "active",
+			createdAt: 0, // will be auto-set by store if 0
+			updatedAt: 0,
+		});
 	}
 
 	async execute(ctx: {
@@ -114,9 +133,22 @@ export class SwarmScheduler {
 
 		const runNode = async (taskId: string) => {
 			const task = tasksMap.get(taskId)!;
+			const state = this.taskStates.get(taskId);
+
+			// Skip completed tasks (e.g., during crash recovery)
+			if (state?.status === "completed") {
+				for (const neighbor of graph.get(task.id)!) {
+					inDegree.set(neighbor, inDegree.get(neighbor)! - 1);
+					if (inDegree.get(neighbor) === 0) {
+						const p = runNode(neighbor).finally(() => pendingPromises.delete(p));
+						pendingPromises.add(p);
+					}
+				}
+				return;
+			}
+
 			await this.#sem.acquire();
 			try {
-				const state = this.taskStates.get(taskId);
 				const maxAttempts = (task.maxRetries ?? 0) + 1;
 				let success = false;
 				let lastError: Error | undefined;
@@ -125,6 +157,7 @@ export class SwarmScheduler {
 					if (state) {
 						state.status = attempt > 1 ? "retrying" : "running";
 						state.attempts = attempt;
+						this.#persist();
 					}
 
 					try {
@@ -190,6 +223,7 @@ export class SwarmScheduler {
 						this.#completedBranches.set(task.id, branchName);
 						if (state) {
 							state.status = "completed";
+							this.#persist();
 						}
 						success = true;
 						break;
@@ -215,15 +249,19 @@ export class SwarmScheduler {
 				if (state) {
 					state.status = "failed";
 					state.error = err instanceof Error ? err.message : String(err);
+					this.#persist();
 				}
 				const markDownstreamBlocked = (failedId: string) => {
+					let changed = false;
 					for (const neighbor of graph.get(failedId)!) {
-						const state = this.taskStates.get(neighbor);
-						if (state && state.status !== "blocked") {
-							state.status = "blocked";
+						const s = this.taskStates.get(neighbor);
+						if (s && s.status !== "blocked") {
+							s.status = "blocked";
+							changed = true;
 							markDownstreamBlocked(neighbor);
 						}
 					}
+					if (changed) this.#persist();
 				};
 				markDownstreamBlocked(taskId);
 			} finally {

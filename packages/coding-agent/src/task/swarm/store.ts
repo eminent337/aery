@@ -9,7 +9,7 @@ export interface PersistedSwarm {
 	id: string;
 	workflow: SwarmWorkflow;
 	taskStates: Record<string, TaskState>;
-	status: "active" | "completed" | "failed";
+	status: "active" | "completed" | "failed" | "paused";
 	createdAt: number;
 	updatedAt: number;
 }
@@ -38,7 +38,7 @@ export class SwarmStore {
 	static open(dbPath?: string): SwarmStore {
 		const resolved = dbPath ?? getAgentDbPath();
 		const storePath = path.join(path.dirname(resolved), "swarm_state.db");
-		
+
 		const existing = instances.get(storePath);
 		if (existing) return existing;
 
@@ -64,14 +64,16 @@ export class SwarmStore {
 		swarm.updatedAt = now;
 		if (!swarm.createdAt) swarm.createdAt = now;
 
-		this.#db.prepare(
-			`INSERT INTO swarms (id, data, status, created_at, updated_at)
+		this.#db
+			.prepare(
+				`INSERT INTO swarms (id, data, status, created_at, updated_at)
 			 VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   data = excluded.data,
 			   status = excluded.status,
-			   updated_at = excluded.updated_at`
-		).run(swarm.id, JSON.stringify(swarm), swarm.status, swarm.createdAt, swarm.updatedAt);
+			   updated_at = excluded.updated_at`,
+			)
+			.run(swarm.id, JSON.stringify(swarm), swarm.status, swarm.createdAt, swarm.updatedAt);
 	}
 
 	get(id: string): PersistedSwarm | null {

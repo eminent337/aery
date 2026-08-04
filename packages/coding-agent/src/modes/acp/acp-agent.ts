@@ -67,7 +67,7 @@ import {
 	type SessionInfo as StoredSessionInfo,
 	type UsageStatistics,
 } from "../../session/session-manager";
-import { getAcpBuiltinSlashCommands, executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
+import { executeAcpBuiltinSlashCommand, getAcpBuiltinSlashCommands } from "../../slash-commands/acp-builtins";
 import { AUTO_THINKING, parseConfiguredThinkingLevel } from "../../thinking";
 import { createAcpClientBridge } from "./acp-client-bridge";
 import {

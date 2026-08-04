@@ -44,6 +44,7 @@ import { type CliConfig, run } from "@aryee337/aery-utils/cli";
 import { APP_NAME, MIN_BUN_VERSION, VERSION } from "@aryee337/aery-utils/dirs";
 import { commands, isSubcommand } from "./cli-commands";
 import { recoverStrandedFerments } from "./ferment/recovery.js";
+import { recoverStrandedSessions } from "./session/recovery.js";
 import { startSwarmWatchdog } from "./task/swarm/watchdog.js";
 
 if (Bun.semver.order(Bun.version, MIN_BUN_VERSION) < 0) {
@@ -134,9 +135,10 @@ export async function runCli(argv: string[]): Promise<void> {
 	// as soon as the event loop is free.
 	setImmediate(() => {
 		recoverStrandedFerments();
+		recoverStrandedSessions();
 	});
-	// Start the swarm watchdog (with null ctx for now; a full implementation would pass the app context)
-	startSwarmWatchdog(null).catch(() => {});
+	// Start the swarm watchdog to pause any stranded swarms
+	startSwarmWatchdog();
 
 	if (argv[0] === "--smoke-test") {
 		await runSmokeTest();
