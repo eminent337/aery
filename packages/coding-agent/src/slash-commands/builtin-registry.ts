@@ -244,6 +244,18 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	},
 
 	{
+		name: "loop",
+		description:
+			"Toggle loop mode. While enabled, the next prompt you send re-submits after every yield. Esc cancels the current iteration; /loop again to disable.",
+		inlineHint: "[count|duration]",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			await runtime.ctx.handleLoopCommand(command.args);
+			runtime.ctx.editor.setText("");
+		},
+	},
+
+	{
 		name: "model",
 		aliases: ["models"],
 		description: "Select model (opens selector UI)",
@@ -961,6 +973,28 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		handleTui: (_command, runtime) => {
 			runtime.ctx.showDebugSelector();
 			runtime.ctx.editor.setText("");
+		},
+	},
+	{
+		name: "btw",
+		description: "Ask an ephemeral side question using the current session context",
+		inlineHint: "<question>",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			const question = command.text.slice(`/${command.name}`.length).trim();
+			runtime.ctx.editor.setText("");
+			await runtime.ctx.handleBtwCommand(question);
+		},
+	},
+	{
+		name: "omfg",
+		description: "Forge a TTSR rule from a complaint to stop a recurring behavior",
+		inlineHint: "<complaint>",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			const complaint = command.text.slice(`/${command.name}`.length).trim();
+			runtime.ctx.editor.setText("");
+			await runtime.ctx.handleOmfgCommand(complaint);
 		},
 	},
 	{
