@@ -773,6 +773,15 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "agents",
+		aliases: ["agent"],
+		description: "Open Agent Control Center dashboard",
+		handleTui: (_command, runtime) => {
+			runtime.ctx.showAgentsDashboard();
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
 		name: "branch",
 		description: "Create a new branch from a previous message",
 		handleTui: (_command, runtime) => {

@@ -46,6 +46,7 @@ import {
 } from "../../tools";
 import { shortenPath } from "../../tools/render-utils";
 import { setSessionTerminalTitle } from "../../utils/title-generator";
+import { AgentDashboard } from "../components/agent-dashboard";
 import { AssistantMessageComponent } from "../components/assistant-message";
 import { CustomOpenAICompatibleMenuComponent } from "../components/custom-openai-menu";
 import { ExtensionDashboard } from "../components/extensions";
@@ -194,6 +195,30 @@ export class SelectorController {
 	 */
 	async showExtensionsDashboard(): Promise<void> {
 		const dashboard = await ExtensionDashboard.create(getProjectDir(), this.ctx.settings, this.ctx.ui.terminal.rows);
+		this.showSelector(done => {
+			dashboard.onClose = () => {
+				done();
+				this.ctx.ui.requestRender();
+			};
+			dashboard.onRequestRender = () => {
+				this.ctx.ui.requestRender();
+			};
+			return { component: dashboard, focus: dashboard };
+		});
+	}
+
+	/**
+	 * Show the Agent Control Center dashboard.
+	 */
+	async showAgentsDashboard(): Promise<void> {
+		const activeModel = this.ctx.session.model;
+		const activeModelPattern = activeModel ? `${activeModel.provider}/${activeModel.id}` : undefined;
+		const defaultModelPattern = this.ctx.settings.getModelRole("default");
+		const dashboard = await AgentDashboard.create(getProjectDir(), this.ctx.settings, this.ctx.ui.terminal.rows, {
+			modelRegistry: this.ctx.session.modelRegistry,
+			activeModelPattern,
+			defaultModelPattern,
+		});
 		this.showSelector(done => {
 			dashboard.onClose = () => {
 				done();
