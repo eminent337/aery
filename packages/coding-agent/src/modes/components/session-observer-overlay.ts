@@ -18,7 +18,16 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import type { ToolResultMessage } from "@aryee337/aery-ai";
-import { Container, Markdown, type MarkdownTheme, matchesKey, visibleWidth } from "@aryee337/aery-tui";
+import {
+	Container,
+	Markdown,
+	type MarkdownTheme,
+	matchesKey,
+	type Tab,
+	TabBar,
+	type TabBarTheme,
+	visibleWidth,
+} from "@aryee337/aery-tui";
 import { formatDuration, formatNumber, logger } from "@aryee337/aery-utils";
 import type { KeyId } from "../../config/keybindings";
 import { AgentRegistry } from "../../registry/agent-registry";
@@ -32,6 +41,7 @@ import { toPathList } from "../../tools/search";
 import type { ObservableSession, SessionObserverRegistry } from "../session-observer-registry";
 import { getMarkdownTheme, theme } from "../theme/theme";
 import { matchesSelectDown, matchesSelectUp } from "../utils/keybinding-matchers";
+import type { AgentDashboard } from "./agent-dashboard";
 import { DynamicBorder } from "./dynamic-border";
 import { formatContextUsage } from "./status-line/context-thresholds";
 
@@ -84,6 +94,11 @@ export class SessionObserverOverlayComponent extends Container {
 	#selectedSessionId?: string;
 	#observeKeys: KeyId[];
 	#transcriptCache?: { path: string; bytesRead: number; entries: SessionMessageEntry[]; model?: string };
+	// Top-level tabs: Sessions (live monitoring) | Agents (Agent Control Center)
+	#activeTab: "sessions" | "agents" = "sessions";
+	#agentsDashboard: AgentDashboard | null = null;
+	#agentsLoading = false;
+	#agentsFactory?: () => Promise<AgentDashboard>;
 	#focusedPane: "list" | "viewer" = "list";
 
 	// Scroll state
@@ -105,11 +120,17 @@ export class SessionObserverOverlayComponent extends Container {
 	// Markdown rendering
 	#mdTheme: MarkdownTheme = getMarkdownTheme();
 
-	constructor(registry: SessionObserverRegistry, onDone: () => void, observeKeys: KeyId[]) {
+	constructor(
+		registry: SessionObserverRegistry,
+		onDone: () => void,
+		observeKeys: KeyId[],
+		agentsFactory?: () => Promise<AgentDashboard>,
+	) {
 		super();
 		this.#registry = registry;
 		this.#onDone = onDone;
 		this.#observeKeys = observeKeys;
+		this.#agentsFactory = agentsFactory;
 
 		const sessions = this.#registry.getSessions();
 		const mostRecent = this.#getMostRecentSubagent();
@@ -133,6 +154,13 @@ export class SessionObserverOverlayComponent extends Container {
 
 	override render(width: number): string[] {
 		const termHeight = process.stdout.rows || 40;
+		const tabBarLines = this.#renderTabBar(width);
+
+		// Agents tab: render the embedded Agent Control Center dashboard.
+		if (this.#activeTab === "agents") {
+			const contentLines = this.#renderAgentsTab(width, termHeight);
+			return [...tabBarLines, ...contentLines];
+		}
 
 		const leftWidth = Math.floor(width * 0.35);
 		const rightWidth = width - leftWidth - 1;
@@ -142,8 +170,9 @@ export class SessionObserverOverlayComponent extends Container {
 			this.#rebuildViewerContent();
 		}
 
-		// 3 lines reserved at the bottom: 1 blank line, 1 stats line, 1 keybindings line
-		const panesHeight = Math.max(5, termHeight - 3);
+		// 1 line for the tab bar + 3 lines reserved at the bottom
+		// (1 blank line, 1 stats line, 1 keybindings line)
+		const panesHeight = Math.max(5, termHeight - 4);
 
 		const kanbanHeight = Math.floor(panesHeight / 2);
 		const sessionsHeight = panesHeight - kanbanHeight;
@@ -189,17 +218,58 @@ export class SessionObserverOverlayComponent extends Container {
 		if (this.#focusedPane === "list") {
 			keyInstructions = theme.fg(
 				"dim",
-				"j/k/Arrows: navigate  x/d: abort agent  Tab/→: focus viewer  Esc: close  Ctrl+S: close",
+				"j/k/Arrows: navigate  x/d: abort agent  →: focus viewer  ←: focus list  Tab: Agents  Esc: close  Ctrl+S: close",
 			);
 		} else {
 			keyInstructions = theme.fg(
 				"dim",
-				"j/k/Arrows: scroll  Enter: expand/collapse  Tab/←: focus list  g/G: top/bottom  Esc: close  Ctrl+S: close",
+				"j/k/Arrows: scroll  Enter: expand/collapse  →: focus list  g/G: top/bottom  Tab: Agents  Esc: close  Ctrl+S: close",
 			);
 		}
 		lines.push(` ${keyInstructions}`);
 
-		return lines;
+		return [...tabBarLines, ...lines];
+	}
+
+	/** Render the top-level tab bar ([Sessions] | [Agents]). */
+	#renderTabBar(width: number): string[] {
+		const tabs: Tab[] = [
+			{ id: "sessions", label: "Sessions" },
+			{ id: "agents", label: "Agents" },
+		];
+		const themeForTabBar: TabBarTheme = {
+			label: text => theme.fg("dim", `${text}:`),
+			activeTab: text => theme.bold(theme.fg("accent", text)),
+			inactiveTab: text => theme.fg("dim", text),
+			hint: text => theme.fg("dim", text),
+		};
+		const tabBar = new TabBar("Hub", tabs, themeForTabBar, this.#activeTab === "agents" ? 1 : 0);
+		tabBar.showHint = false;
+		const rendered = tabBar.render(width)[0] ?? "";
+		return [padRight(rendered, width)];
+	}
+
+	/** Render the embedded Agents tab (dashboard or loading placeholder). */
+	#renderAgentsTab(width: number, termHeight: number): string[] {
+		if (this.#agentsLoading) {
+			const placeholder = theme.fg("dim", "Loading agents…");
+			const lines: string[] = [];
+			for (let i = 0; i < termHeight; i++) {
+				lines.push(i === 1 ? placeholder : " ".repeat(width));
+			}
+			return lines;
+		}
+		const dashboard = this.#agentsDashboard;
+		if (!dashboard) {
+			const lines: string[] = [];
+			for (let i = 0; i < termHeight; i++) {
+				lines.push(i === 1 ? theme.fg("dim", "No agent dashboard available.") : " ".repeat(width));
+			}
+			return lines;
+		}
+		const dashLines = dashboard.render(width);
+		// The dashboard renders for its own terminalHeight; clip to available space.
+		return dashLines.slice(0, Math.max(1, termHeight - 1));
 	}
 
 	#renderInfoStrip(width: number, session: ObservableSession | undefined): string {
@@ -819,6 +889,19 @@ export class SessionObserverOverlayComponent extends Container {
 			}
 		}
 
+		// Tab / Shift+Tab switches the top-level tab (Sessions <-> Agents)
+		if (matchesKey(keyData, "tab") || matchesKey(keyData, "shift+tab")) {
+			this.#switchTab(matchesKey(keyData, "tab") ? "agents" : "sessions");
+			return;
+		}
+
+		// Agents tab: everything else is delegated to the embedded dashboard.
+		// Esc (dashboard onClose) returns to Sessions; Ctrl+S closes the overlay.
+		if (this.#activeTab === "agents") {
+			this.#agentsDashboard?.handleInput(keyData);
+			return;
+		}
+
 		// Escape — pop breadcrumb navigation or close overlay
 		if (matchesKey(keyData, "escape")) {
 			if (this.#navigationStack.length > 0) {
@@ -834,13 +917,13 @@ export class SessionObserverOverlayComponent extends Container {
 			return;
 		}
 
-		// Toggle focus with arrows or tab/shift+tab
-		if (matchesKey(keyData, "left") || matchesKey(keyData, "shift+tab")) {
+		// Toggle pane focus with arrows
+		if (matchesKey(keyData, "left")) {
 			this.#focusedPane = "list";
 			this.#rebuildViewerContent();
 			return;
 		}
-		if (matchesKey(keyData, "right") || matchesKey(keyData, "tab")) {
+		if (matchesKey(keyData, "right")) {
 			this.#focusedPane = "viewer";
 			this.#rebuildViewerContent();
 			return;
@@ -888,6 +971,40 @@ export class SessionObserverOverlayComponent extends Container {
 		} else {
 			this.#handleViewerInput(keyData);
 		}
+	}
+
+	/** Switch the top-level tab (Sessions <-> Agents), lazily loading the dashboard. */
+	#switchTab(target: "sessions" | "agents"): void {
+		if (this.#activeTab === target) return;
+		this.#activeTab = target;
+		if (target === "agents" && !this.#agentsDashboard && !this.#agentsLoading) {
+			this.#loadAgentsDashboard();
+		}
+	}
+
+	/** Lazily create the embedded Agent Control Center dashboard. */
+	#loadAgentsDashboard(): void {
+		if (!this.#agentsFactory) {
+			this.#agentsLoading = false;
+			return;
+		}
+		this.#agentsLoading = true;
+		void this.#agentsFactory()
+			.then(dashboard => {
+				this.#agentsDashboard = dashboard;
+				this.#agentsLoading = false;
+				// Esc inside the dashboard (or Ctrl+C) returns to the Sessions tab
+				// instead of closing the whole overlay.
+				dashboard.onClose = () => {
+					this.#activeTab = "sessions";
+				};
+				dashboard.onRequestRender = () => {
+					// The TUI re-renders after every input dispatch; nothing to do here.
+				};
+			})
+			.catch(() => {
+				this.#agentsLoading = false;
+			});
 	}
 
 	#handleViewerInput(keyData: string): void {

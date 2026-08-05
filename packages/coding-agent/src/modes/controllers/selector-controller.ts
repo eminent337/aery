@@ -208,30 +208,6 @@ export class SelectorController {
 	}
 
 	/**
-	 * Show the Agent Control Center dashboard.
-	 */
-	async showAgentsDashboard(): Promise<void> {
-		const activeModel = this.ctx.session.model;
-		const activeModelPattern = activeModel ? `${activeModel.provider}/${activeModel.id}` : undefined;
-		const defaultModelPattern = this.ctx.settings.getModelRole("default");
-		const dashboard = await AgentDashboard.create(getProjectDir(), this.ctx.settings, this.ctx.ui.terminal.rows, {
-			modelRegistry: this.ctx.session.modelRegistry,
-			activeModelPattern,
-			defaultModelPattern,
-		});
-		this.showSelector(done => {
-			dashboard.onClose = () => {
-				done();
-				this.ctx.ui.requestRender();
-			};
-			dashboard.onRequestRender = () => {
-				this.ctx.ui.requestRender();
-			};
-			return { component: dashboard, focus: dashboard };
-		});
-	}
-
-	/**
 	 * Handle setting changes from the settings selector.
 	 * Most settings are saved directly via SettingsManager in the definitions.
 	 * This handles side effects and session-specific settings.
@@ -1421,7 +1397,19 @@ export class SelectorController {
 			this.ctx.ui.requestRender();
 		};
 
-		const selector = new SessionObserverOverlayComponent(registry, done, observeKeys);
+		// Lazily build the Agent Control Center dashboard for the hub's Agents tab.
+		const agentsFactory = () => {
+			const activeModel = this.ctx.session.model;
+			const activeModelPattern = activeModel ? `${activeModel.provider}/${activeModel.id}` : undefined;
+			const defaultModelPattern = this.ctx.settings.getModelRole("default");
+			return AgentDashboard.create(getProjectDir(), this.ctx.settings, (process.stdout.rows || 40) - 1, {
+				modelRegistry: this.ctx.session.modelRegistry,
+				activeModelPattern,
+				defaultModelPattern,
+			});
+		};
+
+		const selector = new SessionObserverOverlayComponent(registry, done, observeKeys, agentsFactory);
 
 		cleanup = registry.onChange(() => {
 			selector.refreshFromRegistry();

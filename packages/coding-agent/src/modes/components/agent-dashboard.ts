@@ -7,7 +7,7 @@
  *
  * Controls:
  * - Up/Down or j/k: move selection
- * - Tab / Shift+Tab: switch source tab
+ * - [ / ]: switch source tab
  * - Space: enable/disable selected agent
  * - Enter: edit model override for selected agent
  * - N: start agent creation flow
@@ -826,7 +826,7 @@ export class AgentDashboard extends Container {
 			this.addChild(new Text(theme.fg("error", replaceTabs(this.#createError)), 0, 0));
 		}
 		this.addChild(new Spacer(1));
-		const hints = this.#createGenerating ? " Generating..." : " Enter: generate  Tab: toggle scope  Esc: cancel";
+		const hints = this.#createGenerating ? " Generating..." : " Enter: generate  [/]: toggle scope  Esc: cancel";
 		this.addChild(new Text(theme.fg("dim", hints), 0, 0));
 	}
 
@@ -975,7 +975,7 @@ export class AgentDashboard extends Container {
 				new Text(
 					theme.fg(
 						"dim",
-						" ↑/↓: navigate  Space: toggle  Enter: model override  N: new agent  Tab: source  Ctrl+R: reload  Esc: close",
+						" ↑/↓: navigate  Space: toggle  Enter: model override  N: new agent  [/]: source  Ctrl+R: reload  Esc: back",
 					),
 					0,
 					0,
@@ -998,7 +998,7 @@ export class AgentDashboard extends Container {
 				this.#buildLayout();
 				return;
 			}
-			if (matchesKey(data, "tab") || matchesKey(data, "shift+tab")) {
+			if (matchesKey(data, "[") || matchesKey(data, "]")) {
 				this.#toggleCreateScope();
 				return;
 			}
@@ -1024,7 +1024,7 @@ export class AgentDashboard extends Container {
 				}
 				return;
 			}
-			if (!this.#createGenerating && (matchesKey(data, "tab") || matchesKey(data, "shift+tab"))) {
+			if (!this.#createGenerating && (matchesKey(data, "[") || matchesKey(data, "]"))) {
 				this.#toggleCreateScope();
 				return;
 			}
@@ -1064,11 +1064,11 @@ export class AgentDashboard extends Container {
 			return;
 		}
 
-		if (matchesKey(data, "tab")) {
+		if (matchesKey(data, "]")) {
 			this.#switchTab(1);
 			return;
 		}
-		if (matchesKey(data, "shift+tab")) {
+		if (matchesKey(data, "[")) {
 			this.#switchTab(-1);
 			return;
 		}
