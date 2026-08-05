@@ -27,6 +27,7 @@ import type { DiscoverableTool, DiscoverableToolSearchIndex } from "../tool-disc
 import type { EventBus } from "../utils/event-bus";
 import { WebSearchTool } from "../web/search";
 import type { WorkspaceTree } from "../workspace-tree";
+import { AdvisorTool } from "./advisor";
 import { AskTool } from "./ask";
 import { AstEditTool } from "./ast-edit";
 import { AstGrepTool } from "./ast-grep";
@@ -40,6 +41,7 @@ import { resolveEvalBackends } from "./eval-backends";
 import { FindTool } from "./find";
 import { GithubTool } from "./gh";
 import { GraphTool } from "./graph";
+import { HandoffTool } from "./handoff";
 import { InspectImageTool } from "./inspect-image";
 import { IrcTool } from "./irc";
 import { JobTool } from "./job";
@@ -56,6 +58,8 @@ import { ResolveTool } from "./resolve";
 import { reportFindingTool } from "./review";
 import { SearchTool } from "./search";
 import { SearchToolBm25Tool } from "./search-tool-bm25";
+import { SetFastTool } from "./set-fast";
+import { SetModelTool } from "./set-model";
 import { ShadowWatchTool } from "./shadow";
 import { loadSshTool } from "./ssh";
 import { InvokeSubagentTool } from "./swarm";
@@ -68,12 +72,14 @@ import { YieldTool } from "./yield";
 
 export * from "../edit";
 export * from "../exa";
+
 export type * from "../exa/types";
 export * from "../goals";
 export * from "../lsp";
 export * from "../session/streaming-output";
 export * from "../task";
 export * from "../web/search";
+export * from "./advisor";
 export * from "./ask";
 export * from "./ast-edit";
 export * from "./ast-grep";
@@ -86,6 +92,7 @@ export * from "./eval-backends";
 export * from "./find";
 export * from "./gh";
 export * from "./graph";
+export * from "./handoff";
 export * from "./image-gen";
 export * from "./inspect-image";
 export * from "./irc";
@@ -102,6 +109,8 @@ export * from "./resolve";
 export * from "./review";
 export * from "./search";
 export * from "./search-tool-bm25";
+export * from "./set-fast";
+export * from "./set-model";
 export * from "./shadow";
 export * from "./ssh";
 export * from "./swarm";
@@ -126,6 +135,75 @@ export type {
 	DiscoverableToolSearchResult,
 	DiscoverableToolSource,
 } from "../tool-discovery/tool-index";
+
+/** Model state exposed to the set_model tool. */
+export interface ModelToolState {
+	/** Current active model as "provider/id". */
+	currentModel?: string;
+	/** All available models as "provider/id". */
+	available: string[];
+	/** Known role ids (default, smol, slow, vision, plan, designer, commit, task, advisor, …). */
+	roles: string[];
+}
+
+export interface SetModelParams {
+	/** Model id, "provider/id", or a role name to switch to that role's model. */
+	model: string;
+	/** Optional role to persist the assignment under (settings.setModelRole). */
+	role?: string;
+	/** Whether to persist the switch to settings (default false = session-scoped). */
+	persist?: boolean;
+}
+
+export interface SetModelResult {
+	/** Applied model as "provider/id". */
+	applied: string;
+	/** Role the model was assigned to, if any. */
+	role?: string;
+	/** Whether the assignment was persisted to settings. */
+	persisted: boolean;
+	/** Whether the switch takes effect on the next turn (context preserved). */
+	nextTurn: boolean;
+}
+
+/** Fast-mode state exposed to the set_fast tool. */
+export interface FastModeToolState {
+	/** Whether fast mode is enabled as a setting (any scoped/unscoped tier). */
+	enabled: boolean;
+	/** Whether fast mode is actually active for the current model's provider. */
+	active: boolean;
+	/** The configured service tier, if any. */
+	serviceTier?: string;
+	/** Current active model as "provider/id". */
+	model?: string;
+}
+
+/** Advisor state exposed to the advisor tool. */
+export interface AdvisorToolState {
+	/** Whether the advisor.enabled setting is set. */
+	configured: boolean;
+	/** Whether an advisor agent is actually running. */
+	active: boolean;
+	/** Formatted status line (from formatAdvisorStatus). */
+	status: string;
+	/** Advisor transcript as text, or null when inactive. */
+	history: string | null;
+}
+
+/** Handoff state exposed to the handoff tool. */
+export interface HandoffToolState {
+	/** Whether a handoff generation is already in progress. */
+	isGenerating: boolean;
+	/** Count of user/assistant messages in the session (minimum for handoff). */
+	messageCount: number;
+	/** Text of the most recent visible handoff message, if any. */
+	lastHandoffText?: string;
+}
+
+export interface HandoffToolResult {
+	document: string;
+	savedPath?: string;
+}
 
 /** Session context for tool factories */
 export interface ToolSession {
@@ -171,6 +249,25 @@ export interface ToolSession {
 	getHindsightSessionState?: () => HindsightSessionState | undefined;
 	/** Get current context usage (window size, used tokens, percent) for this session. */
 	getContextUsage?: () => ContextUsage | undefined;
+	/** Get current model state (active model, available models, known roles) for the set_model tool. */
+	getModelState?: () => ModelToolState | undefined;
+	/** Apply a model switch. Resolves role names and model ids, validates, and applies (session-scoped or persisted). */
+	setModel?: (params: SetModelParams) => Promise<SetModelResult>;
+	/** Get fast-mode state: configured setting + whether it is actually active for the current model. */
+	getFastModeState?: () => FastModeToolState | undefined;
+	/** Enable/disable fast mode (priority service tier). */
+	setFastMode?: (enabled: boolean) => void;
+	/** Get advisor state: setting + runtime active + status text. Pass `history: true` to also render the transcript (expensive). */
+	getAdvisorState?: (options?: { compact?: boolean; history?: boolean }) => AdvisorToolState | undefined;
+	/** Enable/disable the advisor runtime. Returns the new active state. */
+	setAdvisorEnabled?: (enabled: boolean) => boolean;
+	/** Get handoff state: generating flag, message count, last handoff text. */
+	getHandoffState?: () => HandoffToolState | undefined;
+	/** Execute a session handoff (destructive: new session, resets the agent). */
+	handoff?: (
+		customInstructions: string,
+		options?: { autoTriggered?: boolean; signal?: AbortSignal },
+	) => Promise<HandoffToolResult | undefined>;
 	/** Get Mnemopi runtime state for this agent session. */
 	getMnemopiSessionState?: () => MnemopiSessionState | undefined;
 	/** Agent identity used for IRC routing. Returns the registry id (e.g. "Main", "AuthLoader"). */
@@ -355,6 +452,10 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	task_list: () => new TaskListTool(),
 	enter_plan_mode: s => new EnterPlanModeTool(s),
 	exit_plan_mode: () => new ExitPlanModeTool(),
+	set_model: s => new SetModelTool(s),
+	set_fast: s => new SetFastTool(s),
+	advisor: s => new AdvisorTool(s),
+	handoff: s => new HandoffTool(s),
 };
 
 export const HIDDEN_TOOLS: Record<string, ToolFactory> = {

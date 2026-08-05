@@ -39,7 +39,7 @@ import { createAutoresearchExtension } from "./autoresearch";
 import { loadCapability } from "./capability";
 import { type Rule, ruleCapability, setActiveRules } from "./capability/rule";
 import { bucketRules } from "./capability/rule-buckets";
-import { ModelRegistry } from "./config/model-registry";
+import { getKnownRoleIds, ModelRegistry } from "./config/model-registry";
 import {
 	formatModelString,
 	parseModelPattern,
@@ -171,6 +171,7 @@ import { ToolContextStore } from "./tools/context";
 import { getImageGenTools } from "./tools/image-gen";
 import { wrapToolWithMetaNotice } from "./tools/output-meta";
 import { queueResolveHandler } from "./tools/resolve";
+import { ToolError } from "./tools/tool-errors";
 import { ttsTool } from "./tools/tts";
 import { EventBus } from "./utils/event-bus";
 import { buildNamedToolChoice } from "./utils/tool-choice";
@@ -1286,6 +1287,69 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			getSessionId: () => sessionManager.getSessionId?.() ?? null,
 			getHindsightSessionState: () => session?.getHindsightSessionState(),
 			getContextUsage: () => session?.getContextUsage(),
+			getModelState: () => {
+				if (!session) return undefined;
+				const available = session.getAvailableModels().map(m => formatModelString(m));
+				const currentModel = session.model ? formatModelString(session.model) : undefined;
+				return { currentModel, available, roles: getKnownRoleIds(settings) };
+			},
+			setModel: async params => {
+				if (!session) throw new ToolError("set_model is not available in this session.");
+				const roleIds = getKnownRoleIds(settings);
+				const available = session.getAvailableModels();
+				// Resolve: role name → role's model; otherwise match by provider/id or id.
+				const target = roleIds.includes(params.model)
+					? session.resolveRoleModel(params.model)
+					: (available.find(m => formatModelString(m) === params.model) ??
+						available.find(m => m.id === params.model));
+				if (!target) {
+					const valid = [...roleIds, ...available.map(m => formatModelString(m))];
+					throw new ToolError(`Unknown model "${params.model}". Valid options: ${valid.join(", ")}`);
+				}
+				if (params.role) {
+					await session.setModel(target, params.role, { persist: true });
+					return { applied: formatModelString(target), role: params.role, persisted: true, nextTurn: true };
+				}
+				if (params.persist) {
+					await session.setModel(target, "default", { persist: true });
+					return { applied: formatModelString(target), role: "default", persisted: true, nextTurn: true };
+				}
+				await session.setModelTemporary(target);
+				return { applied: formatModelString(target), persisted: false, nextTurn: true };
+			},
+			getFastModeState: () => {
+				if (!session) return undefined;
+				return {
+					enabled: session.isFastModeEnabled(),
+					active: session.isFastModeActive(),
+					serviceTier: session.serviceTier,
+					model: session.model ? formatModelString(session.model) : undefined,
+				};
+			},
+			setFastMode: enabled => {
+				session?.setFastMode(enabled);
+			},
+			getAdvisorState: options => {
+				if (!session) return undefined;
+				return {
+					configured: session.getAdvisorStats().configured,
+					active: session.isAdvisorActive(),
+					status: session.formatAdvisorStatus(),
+					history: options?.history ? session.formatAdvisorHistoryAsText({ compact: options.compact }) : null,
+				};
+			},
+			setAdvisorEnabled: enabled => (session ? session.setAdvisorEnabled(enabled) : false),
+			getHandoffState: () => {
+				if (!session) return undefined;
+				const entries = sessionManager.getBranch();
+				const messageCount = entries.filter(e => e.type === "message").length;
+				return {
+					isGenerating: session.isGeneratingHandoff,
+					messageCount,
+					lastHandoffText: session.getLastVisibleHandoffText(),
+				};
+			},
+			handoff: (customInstructions, options) => session?.handoff(customInstructions, options),
 			getMnemopiSessionState: () => getMnemopiSessionState(session),
 			getAgentId: () => resolvedAgentId,
 			getToolByName: name => session?.getToolByName(name),
