@@ -1,12 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { normalizeAnthropicToolSchema } from "@aryee337/aery-ai/providers/anthropic";
+
 import type { Tool } from "@aryee337/aery-ai/types";
 import {
 	decontaminateZodInstance,
 	isZodSchema,
 	normalizeEmptySchemas,
-	normalizeSchemaForCCA,
-	normalizeSchemaForGoogle,
+	normalizeSchemaForAeryClaude,
+	normalizeSchemaForAnthropic,
+	normalizeSchemaForGemini,
 	toolWireSchema,
 	zodToWireSchema,
 } from "@aryee337/aery-ai/utils/schema";
@@ -242,7 +243,7 @@ describe("provider normalizers on normalized open-record schemas", () => {
 	it("Anthropic preserves additionalProperties: true so strict-mode opt-out still fires", () => {
 		// `normalizeAnthropicStrictSchemaNode` rejects nodes where additionalProperties !== false.
 		// With normalization, the value is `true` (was `{}`); still !== false, so strict opts out.
-		const out = normalizeAnthropicToolSchema(wire) as Record<string, unknown>;
+		const out = normalizeSchemaForAnthropic(wire) as Record<string, unknown>;
 		const extra = (out.properties as Record<string, unknown>).extra as Record<string, unknown>;
 		expect(extra.additionalProperties).toBe(true);
 	});
@@ -250,13 +251,13 @@ describe("provider normalizers on normalized open-record schemas", () => {
 	it("Google strips additionalProperties entirely (UNSUPPORTED_SCHEMA_FIELDS)", () => {
 		// Pre-existing behavior — Google never sees the open-record marker either way.
 		// `additionalProperties: true` is removed just like `additionalProperties: {}` was.
-		const out = normalizeSchemaForGoogle(wire) as Record<string, unknown>;
+		const out = normalizeSchemaForGemini(wire) as Record<string, unknown>;
 		const extra = (out.properties as Record<string, unknown>).extra as Record<string, unknown>;
 		expect(extra).not.toHaveProperty("additionalProperties");
 	});
 
 	it("CCA (Claude on Cloud Code Assist) strips additionalProperties entirely", () => {
-		const out = normalizeSchemaForCCA(wire) as Record<string, unknown>;
+		const out = normalizeSchemaForAeryClaude(wire) as Record<string, unknown>;
 		const extra = (out.properties as Record<string, unknown>).extra as Record<string, unknown>;
 		expect(extra).not.toHaveProperty("additionalProperties");
 	});

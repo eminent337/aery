@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
 	adaptSchemaForStrict,
-	normalizeSchemaForCCA,
-	normalizeSchemaForGoogle,
+	normalizeSchemaForAeryClaude,
+	normalizeSchemaForGemini,
 	type SchemaCompatibilityResult,
 	validateSchemaCompatibility,
 	validateStrictSchemaEnforcement,
@@ -70,7 +70,7 @@ describe("schema compatibility validation", () => {
 	});
 
 	it("validates Google-compatible schemas after sanitization", () => {
-		const sanitized = normalizeSchemaForGoogle({
+		const sanitized = normalizeSchemaForGemini({
 			type: "object",
 			additionalProperties: false,
 			properties: {
@@ -100,7 +100,7 @@ describe("schema compatibility validation", () => {
 	});
 
 	it("validates Cloud Code Assist Claude schemas after normalization", () => {
-		const prepared = normalizeSchemaForCCA({
+		const prepared = normalizeSchemaForAeryClaude({
 			type: "object",
 			properties: {
 				mode: { anyOf: [{ const: "fast" }, { const: "safe" }, { type: "null" }] },

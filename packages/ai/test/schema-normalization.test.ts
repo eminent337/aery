@@ -5,9 +5,9 @@ import type { Context, Model, TJsonSchema, Tool } from "@aryee337/aery-ai/types"
 import {
 	enforceStrictSchema,
 	mergeCompatibleEnumSchemas,
-	normalizeSchemaForCCA,
-	normalizeSchemaForGoogle,
-	normalizeSchemaForMCP,
+	normalizeSchemaForAeryBridge,
+	normalizeSchemaForAeryClaude,
+	normalizeSchemaForGemini,
 	sanitizeSchemaForOpenAIResponses,
 	sanitizeSchemaForStrictMode,
 	schemaNeedsDraft202012Upgrade,
@@ -197,12 +197,12 @@ describe("upgradeJsonSchemaTo202012", () => {
 });
 
 // ---------------------------------------------------------------------------
-// normalizeSchemaForGoogle
+// normalizeSchemaForGemini
 // ---------------------------------------------------------------------------
 
-describe("normalizeSchemaForGoogle", () => {
+describe("normalizeSchemaForGemini", () => {
 	it("sets object type when converting an object const to an enum entry", () => {
-		const sanitized = normalizeSchemaForGoogle({
+		const sanitized = normalizeSchemaForGemini({
 			const: { a: 1 },
 		});
 
@@ -214,7 +214,7 @@ describe("normalizeSchemaForGoogle", () => {
 	});
 
 	it("deduplicates a deep-equal object const against an existing enum entry", () => {
-		const sanitized = normalizeSchemaForGoogle({
+		const sanitized = normalizeSchemaForGemini({
 			type: "object",
 			enum: [{ a: 1 }],
 			const: { a: 1 },
@@ -228,7 +228,7 @@ describe("normalizeSchemaForGoogle", () => {
 	});
 
 	it("does not stamp a wrong scalar type when const variants span multiple primitive types", () => {
-		const sanitized = normalizeSchemaForGoogle({
+		const sanitized = normalizeSchemaForGemini({
 			anyOf: [
 				{ const: "A", type: "string" },
 				{ const: 1, type: "number" },
@@ -243,7 +243,7 @@ describe("normalizeSchemaForGoogle", () => {
 	it("collapses inferred null type to nullable when const is null", () => {
 		// After python-genai parity (handle_null_fields), bare `type: 'null'` is
 		// folded into `nullable: true` so the schema is OpenAPI-compatible.
-		const sanitized = normalizeSchemaForGoogle({ const: null }) as Record<string, unknown>;
+		const sanitized = normalizeSchemaForGemini({ const: null }) as Record<string, unknown>;
 
 		expect(sanitized.type).toBeUndefined();
 		expect(sanitized.nullable).toBe(true);
@@ -251,7 +251,7 @@ describe("normalizeSchemaForGoogle", () => {
 	});
 
 	it("preserves a property schema literally named additionalProperties inside properties", () => {
-		const sanitized = normalizeSchemaForGoogle({
+		const sanitized = normalizeSchemaForGemini({
 			type: "object",
 			properties: {
 				additionalProperties: false,
@@ -273,7 +273,7 @@ describe("normalizeSchemaForGoogle", () => {
 			required: ["additionalProperties"],
 		} as const;
 
-		expect(normalizeSchemaForGoogle(schema)).toEqual(schema);
+		expect(normalizeSchemaForGemini(schema)).toEqual(schema);
 	});
 
 	it("inlines local $ref / $defs entries for Google compatibility", () => {
@@ -297,7 +297,7 @@ describe("normalizeSchemaForGoogle", () => {
 			},
 		} as const;
 
-		expect(normalizeSchemaForGoogle(schema)).toEqual({
+		expect(normalizeSchemaForGemini(schema)).toEqual({
 			type: "object",
 			properties: {
 				user: {
@@ -313,7 +313,7 @@ describe("normalizeSchemaForGoogle", () => {
 	});
 
 	it("lifts stripped validation keywords into description", () => {
-		const normalized = normalizeSchemaForGoogle({
+		const normalized = normalizeSchemaForGemini({
 			type: "string",
 			pattern: "^\\d+$",
 			minLength: 1,
@@ -329,12 +329,12 @@ describe("normalizeSchemaForGoogle", () => {
 });
 
 // ---------------------------------------------------------------------------
-// normalizeSchemaForMCP
+// normalizeSchemaForAeryBridge
 // ---------------------------------------------------------------------------
 
-describe("normalizeSchemaForMCP", () => {
+describe("normalizeSchemaForAeryBridge", () => {
 	it("keeps validation keywords without mutating description", () => {
-		const normalized = normalizeSchemaForMCP({
+		const normalized = normalizeSchemaForAeryBridge({
 			type: "string",
 			pattern: "^\\d+$",
 			minLength: 1,
@@ -354,7 +354,7 @@ describe("normalizeSchemaForMCP", () => {
 	// `.options`, and `.def` on every schema instance — those keys collide with
 	// JSON Schema keywords, producing payloads that fail Anthropic's strict
 	// JSON Schema 2020-12 validator (`"type":"enum"`, `"enum":{...}` as object).
-	// `normalizeSchemaForMCP` must rewrite the offending nodes into clean JSON
+	// `normalizeSchemaForAeryBridge` must rewrite the offending nodes into clean JSON
 	// Schema so the tool list still ships.
 	it("rewrites a Zod-enum instance leaked as inputSchema", () => {
 		const leaked = {
@@ -363,7 +363,7 @@ describe("normalizeSchemaForMCP", () => {
 			enum: { upstream: "upstream", downstream: "downstream" },
 			options: ["upstream", "downstream"],
 		};
-		expect(normalizeSchemaForMCP(leaked)).toEqual({
+		expect(normalizeSchemaForAeryBridge(leaked)).toEqual({
 			type: "string",
 			enum: ["upstream", "downstream"],
 		});
@@ -376,7 +376,7 @@ describe("normalizeSchemaForMCP", () => {
 			enum: { ONE: 1, TWO: 2 },
 			options: [1, 2],
 		};
-		expect(normalizeSchemaForMCP(leaked)).toEqual({
+		expect(normalizeSchemaForAeryBridge(leaked)).toEqual({
 			type: "integer",
 			enum: [1, 2],
 		});
@@ -390,7 +390,7 @@ describe("normalizeSchemaForMCP", () => {
 		};
 		// Decontamination emits `{const:"only"}`; downstream normalizer collapses
 		// it to the equivalent enum form. End-to-end contract is what callers see.
-		expect(normalizeSchemaForMCP(leaked)).toEqual({ type: "string", enum: ["only"] });
+		expect(normalizeSchemaForAeryBridge(leaked)).toEqual({ type: "string", enum: ["only"] });
 	});
 
 	it("rewrites a Zod-union of literals (downstream collapses anyOf-of-consts to enum)", () => {
@@ -404,7 +404,7 @@ describe("normalizeSchemaForMCP", () => {
 			},
 			type: "union",
 		};
-		expect(normalizeSchemaForMCP(leaked)).toEqual({
+		expect(normalizeSchemaForAeryBridge(leaked)).toEqual({
 			type: "string",
 			enum: ["on", "off"],
 		});
@@ -418,7 +418,7 @@ describe("normalizeSchemaForMCP", () => {
 			minLength: null,
 			maxLength: null,
 		};
-		expect(normalizeSchemaForMCP(leaked)).toEqual({ type: "string" });
+		expect(normalizeSchemaForAeryBridge(leaked)).toEqual({ type: "string" });
 	});
 
 	it("drops invalid `type` for unmodelled Zod kinds so the residue stays valid", () => {
@@ -427,7 +427,7 @@ describe("normalizeSchemaForMCP", () => {
 			type: "any",
 			description: "anything",
 		};
-		expect(normalizeSchemaForMCP(leaked)).toEqual({ description: "anything" });
+		expect(normalizeSchemaForAeryBridge(leaked)).toEqual({ description: "anything" });
 	});
 
 	it("leaves a genuine JSON Schema that happens to have a `def` property alone", () => {
@@ -439,7 +439,7 @@ describe("normalizeSchemaForMCP", () => {
 			properties: { def: { type: "string" } },
 			required: ["def"],
 		};
-		expect(normalizeSchemaForMCP(schema)).toEqual(schema);
+		expect(normalizeSchemaForAeryBridge(schema)).toEqual(schema);
 	});
 });
 
@@ -731,12 +731,12 @@ describe("stripResidualCombiners", () => {
 });
 
 // ---------------------------------------------------------------------------
-// normalizeSchemaForCCA
+// normalizeSchemaForAeryClaude
 // ---------------------------------------------------------------------------
 
-describe("normalizeSchemaForCCA", () => {
+describe("normalizeSchemaForAeryClaude", () => {
 	it("collapses same-type anyOf variants when mixed-type collapse bails out", () => {
-		const prepared = normalizeSchemaForCCA({
+		const prepared = normalizeSchemaForAeryClaude({
 			type: "object",
 			properties: {
 				value: {
@@ -757,7 +757,7 @@ describe("normalizeSchemaForCCA", () => {
 	});
 
 	it("applies Google unsupported-key stripping before CCA-specific normalization", () => {
-		const sanitized = normalizeSchemaForCCA({
+		const sanitized = normalizeSchemaForAeryClaude({
 			type: "object",
 			additionalProperties: false,
 			properties: {
@@ -791,7 +791,7 @@ describe("normalizeSchemaForCCA", () => {
 	});
 
 	it("lifts stripped validation keywords into description", () => {
-		const normalized = normalizeSchemaForCCA({
+		const normalized = normalizeSchemaForAeryClaude({
 			type: "string",
 			pattern: "^\\d+$",
 			minLength: 1,
@@ -857,7 +857,7 @@ describe("normalizeSchemaForCCA", () => {
 	});
 
 	it("does not retain stale required keys after an object-union anyOf merge", () => {
-		const prepared = normalizeSchemaForCCA({
+		const prepared = normalizeSchemaForAeryClaude({
 			required: ["a"],
 			anyOf: [
 				{
@@ -910,7 +910,7 @@ describe("normalizeSchemaForCCA", () => {
 			required: ["profile"],
 		} as const;
 
-		const normalized = normalizeSchemaForCCA(schema) as {
+		const normalized = normalizeSchemaForAeryClaude(schema) as {
 			properties?: {
 				profile?: {
 					type?: string;
@@ -933,8 +933,8 @@ describe("normalizeSchemaForCCA", () => {
 		};
 		(circular.properties as Record<string, unknown>).self = circular;
 
-		expect(() => normalizeSchemaForCCA(circular)).not.toThrow();
-		expect(normalizeSchemaForCCA(circular)).toEqual({
+		expect(() => normalizeSchemaForAeryClaude(circular)).not.toThrow();
+		expect(normalizeSchemaForAeryClaude(circular)).toEqual({
 			type: "object",
 			properties: {
 				self: {},
@@ -947,7 +947,7 @@ describe("normalizeSchemaForCCA", () => {
 			type: "invalid-type-token",
 		} as Record<string, unknown>;
 
-		expect(normalizeSchemaForCCA(ajvInvalid)).toEqual({
+		expect(normalizeSchemaForAeryClaude(ajvInvalid)).toEqual({
 			type: "object",
 			properties: {},
 		});
@@ -955,7 +955,7 @@ describe("normalizeSchemaForCCA", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Circular schema safety (normalizeSchemaForGoogle + sanitizeSchemaForStrictMode)
+// Circular schema safety (normalizeSchemaForGemini + sanitizeSchemaForStrictMode)
 // ---------------------------------------------------------------------------
 
 describe("circular schema safety", () => {
@@ -966,7 +966,7 @@ describe("circular schema safety", () => {
 		};
 		(circular.properties as Record<string, unknown>).self = circular;
 
-		expect(() => normalizeSchemaForGoogle(circular)).not.toThrow();
+		expect(() => normalizeSchemaForGemini(circular)).not.toThrow();
 		expect(() => sanitizeSchemaForStrictMode(circular)).not.toThrow();
 	});
 });

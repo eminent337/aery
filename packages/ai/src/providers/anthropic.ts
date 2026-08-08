@@ -121,6 +121,27 @@ export function buildBetaHeader(baseBetas: readonly string[], extraBetas: readon
 	return result.join(",");
 }
 
+const ANTHROPIC_STRICT_TOOL_ALLOWLIST = new Set(["bash", "python", "edit", "find"]);
+const MAX_ANTHROPIC_STRICT_TOOLS = 20;
+const MAX_ANTHROPIC_STRICT_OPTIONAL_PARAMETERS = 24;
+const MAX_ANTHROPIC_STRICT_UNION_PARAMETERS = 16;
+
+/** `minItems` / `maxItems` apply to arrays; Anthropic rejects them on `type: "object"` (including `minItems: 0`/`1`). */
+function isJsonSchemaArrayNode(schema: Record<string, unknown>): boolean {
+	const t = schema.type;
+	if (t === "array") return true;
+	if (Array.isArray(t) && t.includes("array") && !t.includes("object")) return true;
+	return false;
+}
+
+function isJsonSchemaObjectNode(schema: Record<string, unknown>): boolean {
+	if (isJsonSchemaArrayNode(schema)) return false;
+	if (schema.type === "object") return true;
+	if (Array.isArray(schema.type) && schema.type.includes("object")) return true;
+	if (isRecord(schema.properties)) return true;
+	return false;
+}
+
 const claudeCodeUtilityBetaDefaults = [
 	"oauth-2025-04-20",
 	"interleaved-thinking-2025-05-14",

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { normalizeAnthropicToolSchema } from "@aryee337/aery-ai/providers/anthropic";
+import { normalizeSchemaForAnthropic } from "@aryee337/aery-ai/utils/schema";
 
-describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
+describe("normalizeSchemaForAnthropic — SDK whitelist", () => {
 	describe("number / integer nodes", () => {
 		it("demotes range and multipleOf keywords on number nodes", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				properties: {
 					temperature: {
@@ -24,7 +24,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 		});
 
 		it("demotes range and multipleOf keywords on integer nodes", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				properties: {
 					count: { type: "integer", minimum: 0, maximum: 100, multipleOf: 1 },
@@ -37,7 +37,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 		});
 
 		it("demotes numeric range keywords on union-type nodes that include number", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				properties: {
 					value: { type: ["number", "null"], minimum: 0, maximum: 10 },
@@ -52,7 +52,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 
 	describe("string nodes", () => {
 		it("demotes pattern / minLength / maxLength into description", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				properties: {
 					name: { type: "string", pattern: "^[a-z]+$", minLength: 1, maxLength: 32 },
@@ -65,7 +65,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 		});
 
 		it("keeps `format` only when in the supported value set", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				properties: {
 					email: { type: "string", format: "email" },
@@ -79,7 +79,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 
 	describe("array nodes", () => {
 		it("keeps minItems only when 0 or 1, spills otherwise; demotes maxItems / uniqueItems", () => {
-			const out01 = normalizeAnthropicToolSchema({
+			const out01 = normalizeSchemaForAnthropic({
 				type: "array",
 				items: { type: "string" },
 				minItems: 1,
@@ -87,7 +87,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 			expect(out01.minItems).toBe(1);
 			expect(out01).not.toHaveProperty("description");
 
-			const out5 = normalizeAnthropicToolSchema({
+			const out5 = normalizeSchemaForAnthropic({
 				type: "array",
 				items: { type: "string" },
 				minItems: 5,
@@ -101,7 +101,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 		});
 
 		it("recurses into `items` and `prefixItems`", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "array",
 				items: { type: "number", minimum: 0 },
 				prefixItems: [{ type: "string", minLength: 1 }],
@@ -113,7 +113,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 
 	describe("object nodes", () => {
 		it("defaults additionalProperties to false on closed objects", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				properties: { a: { type: "string" } },
 			}) as Record<string, unknown>;
@@ -121,7 +121,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 		});
 
 		it("preserves explicit open-map declarations (additionalProperties: true)", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				additionalProperties: true,
 				properties: { a: { type: "string" } },
@@ -130,7 +130,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 		});
 
 		it("preserves and recurses into additionalProperties schema literals", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				additionalProperties: { type: "number", minimum: 0 },
 			}) as Record<string, unknown>;
@@ -138,7 +138,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 		});
 
 		it("demotes patternProperties / propertyNames / minItems on objects", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				properties: { tag: { type: "string" } },
 				patternProperties: { "^x-": { type: "string" } },
@@ -157,7 +157,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 
 	describe("universal preservation", () => {
 		it("appends spilled keywords to an existing description with a blank line", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				type: "object",
 				properties: {
 					ratio: { type: "number", description: "A ratio", minimum: 0, maximum: 1 },
@@ -170,7 +170,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 		});
 
 		it("preserves universal keys: $ref, $defs, anyOf, enum, const, default, title", () => {
-			const out = normalizeAnthropicToolSchema({
+			const out = normalizeSchemaForAnthropic({
 				$defs: { Color: { type: "string", enum: ["r", "g", "b"] } },
 				type: "object",
 				title: "Sample",
@@ -194,7 +194,7 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
 /**
  * Cases mirrored from the upstream Anthropic Python SDK transform tests at
  * `anthropic-sdk-python/tests/lib/_parse/test_transform.py`. We adapt assertions
- * to the function name `normalizeAnthropicToolSchema` and keep the same shapes.
+ * to the function name `normalizeSchemaForAnthropic` and keep the same shapes.
  *
  * Two deliberate divergences from the SDK (NOT bugs):
  *  - `default` is preserved on every node (SDK demotes it into description).
@@ -205,16 +205,16 @@ describe("normalizeAnthropicToolSchema — SDK whitelist", () => {
  * Tests below that overlap with SDK cases asserting those behaviors are
  * adjusted to our contract; the divergence is called out inline.
  */
-describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python transform_schema", () => {
+describe("normalizeSchemaForAnthropic — parity with anthropic-sdk-python transform_schema", () => {
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_ref_schema
 	it("preserves a lone $ref node", () => {
-		const out = normalizeAnthropicToolSchema({ $ref: "#/components/schemas/SomeSchema" });
+		const out = normalizeSchemaForAnthropic({ $ref: "#/components/schemas/SomeSchema" });
 		expect(out).toEqual({ $ref: "#/components/schemas/SomeSchema" });
 	});
 
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_anyof_schema
 	it("recurses into anyOf variants and spills per-variant constraints", () => {
-		const out = normalizeAnthropicToolSchema({
+		const out = normalizeSchemaForAnthropic({
 			anyOf: [{ type: "string" }, { type: "integer", minimum: 1 }],
 		});
 		expect(out).toEqual({
@@ -224,13 +224,13 @@ describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python tran
 
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_enum_schema
 	it("keeps enum on string nodes verbatim", () => {
-		const out = normalizeAnthropicToolSchema({ type: "string", enum: ["foo", "bar"] });
+		const out = normalizeSchemaForAnthropic({ type: "string", enum: ["foo", "bar"] });
 		expect(out).toEqual({ type: "string", enum: ["foo", "bar"] });
 	});
 
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_allof
 	it("recurses into allOf variants and defaults additionalProperties on each object branch", () => {
-		const out = normalizeAnthropicToolSchema({
+		const out = normalizeSchemaForAnthropic({
 			allOf: [
 				{ type: "object", properties: { name: { type: "string" } } },
 				{ type: "object", properties: { age: { type: "integer", minimum: 0 } } },
@@ -251,7 +251,7 @@ describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python tran
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_object_schema
 	// Divergence: SDK spills `default` into the property description; we preserve it.
 	it("preserves object description / required / additionalProperties=false and spills per-property constraints", () => {
-		const out = normalizeAnthropicToolSchema({
+		const out = normalizeSchemaForAnthropic({
 			type: "object",
 			properties: {
 				name: { type: "string", default: "John" },
@@ -274,7 +274,7 @@ describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python tran
 
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_array_schema
 	it("spills minItems>1 into description with the SDK's two-newline preamble", () => {
-		const out = normalizeAnthropicToolSchema({
+		const out = normalizeSchemaForAnthropic({
 			type: "array",
 			items: { type: "string" },
 			minItems: 2,
@@ -290,7 +290,7 @@ describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python tran
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_string_schema_with_format_and_default
 	// Divergence: SDK spills `default`; we preserve it. `format=email` is kept (allowlisted).
 	it("keeps an allowlisted string format alongside a preserved default", () => {
-		const out = normalizeAnthropicToolSchema({
+		const out = normalizeSchemaForAnthropic({
 			type: "string",
 			format: "email",
 			default: "user@example.com",
@@ -306,12 +306,12 @@ describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python tran
 
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_string_schema_without_format
 	it("passes a bare string node through unchanged", () => {
-		expect(normalizeAnthropicToolSchema({ type: "string" })).toEqual({ type: "string" });
+		expect(normalizeSchemaForAnthropic({ type: "string" })).toEqual({ type: "string" });
 	});
 
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_integer_schema_with_min_max_exclusive
 	it("spills integer min/max/exclusive keywords in source order under description", () => {
-		const out = normalizeAnthropicToolSchema({
+		const out = normalizeSchemaForAnthropic({
 			type: "integer",
 			minimum: 1,
 			maximum: 10,
@@ -327,7 +327,7 @@ describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python tran
 
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_boolean_schema
 	it("passes boolean nodes with description through unchanged", () => {
-		expect(normalizeAnthropicToolSchema({ type: "boolean", description: "A flag" })).toEqual({
+		expect(normalizeSchemaForAnthropic({ type: "boolean", description: "A flag" })).toEqual({
 			type: "boolean",
 			description: "A flag",
 		});
@@ -335,7 +335,7 @@ describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python tran
 
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_null_schema
 	it("passes a null-type node through unchanged", () => {
-		expect(normalizeAnthropicToolSchema({ type: "null" })).toEqual({ type: "null" });
+		expect(normalizeSchemaForAnthropic({ type: "null" })).toEqual({ type: "null" });
 	});
 
 	// Mirrors: anthropic-sdk-python/tests/lib/_parse/test_transform.py::test_original_schema_not_mutated
@@ -351,7 +351,7 @@ describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python tran
 			additionalProperties: true,
 		};
 		const snapshot = JSON.parse(JSON.stringify(original));
-		normalizeAnthropicToolSchema(original);
+		normalizeSchemaForAnthropic(original);
 		// Round-trip via JSON so the memoization Symbol slot (non-enumerable in JSON terms)
 		// is excluded from comparison — that is the only field our normalizer adds.
 		expect(JSON.parse(JSON.stringify(original))).toEqual(snapshot);
@@ -362,7 +362,7 @@ describe("normalizeAnthropicToolSchema — parity with anthropic-sdk-python tran
 	it("resolves self-referential schemas without infinite recursion", () => {
 		const node: Record<string, unknown> = { type: "object", properties: {} };
 		(node.properties as Record<string, unknown>).self = node;
-		const out = normalizeAnthropicToolSchema(node) as Record<string, unknown>;
+		const out = normalizeSchemaForAnthropic(node) as Record<string, unknown>;
 		expect(out.type).toBe("object");
 		const props = out.properties as Record<string, unknown>;
 		expect(props.self).toBe(out); // memoized → same reference

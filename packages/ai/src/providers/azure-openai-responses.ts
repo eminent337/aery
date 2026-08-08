@@ -355,7 +355,7 @@ function convertTools(tools: Tool[]): OpenAITool[] {
 		type: "function",
 		name: tool.name,
 		description: tool.description || "",
-		parameters: normalizeSchemaForOpenAI(toolWireSchema(tool)),
+		parameters: normalizeSchemaForOpenAI(toolWireSchema(tool)) as Record<string, unknown>,
 		strict: false,
 	}));
 }

@@ -271,9 +271,9 @@ function flattenAllCombiners(schema: unknown): unknown {
 		const branches = schema[combiner];
 		if (Array.isArray(branches) && branches.length > 0) {
 			const first = branches[0];
-			let flattened = flattenAllCombiners(first);
-			if (!isJsonObject(flattened)) return flattened;
-			flattened = { ...flattened };
+			const flattenedRaw = flattenAllCombiners(first);
+			if (!isJsonObject(flattenedRaw)) return flattenedRaw;
+			const flattened: Record<string, unknown> = { ...flattenedRaw };
 
 			for (const key in schema) {
 				if (!Object.hasOwn(schema, key) || key === combiner) continue;

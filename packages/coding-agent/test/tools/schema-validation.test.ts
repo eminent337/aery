@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { Settings } from "@aryee337/aery/config/settings";
 import { createTools, HIDDEN_TOOLS, type ToolSession } from "@aryee337/aery/tools";
-import { normalizeSchemaForGoogle } from "@aryee337/aery-ai";
+import { normalizeSchemaForGemini } from "@aryee337/aery-ai";
 
 /**
  * Problematic JSON Schema features that cause issues with various providers.
  *
- * These are checked AFTER sanitization (normalizeSchemaForGoogle) is applied,
+ * These are checked AFTER sanitization (normalizeSchemaForGemini) is applied,
  * so features like `const` that are transformed by sanitization are not flagged.
  *
  * Prohibited (error):
@@ -32,7 +32,7 @@ const PROHIBITED_KEYS = new Set([
 	"prefixItems",
 	"unevaluatedProperties",
 	"unevaluatedItems",
-	"const", // Should be converted to enum by normalizeSchemaForGoogle
+	"const", // Should be converted to enum by normalizeSchemaForGemini
 	"examples",
 ]);
 
@@ -115,22 +115,22 @@ function createTestSession(): ToolSession {
 	};
 }
 
-describe("normalizeSchemaForGoogle", () => {
+describe("normalizeSchemaForGemini", () => {
 	it("converts const to enum", () => {
 		const schema = { type: "string", const: "active" };
-		const sanitized = normalizeSchemaForGoogle(schema);
+		const sanitized = normalizeSchemaForGemini(schema);
 		expect(sanitized).toEqual({ type: "string", enum: ["active"] });
 	});
 
 	it("merges const into existing enum", () => {
 		const schema = { type: "string", const: "active", enum: ["inactive"] };
-		const sanitized = normalizeSchemaForGoogle(schema);
+		const sanitized = normalizeSchemaForGemini(schema);
 		expect(sanitized).toEqual({ type: "string", enum: ["inactive", "active"] });
 	});
 
 	it("does not duplicate const in enum", () => {
 		const schema = { type: "string", const: "active", enum: ["active", "inactive"] };
-		const sanitized = normalizeSchemaForGoogle(schema);
+		const sanitized = normalizeSchemaForGemini(schema);
 		expect(sanitized).toEqual({ type: "string", enum: ["active", "inactive"] });
 	});
 
@@ -141,7 +141,7 @@ describe("normalizeSchemaForGoogle", () => {
 				{ type: "string", const: "dir" },
 			],
 		};
-		const sanitized = normalizeSchemaForGoogle(schema);
+		const sanitized = normalizeSchemaForGemini(schema);
 		// anyOf with all const values should collapse into a single enum
 		expect(sanitized).toEqual({
 			type: "string",
@@ -161,7 +161,7 @@ describe("normalizeSchemaForGoogle", () => {
 				},
 			},
 		};
-		const sanitized = normalizeSchemaForGoogle(schema) as Record<string, unknown>;
+		const sanitized = normalizeSchemaForGemini(schema) as Record<string, unknown>;
 		const props = sanitized.properties as Record<string, unknown>;
 		const nested = props.nested as Record<string, unknown>;
 		const nestedProps = nested.properties as Record<string, unknown>;
@@ -177,7 +177,7 @@ describe("normalizeSchemaForGoogle", () => {
 			description: "A description",
 			minLength: 1,
 		};
-		const sanitized = normalizeSchemaForGoogle(schema);
+		const sanitized = normalizeSchemaForGemini(schema);
 		expect(sanitized).toEqual({
 			type: "string",
 			enum: ["value"],
@@ -190,17 +190,17 @@ describe("normalizeSchemaForGoogle", () => {
 			type: "array",
 			items: { type: "string", const: "only" },
 		};
-		const sanitized = normalizeSchemaForGoogle(schema) as Record<string, unknown>;
+		const sanitized = normalizeSchemaForGemini(schema) as Record<string, unknown>;
 		const items = sanitized.items as Record<string, unknown>;
 		expect(items.const).toBeUndefined();
 		expect(items.enum).toEqual(["only"]);
 	});
 
 	it("passes through primitives unchanged", () => {
-		expect(normalizeSchemaForGoogle("string")).toBe("string");
-		expect(normalizeSchemaForGoogle(123)).toBe(123);
-		expect(normalizeSchemaForGoogle(true)).toBe(true);
-		expect(normalizeSchemaForGoogle(null)).toBe(null);
+		expect(normalizeSchemaForGemini("string")).toBe("string");
+		expect(normalizeSchemaForGemini(123)).toBe(123);
+		expect(normalizeSchemaForGemini(true)).toBe(true);
+		expect(normalizeSchemaForGemini(null)).toBe(null);
 	});
 
 	it("preserves property names that match schema keywords (e.g., 'pattern')", () => {
@@ -212,7 +212,7 @@ describe("normalizeSchemaForGoogle", () => {
 			},
 			required: ["pattern"],
 		};
-		const sanitized = normalizeSchemaForGoogle(schema) as Record<string, unknown>;
+		const sanitized = normalizeSchemaForGemini(schema) as Record<string, unknown>;
 		const props = sanitized.properties as Record<string, unknown>;
 		expect(props.pattern).toEqual({ type: "string", description: "The search pattern" });
 		expect(props.format).toEqual({ type: "string", description: "Output format" });
@@ -226,7 +226,7 @@ describe("normalizeSchemaForGoogle", () => {
 			format: "email",
 			minLength: 1,
 		};
-		const sanitized = normalizeSchemaForGoogle(schema) as Record<string, unknown>;
+		const sanitized = normalizeSchemaForGemini(schema) as Record<string, unknown>;
 		expect(sanitized.pattern).toBeUndefined();
 		expect(sanitized.format).toBeUndefined();
 		expect(sanitized.minLength).toBeUndefined();
@@ -246,7 +246,7 @@ describe("tool schema validation (post-sanitization)", () => {
 			if (!schema) continue;
 
 			// Apply the same sanitization that happens before sending to providers
-			const sanitized = normalizeSchemaForGoogle(schema);
+			const sanitized = normalizeSchemaForGemini(schema);
 			const violations = validateSchema(sanitized, tool.name);
 			const errors = violations.filter(v => v.severity === "error");
 
@@ -280,7 +280,7 @@ describe("tool schema validation (post-sanitization)", () => {
 			const schema = tool.parameters;
 			if (!schema) continue;
 
-			const sanitized = normalizeSchemaForGoogle(schema);
+			const sanitized = normalizeSchemaForGemini(schema);
 			const violations = validateSchema(sanitized, name);
 			const errors = violations.filter(v => v.severity === "error");
 

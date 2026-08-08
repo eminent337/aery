@@ -5,7 +5,7 @@
  */
 
 import type { TSchema } from "@aryee337/aery-ai";
-import { normalizeSchemaForMCP } from "@aryee337/aery-ai/utils/schema";
+import { normalizeSchemaForAeryBridge } from "@aryee337/aery-ai/utils/schema";
 import type { AgentToolUpdateCallback } from "@aryee337/aery-core";
 import { untilAborted } from "@aryee337/aery-utils";
 import type { SourceMeta } from "../capability/types";
@@ -232,7 +232,7 @@ export class MCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.name = createMCPToolName(connection.name, tool.name);
 		this.label = `${connection.name}/${tool.name}`;
 		this.description = tool.description ?? `MCP tool from ${connection.name}`;
-		this.parameters = normalizeSchemaForMCP(tool.inputSchema) as TSchema;
+		this.parameters = normalizeSchemaForAeryBridge(tool.inputSchema) as TSchema;
 		this.mcpToolName = tool.name;
 		this.mcpServerName = connection.name;
 	}
@@ -325,7 +325,7 @@ export class DeferredMCPTool implements CustomTool<TSchema, MCPToolDetails> {
 		this.name = createMCPToolName(serverName, tool.name);
 		this.label = `${serverName}/${tool.name}`;
 		this.description = tool.description ?? `MCP tool from ${serverName}`;
-		this.parameters = normalizeSchemaForMCP(tool.inputSchema) as TSchema;
+		this.parameters = normalizeSchemaForAeryBridge(tool.inputSchema) as TSchema;
 		this.mcpToolName = tool.name;
 		this.mcpServerName = serverName;
 		this.#fallbackProvider = source?.provider;

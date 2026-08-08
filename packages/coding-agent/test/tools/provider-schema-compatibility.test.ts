@@ -3,8 +3,8 @@ import { Settings } from "@aryee337/aery/config/settings";
 import { createTools, HIDDEN_TOOLS, type ToolSession } from "@aryee337/aery/tools";
 import {
 	adaptSchemaForStrict,
-	normalizeSchemaForCCA,
-	normalizeSchemaForGoogle,
+	normalizeSchemaForAeryClaude,
+	normalizeSchemaForGemini,
 	type SchemaCompatibilityProvider,
 	type SchemaCompatibilityResult,
 	toolWireSchema,
@@ -103,16 +103,16 @@ describe("builtin tool schemas provider compatibility", () => {
 			}
 
 			try {
-				const googleSchema = normalizeSchemaForGoogle(schema);
+				const googleSchema = normalizeSchemaForGemini(schema);
 				const googleCompatibility = validateSchemaCompatibility(googleSchema, "google");
 				if (!googleCompatibility.compatible) {
 					failures.push(formatCompatibilityIssues(name, "google", googleCompatibility));
 				}
 			} catch (error) {
-				failures.push(`${name} (google): normalizeSchemaForGoogle threw: ${String(error)}`);
+				failures.push(`${name} (google): normalizeSchemaForGemini threw: ${String(error)}`);
 			}
 
-			const cloudCodeAssistSchema = normalizeSchemaForCCA(schema);
+			const cloudCodeAssistSchema = normalizeSchemaForAeryClaude(schema);
 			const cloudCodeAssistCompatibility = validateSchemaCompatibility(
 				cloudCodeAssistSchema,
 				"cloud-code-assist-claude",

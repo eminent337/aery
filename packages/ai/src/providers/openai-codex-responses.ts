@@ -2918,7 +2918,7 @@ export function convertOpenAICodexResponsesTools(
 			};
 		}
 		const strict = !!(!NO_STRICT && tool.strict);
-		const baseParameters = normalizeSchemaForOpenAI(toolWireSchema(tool));
+		const baseParameters = normalizeSchemaForOpenAI(toolWireSchema(tool)) as Record<string, unknown>;
 		const { schema: parameters, strict: effectiveStrict } = adaptSchemaForStrict(baseParameters, strict);
 		return {
 			type: "function",
