@@ -243,19 +243,25 @@ describe("InspectImageTool", () => {
 		expect(selectedModel?.id).toBe("gpt-4o");
 	});
 
-	it("fails with actionable error when resolved model does not support image input", async () => {
+	it("transparently switches to vision-capable model when current model lacks image support", async () => {
 		const imagePath = path.join(testDir, "screen.png");
 		fs.writeFileSync(imagePath, Buffer.from(TINY_PNG_BASE64, "base64"));
 
-		const stub = createCompleteSimpleForbiddenStub();
-		const tool = new InspectImageTool(createSession(testDir, textOnlyModel), stub.fn);
+		const stub = createCompleteSimpleSuccessStub("Detected image content");
+		// Session with both models available
+		const session = createSession(testDir, textOnlyModel, "test-key", Settings.isolated(), {
+			availableModels: [textOnlyModel, visionModel],
+		});
+		// Mock setModel to simulate successful switch to vision model
+		(session as any).setModel = async () => ({ model: visionModel, persisted: false });
+		const tool = new InspectImageTool(session, stub.fn);
 
-		await expect(tool.execute("call-2", { path: imagePath, question: "What is visible?" })).rejects.toThrow(
-			/does not support image input/i,
-		);
-		expect(stub.calls).toHaveLength(0);
+		const result = await tool.execute("call-2", { path: imagePath, question: "What is visible?" });
+		expect(result.content[0].type).toBe("text");
+		expect(stub.calls).toHaveLength(1);
+		const selectedModel = stub.calls[0]?.[0] as { id?: string } | undefined;
+		expect(selectedModel?.id).toBe("gpt-4o"); // visionModel.id
 	});
-
 	it("fails with actionable error when API key is missing", async () => {
 		const imagePath = path.join(testDir, "screen.png");
 		fs.writeFileSync(imagePath, Buffer.from(TINY_PNG_BASE64, "base64"));

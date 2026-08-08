@@ -79,7 +79,7 @@ export class InspectImageTool implements AgentTool<typeof inspectImageSchema, In
 		};
 
 		const activeModelPattern = this.session.getActiveModelString?.() ?? this.session.getModelString?.();
-		const model =
+		let model =
 			resolvePattern("aery/vision") ??
 			resolvePattern("aery/default") ??
 			resolvePattern(activeModelPattern) ??
@@ -88,10 +88,24 @@ export class InspectImageTool implements AgentTool<typeof inspectImageSchema, In
 			throw new ToolError("Unable to resolve a model for inspect_image.");
 		}
 
-		if (!model.input.includes("image")) {
-			throw new ToolError(
-				`Resolved model ${model.provider}/${model.id} does not support image input. Configure a vision-capable model for modelRoles.vision.`,
+		// Auto-switch to a model with the required capabilities if available
+		const requiredCapabilities = ["image"] as const; // Extend this array as tools add more capabilities
+		const missingCapabilities = requiredCapabilities.filter(cap => !model.input.includes(cap));
+		if (missingCapabilities.length > 0 && this.session.setModel) {
+			const capableModel = availableModels.find(m => 
+				missingCapabilities.every(cap => m.input.includes(cap))
 			);
+			if (capableModel) {
+				try {
+					await this.session.setModel({
+						model: `${capableModel.provider}/${capableModel.id}`,
+						persist: false,
+					});
+					model = capableModel;
+				} catch (switchError) {
+					// Fall through to error if switch fails
+				}
+			}
 		}
 
 		const apiKey = await modelRegistry.getApiKey(model);
