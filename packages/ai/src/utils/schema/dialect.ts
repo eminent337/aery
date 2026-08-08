@@ -128,7 +128,7 @@ function walk(schema: unknown, spec: DialectSpec, quirks: LearnedQuirks): unknow
 
 		if ((!supports(spec, outKey) || droppedByQuirk) && isDroppable(key)) {
 			if (key === "const" && spec.transforms.constAsEnum) {
-				out["enum"] = [value];
+				out.enum = [value];
 			}
 			continue;
 		}

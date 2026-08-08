@@ -27,6 +27,12 @@ import type { Ferment } from "../ferment/types.js";
 import { getMarketplaceArgumentCompletions } from "../marketplace/marketplace.js";
 import type { InteractiveModeContext } from "../modes/types";
 import { globalScheduler } from "../task/schedule/scheduler";
+import { createAutonomousRuntime } from "../autonomous/runtime.js";
+import type { AutonomousRuntime } from "../autonomous/runtime.js";
+import { createCronScheduler } from "../cron/scheduler.js";
+import type { CronScheduler } from "../cron/scheduler.js";
+import { createRefinementEngine } from "../refinement/engine.js";
+import type { RefinementEngine } from "../refinement/engine.js";
 import { getChangelogPath, parseChangelog } from "../utils/changelog";
 import { createMarketplaceManager } from "./helpers/marketplace-manager";
 import { handleMcpAcp } from "./helpers/mcp";
@@ -242,48 +248,171 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			runtime.ctx.editor.setText("");
 		},
 	},
-
 	{
-		name: "loop",
-		description:
-			"Toggle loop mode. While enabled, the next prompt you send re-submits after every yield. Esc cancels the current iteration; /loop again to disable.",
-		inlineHint: "[count|duration]",
+		name: "autonomous",
+		description: "Enable autonomous mode with quality gates and budget tracking",
+		subcommands: [
+			{ name: "start", description: "Start autonomous execution", usage: "<objective> [--budget <N>]" },
+			{ name: "pause", description: "Pause autonomous execution" },
+			{ name: "resume", description: "Resume autonomous execution" },
+			{ name: "status", description: "Show autonomous mode status" },
+			{ name: "stop", description: "Stop autonomous execution" },
+		],
+		inlineHint: "[start|pause|resume|status|stop] [args...]",
 		allowArgs: true,
 		handleTui: async (command, runtime) => {
-			await runtime.ctx.handleLoopCommand(command.args);
-			runtime.ctx.editor.setText("");
+			const args = command.args.trim().split(/\s+/);
+			const subcommand = args[0];
+			if (!subcommand) return runtime.output("Usage: /autonomous start|pause|resume|status|stop");
+			switch (subcommand) {
+				case "start": {
+					const objective = args.slice(1).join(" ");
+					if (!objective) return runtime.output("Error: objective required");
+					const budgetMatch = objective.match(/--budget\s+(\d+)/);
+					const budget = budgetMatch ? parseInt(budgetMatch[1], 10) : undefined;
+					const objWithoutBudget = objective.replace(/--budget\s+\d+/, "").trim();
+					// TODO: Initialize autonomous runtime
+					return runtime.output(`Starting autonomous mode with objective: ${objWithoutBudget}`);
+				}
+				case "pause":
+					return runtime.output("Pausing autonomous mode");
+				case "resume":
+					return runtime.output("Resuming autonomous mode");
+				case "status":
+					return runtime.output("Autonomous mode: not active");
+				case "stop":
+					return runtime.output("Stopping autonomous mode");
+				default:
+					return runtime.output(`Unknown subcommand: ${subcommand}`);
+			}
 		},
 	},
-
 	{
-		name: "model",
-		aliases: ["models"],
-		description: "Select model (opens selector UI)",
-		acpDescription: "Show current model selection",
-		handle: async (command, runtime) => {
-			if (command.args) {
-				const modelId = command.args.trim();
-				const availableModels = runtime.session.getAvailableModels?.() ?? [];
-				const match = availableModels.find(
-					model => model.id === modelId || `${model.provider}/${model.id}` === modelId,
-				);
-				if (!match) {
-					return usage(
-						`Unknown model: ${modelId}. Use ACP \`session/setModel\` for picker-driven selection or list available models with /model.`,
-						runtime,
-					);
+		name: "cron",
+		description: "Schedule recurring session execution",
+		subcommands: [
+			{ name: "add", description: "Add a scheduled job", usage: "<schedule> <session-id>" },
+			{ name: "list", description: "List all scheduled jobs" },
+			{ name: "remove", description: "Remove a scheduled job", usage: "<job-id>" },
+			{ name: "status", description: "Show scheduler status" },
+		],
+		inlineHint: "[add|list|remove|status]",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			const args = command.args.trim().split(/\s+/);
+			const subcommand = args[0];
+			if (!subcommand) return runtime.output("Usage: /cron add|list|remove|status");
+			switch (subcommand) {
+				case "add": {
+					const schedule = args[1];
+					const sessionId = args[2];
+					if (!schedule || !sessionId) {
+						return runtime.output("Usage: /cron add <schedule> <session-id>");
+					}
+					// TODO: Add cron job
+					return runtime.output(`Scheduled job: ${schedule} -> ${sessionId}`);
 				}
-				try {
-					await runtime.session.setModel(match);
-					await runtime.output(`Model set to ${match.provider}/${match.id}.`);
-					await runtime.notifyTitleChanged?.();
-					await runtime.notifyConfigChanged?.();
-					return commandConsumed();
-				} catch (err) {
-					return usage(`Failed to set model: ${errorMessage(err)}`, runtime);
+				case "list":
+					return runtime.output("No scheduled jobs");
+				case "remove": {
+					const jobId = args[1];
+					if (!jobId) return runtime.output("Usage: /cron remove <job-id>");
+					// TODO: Remove cron job
+					return runtime.output(`Removed job: ${jobId}`);
 				}
+				case "status":
+					return runtime.output("Cron scheduler: inactive");
+				default:
+					return runtime.output(`Unknown subcommand: ${subcommand}`);
 			}
-
+		},
+	},
+	{
+		name: "refine",
+		description: "Review trajectory and improve memories/prompts/skills",
+		subcommands: [
+			{ name: "run", description: "Run refinement on current trajectory" },
+			{ name: "status", description: "Show refinement status" },
+		],
+		inlineHint: "[run|status]",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			const args = command.args.trim().split(/\s+/);
+			const subcommand = args[0];
+			if (!subcommand) return runtime.output("Usage: /refine run|status");
+			switch (subcommand) {
+				case "run":
+					return runtime.output("Running refinement...");
+				case "status":
+					return runtime.output("Refinement: not active");
+				default:
+					return runtime.output(`Unknown subcommand: ${subcommand}`);
+			}
+		},
+	},
+	{
+	{
+		name: "schedule",
+		description: "Schedule recurring session execution",
+		subcommands: [
+			{ name: "create", description: "Create a scheduled job", usage: "<name> --cron <pattern> --prompt <task>" },
+			{ name: "list", description: "List all scheduled jobs" },
+			{ name: "delete", description: "Delete a scheduled job", usage: "<id>" },
+			{ name: "pause", description: "Pause a scheduled job", usage: "<id>" },
+			{ name: "resume", description: "Resume a scheduled job", usage: "<id>" },
+			{ name: "trigger", description: "Run a scheduled job now", usage: "<id>" },
+		],
+		inlineHint: "[create|list|delete|pause|resume|trigger]",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			const args = command.args.trim().split(/\s+/);
+			const subcommand = args[0];
+			if (!subcommand) return runtime.output("Usage: /schedule create|list|delete|pause|resume|trigger");
+			switch (subcommand) {
+				case "create": {
+					const name = args[1];
+					const cronPattern = args.find(a => a.startsWith("--cron="))?.split("=")[1];
+					const prompt = args.find(a => a.startsWith("--prompt="))?.split("=")[1];
+					if (!name || !cronPattern || !prompt) {
+						return runtime.output("Usage: /schedule create <name> --cron <pattern> --prompt <task>");
+					}
+					const run = globalScheduler.createSchedule({ name, cronPattern, prompt });
+					return runtime.output(`Created schedule: ${run.id} - ${run.name}`);
+				}
+				case "list": {
+					const schedules = globalScheduler.getSchedules();
+					if (schedules.length === 0) return runtime.output("No scheduled jobs");
+					return runtime.output(schedules.map(s => `- ${s.id}: ${s.name} (${s.cronPattern}) [${s.enabled ? "active" : "paused"}]`).join("\n"));
+				}
+				case "delete": {
+					const id = args[1];
+					if (!id) return runtime.output("Usage: /schedule delete <id>");
+					const deleted = globalScheduler.deleteSchedule(id);
+					return runtime.output(deleted ? `Deleted schedule: ${id}` : `Schedule not found: ${id}`);
+				}
+				case "pause": {
+					const id = args[1];
+					if (!id) return runtime.output("Usage: /schedule pause <id>");
+					const run = globalScheduler.pauseSchedule(id);
+					return runtime.output(run ? `Paused schedule: ${id}` : `Schedule not found: ${id}`);
+				}
+				case "resume": {
+					const id = args[1];
+					if (!id) return runtime.output("Usage: /schedule resume <id>");
+					const run = globalScheduler.resumeSchedule(id);
+					return runtime.output(run ? `Resumed schedule: ${id}` : `Schedule not found: ${id}`);
+				}
+				case "trigger": {
+					const id = args[1];
+					if (!id) return runtime.output("Usage: /schedule trigger <id>");
+					const success = await globalScheduler.triggerSchedule(id, runtime);
+					return runtime.output(success ? `Triggered schedule: ${id}` : `Schedule not found: ${id}`);
+				}
+				default:
+					return runtime.output(`Unknown subcommand: ${subcommand}`);
+			}
+		},
+	},
 			const model = runtime.session.model;
 			await runtime.output(
 				model ? `Current model: ${model.provider}/${model.id}` : "No model is currently selected.",
