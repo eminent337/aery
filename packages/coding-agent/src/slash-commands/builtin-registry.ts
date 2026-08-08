@@ -413,6 +413,16 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			}
 		},
 	},
+	{
+		name: "loop",
+		description: "Toggle loop mode. While enabled, the next prompt you send re-submits after every yield. Esc cancels the current iteration; /loop again to disable.",
+		inlineHint: "[count|duration]",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			await runtime.ctx.handleLoopCommand(command.args);
+			runtime.ctx.editor.setText("");
+		},
+	},
 			const model = runtime.session.model;
 			await runtime.output(
 				model ? `Current model: ${model.provider}/${model.id}` : "No model is currently selected.",
