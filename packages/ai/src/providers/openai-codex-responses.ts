@@ -56,7 +56,7 @@ import {
 } from "../utils/idle-iterator";
 import { parseStreamingJson, parseStreamingJsonThrottled } from "../utils/json-parse";
 import { createRequestDebugSession, isRequestDebugEnabled, type RequestDebugResponseLog } from "../utils/request-debug";
-import { adaptSchemaForStrict, NO_STRICT, sanitizeSchemaForOpenAIResponses, toolWireSchema } from "../utils/schema";
+import { adaptSchemaForStrict, NO_STRICT, normalizeSchemaForOpenAI, toolWireSchema } from "../utils/schema";
 import { notifyRawSseEvent } from "../utils/sse-debug";
 import { compactGrammarDefinition } from "./grammar";
 import { CODEX_BASE_URL, getCodexAccountId, OPENAI_HEADER_VALUES, OPENAI_HEADERS } from "./openai-codex/constants";
@@ -2918,7 +2918,7 @@ export function convertOpenAICodexResponsesTools(
 			};
 		}
 		const strict = !!(!NO_STRICT && tool.strict);
-		const baseParameters = sanitizeSchemaForOpenAIResponses(toolWireSchema(tool));
+		const baseParameters = normalizeSchemaForOpenAI(toolWireSchema(tool));
 		const { schema: parameters, strict: effectiveStrict } = adaptSchemaForStrict(baseParameters, strict);
 		return {
 			type: "function",

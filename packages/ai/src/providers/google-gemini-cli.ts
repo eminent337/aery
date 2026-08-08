@@ -23,7 +23,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream";
 import { appendRawHttpRequestDumpFor400, type RawHttpRequestDump, withHttpStatus } from "../utils/http-inspector";
 // Refresh is the sole responsibility of AuthStorage (broker-aware, single-flighted);
 // the stream provider trusts the access token threaded through `options.apiKey`.
-import { normalizeSchemaForCCA } from "../utils/schema";
+import { normalizeSchemaForAeryClaude } from "../utils/schema";
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION, getAntigravityUserAgent, getGeminiCliHeaders } from "./google-gemini-headers";
 import type { Content, FunctionCallingConfigMode, ThinkingConfig } from "./google-shared";
 import {
@@ -676,7 +676,7 @@ function normalizeAntigravityTools(
 			const { parametersJsonSchema, ...rest } = declaration;
 			return {
 				...rest,
-				parameters: normalizeSchemaForCCA(parametersJsonSchema),
+				parameters: normalizeSchemaForAeryClaude(parametersJsonSchema),
 			};
 		}),
 	}));

@@ -8,6 +8,7 @@
  */
 import { logger } from "@aryee337/aery-utils";
 import { dereferenceJsonSchema } from "./dereference";
+import { applyDialect } from "./dialect";
 import { upgradeJsonSchemaTo202012 } from "./draft";
 import { areJsonValuesEqual, mergePropertySchemas } from "./equality";
 import {
@@ -16,9 +17,9 @@ import {
 	COMBINATOR_KEYS,
 	LIFTABLE_TO_DESCRIPTION_FIELDS,
 	NON_STRUCTURAL_SCHEMA_KEYS,
-	UNSUPPORTED_SCHEMA_FIELDS,
 } from "./fields";
 import { isValidJsonSchema } from "./meta-validator";
+import { AERY_BRIDGE, AERY_CLAUDE, ANTHROPIC, GEMINI, OPENAI, OPENROUTER } from "./registry";
 import { type DescriptionSpillFormat, spillToDescription } from "./spill";
 import { enter, epochNext, exit, once, stamp } from "./stamps";
 import { isJsonObject, isJsonObjectEmpty, type JsonObject } from "./types";
@@ -70,19 +71,6 @@ const SNAKE_TO_CAMEL_RENAMES = new Map<string, string>([
 
 const JSON_SCHEMA_COMBINERS = ["anyOf", "oneOf"] as const;
 const CCA_FORBIDDEN_COMBINERS = new Set(["anyOf", "oneOf", "allOf"]);
-
-const CLOUD_CODE_ASSIST_CLAUDE_FALLBACK_SCHEMA = {
-	type: "object",
-	properties: {},
-} as const;
-
-function isGoogleUnsupportedSchemaField(key: string): boolean {
-	return Object.hasOwn(UNSUPPORTED_SCHEMA_FIELDS, key);
-}
-
-function isMcpUnsupportedSchemaField(key: string): boolean {
-	return key === "$schema";
-}
 
 function isDefaultLiftableToDescriptionField(key: string): boolean {
 	return Object.hasOwn(LIFTABLE_TO_DESCRIPTION_FIELDS, key);
@@ -794,60 +782,46 @@ export function normalizeSchema(value: unknown, options: NormalizeSchemaOptions)
 	return normalized;
 }
 
-export function normalizeSchemaForGoogle(value: unknown): unknown {
-	return normalizeSchema(value, {
-		unsupportedFields: isGoogleUnsupportedSchemaField,
-		normalizeFieldNames: true,
-		collapseNullFields: true,
-		normalizeTypeArrayToNullable: true,
-		stripNullableKeyword: false,
-		autoPropertyOrdering: true,
-		ensureObjectProperties: true,
-		liftStrippedToDescription: { format: "spill" },
-		mergeObjectCombiners: false,
-		collapseSameTypeCombiners: false,
-		collapseMixedTypeCombiners: false,
-		stripResidualCombinersFixpoint: false,
-		extractNullableFromUnions: false,
-	});
+export function normalizeSchemaForGemini(value: unknown): unknown {
+	const detoxified = decontaminateZodInstance(value);
+	const upgraded = upgradeJsonSchemaTo202012(detoxified);
+	const dereferenced = dereferenceJsonSchema(upgraded);
+	return applyDialect(dereferenced, GEMINI);
 }
 
-export function normalizeSchemaForCCA(value: unknown): unknown {
-	return normalizeSchema(value, {
-		unsupportedFields: isGoogleUnsupportedSchemaField,
-		normalizeFieldNames: true,
-		collapseNullFields: false,
-		normalizeTypeArrayToNullable: true,
-		stripNullableKeyword: true,
-		autoPropertyOrdering: false,
-		ensureObjectProperties: true,
-		liftStrippedToDescription: { format: "spill" },
-		mergeObjectCombiners: true,
-		collapseSameTypeCombiners: true,
-		collapseMixedTypeCombiners: true,
-		stripResidualCombinersFixpoint: true,
-		extractNullableFromUnions: true,
-		rejectResidualIncompatibilities: ["type-array", "type-null", "nullable", "combiners"],
-		validateAndFallback: { fallback: CLOUD_CODE_ASSIST_CLAUDE_FALLBACK_SCHEMA },
-	});
+export function normalizeSchemaForAeryClaude(value: unknown): unknown {
+	const detoxified = decontaminateZodInstance(value);
+	const upgraded = upgradeJsonSchemaTo202012(detoxified);
+	const dereferenced = dereferenceJsonSchema(upgraded);
+	return applyDialect(dereferenced, AERY_CLAUDE);
 }
 
-export function normalizeSchemaForMCP(value: unknown): unknown {
-	return normalizeSchema(value, {
-		unsupportedFields: isMcpUnsupportedSchemaField,
-		normalizeFieldNames: false,
-		collapseNullFields: false,
-		normalizeTypeArrayToNullable: false,
-		stripNullableKeyword: true,
-		autoPropertyOrdering: false,
-		ensureObjectProperties: false,
-		liftStrippedToDescription: false,
-		mergeObjectCombiners: false,
-		collapseSameTypeCombiners: false,
-		collapseMixedTypeCombiners: false,
-		stripResidualCombinersFixpoint: false,
-		extractNullableFromUnions: false,
-	});
+export function normalizeSchemaForAeryBridge(value: unknown): unknown {
+	const detoxified = decontaminateZodInstance(value);
+	const upgraded = upgradeJsonSchemaTo202012(detoxified);
+	const dereferenced = dereferenceJsonSchema(upgraded);
+	return applyDialect(dereferenced, AERY_BRIDGE);
+}
+
+export function normalizeSchemaForAnthropic(value: unknown): unknown {
+	const detoxified = decontaminateZodInstance(value);
+	const upgraded = upgradeJsonSchemaTo202012(detoxified);
+	const dereferenced = dereferenceJsonSchema(upgraded);
+	return applyDialect(dereferenced, ANTHROPIC);
+}
+
+export function normalizeSchemaForOpenAI(value: unknown): unknown {
+	const detoxified = decontaminateZodInstance(value);
+	const upgraded = upgradeJsonSchemaTo202012(detoxified);
+	const dereferenced = dereferenceJsonSchema(upgraded);
+	return applyDialect(dereferenced, OPENAI);
+}
+
+export function normalizeSchemaForOpenRouter(value: unknown): unknown {
+	const detoxified = decontaminateZodInstance(value);
+	const upgraded = upgradeJsonSchemaTo202012(detoxified);
+	const dereferenced = dereferenceJsonSchema(upgraded);
+	return applyDialect(dereferenced, OPENROUTER);
 }
 
 // ---------------------------------------------------------------------------

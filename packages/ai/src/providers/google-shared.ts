@@ -21,7 +21,7 @@ import type {
 import { normalizeSystemPrompts } from "../utils";
 import { AssistantMessageEventStream } from "../utils/event-stream";
 import { finalizeErrorMessage, type RawHttpRequestDump, withHttpStatus } from "../utils/http-inspector";
-import { normalizeSchemaForCCA, normalizeSchemaForGoogle, toolWireSchema } from "../utils/schema";
+import { normalizeSchemaForAeryClaude, normalizeSchemaForGemini, toolWireSchema } from "../utils/schema";
 import type {
 	Content,
 	FinishReason,
@@ -43,7 +43,7 @@ export type {
 	GenerateContentResponse,
 	ThinkingConfig,
 } from "./google-types";
-export { normalizeSchemaForGoogle };
+export { normalizeSchemaForGemini };
 
 type GoogleApiType = "google-generative-ai" | "google-gemini-cli" | "google-vertex";
 
@@ -354,7 +354,7 @@ export function convertTools(
 				name: tool.name,
 				description: tool.description || "",
 				...(useParameters
-					? { parameters: normalizeSchemaForCCA(toolWireSchema(tool)) }
+					? { parameters: normalizeSchemaForAeryClaude(toolWireSchema(tool)) }
 					: { parametersJsonSchema: toolWireSchema(tool) }),
 			})),
 		},

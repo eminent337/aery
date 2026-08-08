@@ -40,7 +40,7 @@ import {
 import { parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
 import { notifyProviderResponse } from "../utils/provider-response";
 import { callWithCopilotModelRetry } from "../utils/retry";
-import { adaptSchemaForStrict, NO_STRICT, sanitizeSchemaForOpenAIResponses, toolWireSchema } from "../utils/schema";
+import { adaptSchemaForStrict, NO_STRICT, normalizeSchemaForOpenAI, toolWireSchema } from "../utils/schema";
 import { createSdkStreamRequestOptions } from "../utils/sdk-stream-timeout";
 import { wrapFetchForSseDebug } from "../utils/sse-debug";
 import { mapToOpenAIResponsesToolChoice, type OpenAIResponsesToolChoice } from "../utils/tool-choice";
@@ -666,7 +666,7 @@ export function convertTools(tools: Tool[], strictMode: boolean, model: Model<"o
 		}
 		const strict = !NO_STRICT && strictMode && tool.strict !== false;
 		const baseParameters = toolWireSchema(tool);
-		const responseParameters = sanitizeSchemaForOpenAIResponses(baseParameters);
+		const responseParameters = normalizeSchemaForOpenAI(baseParameters);
 		const { schema: parameters, strict: effectiveStrict } = adaptSchemaForStrict(responseParameters, strict);
 		return {
 			type: "function",
