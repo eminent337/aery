@@ -7,6 +7,7 @@
 import { Database, type Statement } from "bun:sqlite";
 import { Snowflake } from "@aryee337/aery-utils";
 import { getAgentDbPath } from "@aryee337/aery-utils";
+import { parseCronSchedule } from "./parser.js";
 import type { CronJob, CronJobStore } from "./types.js";
 
 /** SQLite row shape for cron_jobs table */
@@ -27,12 +28,12 @@ const SQLITE_NOW_EPOCH = "CAST(strftime('%s','now') AS INTEGER)";
 
 export class SqliteCronJobStore implements CronJobStore {
 	readonly #db: Database;
-	/#listStmt: Statement;
-	/#getStmt: Statement;
-	/#insertStmt: Statement;
-	/#updateStmt: Statement;
-	/#deleteStmt: Statement;
-	/#findDueStmt: Statement;
+	#listStmt!: Statement;
+	#getStmt!: Statement;
+	#insertStmt!: Statement;
+	#updateStmt!: Statement;
+	#deleteStmt!: Statement;
+	#findDueStmt!: Statement;
 
 	constructor(db: Database) {
 		this.#db = db;
@@ -74,11 +75,9 @@ export class SqliteCronJobStore implements CronJobStore {
 	async update(id: string, updates: Partial<CronJob>): Promise<CronJob | undefined> {
 		const existing = await this.get(id);
 		if (!existing) return undefined;
-
 		const now = Date.now();
 		const setClauses: string[] = [];
 		const values: unknown[] = [];
-
 		if (updates.schedule !== undefined) {
 			setClauses.push("schedule = ?");
 			values.push(updates.schedule);
@@ -99,19 +98,22 @@ export class SqliteCronJobStore implements CronJobStore {
 			setClauses.push("enabled = ?");
 			values.push(updates.enabled ? 1 : 0);
 		}
+		if (updates.lastRunAt !== undefined) {
+			setClauses.push("last_run_at = ?");
+			values.push(updates.lastRunAt);
+		}
 		if (updates.schedule !== undefined) {
 			setClauses.push("next_run_at = ?");
 			values.push(this.#calculateNextRun(updates.schedule));
 		}
-
+		if (setClauses.length === 0) return existing;
 		setClauses.push("updated_at = ?");
 		values.push(now);
 		values.push(id);
-
-		this.#updateStmt.run(...values);
+		const sql = `UPDATE cron_jobs SET ${setClauses.join(", ")} WHERE id = ?`;
+		(this.#db.prepare(sql).run as any)(...values);
 		return this.get(id);
 	}
-
 	async delete(id: string): Promise<boolean> {
 		const result = this.#deleteStmt.run(id);
 		return result.changes > 0;
@@ -124,7 +126,7 @@ export class SqliteCronJobStore implements CronJobStore {
 		return rows.map(row => this.#rowToJob(row));
 	}
 
-	/#initializeSchema(): void {
+	#initializeSchema(): void {
 		this.#db.exec(`
 			CREATE TABLE IF NOT EXISTS cron_jobs (
 				id TEXT PRIMARY KEY,
@@ -141,7 +143,7 @@ export class SqliteCronJobStore implements CronJobStore {
 		`);
 	}
 
-	/#prepareStatements(): void {
+	#prepareStatements(): void {
 		this.#listStmt = this.#db.prepare(
 			"SELECT * FROM cron_jobs ORDER BY created_at DESC"
 		);
@@ -173,7 +175,7 @@ export class SqliteCronJobStore implements CronJobStore {
 		`);
 	}
 
-	/#rowToJob(row: CronJobRow): CronJob {
+	#rowToJob(row: CronJobRow): CronJob {
 		return {
 			id: row.id,
 			schedule: row.schedule,
@@ -188,11 +190,13 @@ export class SqliteCronJobStore implements CronJobStore {
 		};
 	}
 
-	/#calculateNextRun(schedule: string): number {
-		// Simple implementation - in production, use a proper cron library
-		const now = Date.now();
-		// Default to 1 minute from now
-		return now + 60_000;
+	#calculateNextRun(schedule: string): number {
+		try {
+			const parsed = parseCronSchedule(schedule);
+			return parsed.nextRunAt;
+		} catch {
+			return Date.now() + 60_000;
+		}
 	}
 }
 

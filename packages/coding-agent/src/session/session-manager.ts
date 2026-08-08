@@ -1945,6 +1945,9 @@ export class SessionManager {
 	#sessionName: string | undefined;
 	#titleSource: "auto" | "user" | undefined;
 	#sessionFile: string | undefined;
+	get sessionFile(): string | undefined {
+		return this.#sessionFile;
+	}
 	#flushed: boolean = false;
 	#needsFullRewriteOnNextPersist: boolean = false;
 	#ensuredOnDisk: boolean = false;

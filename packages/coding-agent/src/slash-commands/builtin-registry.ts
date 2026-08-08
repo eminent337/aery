@@ -29,7 +29,7 @@ import type { InteractiveModeContext } from "../modes/types";
 import { globalScheduler } from "../task/schedule/scheduler";
 import { createAutonomousRuntime } from "../autonomous/runtime.js";
 import type { AutonomousRuntime } from "../autonomous/runtime.js";
-import { createCronScheduler } from "../cron/scheduler.js";
+import { createCronScheduler, getGlobalCronScheduler } from "../cron/scheduler.js";
 import type { CronScheduler } from "../cron/scheduler.js";
 import { createRefinementEngine } from "../refinement/engine.js";
 import type { RefinementEngine } from "../refinement/engine.js";
@@ -261,29 +261,50 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		inlineHint: "[start|pause|resume|status|stop] [args...]",
 		allowArgs: true,
 		handleTui: async (command, runtime) => {
+			const out = (msg: string) => {
+				runtime.ctx.showStatus(msg);
+				return commandConsumed();
+			};
 			const args = command.args.trim().split(/\s+/);
 			const subcommand = args[0];
-			if (!subcommand) return runtime.output("Usage: /autonomous start|pause|resume|status|stop");
+			if (!subcommand) return out("Usage: /autonomous start|pause|resume|status|stop");
+			const session = runtime.ctx.session;
+			const autoRuntime = session.getAutonomousRuntime();
 			switch (subcommand) {
 				case "start": {
 					const objective = args.slice(1).join(" ");
-					if (!objective) return runtime.output("Error: objective required");
+					if (!objective) return out("Error: objective required");
 					const budgetMatch = objective.match(/--budget\s+(\d+)/);
 					const budget = budgetMatch ? parseInt(budgetMatch[1], 10) : undefined;
 					const objWithoutBudget = objective.replace(/--budget\s+\d+/, "").trim();
-					// TODO: Initialize autonomous runtime
-					return runtime.output(`Starting autonomous mode with objective: ${objWithoutBudget}`);
+					await autoRuntime.start({ objective: objWithoutBudget, config: { budget: { tokens: budget } } });
+					return out(`Autonomous mode started for objective: "${objWithoutBudget}"${budget ? ` (budget: ${budget} tokens)` : ""}`);
 				}
-				case "pause":
-					return runtime.output("Pausing autonomous mode");
-				case "resume":
-					return runtime.output("Resuming autonomous mode");
-				case "status":
-					return runtime.output("Autonomous mode: not active");
-				case "stop":
-					return runtime.output("Stopping autonomous mode");
+				case "pause": {
+					await autoRuntime.pause();
+					return out("Autonomous mode paused.");
+				}
+				case "resume": {
+					await autoRuntime.resume();
+					return out("Autonomous mode resumed.");
+				}
+				case "status": {
+					const state = autoRuntime.state;
+					return out(
+						`Autonomous Mode Status:\n` +
+						`State: ${autoRuntime.status}\n` +
+						`Objective: ${state?.objective || "None"}\n` +
+						`Tokens Used: ${autoRuntime.tokensUsed} / ${state?.budget.tokens ?? "unbounded"}\n` +
+						`Turns: ${autoRuntime.turnsUsed}\n` +
+						`Time Elapsed: ${Math.round(autoRuntime.timeUsedMs / 1000)}s`
+					);
+				}
+				case "stop": {
+					await autoRuntime.abort("Stopped via /autonomous stop");
+					return out("Autonomous mode stopped.");
+				}
 				default:
-					return runtime.output(`Unknown subcommand: ${subcommand}`);
+					return out(`Unknown subcommand: ${subcommand}`);
 			}
 		},
 	},
@@ -299,31 +320,49 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		inlineHint: "[add|list|remove|status]",
 		allowArgs: true,
 		handleTui: async (command, runtime) => {
+			const out = (msg: string) => {
+				runtime.ctx.showStatus(msg);
+				return commandConsumed();
+			};
 			const args = command.args.trim().split(/\s+/);
 			const subcommand = args[0];
-			if (!subcommand) return runtime.output("Usage: /cron add|list|remove|status");
+			if (!subcommand) return out("Usage: /cron add|list|remove|status");
+			const scheduler = getGlobalCronScheduler();
 			switch (subcommand) {
 				case "add": {
 					const schedule = args[1];
 					const sessionId = args[2];
 					if (!schedule || !sessionId) {
-						return runtime.output("Usage: /cron add <schedule> <session-id>");
+						return out("Usage: /cron add <schedule> <session-id>");
 					}
-					// TODO: Add cron job
-					return runtime.output(`Scheduled job: ${schedule} -> ${sessionId}`);
+					const job = await scheduler.store.create({
+						schedule,
+						sessionId,
+						deliveryMode: "follow_up",
+						enabled: true,
+					});
+					return out(`Scheduled cron job ${job.id}: "${schedule}" -> session ${sessionId}`);
 				}
-				case "list":
-					return runtime.output("No scheduled jobs");
+				case "list": {
+					const jobs = await scheduler.store.list();
+					if (jobs.length === 0) return out("No scheduled cron jobs found.");
+					const lines = jobs.map(
+						j => `- [${j.id}] ${j.schedule} -> ${j.sessionId} (${j.enabled ? "enabled" : "disabled"})`
+					);
+					return out(`Scheduled Cron Jobs:\n${lines.join("\n")}`);
+				}
 				case "remove": {
 					const jobId = args[1];
-					if (!jobId) return runtime.output("Usage: /cron remove <job-id>");
-					// TODO: Remove cron job
-					return runtime.output(`Removed job: ${jobId}`);
+					if (!jobId) return out("Usage: /cron remove <job-id>");
+					const ok = await scheduler.store.delete(jobId);
+					return out(ok ? `Removed cron job ${jobId}` : `Cron job not found: ${jobId}`);
 				}
-				case "status":
-					return runtime.output("Cron scheduler: inactive");
+				case "status": {
+					const jobs = await scheduler.store.list();
+					return out(`Cron Scheduler: ${scheduler.isRunning ? "Active" : "Inactive"} (${jobs.length} jobs configured)`);
+				}
 				default:
-					return runtime.output(`Unknown subcommand: ${subcommand}`);
+					return out(`Unknown subcommand: ${subcommand}`);
 			}
 		},
 	},
@@ -331,22 +370,70 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		name: "refine",
 		description: "Review trajectory and improve memories/prompts/skills",
 		subcommands: [
-			{ name: "run", description: "Run refinement on current trajectory" },
+			{ name: "run", description: "Run refinement on current trajectory", usage: "[--global] [--instructions <text>]" },
 			{ name: "status", description: "Show refinement status" },
+			{ name: "rollback", description: "Rollback a previous refinement", usage: "<result-id>" },
 		],
-		inlineHint: "[run|status]",
+		inlineHint: "[run|status|rollback]",
 		allowArgs: true,
 		handleTui: async (command, runtime) => {
+			const out = (msg: string) => {
+				runtime.ctx.showStatus(msg);
+				return commandConsumed();
+			};
 			const args = command.args.trim().split(/\s+/);
 			const subcommand = args[0];
-			if (!subcommand) return runtime.output("Usage: /refine run|status");
+			if (!subcommand) return out("Usage: /refine run|status|rollback");
+			const session = runtime.ctx.session;
+			const engine = session.getHarnessEngine();
 			switch (subcommand) {
-				case "run":
-					return runtime.output("Running refinement...");
-				case "status":
-					return runtime.output("Refinement: not active");
+				case "run": {
+					const isGlobal = args.includes("--global");
+					const instIdx = args.indexOf("--instructions");
+					const instructions = instIdx !== -1 ? args.slice(instIdx + 1).join(" ") : undefined;
+					const model = session.model;
+					if (!model) return out("Error: No model selected for refinement");
+					out("Running continual harness refinement...");
+					try {
+						const result = await engine.refine(model, "", { global: isGlobal, instructions });
+						const appliedCount = result.appliedEdits.filter(e => e.applied).length;
+						return out(
+							`Refinement complete!\n` +
+							`Summary: ${result.summary}\n` +
+							`Rationale: ${result.rationale}\n` +
+							`Edits applied: ${appliedCount}\n` +
+							`Scope: ${result.scope}`
+						);
+					} catch (err) {
+						return out(`Refinement failed: ${err instanceof Error ? err.message : String(err)}`);
+					}
+				}
+				case "status": {
+					const host = session.getHarnessHost();
+					const state = await host.getHarnessState();
+					const history = await host.getRefinementHistory();
+					const promptsCount = Object.keys(state.entries.prompt).length;
+					const memoriesCount = Object.keys(state.entries.memory).length;
+					const skillsCount = Object.keys(state.entries.skill).length;
+					const subagentsCount = Object.keys(state.entries.subagent).length;
+					return out(
+						`Continual Harness Status:\n` +
+						`Prompt addendums: ${promptsCount}\n` +
+						`Memories: ${memoriesCount}\n` +
+						`Skills: ${skillsCount}\n` +
+						`Subagents: ${subagentsCount}\n` +
+						`Refinement passes run: ${history.length}`
+					);
+				}
+				case "rollback": {
+					const resultId = args[1];
+					if (!resultId) return out("Usage: /refine rollback <result-id>");
+					const res = await engine.rollback(resultId);
+					if (!res) return out(`Refinement result not found: ${resultId}`);
+					return out(`Rollback completed for refinement: ${resultId}`);
+				}
 				default:
-					return runtime.output(`Unknown subcommand: ${subcommand}`);
+					return out(`Unknown subcommand: ${subcommand}`);
 			}
 		},
 	},
@@ -364,51 +451,55 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		inlineHint: "[create|list|delete|pause|resume|trigger]",
 		allowArgs: true,
 		handleTui: async (command, runtime) => {
+			const out = (msg: string) => {
+				runtime.ctx.showStatus(msg);
+				return commandConsumed();
+			};
 			const args = command.args.trim().split(/\s+/);
 			const subcommand = args[0];
-			if (!subcommand) return runtime.output("Usage: /schedule create|list|delete|pause|resume|trigger");
+			if (!subcommand) return out("Usage: /schedule create|list|delete|pause|resume|trigger");
 			switch (subcommand) {
 				case "create": {
 					const name = args[1];
 					const cronPattern = args.find(a => a.startsWith("--cron="))?.split("=")[1];
 					const prompt = args.find(a => a.startsWith("--prompt="))?.split("=")[1];
 					if (!name || !cronPattern || !prompt) {
-						return runtime.output("Usage: /schedule create <name> --cron <pattern> --prompt <task>");
+						return out("Usage: /schedule create <name> --cron=<pattern> --prompt=<task>");
 					}
 					const run = globalScheduler.createSchedule({ name, cronPattern, prompt });
-					return runtime.output(`Created schedule: ${run.id} - ${run.name}`);
+					return out(`Created schedule: ${run.id} - ${run.name}`);
 				}
 				case "list": {
 					const schedules = globalScheduler.getSchedules();
-					if (schedules.length === 0) return runtime.output("No scheduled jobs");
-					return runtime.output(schedules.map(s => `- ${s.id}: ${s.name} (${s.cronPattern}) [${s.enabled ? "active" : "paused"}]`).join("\n"));
+					if (schedules.length === 0) return out("No scheduled jobs");
+					return out(schedules.map(s => `- ${s.id}: ${s.name} (${s.cronPattern}) [${s.enabled ? "active" : "paused"}]`).join("\n"));
 				}
 				case "delete": {
 					const id = args[1];
-					if (!id) return runtime.output("Usage: /schedule delete <id>");
+					if (!id) return out("Usage: /schedule delete <id>");
 					const deleted = globalScheduler.deleteSchedule(id);
-					return runtime.output(deleted ? `Deleted schedule: ${id}` : `Schedule not found: ${id}`);
+					return out(deleted ? `Deleted schedule: ${id}` : `Schedule not found: ${id}`);
 				}
 				case "pause": {
 					const id = args[1];
-					if (!id) return runtime.output("Usage: /schedule pause <id>");
+					if (!id) return out("Usage: /schedule pause <id>");
 					const run = globalScheduler.pauseSchedule(id);
-					return runtime.output(run ? `Paused schedule: ${id}` : `Schedule not found: ${id}`);
+					return out(run ? `Paused schedule: ${id}` : `Schedule not found: ${id}`);
 				}
 				case "resume": {
 					const id = args[1];
-					if (!id) return runtime.output("Usage: /schedule resume <id>");
+					if (!id) return out("Usage: /schedule resume <id>");
 					const run = globalScheduler.resumeSchedule(id);
-					return runtime.output(run ? `Resumed schedule: ${id}` : `Schedule not found: ${id}`);
+					return out(run ? `Resumed schedule: ${id}` : `Schedule not found: ${id}`);
 				}
 				case "trigger": {
 					const id = args[1];
-					if (!id) return runtime.output("Usage: /schedule trigger <id>");
-					const success = await globalScheduler.triggerSchedule(id, runtime);
-					return runtime.output(success ? `Triggered schedule: ${id}` : `Schedule not found: ${id}`);
+					if (!id) return out("Usage: /schedule trigger <id>");
+					const success = await globalScheduler.triggerSchedule(id, runtime.ctx);
+					return out(success ? `Triggered schedule: ${id}` : `Schedule not found: ${id}`);
 				}
 				default:
-					return runtime.output(`Unknown subcommand: ${subcommand}`);
+					return out(`Unknown subcommand: ${subcommand}`);
 			}
 		},
 	},

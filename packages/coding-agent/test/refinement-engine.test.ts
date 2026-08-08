@@ -15,7 +15,7 @@ describe("RefinementEngine", () => {
 			getMemories: async () => [],
 			getPrompts: async () => [],
 			getSkills: async () => [],
-			createArtifact: async (target, content, scope) => {
+			createArtifact: async (target: any, content: any, scope: any) => {
 				const id = `new-${Date.now()}`;
 				artifacts.set(id, { target, content, scope });
 				return id;

@@ -8,13 +8,16 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
+import * as path from "node:path";
 import type {
 	HarnessEntry,
+	HarnessHost,
 	HarnessRefinementEvent,
 	HarnessState,
 	RefinementKind,
 	RefinementResult,
 } from "./types.js";
+import type { SessionManager } from "../session/session-manager.js";
 
 const HARNESS_STATE_DIR_NAME = "harness";
 const HARNESS_STATE_FILE_NAME = "harness_state.json";
@@ -316,5 +319,76 @@ function withDefaultScope(result: RefinementResult, scope: "local" | "global"): 
 	return {
 		...result,
 		scope: result.scope || scope,
+	};
+}
+/**
+ * Create a HarnessHost backed by a SessionManager and agent directory.
+ */
+export function createSessionHarnessHost(
+	sessionManager: SessionManager,
+	agentDir: string,
+): HarnessHost {
+	const globalDir = getGlobalHarnessStateDir(agentDir);
+	const sessionDir = sessionManager.sessionFile
+		? path.dirname(sessionManager.sessionFile)
+		: undefined;
+	const localDir = getLocalHarnessStateDir(sessionDir);
+	return {
+		async getHarnessState(): Promise<HarnessState> {
+			const globalState = loadHarnessState(globalDir, "global");
+			const localState = localDir ? loadHarnessState(localDir, "local") : {
+				schema: 1,
+				entries: { prompt: {}, memory: {}, skill: {}, subagent: {} },
+				refinements: [],
+			};
+			return mergeHarnessStates(globalState, localState);
+		},
+		async saveHarnessState(state: HarnessState): Promise<void> {
+			if (localDir) {
+				await saveHarnessState(localDir, state);
+			} else {
+				await saveHarnessState(globalDir, state);
+			}
+		},
+		async getRefinementHistory(): Promise<RefinementResult[]> {
+			const globalHist = loadGlobalRefinementHistory(globalDir);
+			const localHist = localDir ? loadGlobalRefinementHistory(localDir) : [];
+			return [...globalHist, ...localHist];
+		},
+		async appendRefinementHistory(result: RefinementResult): Promise<void> {
+			if (result.scope === "global" || !localDir) {
+				appendGlobalRefinement(globalDir, result);
+			} else {
+				appendGlobalRefinement(localDir, result);
+			}
+		},
+		async getTrajectory(): Promise<string> {
+			const branch = sessionManager.getBranch();
+			const parts: string[] = [];
+			for (const entry of branch) {
+				if ("message" in entry && entry.message) {
+					const msg = entry.message as any;
+					if (msg.role === "user" || msg.role === "assistant") {
+						const text = typeof msg.content === "string" 
+							? msg.content 
+							: Array.isArray(msg.content)
+								? msg.content.map((c: any) => c.text || "").join("")
+								: "";
+						if (text) {
+							parts.push(`${msg.role.toUpperCase()}: ${text}`);
+						}
+					}
+				} else if (entry.type === "compaction") {
+					parts.push(`[COMPACTION SUMMARY]: ${entry.summary}`);
+				}
+			}
+			return parts.join("\n\n");
+		},
+		now(): string {
+			return new Date().toISOString();
+		},
+		nowMs(): number {
+			return Date.now();
+		},
 	};
 }

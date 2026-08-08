@@ -82,7 +82,7 @@ export class AutonomousRuntime {
 		const budget = { ...DEFAULT_BUDGET, ...config.budget };
 		const gates = (config.gates ?? []).map(g => ({
 			...g,
-			retries: g.retries ?? DEFAULT_GATE_RETRIES,
+			retries: (g as any).retries ?? DEFAULT_GATE_RETRIES,
 		}));
 
 		const now = this.#host.now();

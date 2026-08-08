@@ -12,12 +12,14 @@
  *
  * Modes use this class and add their own I/O layer on top.
  */
-
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { scheduler } from "node:timers/promises";
 import { isPromise } from "node:util/types";
+import { createAutonomousRuntime, type AutonomousRuntime, type AutonomousRuntimeHost } from "../autonomous/index.js";
+import { createContinualHarnessEngine, createSessionHarnessHost, type ContinualHarnessEngine, type HarnessHost } from "../continual-harness/index.js";
 import type {
 	AssistantMessage,
 	Context,
@@ -894,6 +896,10 @@ export class AgentSession {
 	#planModeState: PlanModeState | undefined;
 	#goalModeState: GoalModeState | undefined;
 	#goalRuntime: GoalRuntime;
+	#autonomousRuntime?: AutonomousRuntime;
+	#harnessEngine?: ContinualHarnessEngine;
+	#harnessHost?: HarnessHost;
+	#turnsSinceLastRefineReview = 0;
 	#advisorRuntime?: AdvisorRuntime;
 	/** The advisor's own agent, retained so `/dump advisor` can serialize its transcript. Undefined when no advisor is active. */
 	#advisorAgent?: Agent;
@@ -1741,9 +1747,45 @@ export class AgentSession {
 		}
 
 		await this.#emitSessionEvent(displayEvent);
-
-		if (event.type === "turn_end") this.#advisorRuntime?.onTurnEnd();
-
+		if (event.type === "turn_end") {
+			this.#advisorRuntime?.onTurnEnd();
+			// Autonomous mode execution check
+			if (this.#autonomousRuntime && this.#autonomousRuntime.status === "active") {
+				this.#autonomousRuntime.onTurnComplete().then(res => {
+					if (res.shouldContinue && res.continuationPrompt) {
+						this.sendCustomMessage(
+							{
+								customType: "autonomous_continuation",
+								content: res.continuationPrompt,
+								display: true,
+								attribution: "agent",
+							},
+							{ deliverAs: "followUp" },
+						).catch(() => {});
+					}
+				}).catch(() => {});
+			}
+			// Auto-refine review check (every 20 turns)
+			this.#turnsSinceLastRefineReview++;
+			if (this.#turnsSinceLastRefineReview >= 20 && this.model) {
+				const engine = this.getHarnessEngine();
+				const currentTurns = this.#turnsSinceLastRefineReview;
+				this.#turnsSinceLastRefineReview = 0;
+				const model = this.model;
+				this.#modelRegistry.getApiKey(model).then(async apiKey => {
+					const key = apiKey || "";
+					const review = await engine.reviewAutoRefine(model, key, {
+						reason: "turn_interval",
+						turnsSinceLastReview: currentTurns,
+					});
+					if (review.shouldRefine) {
+						await engine.refine(model, key, {
+							instructions: review.instructions || review.rationale,
+						});
+					}
+				}).catch(() => {});
+			}
+		}
 		if (event.type === "turn_start") {
 			this.#resetStreamingEditState();
 			// TTSR: Reset buffer on turn start
@@ -3195,6 +3237,43 @@ export class AgentSession {
 
 	get serviceTier(): ServiceTier | undefined {
 		return this.agent.serviceTier;
+	}
+	getAutonomousRuntime(): AutonomousRuntime {
+		if (!this.#autonomousRuntime) {
+			const host: AutonomousRuntimeHost = {
+				getCurrentUsage: () => {
+					const usage = this.getSessionStats().tokens;
+					return { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite };
+				},
+				now: () => Date.now(),
+				executeCommand: async (cmd: string) => {
+					const proc = await Bun.$`sh -c ${cmd}`.quiet().nothrow();
+					return { exitCode: proc.exitCode, stdout: proc.stdout.toString("utf8"), stderr: proc.stderr.toString("utf8") };
+				},
+				emit: (_event) => {},
+				getState: () => this.#autonomousRuntime?.state ?? undefined,
+				setState: (_state) => {},
+				persist: async (_state) => {},
+				sendHiddenMessage: async (msg: string) => {
+					await this.sendCustomMessage({ customType: "autonomous", content: msg, display: false });
+				},
+			};
+			this.#autonomousRuntime = createAutonomousRuntime(host);
+		}
+		return this.#autonomousRuntime;
+	}
+	getHarnessHost(): HarnessHost {
+		if (!this.#harnessHost) {
+			const agentDir = path.join(process.env.HOME || os.homedir(), ".aery/agent");
+			this.#harnessHost = createSessionHarnessHost(this.sessionManager, agentDir);
+		}
+		return this.#harnessHost;
+	}
+	getHarnessEngine(): ContinualHarnessEngine {
+		if (!this.#harnessEngine) {
+			this.#harnessEngine = createContinualHarnessEngine(this.getHarnessHost());
+		}
+		return this.#harnessEngine;
 	}
 
 	getAgentId(): string | undefined {

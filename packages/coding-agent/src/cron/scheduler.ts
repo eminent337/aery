@@ -4,27 +4,32 @@
  * Periodically checks for due jobs and executes them.
  */
 
+import { Database } from "bun:sqlite";
+import { getAgentDbPath } from "@aryee337/aery-utils";
+import { createCronJobStore } from "./store.js";
 import type {
 	CronEvent,
 	CronJob,
 	CronJobStore,
 	CronSchedulerHost,
 } from "./types.js";
-
 /** Default check interval in milliseconds */
 const DEFAULT_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 
 export class CronScheduler {
 	readonly #host: CronSchedulerHost;
-	/#intervalMs: number;
-	/#running: boolean;
-	/#timerId: ReturnType<typeof setInterval> | null;
+	#intervalMs: number;
+	#running: boolean;
+	#timerId: ReturnType<typeof setInterval> | null;
 
 	constructor(host: CronSchedulerHost, options?: { checkIntervalMs?: number }) {
 		this.#host = host;
 		this.#intervalMs = options?.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
 		this.#running = false;
 		this.#timerId = null;
+	}
+	get store(): CronJobStore {
+		return this.#host.store;
 	}
 
 	/**
@@ -95,11 +100,37 @@ export class CronScheduler {
 			this.#host.emit({ type: "job_failed", job, error });
 		}
 	}
+	async #tick(): Promise<void> {
+		if (!this.#running) return;
+		try {
+			await this.executeDue();
+		} catch {
+			// Ignore tick errors
+		}
+	}
 }
-
 /**
  * Create a cron scheduler instance.
  */
 export function createCronScheduler(host: CronSchedulerHost): CronScheduler {
 	return new CronScheduler(host);
+}
+let globalCronSchedulerInstance: CronScheduler | undefined;
+/**
+ * Get or initialize the global cron scheduler singleton.
+ */
+export function getGlobalCronScheduler(): CronScheduler {
+	if (!globalCronSchedulerInstance) {
+		const db = new Database(getAgentDbPath());
+		const store = createCronJobStore(db);
+		const host: CronSchedulerHost = {
+			store,
+			now: () => Date.now(),
+			emit: (_event) => {},
+			executeSession: async (_sessionId, _deliveryMode) => {},
+		};
+		globalCronSchedulerInstance = new CronScheduler(host);
+		globalCronSchedulerInstance.start();
+	}
+	return globalCronSchedulerInstance;
 }

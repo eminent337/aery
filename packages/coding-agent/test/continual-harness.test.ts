@@ -25,9 +25,9 @@ describe("ContinualHarnessEngine", () => {
 		
 		return {
 			getHarnessState: async () => state,
-			saveHarnessState: async (s) => { state = s; },
+			saveHarnessState: async (s: any) => { state = s; },
 			getRefinementHistory: async () => history,
-			appendRefinementHistory: async (r) => { history.push(r); },
+			appendRefinementHistory: async (r: any) => { history.push(r); },
 			getTrajectory: async () => "Test trajectory with some patterns",
 			now: () => new Date().toISOString(),
 			nowMs: () => Date.now(),
@@ -169,13 +169,12 @@ describe("Refinement History", () => {
 
 	it("should merge global and session history", () => {
 		const global = [
-			{ id: "global-1", summary: "Global", appliedEdits: [], harnessStatePath: "" } as RefinementResult,
-			{ id: "global-2", summary: "Global 2", appliedEdits: [], harnessStatePath: "" } as RefinementResult,
+			{ id: "global-1", summary: "Global", appliedEdits: [], harnessStatePath: "" } as any as RefinementResult,
+			{ id: "global-2", summary: "Global 2", appliedEdits: [], harnessStatePath: "" } as any as RefinementResult,
 		];
-		
 		const session = [
-			{ id: "session-1", summary: "Session", appliedEdits: [], harnessStatePath: "" } as RefinementResult,
-			{ id: "global-1", summary: "Updated Global", appliedEdits: [], harnessStatePath: "" } as RefinementResult,
+			{ id: "session-1", summary: "Session", appliedEdits: [], harnessStatePath: "" } as any as RefinementResult,
+			{ id: "global-1", summary: "Updated Global", appliedEdits: [], harnessStatePath: "" } as any as RefinementResult,
 		];
 		
 		const merged = mergeRefinementHistory(global, session);

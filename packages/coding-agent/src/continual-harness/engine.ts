@@ -188,15 +188,19 @@ export class ContinualHarnessEngine {
 			options.instructions ? `<instructions>\n${options.instructions}\n</instructions>` : "",
 		].filter(Boolean).join("\n\n");
 
-		const response = await completeSimple({
-			messages: [
-				{ role: "system", content: REFINEMENT_SYSTEM_PROMPT },
-				{ role: "user", content: userPrompt },
-			],
+		const response = await completeSimple(
 			model,
-			maxTokens: Math.min(model.maxTokens, REFINEMENT_MAX_OUTPUT_TOKENS),
-			apiKey,
-		});
+			{
+				systemPrompt: [REFINEMENT_SYSTEM_PROMPT],
+				messages: [
+					{ role: "user", content: userPrompt, timestamp: Date.now() },
+				],
+			},
+			{
+				maxTokens: Math.min(model.maxTokens, REFINEMENT_MAX_OUTPUT_TOKENS),
+				apiKey,
+			},
+		);
 
 		if (response.stopReason === "error") {
 			throw new Error(`Refinement failed: ${response.errorMessage || "Unknown error"}`);
@@ -229,15 +233,19 @@ export class ContinualHarnessEngine {
 			`<current_harness_state>\n${this.#formatStateForPrompt(state)}\n</current_harness_state>`,
 		].join("\n\n");
 
-		const response = await completeSimple({
-			messages: [
-				{ role: "system", content: AUTO_REFINE_REVIEW_SYSTEM_PROMPT },
-				{ role: "user", content: userPrompt },
-			],
+		const response = await completeSimple(
 			model,
-			maxTokens: Math.min(model.maxTokens, AUTO_REFINE_REVIEW_MAX_OUTPUT_TOKENS),
-			apiKey,
-		});
+			{
+				systemPrompt: [AUTO_REFINE_REVIEW_SYSTEM_PROMPT],
+				messages: [
+					{ role: "user", content: userPrompt, timestamp: Date.now() },
+				],
+			},
+			{
+				maxTokens: Math.min(model.maxTokens, AUTO_REFINE_REVIEW_MAX_OUTPUT_TOKENS),
+				apiKey,
+			},
+		);
 
 		if (response.stopReason === "error") {
 			throw new Error(`Auto-refine review failed: ${response.errorMessage || "Unknown error"}`);
@@ -289,12 +297,14 @@ export class ContinualHarnessEngine {
 	async #applyEdits(
 		state: HarnessState,
 		edits: RefinementEdit[],
-		options: RefineOptions,
+		_options: RefineOptions,
 	): Promise<import("./types.js").AppliedRefinementEdit[]> {
+		let currentState = state;
 		return Promise.all(edits.map(async edit => {
 			try {
-				const before = this.#getEntry(state, edit.kind, edit.id);
-				const after = this.#applySingleEdit(state, edit);
+				const before = this.#getEntry(currentState, edit.kind, edit.id);
+				currentState = this.#applySingleEdit(currentState, edit);
+				const after = edit.action === "delete" ? undefined : this.#getEntry(currentState, edit.kind, edit.id);
 				return {
 					...edit,
 					id: edit.id || randomUUID(),
@@ -454,7 +464,7 @@ export class ContinualHarnessEngine {
 				rationale: typeof proposal.rationale === "string" ? proposal.rationale : "",
 				expectedOutcome: typeof proposal.expectedOutcome === "string" ? proposal.expectedOutcome : "",
 				edits: Array.isArray(proposal.edits)
-					? proposal.edits.map((e: unknown) => this.#parseEdit(e)).filter(Boolean)
+					? proposal.edits.map((e: unknown) => this.#parseEdit(e)).filter((e): e is RefinementEdit => e !== undefined)
 					: [],
 			};
 		} catch {

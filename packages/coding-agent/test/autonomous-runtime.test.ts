@@ -4,7 +4,7 @@
 
 import { describe, expect, it, mock } from "bun:test";
 import { AutonomousRuntime } from "../src/autonomous/runtime.js";
-import type { AutonomousRuntimeHost } from "../src/autonomous/runtime.js";
+import type { AutonomousRuntimeHost } from "../src/autonomous/types.js";
 
 describe("AutonomousRuntime", () => {
 	const createMockHost = (): AutonomousRuntimeHost => {
