@@ -4,11 +4,20 @@ import * as path from "node:path";
 import {
 	type AuthCredential,
 	type AuthCredentialStore,
-	isSqliteBusyError,
 	SqliteAuthCredentialStore,
 	type StoredAuthCredential,
 } from "@aryee337/aery-ai";
 import { getAgentDbPath, getStatsDbPath, isRecord, logger } from "@aryee337/aery-utils";
+
+/** Check if an error is a SQLITE_BUSY family error. */
+function isSqliteBusyError(err: unknown): boolean {
+	return (
+		err != null &&
+		typeof err === "object" &&
+		((err as { code?: string }).code === "SQLITE_BUSY" || (err as { code?: string }).code === "SQLITE_BUSY_RECOVERY")
+	);
+}
+
 import type { RawSettings as Settings } from "../config/settings";
 
 /**

@@ -71,6 +71,8 @@ export interface SearchToolBm25Details {
 	active_selected_tools: string[];
 	tools: SearchToolBm25Match[];
 	selected_tool?: string;
+	catalog_tool?: boolean;
+	category?: string;
 	suggestion?: string;
 }
 
@@ -91,6 +93,9 @@ function buildSearchToolBm25Content(details: SearchToolBm25Details): string {
 		return "Suggestion recorded. Thank you.";
 	}
 	if (details.action === "select") {
+		if (details.catalog_tool === false) {
+			return `Selected off-catalog product '${details.selected_tool}' for '${details.category || "unknown"}'.\n\nSelection recorded as demand data. Aery does not list or partner with this product, so no provider information, recommendation, or setup instructions are provided.`;
+		}
 		return `Selected '${details.selected_tool}' from '${details.query || "unknown"}'.`;
 	}
 	return JSON.stringify({
@@ -271,13 +276,27 @@ export class SearchToolBm25Tool implements AgentTool<typeof searchToolBm25Schema
 				const span = trace.getActiveSpan();
 				if (span) {
 					span.setAttribute("aery.gen_ai.discovery.outcome", "off_catalog_select");
-					span.setAttribute("aery.gen_ai.discovery.failure_reason", "off_catalog_select");
 					span.setAttribute("aery.gen_ai.discovery.category", category);
 					span.setAttribute("aery.gen_ai.discovery.off_catalog_tool", toolName);
 				}
-				throw new ToolError(
-					`'${toolName}' is not in the Aery catalog for '${category}'. Only entries returned by action \`search\` can be selected; this name did not come from a listing. Either select one of the listed entries, or, if none fits, call action \`suggest\` with \`suggestion_kind: known_product\`, \`product_name: ${toolName}\`, and the \`prior_request_id\` from your search so maintainers see the gap. Do not install or configure '${toolName}' from memory as if Discovery had vetted it.`,
-				);
+
+				const details: SearchToolBm25Details = {
+					action: "select",
+					query: params.query || "",
+					limit: params.limit ?? DEFAULT_LIMIT,
+					total_tools: searchIndex.documents.length,
+					activated_tools: [],
+					active_selected_tools: getSelectedToolNames(this.session),
+					tools: [],
+					selected_tool: toolName,
+					catalog_tool: false,
+					category,
+				};
+
+				return {
+					content: [{ type: "text", text: buildSearchToolBm25Content(details) }],
+					details,
+				};
 			}
 
 			const activated = await activateTools(this.session, [normalizedToolName]);
@@ -290,6 +309,8 @@ export class SearchToolBm25Tool implements AgentTool<typeof searchToolBm25Schema
 				active_selected_tools: getSelectedToolNames(this.session),
 				tools: [],
 				selected_tool: toolName,
+				catalog_tool: true,
+				category,
 			};
 
 			return {

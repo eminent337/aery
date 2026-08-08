@@ -378,6 +378,11 @@ function classifyLine(line: string, lineNum: number): Token {
 	return { kind: "raw", lineNum, text: line };
 }
 
+/** Check if text is a valid hunk header, used to warn about accidental literal insertion. */
+export function isHunkHeaderText(text: string): boolean {
+	return classifyLine(text, 1).kind === "op-block";
+}
+
 export class Tokenizer {
 	#buffer = "";
 	#nextLineNum = 1;

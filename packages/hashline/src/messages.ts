@@ -5,7 +5,7 @@
  * them.
  */
 
-import { HL_FILE_HASH_SEP, HL_FILE_PREFIX } from "./format";
+import { HL_FILE_HASH_SEP, HL_FILE_PREFIX, HL_PAYLOAD_REPLACE } from "./format";
 
 /** Lines of context shown either side of a hash mismatch. */
 export const MISMATCH_CONTEXT = 2;
@@ -125,4 +125,18 @@ export const HEADTAIL_DRIFT_WARNING =
  */
 export function missingSnapshotTagMessage(sectionPath: string): string {
 	return `Missing hashline snapshot tag for edit to ${sectionPath}; use \`${HL_FILE_PREFIX}${sectionPath}${HL_FILE_HASH_SEP}tag\` from your latest read/search output. To create a new file, use the write tool.`;
+}
+
+/**
+ * A `+` body row whose text is itself a valid hunk header — the op was written
+ * with the payload prefix, so it is inserted into the file as literal text
+ * instead of executing. Warned rather than rejected: a literal `CUT …` line is
+ * legitimate content in documentation and test fixtures.
+ */
+export function literalOpRowWarning(line: number, text: string): string {
+	return (
+		`line ${line}: body row \`${HL_PAYLOAD_REPLACE}${text}\` is itself a valid hunk header, so it was inserted ` +
+		`into the file as literal text rather than executed. Ops are never \`${HL_PAYLOAD_REPLACE}\`-prefixed — drop ` +
+		`the \`${HL_PAYLOAD_REPLACE}\` to run it, and re-issue if this line landed in the file by mistake.`
+	);
 }

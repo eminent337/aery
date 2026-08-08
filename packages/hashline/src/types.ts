@@ -130,3 +130,10 @@ export interface BlockResolverRequest {
  * the contract; the host injects a tree-sitter-backed implementation.
  */
 export type BlockResolver = (request: BlockResolverRequest) => BlockSpan | null;
+
+/**
+ * Verifies that a text string parses cleanly under a given file's language.
+ * Returns `true` when the text parses without error; `false` when it fails to
+ * parse, when the language is unrecognized, or when no validator is available.
+ */
+export type ParseValidator = (path: string, text: string) => boolean;

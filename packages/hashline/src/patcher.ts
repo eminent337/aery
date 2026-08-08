@@ -33,7 +33,7 @@ import { MismatchError } from "./mismatch";
 import { detectLineEnding, type LineEnding, normalizeToLF, restoreLineEndings, stripBom } from "./normalize";
 import { Recovery, type RecoveryResult } from "./recovery";
 import type { SnapshotStore } from "./snapshots";
-import type { ApplyResult, BlockResolver, Edit } from "./types";
+import type { ApplyResult, BlockResolver, Edit, ParseValidator } from "./types";
 
 export interface PatcherOptions {
 	/** Storage backend used for all reads and writes. */
@@ -46,6 +46,11 @@ export interface PatcherOptions {
 	 * host did not wire a resolver). Plain line-range ops never need it.
 	 */
 	blockResolver?: BlockResolver;
+	/**
+	 * Validates whether text parses under the language inferred from a file path.
+	 * Secures delimiter-boundary repair against syntax corruption. Optional.
+	 */
+	parseValidator?: ParseValidator;
 }
 
 /** Per-section result returned by {@link Patcher.apply} / {@link Patcher.commit}. */
@@ -157,6 +162,7 @@ export class Patcher {
 	readonly snapshots: SnapshotStore;
 	readonly recovery: Recovery;
 	readonly blockResolver: BlockResolver | undefined;
+	readonly parseValidator: ParseValidator | undefined;
 
 	constructor(options: PatcherOptions) {
 		if (!options.snapshots) {
@@ -166,6 +172,7 @@ export class Patcher {
 		this.snapshots = options.snapshots;
 		this.recovery = new Recovery(options.snapshots);
 		this.blockResolver = options.blockResolver;
+		this.parseValidator = options.parseValidator;
 	}
 
 	/**
@@ -365,16 +372,18 @@ export class Patcher {
 			resolved = resolveBlockEdits(edits, baseText, section.path, this.blockResolver, { onUnresolved: "throw" });
 		}
 
-		if (expected === undefined) return applyEdits(normalized, resolved);
+		if (expected === undefined)
+			return applyEdits(normalized, resolved, { path: section.path, parseValidator: this.parseValidator });
 		// Whole-file unchanged → the tag still names the live content, so an
 		// edit anchored at ANY line (displayed or not) is safe to apply.
-		if (liveMatches) return applyEdits(normalized, resolved);
+		if (liveMatches)
+			return applyEdits(normalized, resolved, { path: section.path, parseValidator: this.parseValidator });
 		// Head/tail-only inserts are position-stable: "start"/"end" cannot move
 		// with content drift, so a stale tag is non-fatal. Apply onto the live
 		// content and warn instead of hard-failing — unlike an anchored
 		// mismatch, which cannot be safely relocated and must reject.
 		if (!hasAnchorScopedEdit(resolved)) {
-			const result = applyEdits(normalized, resolved);
+			const result = applyEdits(normalized, resolved, { path: section.path, parseValidator: this.parseValidator });
 			return { ...result, warnings: [HEADTAIL_DRIFT_WARNING, ...(result.warnings ?? [])] };
 		}
 		// File drifted: try to replay the edit against the version the tag

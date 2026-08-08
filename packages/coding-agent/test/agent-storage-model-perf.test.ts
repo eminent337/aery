@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { TempDir } from "@aryee337/aery-utils";
 import * as path from "node:path";
+import { TempDir } from "@aryee337/aery-utils";
 import { Settings } from "../src/config/settings";
 import { AgentStorage } from "../src/session/agent-storage";
 import { createSubagentSettings } from "../src/task/executor";
@@ -34,8 +34,8 @@ describe("AgentStorage model perf aggregates", () => {
 		tempDir = TempDir.createSync("@aery-subagent-perf-");
 		const dbPath = path.join(tempDir.path(), "agent.sqlite");
 		const storage = await AgentStorage.open(dbPath);
-		
-		const parent = Settings.isolated({ cwd: tempDir.path(), agentDir: tempDir.path() }, { storage });
+
+		const parent = Settings.isolated({}, { storage });
 		const subagent = createSubagentSettings(parent);
 
 		await subagent.getStorage()?.recordModelPerf("opencode-go/deepseek-v4-flash", {

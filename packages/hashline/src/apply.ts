@@ -96,6 +96,19 @@ function bucketAnchorEditsByLine(edits: IndexedEdit[]): Map<number, IndexedEdit[
 	}
 	return byLine;
 }
+/**
+ * A closer-spare repair could not tell which side of a spared delimiter the
+ * payload belongs on. Distinct from the evidence-complete textual rejections
+ * (a one-sided boundary echo) so {@link applyEdits} can withhold *only* this
+ * delimiter-semantics verdict on a file the parser cannot vouch for, while
+ * every other rejection propagates unconditionally.
+ */
+class CloserSpareAmbiguityError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "CloserSpareAmbiguityError";
+	}
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Replacement-boundary repair
@@ -408,9 +421,11 @@ function repairReplacementBoundaries(
 ): {
 	edits: AppliedEdit[];
 	warnings: string[];
+	sparesProposed?: boolean;
 } {
 	const out: AppliedEdit[] = [];
 	const warnings: string[] = [];
+	let sparesProposed = false;
 	let i = 0;
 	while (i < edits.length) {
 		const group = findReplacementGroup(edits, i);
@@ -439,6 +454,7 @@ function repairReplacementBoundaries(
 			continue;
 		}
 
+		sparesProposed = true;
 		const dupSuffix = findDuplicateSuffix(group, fileLines, delta);
 		if (dupSuffix > 0) {
 			warnings.push(
@@ -472,9 +488,19 @@ function repairReplacementBoundaries(
 			out.push(...inserts, ...deletes.slice(0, deletes.length - droppedClosers));
 			continue;
 		}
+		sparesProposed = false;
 		out.push(...inserts, ...deletes);
 	}
-	return { edits: out, warnings };
+	return { edits: out, warnings, sparesProposed };
+}
+
+export interface ApplyOptions {
+	path?: string;
+	/**
+	 * Validates whether text parses under the language inferred from a file path.
+	 * Secures delimiter-boundary repair against syntax corruption. Optional.
+	 */
+	parseValidator?: import("./types").ParseValidator;
 }
 
 /**
@@ -483,7 +509,7 @@ function repairReplacementBoundaries(
  * Returns the post-edit text and the first changed line number (1-indexed).
  * Throws if an anchor is out of bounds.
  */
-export function applyEdits(text: string, edits: readonly Edit[]): ApplyResult {
+export function applyEdits(text: string, edits: readonly Edit[], options?: ApplyOptions): ApplyResult {
 	if (edits.length === 0) return { text, firstChangedLine: undefined };
 
 	// Block edits are deferred until `resolveBlockEdits` expands them into
@@ -497,86 +523,125 @@ export function applyEdits(text: string, edits: readonly Edit[]): ApplyResult {
 	const fileLines = text.split("\n");
 	const lineOrigins: LineOrigin[] = fileLines.map(() => "original");
 
-	let firstChangedLine: number | undefined;
-	const trackFirstChanged = (line: number) => {
-		if (firstChangedLine === undefined || line < firstChangedLine) firstChangedLine = line;
-	};
-
 	const targetEdits = appliedEdits.map((edit, index) => cloneAppliedEdit(edit, index));
 	validateLineBounds(targetEdits, fileLines);
-	const { edits: repaired, warnings } = repairReplacementBoundaries(targetEdits, fileLines);
 
-	// Partition edits into bof, eof, and anchor-targeted buckets.
-	const bofLines: string[] = [];
-	const eofLines: string[] = [];
-	const anchorEdits: IndexedEdit[] = [];
-	repaired.forEach((edit, idx) => {
-		if (edit.kind === "insert" && edit.cursor.kind === "bof") {
-			bofLines.push(edit.text);
-		} else if (edit.kind === "insert" && edit.cursor.kind === "eof") {
-			eofLines.push(edit.text);
-		} else {
-			anchorEdits.push({ edit, idx });
+	const repairs = repairReplacementBoundaries(targetEdits, fileLines);
+
+	const applyConcrete = (concreteEdits: readonly AppliedEdit[]) => {
+		const outBofLines: string[] = [];
+		const outEofLines: string[] = [];
+		const outAnchorEdits: IndexedEdit[] = [];
+		concreteEdits.forEach((edit, idx) => {
+			if (edit.kind === "insert" && edit.cursor.kind === "bof") outBofLines.push(edit.text);
+			else if (edit.kind === "insert" && edit.cursor.kind === "eof") outEofLines.push(edit.text);
+			else outAnchorEdits.push({ edit, idx });
+		});
+
+		const outByLine = bucketAnchorEditsByLine(outAnchorEdits);
+		const outLines = [...fileLines];
+		const outOrigins = [...lineOrigins];
+		let firstChanged: number | undefined;
+
+		for (const line of [...outByLine.keys()].sort((a, b) => b - a)) {
+			const bucket = outByLine.get(line);
+			if (!bucket) continue;
+			bucket.sort((a, b) => a.idx - b.idx);
+
+			const idx = line - 1;
+			const currentLine = outLines[idx] ?? "";
+			const beforeInsertLines: string[] = [];
+			const afterInsertLines: string[] = [];
+			const replacementLines: string[] = [];
+			let deleteLine = false;
+
+			for (const { edit } of bucket) {
+				if (isReplacementInsert(edit)) replacementLines.push(edit.text);
+				else if (edit.kind === "insert" && edit.cursor.kind === "after_anchor") afterInsertLines.push(edit.text);
+				else if (edit.kind === "insert") beforeInsertLines.push(edit.text);
+				else if (edit.kind === "delete") deleteLine = true;
+			}
+			if (
+				beforeInsertLines.length === 0 &&
+				replacementLines.length === 0 &&
+				afterInsertLines.length === 0 &&
+				!deleteLine
+			)
+				continue;
+
+			const replacement = deleteLine
+				? [...beforeInsertLines, ...replacementLines, ...afterInsertLines]
+				: [...beforeInsertLines, ...replacementLines, currentLine, ...afterInsertLines];
+
+			const origins: LineOrigin[] = [];
+			for (let i = 0; i < beforeInsertLines.length; i++) origins.push("insert");
+			for (let i = 0; i < replacementLines.length; i++) origins.push(deleteLine ? "replacement" : "insert");
+			if (!deleteLine) origins.push(outOrigins[idx] ?? "original");
+			for (let i = 0; i < afterInsertLines.length; i++) origins.push("insert");
+
+			outLines.splice(idx, 1, ...replacement);
+			outOrigins.splice(idx, 1, ...origins);
+			if (firstChanged === undefined || line < firstChanged) firstChanged = line;
 		}
-	});
 
-	// Apply per-line buckets bottom-up so earlier indices stay valid.
-	const byLine = bucketAnchorEditsByLine(anchorEdits);
-	for (const line of [...byLine.keys()].sort((a, b) => b - a)) {
-		const bucket = byLine.get(line);
-		if (!bucket) continue;
-		bucket.sort((a, b) => a.idx - b.idx);
+		if (outBofLines.length > 0) {
+			insertAtStart(outLines, outOrigins, outBofLines);
+			if (firstChanged === undefined || 1 < firstChanged) firstChanged = 1;
+		}
+		const eofChangedLine = insertAtEnd(outLines, outOrigins, outEofLines);
+		if (eofChangedLine !== undefined && (firstChanged === undefined || eofChangedLine < firstChanged))
+			firstChanged = eofChangedLine;
 
-		const idx = line - 1;
-		const currentLine = fileLines[idx] ?? "";
-		const beforeInsertLines: string[] = [];
-		const afterInsertLines: string[] = [];
-		const replacementLines: string[] = [];
-		let deleteLine = false;
+		return { text: outLines.join("\n"), firstChangedLine: firstChanged };
+	};
 
-		for (const { edit } of bucket) {
-			if (isReplacementInsert(edit)) {
-				replacementLines.push(edit.text);
-			} else if (edit.kind === "insert" && edit.cursor.kind === "after_anchor") {
-				afterInsertLines.push(edit.text);
-			} else if (edit.kind === "insert") {
-				beforeInsertLines.push(edit.text);
-			} else if (edit.kind === "delete") {
-				deleteLine = true;
+	let finalEdits = targetEdits;
+	let finalWarnings: string[] = [];
+
+	if (options?.parseValidator && options.path) {
+		const validate = (t: string) => options.parseValidator!(options.path!, t);
+		const baselineParses = validate(text);
+
+		const authoredResult = applyConcrete(targetEdits);
+		const authoredParses = validate(authoredResult.text);
+
+		if (authoredParses) {
+			// Authored edits parse cleanly, use them without repairs
+			finalEdits = targetEdits;
+		} else {
+			// Authored edits do not parse cleanly
+			if (repairs.sparesProposed) {
+				try {
+					const repairedResult = applyConcrete(repairs.edits);
+					if (validate(repairedResult.text)) {
+						// Repairs parse cleanly, use them
+						finalEdits = repairs.edits;
+						finalWarnings = repairs.warnings;
+					} else {
+						// Repairs also do not parse cleanly (or unprovable language)
+						finalEdits = targetEdits;
+						if (baselineParses) finalWarnings = repairs.warnings;
+					}
+				} catch (error) {
+					if (baselineParses || !(error instanceof CloserSpareAmbiguityError)) throw error;
+					finalEdits = targetEdits;
+				}
+			} else {
+				// No repairs proposed, use authored edits
+				finalEdits = targetEdits;
+				if (baselineParses) finalWarnings = repairs.warnings;
 			}
 		}
-		if (
-			beforeInsertLines.length === 0 &&
-			replacementLines.length === 0 &&
-			afterInsertLines.length === 0 &&
-			!deleteLine
-		)
-			continue;
-
-		const replacement = deleteLine
-			? [...beforeInsertLines, ...replacementLines, ...afterInsertLines]
-			: [...beforeInsertLines, ...replacementLines, currentLine, ...afterInsertLines];
-		const origins: LineOrigin[] = [];
-		for (let i = 0; i < beforeInsertLines.length; i++) origins.push("insert");
-		for (let i = 0; i < replacementLines.length; i++) origins.push(deleteLine ? "replacement" : "insert");
-		if (!deleteLine) origins.push(lineOrigins[idx] ?? "original");
-		for (let i = 0; i < afterInsertLines.length; i++) origins.push("insert");
-
-		fileLines.splice(idx, 1, ...replacement);
-		lineOrigins.splice(idx, 1, ...origins);
-		trackFirstChanged(line);
+	} else {
+		// No validator available, just unconditionally apply repairs as before
+		finalEdits = repairs.edits;
+		finalWarnings = repairs.warnings;
 	}
 
-	if (bofLines.length > 0) {
-		insertAtStart(fileLines, lineOrigins, bofLines);
-		trackFirstChanged(1);
-	}
-	const eofChangedLine = insertAtEnd(fileLines, lineOrigins, eofLines);
-	if (eofChangedLine !== undefined) trackFirstChanged(eofChangedLine);
-
+	const result = applyConcrete(finalEdits);
 	return {
-		text: fileLines.join("\n"),
-		firstChangedLine,
-		...(warnings.length > 0 ? { warnings } : {}),
+		text: result.text,
+		firstChangedLine: result.firstChangedLine,
+		...(finalWarnings.length > 0 ? { warnings: finalWarnings } : {}),
 	};
 }

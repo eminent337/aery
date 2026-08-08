@@ -174,7 +174,7 @@ describe("SearchToolBm25Tool", () => {
 		const tool = new SearchToolBm25Tool(createSession(discoverableTools));
 
 		await expect(tool.execute("call-empty", { query: "   " })).rejects.toThrow(
-			"Query is required and must not be empty.",
+			"Query is required for search and must not be empty.",
 		);
 		await expect(tool.execute("call-limit", { query: "github", limit: 0 as never })).rejects.toThrow(
 			"Limit must be a positive integer.",

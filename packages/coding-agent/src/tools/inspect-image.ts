@@ -92,9 +92,7 @@ export class InspectImageTool implements AgentTool<typeof inspectImageSchema, In
 		const requiredCapabilities = ["image"] as const; // Extend this array as tools add more capabilities
 		const missingCapabilities = requiredCapabilities.filter(cap => !model.input.includes(cap));
 		if (missingCapabilities.length > 0 && this.session.setModel) {
-			const capableModel = availableModels.find(m => 
-				missingCapabilities.every(cap => m.input.includes(cap))
-			);
+			const capableModel = availableModels.find(m => missingCapabilities.every(cap => m.input.includes(cap)));
 			if (capableModel) {
 				try {
 					await this.session.setModel({
