@@ -222,6 +222,18 @@ export function discoverTitleSystemPromptFile(cwd?: string): string | undefined 
 	return undefined;
 }
 
+export function discoverBaseSystemPromptFile(cwd?: string): string | undefined {
+	const projectPath = findConfigFile("system-prompt.md", { user: false, cwd });
+	if (projectPath) {
+		return projectPath;
+	}
+	const globalPath = findConfigFile("system-prompt.md", { user: true, cwd });
+	if (globalPath) {
+		return globalPath;
+	}
+	return undefined;
+}
+
 export async function resolvePromptInput(input: string | undefined, description: string): Promise<string | undefined> {
 	if (!input) {
 		return undefined;
@@ -412,6 +424,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		memoryRootEnabled = false,
 	} = options;
 	const resolvedCwd = cwd ?? getProjectDir();
+	const effectiveCustomPrompt = customPrompt ?? discoverBaseSystemPromptFile(resolvedCwd);
 
 	const prepDefaults = {
 		resolvedCustomPrompt: undefined as string | undefined,
@@ -479,7 +492,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		await Promise.all([
 			withDeadline(
 				"customPrompt",
-				resolvePromptInput(customPrompt, "system prompt"),
+				resolvePromptInput(effectiveCustomPrompt, "system prompt"),
 				prepDefaults.resolvedCustomPrompt,
 			),
 			withDeadline(
