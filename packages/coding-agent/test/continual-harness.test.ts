@@ -71,9 +71,8 @@ describe("Harness State Management", () => {
 		};
 		
 		// Save
-		const path = saveHarnessState(dir, state);
+		const path = await saveHarnessState(dir, state);
 		expect(path).toContain(dir);
-		
 		// Load
 		const loaded = loadHarnessState(dir);
 		expect(loaded.entries.memory["test-id"]).toBeDefined();

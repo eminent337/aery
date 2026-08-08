@@ -142,7 +142,6 @@ export async function saveHarnessState(harnessStateDir: string, state: HarnessSt
 	}
 	return statePath;
 }
- */
 export function mergeHarnessStates(
 	globalState: HarnessState,
 	localState?: HarnessState,
