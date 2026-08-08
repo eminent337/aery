@@ -45,7 +45,6 @@ import { APP_NAME, MIN_BUN_VERSION, VERSION } from "@aryee337/aery-utils/dirs";
 import { commands, isSubcommand } from "./cli-commands";
 import { recoverStrandedFerments } from "./ferment/recovery.js";
 import { recoverStrandedSessions } from "./session/recovery.js";
-import { startSwarmWatchdog } from "./task/swarm/watchdog.js";
 
 if (Bun.semver.order(Bun.version, MIN_BUN_VERSION) < 0) {
 	process.stderr.write(
@@ -138,7 +137,6 @@ export async function runCli(argv: string[]): Promise<void> {
 		recoverStrandedSessions();
 	});
 	// Start the swarm watchdog to pause any stranded swarms
-	startSwarmWatchdog();
 
 	if (argv[0] === "--smoke-test") {
 		await runSmokeTest();

@@ -62,7 +62,7 @@ import { SetFastTool } from "./set-fast";
 import { SetModelTool } from "./set-model";
 import { ShadowWatchTool } from "./shadow";
 import { loadSshTool } from "./ssh";
-import { InvokeSubagentTool } from "./swarm";
+
 import { TaskCreateTool, TaskGetTool, TaskListTool, TaskStopTool, TaskUpdateTool } from "./task-tracker";
 import { type TodoPhase, TodoWriteTool } from "./todo-write";
 import { WriteTool } from "./write";
@@ -72,6 +72,9 @@ import { YieldTool } from "./yield";
 
 export * from "../edit";
 export * from "../exa";
+
+import { exaTools } from "../exa";
+import { CustomToolAdapter } from "../extensibility/custom-tools/wrapper";
 
 export type * from "../exa/types";
 export * from "../goals";
@@ -113,7 +116,7 @@ export * from "./set-fast";
 export * from "./set-model";
 export * from "./shadow";
 export * from "./ssh";
-export * from "./swarm";
+
 export * from "./task-tracker";
 export * from "./todo-write";
 export * from "./tts";
@@ -443,7 +446,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	retain: MemoryRetainTool.createIf,
 	recall: MemoryRecallTool.createIf,
 	reflect: MemoryReflectTool.createIf,
-	invoke_subagent: InvokeSubagentTool.createIf,
+
 	shadow_watch: ShadowWatchTool.createIf,
 	task_create: () => new TaskCreateTool(),
 	task_update: () => new TaskUpdateTool(),
@@ -456,6 +459,12 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	set_fast: s => new SetFastTool(s),
 	advisor: s => new AdvisorTool(s),
 	handoff: s => new HandoffTool(s),
+	...Object.fromEntries(
+		exaTools.map(tool => [
+			tool.name,
+			(s: ToolSession) => CustomToolAdapter.wrap(tool, () => ({ cwd: s.cwd }) as any),
+		]),
+	),
 };
 
 export const HIDDEN_TOOLS: Record<string, ToolFactory> = {
@@ -553,6 +562,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 		if (name === "todo_write") return !includeYield && session.settings.get("todo.enabled");
 		if (name === "find") return session.settings.get("find.enabled");
 		if (name === "search") return session.settings.get("search.enabled");
+		if (name.startsWith("exa_")) return session.settings.get("exa.enabled") !== false;
 		if (name === "github") return session.settings.get("github.enabled");
 		if (name === "ast_grep") return session.settings.get("astGrep.enabled");
 		if (name === "ast_edit") return session.settings.get("astEdit.enabled");

@@ -5,6 +5,8 @@ import * as os from "os";
 import * as path from "path";
 import { RpcClient } from "../modes/rpc/rpc-client";
 
+import { SqliteStateAdapter } from "./sqlite-state-adapter.js";
+
 const threadClients = new Map<string, RpcClient>();
 
 export interface ConnectTelegramOptions {
@@ -21,23 +23,10 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 		botToken: options.botToken,
 	});
 
-	class MemoryStateAdapter {
-		private store = new Map<string, any>();
-		async get(threadId: string) {
-			return this.store.get(threadId) ?? null;
-		}
-		async set(threadId: string, state: any) {
-			this.store.set(threadId, state);
-		}
-		async delete(threadId: string) {
-			this.store.delete(threadId);
-		}
-	}
-
 	const bot = new Chat({
 		userName: "aery",
 		adapters: { telegram },
-		state: new MemoryStateAdapter() as unknown as StateAdapter,
+		state: new SqliteStateAdapter() as unknown as StateAdapter,
 	}).registerSingleton();
 
 	bot.onNewMention(async (thread, msg) => {

@@ -82,9 +82,7 @@ export interface PlanOutput {
 	phases: PlannedPhase[];
 }
 
-export type PlanExtraction =
-	| { type: "linear"; plan: PlanOutput }
-	| { type: "swarm"; workflow: import("../../task/swarm/types.js").SwarmWorkflow };
+export type PlanExtraction = { type: "linear"; plan: PlanOutput };
 
 // ─── JSON parsing helpers ─────────────────────────────────────────────────────
 
@@ -109,18 +107,6 @@ function stripMarkdownJson(text: string): string {
  * Extract JSON or YAML from agent response text.
  */
 function extractPlan(text: string): PlanExtraction {
-	const yamlMatch = text.match(/```yaml\s*([\s\S]*?)```/i);
-	if (yamlMatch) {
-		try {
-			return {
-				type: "swarm",
-				workflow: yaml.parse(yamlMatch[1].trim()) as import("../../task/swarm/types.js").SwarmWorkflow,
-			};
-		} catch (err) {
-			throw new Error(`Failed to parse Swarm YAML:\n${err}`);
-		}
-	}
-
 	const stripped = stripMarkdownJson(text);
 	// Try to find JSON object in the text
 	const jsonMatch = stripped.match(/\{[\s\S]*\}/);
@@ -186,7 +172,7 @@ export class FasPlanner {
 	 * Sends a structured prompt, parses the JSON or YAML response, builds a Ferment or SwarmWorkflow,
 	 * and applies the scope transition to move it to "planned" status.
 	 */
-	async create(): Promise<Ferment | { type: "swarm"; workflow: import("../../task/swarm/types.js").SwarmWorkflow }> {
+	async create(): Promise<Ferment> {
 		this.#config.onProgress?.("Starting planner: scoping goal...");
 
 		// Build the planner prompt with the goal

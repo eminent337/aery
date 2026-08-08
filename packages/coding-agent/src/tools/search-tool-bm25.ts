@@ -2,6 +2,7 @@ import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallb
 import type { Component } from "@aryee337/aery-tui";
 import { Text } from "@aryee337/aery-tui";
 import { prompt } from "@aryee337/aery-utils";
+import { trace } from "@opentelemetry/api";
 import * as z from "zod/v4";
 import type { RenderResultOptions } from "../extensibility/custom-tools/types";
 import type { Theme } from "../modes/theme/theme";
@@ -26,8 +27,27 @@ const MATCH_LABEL_LEN = 72;
 const MATCH_DESCRIPTION_LEN = 96;
 
 const searchToolBm25Schema = z.object({
-	query: z.string().describe("tool search query"),
+	action: z
+		.enum(["search", "select", "suggest"])
+		.optional()
+		.describe(
+			"Phase. Defaults to select when `tool` is set, else search. Select the product actually chosen, even when it is not in the catalog. Suggest a capability gap only when no product was chosen.",
+		),
+	query: z.string().optional().describe("tool search query"),
 	limit: z.number().int().min(1).optional().describe("max matches"),
+	category: z.string().optional().describe("Category of the tool being searched or selected."),
+	tool: z
+		.string()
+		.min(2)
+		.max(100)
+		.optional()
+		.describe(
+			"For select: public name of the product actually chosen. Catalog selections return setup; off-catalog selections are recorded without provider information.",
+		),
+	reason: z.string().min(40).max(2000).optional().describe("Required for select: reason for choosing this tool."),
+	suggestion_kind: z.string().optional().describe("Required for suggest: kind of suggestion (e.g. known_product)."),
+	product_name: z.string().optional().describe("Required for suggest: name of the product."),
+	prior_request_id: z.string().optional().describe("Required for suggest: request id from a prior search."),
 });
 
 type SearchToolBm25Params = z.infer<typeof searchToolBm25Schema>;
@@ -43,12 +63,15 @@ interface SearchToolBm25Match {
 }
 
 export interface SearchToolBm25Details {
+	action: "search" | "select" | "suggest";
 	query: string;
 	limit: number;
 	total_tools: number;
 	activated_tools: string[];
 	active_selected_tools: string[];
 	tools: SearchToolBm25Match[];
+	selected_tool?: string;
+	suggestion?: string;
 }
 
 function formatMatch(tool: DiscoverableTool, score: number): SearchToolBm25Match {
@@ -64,6 +87,12 @@ function formatMatch(tool: DiscoverableTool, score: number): SearchToolBm25Match
 }
 
 function buildSearchToolBm25Content(details: SearchToolBm25Details): string {
+	if (details.action === "suggest") {
+		return "Suggestion recorded. Thank you.";
+	}
+	if (details.action === "select") {
+		return `Selected '${details.selected_tool}' from '${details.query || "unknown"}'.`;
+	}
 	return JSON.stringify({
 		query: details.query,
 		activated_tools: details.activated_tools,
@@ -217,9 +246,83 @@ export class SearchToolBm25Tool implements AgentTool<typeof searchToolBm25Schema
 			);
 		}
 
-		const query = params.query.trim();
+		let action = params.action;
+		if (!action) {
+			action = params.tool ? "select" : "search";
+		}
+
+		if (action === "select") {
+			if (!params.tool) {
+				throw new ToolError("integration action 'select' requires the chosen `tool` name");
+			}
+			if (!params.reason || params.reason.length < 40) {
+				throw new ToolError("integration action 'select' requires a `reason` of at least 40 characters");
+			}
+			const category = params.category ?? "unknown";
+			const toolName = params.tool.trim();
+
+			const searchIndex = getDiscoverableToolSearchIndexForExecution(this.session);
+			const normalizedToolName = toolName.toLowerCase();
+			const inCatalog = searchIndex.documents.some(
+				d => d.tool.name.toLowerCase() === normalizedToolName || d.tool.label.toLowerCase() === normalizedToolName,
+			);
+
+			if (!inCatalog) {
+				const span = trace.getActiveSpan();
+				if (span) {
+					span.setAttribute("aery.gen_ai.discovery.outcome", "off_catalog_select");
+					span.setAttribute("aery.gen_ai.discovery.failure_reason", "off_catalog_select");
+					span.setAttribute("aery.gen_ai.discovery.category", category);
+					span.setAttribute("aery.gen_ai.discovery.off_catalog_tool", toolName);
+				}
+				throw new ToolError(
+					`'${toolName}' is not in the Aery catalog for '${category}'. Only entries returned by action \`search\` can be selected; this name did not come from a listing. Either select one of the listed entries, or, if none fits, call action \`suggest\` with \`suggestion_kind: known_product\`, \`product_name: ${toolName}\`, and the \`prior_request_id\` from your search so maintainers see the gap. Do not install or configure '${toolName}' from memory as if Discovery had vetted it.`,
+				);
+			}
+
+			const activated = await activateTools(this.session, [normalizedToolName]);
+			const details: SearchToolBm25Details = {
+				action: "select",
+				query: params.query || "",
+				limit: params.limit ?? DEFAULT_LIMIT,
+				total_tools: searchIndex.documents.length,
+				activated_tools: activated,
+				active_selected_tools: getSelectedToolNames(this.session),
+				tools: [],
+				selected_tool: toolName,
+			};
+
+			return {
+				content: [{ type: "text", text: buildSearchToolBm25Content(details) }],
+				details,
+			};
+		}
+
+		if (action === "suggest") {
+			if (params.tool) {
+				throw new ToolError(
+					"integration action 'suggest' cannot include `tool`; use `product_name` for a known product",
+				);
+			}
+			const details: SearchToolBm25Details = {
+				action: "suggest",
+				query: params.query || "",
+				limit: params.limit ?? DEFAULT_LIMIT,
+				total_tools: getDiscoverableToolSearchIndexForExecution(this.session).documents.length,
+				activated_tools: [],
+				active_selected_tools: getSelectedToolNames(this.session),
+				tools: [],
+				suggestion: params.product_name || "unknown",
+			};
+			return {
+				content: [{ type: "text", text: buildSearchToolBm25Content(details) }],
+				details,
+			};
+		}
+
+		const query = (params.query || "").trim();
 		if (query.length === 0) {
-			throw new ToolError("Query is required and must not be empty.");
+			throw new ToolError("Query is required for search and must not be empty.");
 		}
 		const limit = params.limit ?? DEFAULT_LIMIT;
 		if (!Number.isInteger(limit) || limit <= 0) {
@@ -248,6 +351,7 @@ export class SearchToolBm25Tool implements AgentTool<typeof searchToolBm25Schema
 				: [];
 
 		const details: SearchToolBm25Details = {
+			action: "search",
 			query,
 			limit,
 			total_tools: searchIndex.documents.length,
@@ -265,13 +369,21 @@ export class SearchToolBm25Tool implements AgentTool<typeof searchToolBm25Schema
 
 export const searchToolBm25Renderer = {
 	renderCall(args: SearchToolBm25Params, _options: RenderResultOptions, uiTheme: Theme): Component {
-		const query = typeof args.query === "string" ? replaceTabs(args.query.trim()) : "";
+		let description = "(empty query)";
+		if (args.action === "select" || args.tool) {
+			description = `Selecting '${args.tool}'`;
+		} else if (args.action === "suggest") {
+			description = `Suggesting '${args.product_name}'`;
+		} else {
+			const query = typeof args.query === "string" ? replaceTabs(args.query.trim()) : "";
+			description = query || "(empty query)";
+		}
+
 		const meta = args.limit ? [`limit:${args.limit}`] : [];
+		if (args.action) meta.push(`action:${args.action}`);
+
 		return new Text(
-			renderStatusLine(
-				{ icon: "pending", title: TOOL_DISCOVERY_TITLE, description: query || "(empty query)", meta },
-				uiTheme,
-			),
+			renderStatusLine({ icon: "pending", title: TOOL_DISCOVERY_TITLE, description, meta }, uiTheme),
 			0,
 			0,
 		);
@@ -292,6 +404,21 @@ export const searchToolBm25Renderer = {
 		}
 
 		const { details } = result;
+		if (details.action === "select") {
+			const header = renderStatusLine(
+				{ icon: "success", title: TOOL_DISCOVERY_TITLE, description: `Selected '${details.selected_tool}'` },
+				uiTheme,
+			);
+			return new Text(header, 0, 0);
+		}
+		if (details.action === "suggest") {
+			const header = renderStatusLine(
+				{ icon: "success", title: TOOL_DISCOVERY_TITLE, description: `Suggested '${details.suggestion}'` },
+				uiTheme,
+			);
+			return new Text(header, 0, 0);
+		}
+
 		const meta = [
 			formatCount("match", details.tools.length),
 			`${details.active_selected_tools.length} active`,

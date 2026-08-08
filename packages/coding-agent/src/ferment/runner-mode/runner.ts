@@ -103,37 +103,7 @@ export class FasRunner {
 			}
 			const plannerResult = await this.#config.planner.create();
 
-			if ("type" in plannerResult && plannerResult.type === "swarm") {
-				const { SwarmScheduler } = await import("../../task/swarm/scheduler.js");
-				const scheduler = new SwarmScheduler(plannerResult.workflow);
-
-				const swarmName = plannerResult.workflow.name;
-				console.log(`Executing Swarm workflow: ${swarmName}`);
-
-				await scheduler.execute({
-					sessionManager: this.#config.session.sessionManager,
-					session: this.#config.session,
-					settings: this.#config.session.settings,
-				});
-
-				const now = new Date().toISOString();
-				this.#isRunning = false;
-				return {
-					id: `swarm-${Date.now()}`,
-					name: plannerResult.workflow.name,
-					status: "complete",
-					goal: _goal,
-					worktree: { path: process.cwd() },
-					scoping: {},
-					phases: [],
-					decisions: [],
-					memories: [],
-					createdAt: now,
-					updatedAt: now,
-				} as Ferment;
-			}
-
-			ferment = plannerResult as Ferment;
+			ferment = plannerResult;
 		}
 
 		this.#currentFerment = ferment;
