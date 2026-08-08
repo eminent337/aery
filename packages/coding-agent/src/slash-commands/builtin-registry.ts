@@ -440,7 +440,6 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	},
 	{
 		name: "switch",
-		name: "switch",
 		description: "Switch model for this session (same as alt+p)",
 		handleTui: (_command, runtime) => {
 			runtime.ctx.showModelSelector({ temporaryOnly: true });
