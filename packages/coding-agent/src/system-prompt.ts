@@ -238,16 +238,17 @@ export async function resolvePromptInput(input: string | undefined, description:
 	if (!input) {
 		return undefined;
 	} else if (input.includes("\n")) {
-		return input;
+		return input.trim() || undefined;
 	}
 
 	try {
-		return await Bun.file(input).text();
+		const text = await Bun.file(input).text();
+		return text.trim() || undefined;
 	} catch (error) {
 		if (!hasFsCode(error, "ENAMETOOLONG") && !isEnoent(error)) {
 			logger.warn(`Could not read ${description} file`, { path: input, error: String(error) });
 		}
-		return input;
+		return input.trim() || undefined;
 	}
 }
 
