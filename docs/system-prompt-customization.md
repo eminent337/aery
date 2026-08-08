@@ -105,10 +105,10 @@ When you change a public function, run `bun check` before yielding.
 
 ### "Replace the stable default instructions" — bring your own base prompt
 
-Use `SYSTEM.md` (or `--system-prompt`). You replace the stable default instructions in block 0, but normal CLI startup still preserves the dynamic project/environment footer block (`project-prompt.md`): workstation info, context files, dir-context list, workspace tree, current date, cwd, and related project context.
+Use `SYSTEM.md` (or `--system-prompt`) or `.aery/system-prompt.md`. You replace the stable default instructions in block 0, but normal CLI startup still preserves the dynamic project/environment footer block (`project-prompt.md`): workstation info, context files, dir-context list, workspace tree, current date, cwd, and related project context.
 
 ```text
-# ~/.aery/agent/SYSTEM.md
+# ~/.aery/agent/SYSTEM.md or .aery/system-prompt.md
 You are a code reviewer. Read diffs, surface issues, never edit files.
 - Cite paths with backticks.
 - Prefer concrete fixes over abstract advice.
@@ -161,9 +161,9 @@ Net effect for CLI users: put `SYSTEM.md` / `APPEND_SYSTEM.md` directly under `<
 | Goal | Use |
 |---|---|
 | Add an instruction on top of the full default prompt | `APPEND_SYSTEM.md` or `--append-system-prompt` |
-| Replace the stable default instructions but keep project/environment context | `SYSTEM.md` or `--system-prompt` |
+| Replace the stable default instructions but keep project/environment context | `SYSTEM.md`, `system-prompt.md`, or `--system-prompt` |
 | Preserve generated skills/rules/tool guidance while customizing | `APPEND_SYSTEM.md`; `SYSTEM.md` replaces that generated block |
 | Use `{{cwd}}` / `{{date}}` / other internals in my file | Not supported. Files are inserted verbatim. |
 | Inherit specific sections from `system-prompt.md` | Not supported; use append, or copy what you need into `SYSTEM.md`. |
-| Override at a per-repo level | Project `.aery/SYSTEM.md` under the cwd you launch `aery` from |
-| Override globally | `~/.aery/agent/SYSTEM.md` or `~/.aery/agent/APPEND_SYSTEM.md` |
+| Override at a per-repo level | Project `.aery/SYSTEM.md` or `.aery/system-prompt.md` under the cwd you launch `aery` from |
+| Override globally | `~/.aery/agent/SYSTEM.md`, `~/.aery/system-prompt.md`, or `~/.aery/agent/APPEND_SYSTEM.md` |
