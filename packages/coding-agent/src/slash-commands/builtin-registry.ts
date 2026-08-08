@@ -351,7 +351,6 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
-	{
 		name: "schedule",
 		description: "Schedule recurring session execution",
 		subcommands: [
