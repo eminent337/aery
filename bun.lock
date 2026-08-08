@@ -130,7 +130,6 @@
         "turndown": "catalog:",
         "turndown-plugin-gfm": "catalog:",
         "typescript": "6.0.3",
-        "yaml": "2.9.0",
         "zod": "catalog:",
       },
       "devDependencies": {

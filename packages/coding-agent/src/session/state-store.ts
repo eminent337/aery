@@ -16,7 +16,7 @@ const instances = new Map<string, SessionStateStore>();
 
 /**
  * A typed JSON/snapshot store for interrupt/resume of agent sessions.
- * Mirrors the pattern established by FermentStore and SwarmStore.
+ * Mirrors the pattern established by FermentStore.
  */
 export class SessionStateStore {
 	#db: Database;

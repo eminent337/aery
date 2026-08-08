@@ -5,7 +5,6 @@
  * then parses the response and constructs a Ferment object.
  */
 
-import * as yaml from "yaml";
 import type { AgentSession } from "../../session/agent-session.js";
 import { addCard } from "../../task/kanban/board.js";
 import type { FermentCommand, ScopePhaseInput } from "../commands.js";
@@ -19,8 +18,8 @@ const PLANNER_PROMPT = `You are a project planner. Given the goal below, create 
 
 Goal: {goal}
 
-If the goal is large, complex, and can be parallelized, generate a Swarm YAML workflow.
-Otherwise, produce a standard linear plan in JSON.
+If the goal is large, complex, and can be parallelized, break it into phases of parallelizable steps.
+Produce a single standard linear plan in JSON.
 
 OPTION 1: Standard Linear Plan (JSON)
 Produce STRICT JSON in this format (no markdown code blocks):
@@ -39,21 +38,6 @@ Produce STRICT JSON in this format (no markdown code blocks):
     }}
   ]
 }}
-
-OPTION 2: Swarm Workflow (YAML)
-Output a STRICT YAML block (wrapped in \`\`\`yaml) that defines a Swarm workflow. The workflow should break the goal down into parallelizable tasks.
-\`\`\`yaml
-name: Workflow name
-maxConcurrency: 3
-tasks:
-  - id: step1
-    agent: coder
-    assignment: "..."
-  - id: step2
-    agent: coder
-    assignment: "..."
-    needs: [step1]
-\`\`\`
 `;
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
@@ -169,7 +153,7 @@ export class FasPlanner {
 
 	/**
 	 * Drive the agent to scope and plan a new ferment.
-	 * Sends a structured prompt, parses the JSON or YAML response, builds a Ferment or SwarmWorkflow,
+	 * Sends a structured prompt, parses the JSON response, builds a Ferment,
 	 * and applies the scope transition to move it to "planned" status.
 	 */
 	async create(): Promise<Ferment> {
@@ -197,11 +181,6 @@ export class FasPlanner {
 			throw new Error(
 				`Failed to parse plan from agent response. ${err instanceof Error ? err.message : String(err)}\n\nRaw response:\n${responseText.slice(0, 1000)}`,
 			);
-		}
-
-		if (extraction.type === "swarm") {
-			this.#config.onProgress?.(`Swarm workflow received: ${extraction.workflow.tasks?.length ?? 0} tasks.`);
-			return extraction;
 		}
 
 		const plan = extraction.plan;

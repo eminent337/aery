@@ -136,7 +136,6 @@ export async function runCli(argv: string[]): Promise<void> {
 		recoverStrandedFerments();
 		recoverStrandedSessions();
 	});
-	// Start the swarm watchdog to pause any stranded swarms
 
 	if (argv[0] === "--smoke-test") {
 		await runSmokeTest();

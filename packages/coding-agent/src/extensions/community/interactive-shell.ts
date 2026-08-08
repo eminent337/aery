@@ -1,11 +1,6 @@
-import type { AeryExtension, ExtensionAPI, SwarmAwareExtensionAPI } from "@aryee337/aery-sdk";
+import type { AeryExtension, ExtensionAPI } from "@aryee337/aery-sdk";
 
 const extension: AeryExtension = (baseApi: ExtensionAPI) => {
-	const api = baseApi as unknown as SwarmAwareExtensionAPI;
-	if (api.declareSwarmRole) {
-		api.declareSwarmRole({ role: "interactive-shell", capabilities: ["pty"] });
-	}
-
 	baseApi.registerTool({
 		name: "shell_open",
 		description: "Open an interactive shell PTY embedded in the TUI",
