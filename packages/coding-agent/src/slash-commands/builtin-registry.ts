@@ -422,6 +422,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			runtime.ctx.editor.setText("");
 		},
 	},
+	{
+		name: "model",
+		description: "Show current model selection",
+		acpDescription: "Show current model selection",
+		handle: async (command, runtime) => {
 			const model = runtime.session.model;
 			await runtime.output(
 				model ? `Current model: ${model.provider}/${model.id}` : "No model is currently selected.",
@@ -431,6 +436,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		handleTui: (_command, runtime) => {
 			runtime.ctx.showModelSelector();
 			runtime.ctx.editor.setText("");
+		},
+	},
 		},
 	},
 	{
