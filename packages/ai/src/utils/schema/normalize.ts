@@ -8,7 +8,6 @@
  */
 import { logger } from "@aryee337/aery-utils";
 import { dereferenceJsonSchema } from "./dereference";
-import { applyDialect } from "./dialect";
 import { upgradeJsonSchemaTo202012 } from "./draft";
 import { areJsonValuesEqual, mergePropertySchemas } from "./equality";
 import {
@@ -17,9 +16,9 @@ import {
 	COMBINATOR_KEYS,
 	LIFTABLE_TO_DESCRIPTION_FIELDS,
 	NON_STRUCTURAL_SCHEMA_KEYS,
+	UNSUPPORTED_SCHEMA_FIELDS,
 } from "./fields";
 import { isValidJsonSchema } from "./meta-validator";
-import { AERY_BRIDGE, AERY_CLAUDE, ANTHROPIC, GEMINI, OPENAI, OPENROUTER } from "./registry";
 import { type DescriptionSpillFormat, spillToDescription } from "./spill";
 import { enter, epochNext, exit, once, stamp } from "./stamps";
 import { isJsonObject, isJsonObjectEmpty, type JsonObject } from "./types";
@@ -71,6 +70,19 @@ const SNAKE_TO_CAMEL_RENAMES = new Map<string, string>([
 
 const JSON_SCHEMA_COMBINERS = ["anyOf", "oneOf"] as const;
 const CCA_FORBIDDEN_COMBINERS = new Set(["anyOf", "oneOf", "allOf"]);
+
+const CLOUD_CODE_ASSIST_CLAUDE_FALLBACK_SCHEMA = {
+	type: "object",
+	properties: {},
+} as const;
+
+function isGoogleUnsupportedSchemaField(key: string): boolean {
+	return Object.hasOwn(UNSUPPORTED_SCHEMA_FIELDS, key);
+}
+
+function isMcpUnsupportedSchemaField(key: string): boolean {
+	return key === "$schema";
+}
 
 function isDefaultLiftableToDescriptionField(key: string): boolean {
 	return Object.hasOwn(LIFTABLE_TO_DESCRIPTION_FIELDS, key);
@@ -783,45 +795,267 @@ export function normalizeSchema(value: unknown, options: NormalizeSchemaOptions)
 }
 
 export function normalizeSchemaForGemini(value: unknown): unknown {
-	const detoxified = decontaminateZodInstance(value);
-	const upgraded = upgradeJsonSchemaTo202012(detoxified);
-	const dereferenced = dereferenceJsonSchema(upgraded);
-	return applyDialect(dereferenced, GEMINI);
+	return normalizeSchema(value, {
+		unsupportedFields: isGoogleUnsupportedSchemaField,
+		normalizeFieldNames: true,
+		collapseNullFields: true,
+		normalizeTypeArrayToNullable: true,
+		stripNullableKeyword: false,
+		autoPropertyOrdering: true,
+		ensureObjectProperties: true,
+		liftStrippedToDescription: { format: "spill" },
+		mergeObjectCombiners: false,
+		collapseSameTypeCombiners: false,
+		collapseMixedTypeCombiners: false,
+		stripResidualCombinersFixpoint: false,
+		extractNullableFromUnions: false,
+	});
 }
 
 export function normalizeSchemaForAeryClaude(value: unknown): unknown {
-	const detoxified = decontaminateZodInstance(value);
-	const upgraded = upgradeJsonSchemaTo202012(detoxified);
-	const dereferenced = dereferenceJsonSchema(upgraded);
-	return applyDialect(dereferenced, AERY_CLAUDE);
+	return normalizeSchema(value, {
+		unsupportedFields: isGoogleUnsupportedSchemaField,
+		normalizeFieldNames: true,
+		collapseNullFields: false,
+		normalizeTypeArrayToNullable: true,
+		stripNullableKeyword: true,
+		autoPropertyOrdering: false,
+		ensureObjectProperties: true,
+		liftStrippedToDescription: { format: "spill" },
+		mergeObjectCombiners: true,
+		collapseSameTypeCombiners: true,
+		collapseMixedTypeCombiners: true,
+		stripResidualCombinersFixpoint: true,
+		extractNullableFromUnions: true,
+		rejectResidualIncompatibilities: ["type-array", "type-null", "nullable", "combiners"],
+		validateAndFallback: { fallback: CLOUD_CODE_ASSIST_CLAUDE_FALLBACK_SCHEMA },
+	});
 }
 
 export function normalizeSchemaForAeryBridge(value: unknown): unknown {
-	const detoxified = decontaminateZodInstance(value);
-	const upgraded = upgradeJsonSchemaTo202012(detoxified);
-	const dereferenced = dereferenceJsonSchema(upgraded);
-	return applyDialect(dereferenced, AERY_BRIDGE);
+	return normalizeSchema(value, {
+		unsupportedFields: isMcpUnsupportedSchemaField,
+		normalizeFieldNames: false,
+		collapseNullFields: false,
+		normalizeTypeArrayToNullable: false,
+		stripNullableKeyword: true,
+		autoPropertyOrdering: false,
+		ensureObjectProperties: false,
+		liftStrippedToDescription: false,
+		mergeObjectCombiners: false,
+		collapseSameTypeCombiners: false,
+		collapseMixedTypeCombiners: false,
+		stripResidualCombinersFixpoint: false,
+		extractNullableFromUnions: false,
+	});
+}
+
+const ANTHROPIC_TOOL_SCHEMA_UNIVERSAL_KEEP = new Set([
+	"$ref",
+	"$defs",
+	"$schema",
+	"definitions",
+	"type",
+	"anyOf",
+	"oneOf",
+	"allOf",
+	"enum",
+	"const",
+	"description",
+	"title",
+	"default",
+	"nullable",
+]);
+/** Keys preserved on `type: "object"` nodes (in addition to the universal set). */
+const ANTHROPIC_TOOL_SCHEMA_OBJECT_KEEP = new Set(["properties", "required", "additionalProperties"]);
+/** Keys preserved on `type: "array"` nodes; `minItems` only when its value is 0 or 1. */
+const ANTHROPIC_TOOL_SCHEMA_ARRAY_KEEP = new Set(["items", "prefixItems", "minItems"]);
+/** Keys preserved on `type: "string"` nodes; `format` only when its value is in the supported list. */
+const ANTHROPIC_TOOL_SCHEMA_STRING_KEEP = new Set(["format"]);
+/**
+ * String `format` values Anthropic accepts; everything else (including `pattern`-style
+ * format hints) gets demoted into `description`. Matches `SupportedStringFormats` in the
+ * Anthropic SDK's `_transform.py`.
+ */
+const ANTHROPIC_TOOL_SCHEMA_STRING_FORMATS = new Set([
+	"date-time",
+	"time",
+	"date",
+	"duration",
+	"email",
+	"hostname",
+	"uri",
+	"ipv4",
+	"ipv6",
+	"uuid",
+]);
+
+/**
+ * Pick the principal non-null scalar type from a `type` keyword. Anthropic accepts
+ * `type` as either a single string or an array (e.g. `["number", "null"]` for a
+ * nullable value); the SDK whitelist is keyed off the scalar type, with `"null"`
+ * ignored so nullable variants are normalized as their underlying type.
+ */
+function pickAnthropicScalarType(type: unknown): string | undefined {
+	if (typeof type === "string") return type;
+	if (Array.isArray(type)) {
+		for (const entry of type) {
+			if (typeof entry === "string" && entry !== "null") return entry;
+		}
+	}
+	return undefined;
+}
+
+function anthropicPerTypeKeep(scalarType: string | undefined): Set<string> | undefined {
+	switch (scalarType) {
+		case "object":
+			return ANTHROPIC_TOOL_SCHEMA_OBJECT_KEEP;
+		case "array":
+			return ANTHROPIC_TOOL_SCHEMA_ARRAY_KEEP;
+		case "string":
+			return ANTHROPIC_TOOL_SCHEMA_STRING_KEEP;
+		default:
+			return undefined;
+	}
+}
+
+/**
+ * Per-schema-object memoization slot for the normalized Anthropic tool form. We stamp
+ * the result onto the host via a `Symbol` property (mirroring `utils/schema/stamps.ts`)
+ * instead of using a `WeakMap`: it's a single hidden-class slot, so warm reads are
+ * direct property access and write-once cycles resolve to the in-progress result.
+ */
+const kAnthropicToolNormal = Symbol("aery.schema.anthropic.toolNormal");
+
+/**
+ * Normalize a JSON Schema node for Anthropic tool `input_schema`.
+ *
+ * Applies the full whitelist semantics from the Anthropic Python SDK's
+ * `lib/_parse/_transform.py::transform_schema`:
+ *
+ * 1. Universal keys (`$ref`, `$defs`, `type`, `anyOf`/`oneOf`/`allOf`, `enum`, `const`,
+ *    `description`, `title`, `default`, `nullable`) are preserved on every node.
+ * 2. Per-type keys are kept additively (object → `properties`/`required`/`additionalProperties`,
+ *    array → `items`/`prefixItems` plus `minItems` only when 0 or 1, string → `format`
+ *    only when in the supported value set).
+ * 3. Everything else is demoted into the node's `description` as `\n\n{key: value, ...}`
+ *    so the model still sees the constraint as a natural-language hint.
+ *
+ * Object nodes default to `additionalProperties: false`, but explicit open-map
+ * declarations (`additionalProperties: true` or a schema literal — Zod's
+ * `z.record(z.string(), z.unknown())` produces `{}`) are preserved. The strict-mode
+ * pass downstream demotes those shapes to non-strict instead of fabricating a closed
+ * object, so callers like the resolve tool keep working open-map semantics.
+ */
+function normalizeAnthropicToolSchema(schema: unknown): unknown {
+	if (Array.isArray(schema)) return schema.map(entry => normalizeAnthropicToolSchema(entry));
+	if (!isJsonObject(schema)) return schema;
+
+	const slot = schema as Record<symbol, Record<string, unknown> | undefined>;
+	const existing = slot[kAnthropicToolNormal];
+	if (existing !== undefined) return existing;
+
+	const result: Record<string, unknown> = {};
+	// Pre-stamp before recursion so cyclic schemas resolve to the in-progress object
+	// (mirrors the WeakMap-set-before-recurse pattern the original implementation used).
+	Object.defineProperty(schema, kAnthropicToolNormal, { value: result, writable: true, configurable: true });
+
+	const scalarType = pickAnthropicScalarType(schema.type);
+	const perTypeKeep = anthropicPerTypeKeep(scalarType);
+	const spill: Array<[string, unknown]> = [];
+
+	for (const key in schema) {
+		if (!Object.hasOwn(schema, key)) continue;
+		const value = schema[key];
+		if (ANTHROPIC_TOOL_SCHEMA_UNIVERSAL_KEEP.has(key) || perTypeKeep?.has(key)) {
+			result[key] = value;
+		} else {
+			spill.push([key, value]);
+		}
+	}
+
+	// Per-type conditional keys: prune within the kept set.
+	if (scalarType === "string") {
+		const format = result.format;
+		if (typeof format === "string" && !ANTHROPIC_TOOL_SCHEMA_STRING_FORMATS.has(format)) {
+			spill.push(["format", format]);
+			delete result.format;
+		}
+	}
+	if (scalarType === "array" && result.minItems !== undefined) {
+		const minItems = result.minItems;
+		if (!(typeof minItems === "number" && (minItems === 0 || minItems === 1))) {
+			spill.push(["minItems", minItems]);
+			delete result.minItems;
+		}
+	}
+	if (scalarType === "object" && result.additionalProperties === undefined) {
+		result.additionalProperties = false;
+	}
+
+	// Recurse on structural keys.
+	if (isJsonObject(result.properties)) {
+		const normalizedProperties: Record<string, unknown> = {};
+		const sourceProperties = result.properties as Record<string, unknown>;
+		for (const propName in sourceProperties) {
+			if (!Object.hasOwn(sourceProperties, propName)) continue;
+			normalizedProperties[propName] = normalizeAnthropicToolSchema(sourceProperties[propName]);
+		}
+		result.properties = normalizedProperties;
+	}
+	if (isJsonObject(result.additionalProperties)) {
+		const normalized = normalizeAnthropicToolSchema(result.additionalProperties);
+		if (isJsonObject(normalized) && Object.keys(normalized).length === 0) {
+			result.additionalProperties = true;
+		} else {
+			result.additionalProperties = normalized;
+		}
+	}
+	if (Array.isArray(result.items)) {
+		result.items = result.items.map(item => normalizeAnthropicToolSchema(item));
+	} else if (isJsonObject(result.items)) {
+		result.items = normalizeAnthropicToolSchema(result.items);
+	}
+	if (Array.isArray(result.prefixItems)) {
+		result.prefixItems = result.prefixItems.map(item => normalizeAnthropicToolSchema(item));
+	}
+	for (const key of COMBINATOR_KEYS) {
+		const variants = result[key];
+		if (Array.isArray(variants)) {
+			result[key] = variants.map(variant => normalizeAnthropicToolSchema(variant));
+		}
+	}
+	for (const defsKey of ["$defs", "definitions"] as const) {
+		const definitions = result[defsKey];
+		if (!isJsonObject(definitions)) continue;
+		const normalizedDefs: Record<string, unknown> = {};
+		const sourceDefs = definitions as Record<string, unknown>;
+		for (const name in sourceDefs) {
+			if (!Object.hasOwn(sourceDefs, name)) continue;
+			normalizedDefs[name] = normalizeAnthropicToolSchema(sourceDefs[name]);
+		}
+		result[defsKey] = normalizedDefs;
+	}
+
+	spillToDescription(result, spill);
+	return result;
 }
 
 export function normalizeSchemaForAnthropic(value: unknown): unknown {
-	const detoxified = decontaminateZodInstance(value);
-	const upgraded = upgradeJsonSchemaTo202012(detoxified);
-	const dereferenced = dereferenceJsonSchema(upgraded);
-	return applyDialect(dereferenced, ANTHROPIC);
+	return normalizeAnthropicToolSchema(decontaminateZodInstance(value));
 }
 
 export function normalizeSchemaForOpenAI(value: unknown): unknown {
-	const detoxified = decontaminateZodInstance(value);
-	const upgraded = upgradeJsonSchemaTo202012(detoxified);
-	const dereferenced = dereferenceJsonSchema(upgraded);
-	return applyDialect(dereferenced, OPENAI);
+	// OpenAI's tool `parameters` must reject `oneOf` and require a `properties`
+	// member on every object node in schema-valued positions. The pre-port path
+	// (and the strict-mode pass below) routes through `sanitizeSchemaForOpenAIResponses`
+	// rather than a generic dialect walker — it is identity-preserving and never
+	// stamps epoch/cycle markers onto the returned tree (see `openai-codex.test.ts`).
+	return sanitizeSchemaForOpenAIResponses(decontaminateZodInstance(value) as JsonObject);
 }
 
 export function normalizeSchemaForOpenRouter(value: unknown): unknown {
-	const detoxified = decontaminateZodInstance(value);
-	const upgraded = upgradeJsonSchemaTo202012(detoxified);
-	const dereferenced = dereferenceJsonSchema(upgraded);
-	return applyDialect(dereferenced, OPENROUTER);
+	return sanitizeSchemaForOpenAIResponses(decontaminateZodInstance(value) as JsonObject);
 }
 
 // ---------------------------------------------------------------------------
