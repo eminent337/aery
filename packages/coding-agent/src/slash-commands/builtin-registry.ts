@@ -438,9 +438,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			runtime.ctx.editor.setText("");
 		},
 	},
-		},
-	},
 	{
+		name: "switch",
 		name: "switch",
 		description: "Switch model for this session (same as alt+p)",
 		handleTui: (_command, runtime) => {
