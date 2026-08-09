@@ -148,12 +148,11 @@ describe("runEvalRlm", () => {
 
 		expect(handle1).toBeDefined();
 		expect(handle1.id).toBeTruthy();
+		expect(handle1.name).toBeTruthy();
 		expect(handle1.sessionId).toBe(session1.getSessionId());
+
 		const listResult1 = runEvalRlmList({}, { session: session1 });
 		expect(listResult1.subagents).toHaveLength(1);
-		expect(listResult1.subagents[0].id).toBe(handle1.id);
-		expect(listResult1.subagents[0].name).toBe(handle1.name);
-		disposeRlmRegistry(session1.getEvalSessionId()! ?? session1.getSessionId()! ?? "unknown");
 		expect(listResult1.subagents[0].id).toBe(handle1.id);
 		expect(listResult1.subagents[0].name).toBe(handle1.name);
 
@@ -175,9 +174,11 @@ describe("runEvalRlm", () => {
 		const { session: session2 } = makeEvalSession(tempDir2, "cleanup-test");
 
 		const handle2 = await runEvalRlm({ prompt: "test prompt" }, { session: session2 });
-		disposeRlmRegistry(session2.getEvalSessionId()! ?? session2.getSessionId()! ?? "unknown");
+		expect(handle2).toBeDefined();
+
+		disposeRlmRegistry(session2.getEvalSessionId() ?? session2.getSessionId() ?? "unknown");
+
 		const listResult2 = runEvalRlmList({}, { session: session2 });
-		expect(listResult2.subagents).toHaveLength(0);
 		expect(listResult2.subagents).toHaveLength(0);
 	});
 });
@@ -186,8 +187,11 @@ describe("runEvalRlmList", () => {
 	it("returns empty list when no subagents are tracked", () => {
 		const tempDir3 = TempDir.createSync("rlm-list-empty-");
 		const { session: session3 } = makeEvalSession(tempDir3, "empty");
+		const result = runEvalRlmList({}, { session: session3 });
 		expect(result).toEqual({ subagents: [] });
-		disposeRlmRegistry(session3.getEvalSessionId()! ?? session3.getSessionId()! ?? "unknown");
+		disposeRlmRegistry(session3.getEvalSessionId() ?? session3.getSessionId() ?? "unknown");
+	});
+
 	it("returns active subagents from registry", async () => {
 		mockAgents();
 		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
@@ -208,7 +212,9 @@ describe("runEvalRlmList", () => {
 		const result = runEvalRlmList({}, { session: session4 });
 		expect(result.subagents).toHaveLength(2);
 		expect(result.subagents.map(h => h.id)).toContain(handle3.id);
-		disposeRlmRegistry(session4.getEvalSessionId()! ?? session4.getSessionId()! ?? "unknown");
+		expect(result.subagents.map(h => h.id)).toContain(handle4.id);
+
+		disposeRlmRegistry(session4.getEvalSessionId() ?? session4.getSessionId() ?? "unknown");
 	});
 });
 
