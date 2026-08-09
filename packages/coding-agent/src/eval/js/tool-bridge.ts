@@ -129,6 +129,7 @@ export async function callSessionTool(name: string, args: unknown, options: Tool
 	}
 	if (name === EVAL_RLM_LIST_BRIDGE_NAME) {
 		return runEvalRlmList(args, options);
+	}
 	if (name === EVAL_AGENT_MESSAGE_BRIDGE_NAME) {
 		return runEvalAgentMessage(args, options) as ToolValue;
 	}
