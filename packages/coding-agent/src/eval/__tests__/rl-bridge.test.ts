@@ -20,14 +20,22 @@ import { disposeAllKernelSessions } from "../py/executor";
 
 const taskAgent = {
 	name: "task",
+	description: "Task agent",
+	systemPrompt: "Run the task.",
+	source: "bundled",
 	tools: ["read", "write", "edit", "grep", "find", "ls"],
 	spawns: "*",
+	model: ["aery/task"],
 } satisfies AgentDefinition;
 
 const reviewerAgent = {
 	name: "reviewer",
+	description: "Reviewer agent",
+	systemPrompt: "Review the task.",
+	source: "bundled",
 	tools: ["read", "write", "edit", "grep", "find", "ls"],
 	spawns: "*",
+	model: ["aery/smol"],
 } satisfies AgentDefinition;
 
 interface SessionOptions {
@@ -148,7 +156,7 @@ describe("runEvalRlm", () => {
 		expect(listResult.subagents[0].id).toBe(handle.id);
 		expect(listResult.subagents[0].name).toBe(handle.name);
 
-		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId());
+		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId() ?? "unknown");
 	});
 
 	it("removes subagent from registry on completion", async () => {
@@ -168,7 +176,7 @@ describe("runEvalRlm", () => {
 		const handle = await runEvalRlm({ prompt: "test prompt" }, { session });
 		expect(handle).toBeDefined();
 
-		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId());
+		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId() ?? "unknown");
 
 		const listResult = runEvalRlmList({}, { session });
 		expect(listResult.subagents).toHaveLength(0);
@@ -181,7 +189,7 @@ describe("runEvalRlmList", () => {
 		const { session } = makeEvalSession(tempDir, "empty");
 		const result = runEvalRlmList({}, { session });
 		expect(result).toEqual({ subagents: [] });
-		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId());
+		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId() ?? "unknown");
 	});
 
 	it("returns active subagents from registry", async () => {
@@ -206,7 +214,7 @@ describe("runEvalRlmList", () => {
 		expect(result.subagents.map(h => h.id)).toContain(handle1.id);
 		expect(result.subagents.map(h => h.id)).toContain(handle2.id);
 
-		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId());
+		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId() ?? "unknown");
 	});
 });
 

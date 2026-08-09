@@ -18,13 +18,13 @@ export const EVAL_AGENT_MESSAGE_BRIDGE_NAME = "__agent_message__";
 /** Op types accepted by the agent_message bridge. */
 type AgentMessageOp = "send" | "read" | "list";
 
-const agentMessageSchema = z.object({
-	op: z.enum(["send", "read", "list"]).optional(),
-	message: z.string().min(1, "message must be a non-empty string").optional(),
-	receiverRole: z.enum(["parent", "child"]).default("parent"),
-	receiverName: z.string().optional(),
-	mailbox: z.string().optional(),
-});
+	const agentMessageSchema = z.object({
+		op: z.enum(["send", "read", "list"]).default("send"),
+		message: z.string().min(1, "message must be a non-empty string").optional(),
+		receiverRole: z.enum(["parent", "child"]).default("parent"),
+		receiverName: z.string().optional(),
+		mailbox: z.string().optional(),
+	});
 
 interface EvalAgentMessageArgs {
 	op: AgentMessageOp;

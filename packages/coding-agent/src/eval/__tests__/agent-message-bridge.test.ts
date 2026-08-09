@@ -11,7 +11,7 @@ function makeSession(): ToolSession {
 	return {
 		getSessionId: () => "test-session",
 		getEvalSessionId: () => "test-session",
-		getSettings: () => new Settings(),
+		getSettings: () => Settings.isolated(),
 	} as unknown as ToolSession;
 }
 
