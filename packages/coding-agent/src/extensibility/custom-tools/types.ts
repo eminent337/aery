@@ -196,6 +196,10 @@ export interface CustomTool<TParams extends TSchema = TSchema, TDetails = any> {
 	hidden?: boolean;
 	/** If true, tool may stage deferred changes that require explicit resolve/discard. */
 	deferrable?: boolean;
+	/** Built-in tool loading behavior. "essential" loads initially; "discoverable" can be activated by tool search. */
+	loadMode?: "essential" | "discoverable";
+	/** Short one-line summary used for tool discovery indexes. Defaults to {@link CustomTool.label}. */
+	summary?: string;
 	/** MCP server name for discovery/search metadata when this tool fronts an MCP server. */
 	mcpServerName?: string;
 	/** Original MCP tool name for discovery/search metadata. */

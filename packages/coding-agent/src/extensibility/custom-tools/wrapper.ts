@@ -16,15 +16,18 @@ export class CustomToolAdapter<TParams extends TSchema = TSchema, TDetails = any
 	declare description: string;
 	declare parameters: TParams;
 	readonly strict: boolean | undefined;
-	/** Custom tools are discoverable (never auto-loaded at boot) unless a factory opts them in as essential. */
+	/** Custom tools are discoverable unless the tool declares otherwise. */
 	readonly loadMode: "essential" | "discoverable" = "discoverable";
-
+	/** Short one-line summary for discovery indexes; falls back to the tool label. */
+	readonly summary: string;
 	constructor(
 		private tool: CustomTool<TParams, TDetails>,
 		private getContext: () => CustomToolContext,
 	) {
 		applyToolProxy(tool, this);
 		this.strict = tool.strict;
+		this.loadMode = tool.loadMode ?? "discoverable";
+		this.summary = tool.summary ?? tool.label;
 	}
 
 	execute(

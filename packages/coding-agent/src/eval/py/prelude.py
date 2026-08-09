@@ -503,6 +503,46 @@ if "__aery_prelude_loaded__" not in globals():
         text = res.get("text") if isinstance(res, dict) else res
         return json.loads(text) if schema is not None else text
 
+    def rlm(prompt, *, agent_type="task", model=None, context=None, label=None, schema=None):
+        """Async subagent spawn — returns immediately with a handle.
+        `prompt` is the task assignment. `agent_type` selects the subagent
+        definition (default "task"). Pass `model` to override the agent's model,
+        `context` for shared background, `label` for the output artifact id, and
+        `schema` to request structured JSON output.
+        Returns a dict with: id, name, sessionId, model
+        """
+        args = {"prompt": prompt}
+        if agent_type is not None:
+            args["agentType"] = agent_type
+        if model is not None:
+            args["model"] = model
+        if context is not None:
+            args["context"] = context
+        if label is not None:
+            args["label"] = label
+        if schema is not None:
+            args["schema"] = schema
+        res = _bridge_call("__rlm__", args)
+        return res
+    def rlm_list_subagents():
+        """List active subagents spawned via rlm()."""
+        res = _bridge_call("__rlm_list__", {})
+        return res.get("subagents", []) if isinstance(res, dict) else []
+    def agent_message_send(message, *, receiver_role="parent", receiver_name=None):
+        """Send a message to a subagent (or parent).
+        `message` is the text to send.
+        `receiver_role` is "parent" or "child" (default "parent").
+        `receiver_name` is the target subagent name (optional).
+        Returns a dict with: ok, delivered
+        """
+        args = {"message": message, "receiverRole": receiver_role}
+        if receiver_name is not None:
+            args["receiverName"] = receiver_name
+        return _bridge_call("__agent_message__", args)
+    # Expose rlm, rlm.list_subagents, and agent_message
+    globals()["rlm"] = rlm
+    globals()["rlm"].list_subagents = rlm_list_subagents
+    globals()["agent_message"] = type("AgentMessage", (), {"send": agent_message_send})()
     def _concurrency_limit():
         """Worker-pool ceiling from the host ``task.maxConcurrency`` setting.
 

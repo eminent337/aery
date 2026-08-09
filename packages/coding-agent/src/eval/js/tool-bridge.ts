@@ -1,6 +1,8 @@
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import type { ToolSession } from "../../tools";
 import { ToolError } from "../../tools/tool-errors";
+import { EVAL_AGENT_MESSAGE_BRIDGE_NAME, type EvalAgentMessageResult, runEvalAgentMessage } from "../agent-message-bridge";
+import { EVAL_RLM_BRIDGE_NAME, EVAL_RLM_LIST_BRIDGE_NAME, type EvalRlmHandle, type EvalRlmListResult, runEvalRlm, runEvalRlmList } from "../rl-bridge";
 import { EVAL_AGENT_BRIDGE_NAME, runEvalAgent } from "../agent-bridge";
 import { EVAL_BUDGET_BRIDGE_NAME, type EvalBudgetResult, runEvalBudget } from "../budget-bridge";
 import { EVAL_CONCURRENCY_BRIDGE_NAME, type EvalConcurrencyResult, runEvalConcurrency } from "../concurrency-bridge";
@@ -19,6 +21,9 @@ type ToolValue =
 	| string
 	| EvalBudgetResult
 	| EvalConcurrencyResult
+	| EvalRlmHandle
+	| EvalRlmListResult
+	| EvalAgentMessageResult
 	| {
 			text: string;
 			details?: unknown;
@@ -118,6 +123,15 @@ export async function callSessionTool(name: string, args: unknown, options: Tool
 	}
 	if (name === EVAL_CONCURRENCY_BRIDGE_NAME) {
 		return runEvalConcurrency(args, options);
+	}
+	if (name === EVAL_RLM_BRIDGE_NAME) {
+		return await runEvalRlm(args, options);
+	}
+	if (name === EVAL_RLM_LIST_BRIDGE_NAME) {
+		return runEvalRlmList(args, options);
+	}
+	if (name === EVAL_AGENT_MESSAGE_BRIDGE_NAME) {
+		return runEvalAgentMessage(args, options);
 	}
 	const tool = getTool(options.session, name);
 	const normalizedArgs = normalizeArgs(args);

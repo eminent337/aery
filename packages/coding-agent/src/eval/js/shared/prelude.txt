@@ -54,6 +54,29 @@ if (!globalThis.__aery_js_prelude_loaded__) {
 		const text = res && typeof res === "object" ? res.text : res;
 		return hasOwn(o, "schema") ? JSON.parse(text) : text;
 	};
+	const rlm = async (prompt, opts = {}) => {
+		const o = toOptions(opts);
+		const res = await globalThis.__aery_call_tool__("__rlm__", { prompt, ...o });
+		return res;
+	};
+	const rlmList = async () => {
+		const res = await globalThis.__aery_call_tool__("__rlm_list__", {});
+		return res && typeof res === "object" ? res.subagents : [];
+	};
+	const agentMessage = {
+		send: async (message, opts = {}) => {
+			const o = toOptions(opts);
+			const res = await globalThis.__aery_call_tool__("__agent_message__", { message, ...o });
+			return res;
+		},
+		list: async () => {
+			const res = await globalThis.__aery_call_tool__("__agent_message__", { _op: "list" });
+			return res && typeof res === "object" ? res : [];
+		},
+	};
+	globalThis.rlm = rlm;
+	globalThis.rlm.list_subagents = rlmList;
+	globalThis.agent_message = agentMessage;
 
 	// Pool ceiling mirrors the task tool's `task.maxConcurrency` setting so an
 	// eval fan-out runs as wide as a `task` batch would. 0 (and any non-finite
