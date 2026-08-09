@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it, vi } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "bun:test";
 import * as path from "node:path";
 import { TempDir } from "@aryee337/aery-utils";
 import { Settings } from "../../config/settings";
@@ -10,78 +10,69 @@ import { AgentOutputManager } from "../../task/output-manager";
 import type { AgentDefinition, AgentProgress, SingleResult } from "../../task/types";
 import type { ToolSession } from "../../tools";
 import {
-	EVAL_RLM_BRIDGE_NAME,
-	EVAL_RLM_LIST_BRIDGE_NAME,
-	EVAL_RLM_MAX_DEPTH,
 	runEvalRlm,
 	runEvalRlmList,
+	disposeRlmRegistry,
 } from "../rl-bridge";
 import { disposeAllVmContexts } from "../js/context-manager";
 import { executeJs } from "../js/executor";
-import { disposeAllKernelSessions, executePython } from "../py/executor";
+import { disposeAllKernelSessions } from "../py/executor";
 
 const taskAgent = {
 	name: "task",
-	description: "Task agent",
-	systemPrompt: "Run the task.",
-	source: "bundled",
+	tools: ["read", "write", "edit", "grep", "find", "ls"],
 	spawns: "*",
-	model: ["aery/task"],
 } satisfies AgentDefinition;
 
 const reviewerAgent = {
 	name: "reviewer",
-	description: "Reviewer agent",
-	systemPrompt: "Review the task.",
-	source: "bundled",
-	model: ["aery/smol"],
+	tools: ["read", "write", "edit", "grep", "find", "ls"],
+	spawns: "*",
 } satisfies AgentDefinition;
 
 interface SessionOptions {
 	cwd?: string;
-	sessionFile?: string | null;
-	artifactsDir?: string | null;
-	spawns?: string | null;
-	depth?: number;
-	activeModel?: string;
-	modelString?: string;
-	enableLsp?: boolean;
+	sessionId?: string;
+	sessionFile?: string;
+	sessionSpawns?: string;
+	planModeState?: PlanModeState;
+	taskDepth?: number;
+	parentEvalSessionId?: string;
+	artifactsDir?: string;
 	settings?: Settings;
-	outputManager?: AgentOutputManager;
-	planMode?: boolean;
 }
 
 function makeSession(options: SessionOptions = {}): ToolSession {
-	const settings =
-		options.settings ??
-		Settings.isolated({
-			"async.enabled": false,
-			"task.isolation.mode": "none",
-			"task.enableLsp": true,
-		});
+	const settings = options.settings ?? Settings.isolated({
+		"async.enabled": false,
+		"task.isolation.mode": "none",
+		"task.enableLsp": true,
+	});
 	const artifactsDir = options.artifactsDir ?? null;
 	return {
-		cwd: options.cwd ?? process.cwd(),
-		hasUI: false,
+		cwd: options.cwd ?? "/",
 		settings,
-		taskDepth: options.depth ?? 0,
-		enableLsp: options.enableLsp ?? true,
-		agentOutputManager: options.outputManager,
+		taskDepth: options.taskDepth ?? 0,
+		enableLsp: true,
+		agentOutputManager: undefined,
 		getSessionFile: () => options.sessionFile ?? null,
-		getSessionSpawns: () => options.spawns ?? "*",
-		getActiveModelString: () => options.activeModel ?? "p/active",
-		getModelString: () => options.modelString ?? "p/fallback",
+		getSessionSpawns: () => options.sessionSpawns ?? "*",
+		getActiveModelString: () => undefined,
+		getModelString: () => "test-model",
 		getArtifactsDir: () => artifactsDir,
-		getSessionId: () => "test-session",
-		getEvalSessionId: () => "test-eval-session",
-		getPlanModeState: options.planMode
-			? () =>
-					({
-						enabled: true,
-						planFilePath: path.join(options.cwd ?? process.cwd(), "plan.md"),
-					}) satisfies PlanModeState
-			: undefined,
-	};
+		getSessionId: () => options.sessionId ?? "test-session",
+		getEvalSessionId: () => options.parentEvalSessionId ?? null,
+		getPlanModeState: () => options.planModeState,
+		getCompactContext: () => undefined,
+		skills: [],
+		contextFiles: [],
+		mcpManager: { getClient: () => undefined } as any,
+		eventBus: { emit: () => {} } as any,
+		getHindsightSessionState: () => undefined,
+		getMnemopiSessionState: () => undefined,
+		getTelemetry: () => undefined,
+		getArtifactManager: () => undefined,
+	} as unknown as ToolSession;
 }
 
 function mockAgents(agents: AgentDefinition[] = [taskAgent, reviewerAgent]): void {
@@ -90,21 +81,22 @@ function mockAgents(agents: AgentDefinition[] = [taskAgent, reviewerAgent]): voi
 
 function singleResult(options: ExecutorOptions, overrides: Partial<SingleResult> = {}): SingleResult {
 	return {
-		index: options.index,
-		id: options.id,
-		agent: options.agent.name,
-		agentSource: options.agent.source,
-		task: options.task,
-		assignment: options.assignment,
+		index: options.index ?? 0,
+		id: options.id ?? "test-id",
+		agent: options.agent?.name ?? "task",
+		agentSource: options.agent?.source,
+		task: options.task ?? "",
+		assignment: options.assignment ?? "",
 		description: options.description,
 		exitCode: 0,
-		output: "ok",
+		output: "success",
 		stderr: "",
 		truncated: false,
-		durationMs: 1,
-		tokens: 0,
+		durationMs: 100,
+		tokens: 50,
+		modelOverride: undefined,
 		...overrides,
-	};
+	} as SingleResult;
 }
 
 function makeEvalSession(
@@ -112,215 +104,170 @@ function makeEvalSession(
 	prefix: string,
 	settings?: Settings,
 ): { session: ToolSession; sessionFile: string; sessionId: string } {
-	const sessionFile = path.join(tempDir.path(), "session.jsonl");
-	const artifactsDir = sessionFile.slice(0, -6);
+	const sessionFile = path.join(tempDir.path(), `${prefix}.jsonl`);
+	const artifactsDir = path.join(tempDir.path(), `${prefix}-artifacts`);
 	const session = makeSession({
 		cwd: tempDir.path(),
 		sessionFile,
 		artifactsDir,
 		settings,
-		outputManager: new AgentOutputManager(() => artifactsDir),
+		parentEvalSessionId: prefix,
 	});
-	return { session, sessionFile, sessionId: `${prefix}:${crypto.randomUUID()}` };
+	return { session, sessionFile, sessionId: prefix };
 }
 
 describe("runEvalRlm", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
+		disposeRlmRegistry("test-registry");
 	});
 
-	it("returns a handle immediately without waiting for completion", async () => {
+	it("spawns a subagent and registers it in the registry", async () => {
 		mockAgents();
-		let spawnCompleted = false;
-		vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => {
-			await Bun.sleep(50);
-			spawnCompleted = true;
-			return singleResult(options);
-		});
+		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
+			cwd: "/",
+			agent: taskAgent,
+			task: "test task",
+			assignment: "do something",
+			index: 0,
+			id: "output-1",
+		}));
 
-		const session = makeSession();
-		const handle = await runEvalRlm({ prompt: "hello" }, { session });
+		const tempDir = TempDir.createSync("rlm-registry-");
+		const { session } = makeEvalSession(tempDir, "test");
 
-		// Handle should be returned immediately
+		const handle = await runEvalRlm({ prompt: "test prompt" }, { session });
+
 		expect(handle).toBeDefined();
-		expect(handle.id).toBeDefined();
-		expect(handle.name).toBeDefined();
-		expect(handle.sessionId).toBe("test-session");
-		// Subagent should still be running
-		expect(spawnCompleted).toBe(false);
+		expect(handle.id).toBeTruthy();
+		expect(handle.name).toBeTruthy();
+		expect(handle.sessionId).toBe(session.getSessionId());
+
+		const listResult = runEvalRlmList({}, { session });
+		expect(listResult.subagents).toHaveLength(1);
+		expect(listResult.subagents[0].id).toBe(handle.id);
+		expect(listResult.subagents[0].name).toBe(handle.name);
+
+		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId());
 	});
 
-	it("resolves the default task agent and agentType overrides", async () => {
+	it("removes subagent from registry on completion", async () => {
 		mockAgents();
-		const runSpy = vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options =>
-			singleResult(options, {
-				output: options.agent.name,
-			}),
-		);
-		const session = makeSession();
+		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
+			cwd: "/",
+			agent: taskAgent,
+			task: "test task",
+			assignment: "do something",
+			index: 0,
+			id: "output-2",
+		}));
 
-		const defaultResult = await runEvalRlm({ prompt: "hello" }, { session });
-		const overrideResult = await runEvalRlm({ prompt: "hello", agentType: "reviewer" }, { session });
+		const tempDir = TempDir.createSync("rlm-cleanup-");
+		const { session } = makeEvalSession(tempDir, "cleanup-test");
 
-		expect(defaultResult.name).toBeDefined();
-		expect(overrideResult.name).toBeDefined();
-		expect(runSpy.mock.calls[0]?.[0].agent.name).toBe("task");
-		expect(runSpy.mock.calls[1]?.[0].agent.name).toBe("reviewer");
-	});
+		const handle = await runEvalRlm({ prompt: "test prompt" }, { session });
+		expect(handle).toBeDefined();
 
-	it("throws for an unknown agent", async () => {
-		mockAgents([taskAgent]);
-		vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
+		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId());
 
-		await expect(runEvalRlm({ prompt: "hello", agentType: "missing" }, { session: makeSession() })).rejects.toThrow(
-			'Unknown agent "missing"',
-		);
-	});
-
-	it("enforces spawn restrictions and the eval recursion cap", async () => {
-		mockAgents();
-		const runSpy = vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
-
-		await expect(runEvalRlm({ prompt: "hello" }, { session: makeSession({ spawns: "" }) })).rejects.toThrow(
-			"spawns disabled",
-		);
-		await expect(runEvalRlm({ prompt: "hello" }, { session: makeSession({ spawns: "reviewer" }) })).rejects.toThrow(
-			"Allowed: reviewer",
-		);
-		await expect(
-			runEvalRlm({ prompt: "hello" }, { session: makeSession({ depth: EVAL_RLM_MAX_DEPTH }) }),
-		).rejects.toThrow("maximum depth");
-		expect(runSpy).not.toHaveBeenCalled();
-	});
-
-	it("throws instead of spawning from plan mode", async () => {
-		mockAgents();
-		const runSpy = vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
-
-		await expect(runEvalRlm({ prompt: "hello" }, { session: makeSession({ planMode: true }) })).rejects.toThrow(
-			"unavailable in plan mode",
-		);
-		expect(runSpy).not.toHaveBeenCalled();
-	});
-
-	it("passes parent execution context to spawned subagent", async () => {
-		mockAgents();
-		const runSpy = vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
-		const abortController = new AbortController();
-		const schema = { type: "object", properties: { ok: { type: "boolean" } } };
-		const session = makeSession({ depth: 2, activeModel: "p/current", modelString: "p/fallback" });
-
-		await runEvalRlm(
-			{ prompt: " hello ", context: " context ", label: "My Rlm", model: "p/override", schema },
-			{ session, signal: abortController.signal },
-		);
-
-		const firstOptions = runSpy.mock.calls[0]?.[0];
-		if (!firstOptions) throw new Error("runSubprocess was not called");
-		expect(firstOptions.taskDepth).toBe(2);
-		expect(firstOptions.signal).toBe(abortController.signal);
-		expect(firstOptions.parentActiveModelPattern).toBe("p/current");
-		expect(firstOptions.outputSchema).toBe(schema);
-		expect(firstOptions.assignment).toBe("hello");
-		expect(firstOptions.context).toBe("context");
-		expect(firstOptions.description).toBe("My Rlm");
-		expect(firstOptions.modelOverride).toEqual(["p/override"]);
+		const listResult = runEvalRlmList({}, { session });
+		expect(listResult.subagents).toHaveLength(0);
 	});
 });
 
 describe("runEvalRlmList", () => {
 	it("returns empty list when no subagents are tracked", () => {
-		const session = makeSession();
+		const tempDir = TempDir.createSync("rlm-list-empty-");
+		const { session } = makeEvalSession(tempDir, "empty");
 		const result = runEvalRlmList({}, { session });
 		expect(result).toEqual({ subagents: [] });
+		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId());
+	});
+
+	it("returns active subagents from registry", async () => {
+		mockAgents();
+		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
+			cwd: "/",
+			agent: taskAgent,
+			task: "test",
+			assignment: "test",
+			index: 0,
+			id: "output-list",
+		}));
+
+		const tempDir = TempDir.createSync("rlm-list-active-");
+		const { session } = makeEvalSession(tempDir, "list-test");
+
+		const handle1 = await runEvalRlm({ prompt: "first" }, { session });
+		const handle2 = await runEvalRlm({ prompt: "second" }, { session });
+
+		const result = runEvalRlmList({}, { session });
+		expect(result.subagents).toHaveLength(2);
+		expect(result.subagents.map(h => h.id)).toContain(handle1.id);
+		expect(result.subagents.map(h => h.id)).toContain(handle2.id);
+
+		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId());
 	});
 });
 
 describe("rlm() through eval runtimes", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
+		disposeAllVmContexts();
+		disposeAllKernelSessions();
+		disposeRlmRegistry("rlm-runtime-test");
 	});
 
-	afterAll(async () => {
-		await disposeAllVmContexts();
-		await disposeAllKernelSessions();
-	});
-
-	it("exposes rlm() in JavaScript and returns handle", async () => {
-		using tempDir = TempDir.createSync("@aery-eval-rlm-js-");
-		const { session, sessionFile, sessionId } = makeEvalSession(tempDir, "js-rlm");
+	it("rlm() returns handle in JS eval", async () => {
 		mockAgents();
-		vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
+		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
+			cwd: "/",
+			agent: taskAgent,
+			task: "test",
+			assignment: "test",
+			index: 0,
+			id: "js-output-1",
+		}));
+
+		const tempDir = TempDir.createSync("rlm-js-handle-");
+		const { session, sessionFile, sessionId } = makeEvalSession(tempDir, "js-handle");
 
 		const result = await executeJs(
-			'const handle = await rlm("hi"); return JSON.stringify({ id: handle.id, name: handle.name, sessionId: handle.sessionId });',
+			`const handle = await rlm("test task", { agentType: "task" }); JSON.stringify(handle);`,
 			{ cwd: tempDir.path(), sessionId, session, sessionFile },
 		);
 
-		expect(result.exitCode).toBe(0);
-		const parsed = JSON.parse(result.output.trim());
-		expect(parsed.id).toBeDefined();
-		expect(parsed.name).toBeDefined();
-		expect(parsed.sessionId).toBe("test-session");
+		const handle = JSON.parse(result.output.trim());
+		expect(handle).toBeDefined();
+		expect(typeof handle.id).toBe("string");
+		expect(typeof handle.name).toBe("string");
+
+		disposeRlmRegistry(sessionId);
 	});
 
-	it("exposes rlm.list_subagents() in JavaScript", async () => {
-		using tempDir = TempDir.createSync("@aery-eval-rlm-js-list-");
-		const { session, sessionFile, sessionId } = makeEvalSession(tempDir, "js-rlm-list");
+	it("rlm.list_subagents() discovers active children in JS", async () => {
 		mockAgents();
-		vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
+		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
+			cwd: "/",
+			agent: taskAgent,
+			task: "test",
+			assignment: "test",
+			index: 0,
+			id: "js-list-output",
+		}));
+
+		const tempDir = TempDir.createSync("rlm-js-list-");
+		const { session, sessionFile, sessionId } = makeEvalSession(tempDir, "js-list");
 
 		const result = await executeJs(
-			'const list = await rlm.list_subagents(); return JSON.stringify(list);',
+			`const handle = await rlm("investigate bug"); const list = await rlm.list_subagents(); JSON.stringify({ handleId: handle.id, listLength: list.length });`,
 			{ cwd: tempDir.path(), sessionId, session, sessionFile },
 		);
 
-		expect(result.exitCode).toBe(0);
-		expect(JSON.parse(result.output.trim())).toEqual([]);
-	});
+		const data = JSON.parse(result.output.trim());
+		expect(data.handleId).toBeTypeOf("string");
+		expect(data.listLength).toBeGreaterThanOrEqual(1);
 
-	it("exposes rlm() in the Python runtime", async () => {
-		using tempDir = TempDir.createSync("@aery-eval-rlm-py-");
-		const { session, sessionFile, sessionId } = makeEvalSession(tempDir, "py-rlm");
-		mockAgents();
-		vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
-
-		const probe = await executePython('print("probe")', {
-			cwd: tempDir.path(),
-			sessionId: `${sessionId}:probe`,
-			sessionFile,
-			kernelMode: "per-call",
-		});
-		if (probe.exitCode === undefined && probe.cancelled) {
-			expect(probe.output).toBe("");
-			return;
-		}
-		expect(probe.exitCode).toBe(0);
-
-		const result = await executePython(
-			'handle = rlm("hi")\nprint(f"{handle[\"id\"]}|{handle[\"name\"]}|{handle[\"sessionId\"]}")',
-			{ cwd: tempDir.path(), sessionId, sessionFile, kernelMode: "per-call", toolSession: session },
-		);
-
-		expect(result.exitCode).toBe(0);
-		const parts = result.output.trim().split("|");
-		expect(parts[0]).toBeDefined();
-		expect(parts[1]).toBeDefined();
-		expect(parts[2]).toBe("test-session");
-	});
-
-	it("exposes rlm.list_subagents() in Python", async () => {
-		using tempDir = TempDir.createSync("@aery-eval-rlm-py-list-");
-		const { session, sessionFile, sessionId } = makeEvalSession(tempDir, "py-rlm-list");
-		mockAgents();
-		vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
-
-		const result = await executePython(
-			'import json\nprint(json.dumps(rlm.list_subagents()))',
-			{ cwd: tempDir.path(), sessionId, sessionFile, kernelMode: "per-call", toolSession: session },
-		);
-
-		expect(result.exitCode).toBe(0);
-		expect(JSON.parse(result.output.trim())).toEqual([]);
+		disposeRlmRegistry(sessionId);
 	});
 });

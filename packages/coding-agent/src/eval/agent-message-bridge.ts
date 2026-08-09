@@ -2,7 +2,10 @@
  * Host-side handler for the eval `agent_message` messaging system.
  *
  * Enables bidirectional communication between parent and child agents
- * spawned via rlm(). Messages are stored in a session-scoped message bus.
+ * spawned via rlm(). Messages are stored in a session-scoped message bus
+ * keyed by mailbox name. Mailboxes follow the convention:
+ *   - "parent" — messages from children to the top-level parent agent
+ *   - "child:<name>" — messages from the parent to a specific child subagent
  */
 import * as z from "zod/v4";
 import type { ToolSession } from "../tools";
@@ -12,16 +15,23 @@ import type { JsStatusEvent } from "./js/shared/types";
 /** Synthetic bridge name reserved for the `agent_message` helper. */
 export const EVAL_AGENT_MESSAGE_BRIDGE_NAME = "__agent_message__";
 
-const agentMessageArgsSchema = z.object({
-	message: z.string().min(1, "message must be a non-empty string"),
+/** Op types accepted by the agent_message bridge. */
+type AgentMessageOp = "send" | "read" | "list";
+
+const agentMessageSchema = z.object({
+	op: z.enum(["send", "read", "list"]).optional(),
+	message: z.string().min(1, "message must be a non-empty string").optional(),
 	receiverRole: z.enum(["parent", "child"]).default("parent"),
 	receiverName: z.string().optional(),
+	mailbox: z.string().optional(),
 });
 
 interface EvalAgentMessageArgs {
-	message: string;
+	op: AgentMessageOp;
+	message?: string;
 	receiverRole: "parent" | "child";
 	receiverName?: string;
+	mailbox?: string;
 }
 
 export interface EvalAgentMessageBridgeOptions {
@@ -33,24 +43,41 @@ export interface EvalAgentMessageBridgeOptions {
 export interface EvalAgentMessageResult {
 	ok: boolean;
 	delivered: boolean;
+	mailbox: string;
+}
+
+export interface EvalAgentMessageReadResult {
+	mailbox: string;
+	messages: Array<{
+		fromRole: "parent" | "child";
+		fromName?: string;
+		message: string;
+		timestamp: number;
+	}>;
+}
+
+export interface EvalAgentMessageListResult {
+	mailboxes: Array<{
+		mailbox: string;
+		messageCount: number;
+	}>;
 }
 
 function parseAgentMessageArgs(args: unknown): EvalAgentMessageArgs {
-	const parsed = agentMessageArgsSchema.safeParse(args);
+	const parsed = agentMessageSchema.safeParse(args);
 	if (!parsed.success) {
 		const issue = parsed.error.issues[0];
 		const where = issue?.path.length ? `${issue.path.join(".")}: ` : "";
-		throw new ToolError(`agent_message.send() received invalid arguments: ${where}${issue?.message ?? "bad input"}`);
+		throw new ToolError(`agent_message received invalid arguments: ${where}${issue?.message ?? "bad input"}`);
 	}
 	return parsed.data;
 }
 
 /**
- * Message queue for a single session.
- * Keys are subagent IDs, values are arrays of incoming messages.
+ * Message queue for a single mailbox.
  */
 interface MessageQueue {
-	subagentId: string;
+	mailbox: string;
 	messages: Array<{
 		fromRole: "parent" | "child";
 		fromName?: string;
@@ -61,114 +88,112 @@ interface MessageQueue {
 
 /**
  * Session-scoped message store.
- * In production, this would be part of ToolSession or a global registry.
- * For now, we use a module-level Map keyed by session ID.
+ * Keyed by eval-session-id so parent and child share the same store.
+ * Mailboxes within: "parent" for child→parent, "child:<name>" for parent→child.
  */
 const messageStores = new Map<string, Map<string, MessageQueue>>();
 
 /**
- * Send a message from parent to child or child to parent.
- * Returns immediately; message is queued for the receiver.
+ * Get or create the message store for the given eval session.
  */
-export function runEvalAgentMessage(args: unknown, options: EvalAgentMessageBridgeOptions): EvalAgentMessageResult {
-	const parsed = parseAgentMessageArgs(args);
+function getStoreForSession(session: ToolSession): Map<string, MessageQueue> {
+	const evalId = session.getEvalSessionId?.() ?? session.getSessionId?.() ?? "unknown";
+	if (!messageStores.has(evalId)) {
+		messageStores.set(evalId, new Map());
+	}
+	return messageStores.get(evalId)!;
+}
+
+/**
+ * Resolve the target mailbox for a send operation.
+ * - receiverRole "parent" (no receiverName) → "parent"
+ * - receiverRole "child", receiverName "foo" → "child:foo"
+ */
+function resolveMailbox(receiverRole: "parent" | "child", receiverName?: string): string {
+	if (receiverRole === "parent") {
+		return "parent";
+	}
+	return `child:${receiverName ?? "unknown"}`;
+}
+
+/**
+ * Send a message to a mailbox.
+ */
+function runEvalAgentMessageSend(args: EvalAgentMessageArgs, options: EvalAgentMessageBridgeOptions): EvalAgentMessageResult {
+	if (!args.message) {
+		throw new ToolError("agent_message.send() requires a non-empty message.");
+	}
 	const sessionId = options.session.getSessionId?.() ?? "unknown";
+	const mailbox = resolveMailbox(args.receiverRole, args.receiverName);
+	const store = getStoreForSession(options.session);
 
-	// Get or create the session's message store
-	if (!messageStores.has(sessionId)) {
-		messageStores.set(sessionId, new Map());
+	if (!store.has(mailbox)) {
+		store.set(mailbox, { mailbox, messages: [] });
 	}
-	const sessionStore = messageStores.get(sessionId)!;
-
-	// Determine target subagent
-	// In a full implementation, receiverName would identify a specific subagent
-	const targetSubagentId = parsed.receiverName ?? "default";
-
-	// Create or get the queue for this subagent
-	if (!sessionStore.has(targetSubagentId)) {
-		sessionStore.set(targetSubagentId, {
-			subagentId: targetSubagentId,
-			messages: [],
-		});
-	}
-	const queue = sessionStore.get(targetSubagentId)!;
-
-	// Queue the message
+	const queue = store.get(mailbox)!;
 	queue.messages.push({
-		fromRole: parsed.receiverRole === "parent" ? "child" : "parent",
-		fromName: parsed.receiverName,
-		message: parsed.message,
+		fromRole: args.receiverRole === "parent" ? "child" : "parent",
+		fromName: args.receiverName,
+		message: args.message,
 		timestamp: Date.now(),
 	});
 
 	options.emitStatus?.({
 		op: "agent_message",
 		action: "sent",
-		toRole: parsed.receiverRole,
-		toName: targetSubagentId,
-		messageLength: parsed.message.length,
+		toRole: args.receiverRole,
+		toName: args.receiverName,
+		mailbox,
+		messageLength: args.message.length,
 	});
 
-	return { ok: true, delivered: true };
+	return { ok: true, delivered: true, mailbox };
 }
 
 /**
- * Read messages sent to the current agent from its parent.
- * Returns all queued messages and clears the queue.
+ * Read (drain) a mailbox. Returns all queued messages and clears the queue.
  */
-export function runEvalAgentMessageRead(args: unknown, options: EvalAgentMessageBridgeOptions): Array<{
-	message: string;
-	senderRole: string;
-	senderName?: string;
-	timestamp: number;
-}> {
-	const sessionId = options.session.getSessionId?.() ?? "unknown";
-	const subagentId = (args as { subagentId?: string })?.subagentId;
+function runEvalAgentMessageRead(args: EvalAgentMessageArgs, options: EvalAgentMessageBridgeOptions): EvalAgentMessageReadResult {
+	const mailbox = args.mailbox ?? "parent";
+	const store = getStoreForSession(options.session);
 
-	if (!subagentId) {
-		return [];
+	if (!store.has(mailbox)) {
+		return { mailbox, messages: [] };
 	}
-
-	const sessionStore = messageStores.get(sessionId);
-	if (!sessionStore) {
-		return [];
-	}
-
-	const queue = sessionStore.get(subagentId);
-	if (!queue) {
-		return [];
-	}
-
-	// Return and clear the queue
+	const queue = store.get(mailbox)!;
 	const messages = queue.messages;
 	queue.messages = [];
 
-	return messages.map(m => ({
-		message: m.message,
-		senderRole: m.fromRole,
-		senderName: m.fromName,
-		timestamp: m.timestamp,
-	}));
+	return { mailbox, messages: messages.map(m => ({ ...m })) };
 }
 
 /**
- * List all active subagent message queues for a session.
+ * List all mailboxes and their message counts.
  */
-export function runEvalAgentMessageList(_args: unknown, options: EvalAgentMessageBridgeOptions): Array<{
-	subagentId: string;
-	messageCount: number;
-}> {
-	const sessionId = options.session.getSessionId?.() ?? "unknown";
-	const sessionStore = messageStores.get(sessionId);
-
-	if (!sessionStore) {
-		return [];
-	}
-
-	return Array.from(sessionStore.entries()).map(([subagentId, queue]) => ({
-		subagentId,
+function runEvalAgentMessageList(_args: EvalAgentMessageArgs, options: EvalAgentMessageBridgeOptions): EvalAgentMessageListResult {
+	const store = getStoreForSession(options.session);
+	const mailboxes = Array.from(store.entries()).map(([mailbox, queue]) => ({
+		mailbox,
 		messageCount: queue.messages.length,
 	}));
+	return { mailboxes };
+}
+
+/**
+ * Dispatch entry point for the agent_message bridge.
+ */
+export function runEvalAgentMessage(args: unknown, options: EvalAgentMessageBridgeOptions): unknown {
+	const parsed = parseAgentMessageArgs(args);
+	switch (parsed.op ?? "send") {
+		case "send":
+			return runEvalAgentMessageSend(parsed, options);
+		case "read":
+			return runEvalAgentMessageRead(parsed, options);
+		case "list":
+			return runEvalAgentMessageList(parsed, options);
+		default:
+			throw new ToolError(`Unknown agent_message op: ${parsed.op}`);
+	}
 }
 
 /**
@@ -176,4 +201,10 @@ export function runEvalAgentMessageList(_args: unknown, options: EvalAgentMessag
  */
 export function disposeAgentMessageStore(sessionId: string): void {
 	messageStores.delete(sessionId);
+	// Also clean any entry keyed by the eval-session-id (may differ from session id)
+	for (const [key, store] of messageStores.entries()) {
+		if (store.size === 0) {
+			messageStores.delete(key);
+		}
+	}
 }

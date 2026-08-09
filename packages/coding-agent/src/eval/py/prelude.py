@@ -527,22 +527,35 @@ if "__aery_prelude_loaded__" not in globals():
     def rlm_list_subagents():
         """List active subagents spawned via rlm()."""
         res = _bridge_call("__rlm_list__", {})
-        return res.get("subagents", []) if isinstance(res, dict) else []
     def agent_message_send(message, *, receiver_role="parent", receiver_name=None):
         """Send a message to a subagent (or parent).
         `message` is the text to send.
         `receiver_role` is "parent" or "child" (default "parent").
         `receiver_name` is the target subagent name (optional).
-        Returns a dict with: ok, delivered
+        Returns a dict with: ok, delivered, mailbox
         """
-        args = {"message": message, "receiverRole": receiver_role}
+        args = {"op": "send", "message": message, "receiverRole": receiver_role}
         if receiver_name is not None:
             args["receiverName"] = receiver_name
         return _bridge_call("__agent_message__", args)
+    def agent_message_read(*, mailbox="parent"):
+        """Read messages from a mailbox. Defaults to the "parent" mailbox.
+        Returns a dict with: mailbox, messages
+        """
+        return _bridge_call("__agent_message__", {"op": "read", "mailbox": mailbox})
+    def agent_message_list():
+        """List all mailboxes and their message counts.
+        Returns a list of dicts with: mailbox, messageCount
+        """
+        return _bridge_call("__agent_message__", {"op": "list"}).get("mailboxes", [])
     # Expose rlm, rlm.list_subagents, and agent_message
     globals()["rlm"] = rlm
     globals()["rlm"].list_subagents = rlm_list_subagents
-    globals()["agent_message"] = type("AgentMessage", (), {"send": agent_message_send})()
+    globals()["agent_message"] = type("AgentMessage", (), {
+        "send": agent_message_send,
+        "read": agent_message_read,
+        "list": agent_message_list,
+    })()
     def _concurrency_limit():
         """Worker-pool ceiling from the host ``task.maxConcurrency`` setting.
 

@@ -66,12 +66,17 @@ if (!globalThis.__aery_js_prelude_loaded__) {
 	const agentMessage = {
 		send: async (message, opts = {}) => {
 			const o = toOptions(opts);
-			const res = await globalThis.__aery_call_tool__("__agent_message__", { message, ...o });
+			const res = await globalThis.__aery_call_tool__("__agent_message__", { op: "send", message, ...o });
+			return res;
+		},
+		read: async (opts = {}) => {
+			const o = toOptions(opts);
+			const res = await globalThis.__aery_call_tool__("__agent_message__", { op: "read", ...o });
 			return res;
 		},
 		list: async () => {
-			const res = await globalThis.__aery_call_tool__("__agent_message__", { _op: "list" });
-			return res && typeof res === "object" ? res : [];
+			const res = await globalThis.__aery_call_tool__("__agent_message__", { op: "list" });
+			return res && typeof res === "object" ? res.mailboxes : [];
 		},
 	};
 	globalThis.rlm = rlm;

@@ -5,142 +5,83 @@ import {
 	EVAL_AGENT_MESSAGE_BRIDGE_NAME,
 	disposeAgentMessageStore,
 	runEvalAgentMessage,
-	runEvalAgentMessageList,
-	runEvalAgentMessageRead,
 } from "../agent-message-bridge";
 
 function makeSession(): ToolSession {
 	return {
-		cwd: process.cwd(),
-		hasUI: false,
-		settings: Settings.isolated({}),
 		getSessionId: () => "test-session",
+		getEvalSessionId: () => "test-session",
+		getSettings: () => new Settings(),
 	} as unknown as ToolSession;
 }
 
-describe("runEvalAgentMessage", () => {
+describe("runEvalAgentMessage dispatch", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
+		disposeAgentMessageStore("test-session");
 	});
 
-	it("sends a message to a subagent", () => {
+	it("dispatches send to child mailbox", () => {
 		const session = makeSession();
-		const result = runEvalAgentMessage(
-			{ message: "hello", receiverRole: "child", receiverName: "agent-1" },
-			{ session },
-		);
+		const result = runEvalAgentMessage({ op: "send", message: "hello", receiverRole: "child", receiverName: "agent-1" }, { session }) as { ok: boolean; delivered: boolean; mailbox: string };
 
-		expect(result).toEqual({ ok: true, delivered: true });
+		expect(result.ok).toBe(true);
+		expect(result.delivered).toBe(true);
+		expect(result.mailbox).toBe("child:agent-1");
 	});
 
-	it("sends a message to parent", () => {
+	it("dispatches send to parent mailbox", () => {
 		const session = makeSession();
-		const result = runEvalAgentMessage(
-			{ message: "reply", receiverRole: "parent" },
-			{ session },
-		);
+		const result = runEvalAgentMessage({ op: "send", message: "reply", receiverRole: "parent" }, { session }) as { ok: boolean; delivered: boolean; mailbox: string };
 
-		expect(result).toEqual({ ok: true, delivered: true });
+		expect(result.ok).toBe(true);
+		expect(result.delivered).toBe(true);
+		expect(result.mailbox).toBe("parent");
 	});
 
-	it("throws for invalid arguments", () => {
+	it("dispatches read and drains mailbox", () => {
 		const session = makeSession();
-		expect(() =>
-			runEvalAgentMessage({ message: "", receiverRole: "parent" }, { session }),
-		).toThrow("message must be a non-empty string");
-	});
-});
 
-describe("runEvalAgentMessageRead", () => {
-	afterEach(() => {
-		vi.restoreAllMocks();
-		disposeAgentMessageStore("test-session-read");
+		// Send a message first
+		runEvalAgentMessage({ op: "send", message: "parent says hi", receiverRole: "child", receiverName: "agent-1" }, { session });
+
+		// Read from the child's mailbox
+		const result = runEvalAgentMessage({ op: "read", mailbox: "child:agent-1" }, { session }) as { mailbox: string; messages: Array<{ message: string; fromRole: string; fromName?: string; timestamp: number }> };
+
+		expect(result.mailbox).toBe("child:agent-1");
+		expect(result.messages).toHaveLength(1);
+		expect(result.messages[0].message).toBe("parent says hi");
+		expect(result.messages[0].fromRole).toBe("parent");
+
+		// Should be drained
+		const result2 = runEvalAgentMessage({ op: "read", mailbox: "child:agent-1" }, { session }) as { messages: unknown[] };
+		expect((result2 as { messages: unknown[] }).messages).toEqual([]);
 	});
 
-	it("reads messages for a subagent", () => {
+	it("dispatches list and returns mailboxes", () => {
 		const session = makeSession();
-		// Override session ID for this test
-		vi.spyOn(session, "getSessionId").mockReturnValue("test-session-read");
 
-		// Send a message
-		runEvalAgentMessage(
-			{ message: "parent says hi", receiverRole: "child", receiverName: "agent-1" },
-			{ session },
-		);
+		// Send two messages to different mailboxes
+		runEvalAgentMessage({ op: "send", message: "msg1", receiverRole: "child", receiverName: "a" }, { session });
+		runEvalAgentMessage({ op: "send", message: "msg2", receiverRole: "child", receiverName: "b" }, { session });
 
-		// Read messages
-		const messages = runEvalAgentMessageRead({ subagentId: "agent-1" }, { session });
-		expect(messages).toHaveLength(1);
-		expect(messages[0].message).toBe("parent says hi");
-		expect(messages[0].senderRole).toBe("parent");
+		const result = runEvalAgentMessage({ op: "list" }, { session }) as { mailboxes: Array<{ mailbox: string; messageCount: number }> };
 
-		// Queue should be cleared
-		const messages2 = runEvalAgentMessageRead({ subagentId: "agent-1" }, { session });
-		expect(messages2).toHaveLength(0);
+		expect(result.mailboxes).toHaveLength(2);
+		expect(result.mailboxes.map(m => m.mailbox)).toContain("child:a");
+		expect(result.mailboxes.map(m => m.mailbox)).toContain("child:b");
+		expect(result.mailboxes.find(m => m.mailbox === "child:a")!.messageCount).toBe(1);
+		expect(result.mailboxes.find(m => m.mailbox === "child:b")!.messageCount).toBe(1);
 	});
 
-	it("returns empty array when no messages", () => {
+	it("throws on empty message", () => {
 		const session = makeSession();
-		vi.spyOn(session, "getSessionId").mockReturnValue("test-session-read");
-
-		const messages = runEvalAgentMessageRead({ subagentId: "agent-1" }, { session });
-		expect(messages).toEqual([]);
-	});
-});
-
-describe("runEvalAgentMessageList", () => {
-	afterEach(() => {
-		vi.restoreAllMocks();
-		disposeAgentMessageStore("test-session-list");
+		expect(() => runEvalAgentMessage({ op: "send", message: "", receiverRole: "parent" }, { session })).toThrow("message must be a non-empty string");
 	});
 
-	it("lists active subagent queues", () => {
+	it("throws on invalid op", () => {
 		const session = makeSession();
-		vi.spyOn(session, "getSessionId").mockReturnValue("test-session-list");
-
-		// Send messages to two subagents
-		runEvalAgentMessage(
-			{ message: "msg1", receiverRole: "child", receiverName: "agent-1" },
-			{ session },
-		);
-		runEvalAgentMessage(
-			{ message: "msg2", receiverRole: "child", receiverName: "agent-1" },
-			{ session },
-		);
-		runEvalAgentMessage(
-			{ message: "msg3", receiverRole: "child", receiverName: "agent-2" },
-			{ session },
-		);
-
-		const queues = runEvalAgentMessageList({}, { session });
-		expect(queues).toHaveLength(2);
-		expect(queues.find(q => q.subagentId === "agent-1")?.messageCount).toBe(2);
-		expect(queues.find(q => q.subagentId === "agent-2")?.messageCount).toBe(1);
-	});
-
-	it("returns empty array when no queues", () => {
-		const session = makeSession();
-		vi.spyOn(session, "getSessionId").mockReturnValue("test-session-list");
-
-		const queues = runEvalAgentMessageList({}, { session });
-		expect(queues).toEqual([]);
-	});
-});
-
-describe("disposeAgentMessageStore", () => {
-	it("clears all message stores for a session", () => {
-		const session = makeSession();
-		vi.spyOn(session, "getSessionId").mockReturnValue("test-session-dispose");
-
-		runEvalAgentMessage(
-			{ message: "msg", receiverRole: "child", receiverName: "agent-1" },
-			{ session },
-		);
-
-		disposeAgentMessageStore("test-session-dispose");
-
-		const queues = runEvalAgentMessageList({}, { session });
-		expect(queues).toEqual([]);
+		expect(() => runEvalAgentMessage({ op: "foo" as "send", message: "x" }, { session })).toThrow("Invalid option");
 	});
 });
 
@@ -150,32 +91,38 @@ describe("rlm() + agent_message integration", () => {
 		disposeAgentMessageStore("test-session-integration");
 	});
 
-	it("simulates parent-child messaging flow", async () => {
+	it("parent sends to child, child reads and replies", () => {
 		const session = makeSession();
-		vi.spyOn(session, "getSessionId").mockReturnValue("test-session-integration");
 
-		// Parent sends message to child-agent
-		const handle = await runEvalAgentMessage(
-			{ message: "start task", receiverRole: "child", receiverName: "child-agent" },
+		// Parent sends to child
+		const sendResult = runEvalAgentMessage(
+			{ op: "send", message: "task assignment", receiverRole: "child", receiverName: "worker-1" },
 			{ session },
-		);
-		expect(handle.ok).toBe(true);
+		) as { ok: boolean; mailbox: string };
+		expect(sendResult.ok).toBe(true);
+		expect(sendResult.mailbox).toBe("child:worker-1");
 
-		// Child reads its queue
-		const childMessages = runEvalAgentMessageRead({ subagentId: "child-agent" }, { session });
-		expect(childMessages).toHaveLength(1);
-		expect(childMessages[0].message).toBe("start task");
-
-		// Child sends reply to parent (stored in default queue since no receiverName)
-		const reply = runEvalAgentMessage(
-			{ message: "done", receiverRole: "parent" },
+		// Child reads its mailbox
+		const readResult = runEvalAgentMessage(
+			{ op: "read", mailbox: "child:worker-1" },
 			{ session },
-		);
-		expect(reply.ok).toBe(true);
+		) as { messages: Array<{ message: string }> };
+		expect(readResult.messages).toHaveLength(1);
+		expect(readResult.messages[0].message).toBe("task assignment");
 
-		// Parent reads from default queue (where child reply went)
-		const parentMessages = runEvalAgentMessageRead({ subagentId: "default" }, { session });
-		expect(parentMessages).toHaveLength(1);
-		expect(parentMessages[0].message).toBe("done");
+		// Child replies to parent
+		const replyResult = runEvalAgentMessage(
+			{ op: "send", message: "done", receiverRole: "parent" },
+			{ session },
+		) as { ok: boolean; mailbox: string };
+		expect(replyResult.mailbox).toBe("parent");
+
+		// Parent reads parent mailbox
+		const parentRead = runEvalAgentMessage(
+			{ op: "read", mailbox: "parent" },
+			{ session },
+		) as { messages: Array<{ message: string }> };
+		expect(parentRead.messages).toHaveLength(1);
+		expect(parentRead.messages[0].message).toBe("done");
 	});
 });

@@ -75,6 +75,50 @@ export interface EvalRlmListResult {
 	subagents: EvalRlmHandle[];
 }
 
+/** Internal registry entry tracking a spawned subagent's lifecycle. */
+interface RlmSubagentEntry {
+	handle: EvalRlmHandle;
+	status: "running" | "completed" | "failed";
+}
+
+/** Session-scoped subagent registry, keyed by eval-session-id. */
+const rlmRegistry = new Map<string, Map<string, RlmSubagentEntry>>();
+
+/**
+ * Get or create the registry for the given eval session.
+ */
+function getRegistryForSession(session: ToolSession): Map<string, RlmSubagentEntry> {
+	const evalId = session.getEvalSessionId?.() ?? session.getSessionId?.() ?? "unknown";
+	if (!rlmRegistry.has(evalId)) {
+		rlmRegistry.set(evalId, new Map());
+	}
+	return rlmRegistry.get(evalId)!;
+}
+
+/**
+ * Remove a subagent from the registry (called on completion).
+ */
+function removeSubagentFromRegistry(session: ToolSession, handleId: string): void {
+	const evalId = session.getEvalSessionId?.() ?? session.getSessionId?.() ?? "unknown";
+	const registry = rlmRegistry.get(evalId);
+	if (registry) {
+		registry.delete(handleId);
+	}
+}
+
+/**
+ * Clean up registry for a session (called on session close).
+ */
+export function disposeRlmRegistry(sessionId: string): void {
+	rlmRegistry.delete(sessionId);
+	// Also clean any entry keyed by the eval-session-id (may differ from session id)
+	for (const [key, registry] of rlmRegistry.entries()) {
+		if (registry.size === 0) {
+			rlmRegistry.delete(key);
+		}
+	}
+}
+
 function parseRlmArgs(args: unknown): EvalRlmArgs {
 	const parsed = rlmArgsSchema.safeParse(args);
 	if (!parsed.success) {
@@ -174,6 +218,7 @@ function emitProgressStatus(emitStatus: ((event: JsStatusEvent) => void) | undef
 /**
  * Spawn an async subagent on behalf of an eval cell's `rlm()` call.
  * Returns immediately with a handle; the subagent runs in the background.
+ * The handle is registered in the session-scoped registry and removed on completion.
  */
 export async function runEvalRlm(args: unknown, options: EvalRlmBridgeOptions): Promise<EvalRlmHandle> {
 	const parsed = parseRlmArgs(args);
@@ -235,6 +280,10 @@ export async function runEvalRlm(args: unknown, options: EvalRlmBridgeOptions): 
 		model: modelOverride,
 	};
 
+	// Register the subagent in the session-scoped registry
+	const registry = getRegistryForSession(options.session);
+	registry.set(id, { handle, status: "running" });
+
 	// Spawn the subagent asynchronously (don't await)
 	const { onProgress, ...restOptions } = {
 		cwd: options.session.cwd,
@@ -280,18 +329,30 @@ export async function runEvalRlm(args: unknown, options: EvalRlmBridgeOptions): 
 		taskExecutor.runSubprocess(restOptions),
 	);
 
-	// Clean up on completion
+	// Clean up and update registry on completion
 	_spawnPromise.then(
 		result => {
+			const entry = registry.get(id);
+			if (entry) {
+				entry.status = result.exitCode !== 0 || result.error ? "failed" : "completed";
+			}
 			if (result.exitCode !== 0 || result.error) {
 				const failureMessage =
 					result.error ?? result.stderr ?? result.abortReason ?? `rlm() subagent '${agentName}' failed.`;
 				options.emitStatus?.({ op: "rlm", id, name: subagentName, status: "failed", error: failureMessage });
+			} else {
+				options.emitStatus?.({ op: "rlm", id, name: subagentName, status: "completed" });
 			}
-			options.emitStatus?.({ op: "rlm", id, name: subagentName, status: "completed" });
+			// Remove from registry after a tick (allow final list calls to see completed status)
+			setTimeout(() => removeSubagentFromRegistry(options.session, id), 100);
 		},
 		error => {
+			const entry = registry.get(id);
+			if (entry) {
+				entry.status = "failed";
+			}
 			options.emitStatus?.({ op: "rlm", id, name: subagentName, status: "errored", error: String(error) });
+			setTimeout(() => removeSubagentFromRegistry(options.session, id), 100);
 		},
 	);
 
@@ -300,10 +361,13 @@ export async function runEvalRlm(args: unknown, options: EvalRlmBridgeOptions): 
 
 /**
  * List active subagents spawned via rlm() for the current session.
+ * Returns subagents that are still in the registry (not yet cleaned up).
  */
 export function runEvalRlmList(_args: unknown, options: EvalRlmBridgeOptions): EvalRlmListResult {
-	// Note: In a full implementation, this would query a registry of active subagents.
-	// For now, we return an empty list since we don't have a global registry.
-	// This can be enhanced with a session-scoped subagent tracker.
-	return { subagents: [] };
+	const registry = getRegistryForSession(options.session);
+	const subagents: EvalRlmHandle[] = [];
+	for (const entry of registry.values()) {
+		subagents.push(entry.handle);
+	}
+	return { subagents };
 }
