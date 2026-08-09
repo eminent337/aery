@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import {
 	buildHarnessBlock,
 	buildHarnessRecallBlock,
@@ -91,10 +91,15 @@ describe("harness injection", () => {
 		expect(recalled).toHaveLength(0);
 	});
 
-	it("logs injection events", () => {
-		const logSpy = spyOn(console, "debug").mockImplementation(() => {});
-		buildHarnessRecallBlock(state, "run bun tests", 0);
-		expect(logSpy.calls.length).toBeGreaterThan(0);
-		logSpy.mockRestore();
+	it("logs injection events to console.debug", () => {
+		const debugCalls: string[] = [];
+		const originalDebug = console.debug;
+		console.debug = (...args: unknown[]) => debugCalls.push(args.join(" "));
+		try {
+			buildHarnessRecallBlock(state, "run bun tests", 0);
+			expect(debugCalls.some((log) => log.includes("[harness-inject]"))).toBe(true);
+		} finally {
+			console.debug = originalDebug;
+		}
 	});
 });
