@@ -200,10 +200,24 @@ export function splitHarnessStateByScope(state: HarnessState): {
 			}
 		}
 	}
-	// Refinement events are deduplicated by id; keep the merged list in both
-	// stores so history reads stay consistent after a split-write cycle.
-	global.refinements = state.refinements;
-	local.refinements = state.refinements;
+	// Refinement events carry unique ids; each half keeps only the events that
+	// belong to its store so a merge→split cycle never duplicates history.
+	const globalIds = new Set<string>();
+	const localIds = new Set<string>();
+	for (const r of state.refinements) {
+		const id = (r as { scope?: string; id: string }).id ?? "";
+		if ((r as { scope?: string }).scope === "global") {
+			if (!globalIds.has(id)) {
+				globalIds.add(id);
+				global.refinements.push(r);
+			}
+		} else {
+			if (!localIds.has(id)) {
+				localIds.add(id);
+				local.refinements.push(r);
+			}
+		}
+	}
 	return { global, local };
 }
 

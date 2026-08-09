@@ -135,7 +135,17 @@ export async function runCli(argv: string[]): Promise<void> {
 	setImmediate(() => {
 		recoverStrandedFerments();
 		recoverStrandedSessions();
-		getGlobalCronScheduler().start();
+		// Only the launch path (interactive / print / acp sessions) runs the
+		// global cron scheduler. Helpers like `--help`/`--version`/subcommands
+		// must not keep the process alive with a scheduler interval.
+		const first = argv[0];
+		const isLaunch =
+			first === undefined ||
+			first === "launch" ||
+			(!isSubcommand(first) && first !== "--help" && first !== "-h" && first !== "--version" && first !== "-v" && first !== "help");
+		if (isLaunch) {
+			getGlobalCronScheduler().start();
+		}
 	});
 
 	if (argv[0] === "--smoke-test") {

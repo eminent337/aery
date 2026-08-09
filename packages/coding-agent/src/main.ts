@@ -12,6 +12,7 @@ import * as path from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { ImageContent } from "@aryee337/aery-ai";
 import { EventLoopKeepalive } from "@aryee337/aery-core";
+import { getGlobalCronScheduler } from "./cron/scheduler.js";
 import {
 	$env,
 	getProjectDir,
@@ -1140,6 +1141,9 @@ export async function runRootCommand(
 			// runInteractiveMode disposes the session internally; tear down the
 			// idle-GC watchdog here so it doesn't outlive the session.
 			idleHeapRelease.stop();
+			// Stop the global cron scheduler now that the session has ended so
+			// its interval doesn't keep the process alive after exit.
+			getGlobalCronScheduler().stop();
 		} else {
 			await runPrintMode(session, {
 				mode,
@@ -1152,6 +1156,7 @@ export async function runRootCommand(
 			}
 			idleHeapRelease.stop();
 			await session.dispose();
+			getGlobalCronScheduler().stop();
 			stopThemeWatcher();
 			await postmortem.quit(0);
 		}

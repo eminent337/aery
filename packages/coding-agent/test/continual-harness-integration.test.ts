@@ -5,6 +5,7 @@ import * as path from "node:path";
 import {
 	createSessionHarnessHost,
 	loadHarnessState,
+	mergeHarnessStates,
 	splitHarnessStateByScope,
 } from "../src/continual-harness/state.js";
 import { createCronScheduler, getGlobalCronScheduler, type CronScheduler } from "../src/cron/scheduler.js";
@@ -124,6 +125,35 @@ describe("Continual Harness Integration", () => {
 		expect(Object.keys(global.entries.memory)).toEqual(["mem-1"]);
 		expect(Object.keys(local.entries.memory)).toEqual(["mem-2"]);
 		expect(local.entries.memory["mem-2"].scope).toBe("local");
+	});
+	it("should not duplicate refinement history across a merge/split cycle", async () => {
+		const entry = {
+			id: "ref-1",
+			trigger: "compact",
+			changes: ["c1"],
+			evidence: "e",
+			outcome: "o",
+			created_at: new Date().toISOString(),
+		};
+		const state: any = {
+			schema: 1,
+			entries: { prompt: {}, memory: {}, skill: {}, subagent: {} },
+			refinements: [
+				{ ...entry, scope: "global" },
+				{ ...entry, scope: "local" },
+			],
+		};
+		// First split: each half keeps its own event.
+		const split1 = splitHarnessStateByScope(state);
+		expect(split1.global.refinements).toHaveLength(1);
+		expect(split1.local.refinements).toHaveLength(1);
+		// Simulate a flush cycle: save the split halves, reload and merge.
+		const merged = mergeHarnessStates(split1.global, split1.local);
+		expect(merged.refinements).toHaveLength(2);
+		// Second split must not grow the history.
+		const split2 = splitHarnessStateByScope(merged);
+		expect(split2.global.refinements).toHaveLength(1);
+		expect(split2.local.refinements).toHaveLength(1);
 	});
 	it("should persist global and local harness state to separate files", async () => {
 		const mockSessionManager: any = {
