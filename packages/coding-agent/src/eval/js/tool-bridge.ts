@@ -133,12 +133,12 @@ export async function callSessionTool(name: string, args: unknown, options: Tool
 	if (name === EVAL_AGENT_MESSAGE_BRIDGE_NAME) {
 		return runEvalAgentMessage(args, options) as ToolValue;
 	}
+	}
+	const tool = getTool(options.session, name);
 	const normalizedArgs = normalizeArgs(args);
 	const toolCallId = `js-${name}-${crypto.randomUUID()}`;
 	try {
 		const result = await tool.execute(toolCallId, normalizedArgs, options.signal);
-		const textBlocks = result.content.filter(
-			(content): content is { type: "text"; text: string } =>
 				content.type === "text" && typeof content.text === "string",
 		);
 		const imageBlocks = result.content.filter(
