@@ -143,20 +143,21 @@ describe("runEvalRlm", () => {
 
 		const tempDir1 = TempDir.createSync("rlm-registry-");
 		const { session: session1 } = makeEvalSession(tempDir1, "test");
+		const session1Id = session1.getSessionId?.() ?? "unknown";
 
 		const handle1 = await runEvalRlm({ prompt: "test prompt" }, { session: session1 });
 
 		expect(handle1).toBeDefined();
 		expect(handle1.id).toBeTruthy();
 		expect(handle1.name).toBeTruthy();
-		expect(handle1.sessionId).toBe(session1.getSessionId());
+		expect(handle1.sessionId).toBe(session1Id);
 
 		const listResult1 = runEvalRlmList({}, { session: session1 });
 		expect(listResult1.subagents).toHaveLength(1);
 		expect(listResult1.subagents[0].id).toBe(handle1.id);
 		expect(listResult1.subagents[0].name).toBe(handle1.name);
 
-		disposeRlmRegistry(session1.getEvalSessionId() ?? session1.getSessionId() ?? "unknown");
+		disposeRlmRegistry(session1.getEvalSessionId?.() ?? session1.getSessionId?.() ?? "unknown");
 	});
 
 	it("removes subagent from registry on completion", async () => {
@@ -176,7 +177,7 @@ describe("runEvalRlm", () => {
 		const handle2 = await runEvalRlm({ prompt: "test prompt" }, { session: session2 });
 		expect(handle2).toBeDefined();
 
-		disposeRlmRegistry(session2.getEvalSessionId() ?? session2.getSessionId() ?? "unknown");
+		disposeRlmRegistry(session2.getEvalSessionId?.() ?? session2.getSessionId?.() ?? "unknown");
 
 		const listResult2 = runEvalRlmList({}, { session: session2 });
 		expect(listResult2.subagents).toHaveLength(0);
@@ -189,7 +190,7 @@ describe("runEvalRlmList", () => {
 		const { session: session3 } = makeEvalSession(tempDir3, "empty");
 		const result = runEvalRlmList({}, { session: session3 });
 		expect(result).toEqual({ subagents: [] });
-		disposeRlmRegistry(session3.getEvalSessionId() ?? session3.getSessionId() ?? "unknown");
+		disposeRlmRegistry(session3.getEvalSessionId?.() ?? session3.getSessionId?.() ?? "unknown");
 	});
 
 	it("returns active subagents from registry", async () => {
@@ -214,7 +215,7 @@ describe("runEvalRlmList", () => {
 		expect(result.subagents.map(h => h.id)).toContain(handle3.id);
 		expect(result.subagents.map(h => h.id)).toContain(handle4.id);
 
-		disposeRlmRegistry(session4.getEvalSessionId() ?? session4.getSessionId() ?? "unknown");
+		disposeRlmRegistry(session4.getEvalSessionId?.() ?? session4.getSessionId?.() ?? "unknown");
 	});
 });
 
@@ -255,14 +256,10 @@ describe("rlm() through eval runtimes", () => {
 
 	it("rlm.list_subagents() discovers active children in JS", async () => {
 		mockAgents();
-		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
-			cwd: "/",
-			agent: taskAgent,
-			task: "test",
-			assignment: "test",
-			index: 0,
-			id: "js-list-output",
-		}));
+		// Never-resolving promise keeps the subagent "running" so it stays in the
+		// registry for the whole cell; an instantly resolved mock would be removed
+		// by the completion cleanup timer before list_subagents() round-trips.
+		vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(() => new Promise(() => {}));
 
 		const tempDir6 = TempDir.createSync("rlm-js-list-");
 		const { session: session6, sessionFile: sessionFile6, sessionId: sessionId6 } = makeEvalSession(tempDir6, "js-list");
