@@ -129,11 +129,9 @@ export async function callSessionTool(name: string, args: unknown, options: Tool
 	}
 	if (name === EVAL_RLM_LIST_BRIDGE_NAME) {
 		return runEvalRlmList(args, options);
-	}
 	if (name === EVAL_AGENT_MESSAGE_BRIDGE_NAME) {
-		return runEvalAgentMessage(args, options);
+		return runEvalAgentMessage(args, options) as ToolValue;
 	}
-	const tool = getTool(options.session, name);
 	const normalizedArgs = normalizeArgs(args);
 	const toolCallId = `js-${name}-${crypto.randomUUID()}`;
 	try {

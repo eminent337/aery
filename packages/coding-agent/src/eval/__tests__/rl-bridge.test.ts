@@ -145,21 +145,16 @@ describe("runEvalRlm", () => {
 		const { session } = makeEvalSession(tempDir, "test");
 
 		const handle = await runEvalRlm({ prompt: "test prompt" }, { session });
-
+		const handle = await runEvalRlm({ prompt: "test prompt" }, { session });
 		expect(handle).toBeDefined();
 		expect(handle.id).toBeTruthy();
 		expect(handle.name).toBeTruthy();
 		expect(handle.sessionId).toBe(session.getSessionId());
-
 		const listResult = runEvalRlmList({}, { session });
 		expect(listResult.subagents).toHaveLength(1);
 		expect(listResult.subagents[0].id).toBe(handle.id);
 		expect(listResult.subagents[0].name).toBe(handle.name);
-
-		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId() ?? "unknown");
-	});
-
-	it("removes subagent from registry on completion", async () => {
+		disposeRlmRegistry((session as any).getEvalSessionId?.() ?? (session as any).getSessionId?.() ?? "unknown");
 		mockAgents();
 		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
 			cwd: "/",
@@ -172,25 +167,18 @@ describe("runEvalRlm", () => {
 
 		const tempDir = TempDir.createSync("rlm-cleanup-");
 		const { session } = makeEvalSession(tempDir, "cleanup-test");
-
 		const handle = await runEvalRlm({ prompt: "test prompt" }, { session });
 		expect(handle).toBeDefined();
-
-		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId() ?? "unknown");
-
+		disposeRlmRegistry((session as any).getEvalSessionId?.() ?? (session as any).getSessionId?.() ?? "unknown");
 		const listResult = runEvalRlmList({}, { session });
 		expect(listResult.subagents).toHaveLength(0);
 	});
 });
 
 describe("runEvalRlmList", () => {
-	it("returns empty list when no subagents are tracked", () => {
-		const tempDir = TempDir.createSync("rlm-list-empty-");
-		const { session } = makeEvalSession(tempDir, "empty");
 		const result = runEvalRlmList({}, { session });
 		expect(result).toEqual({ subagents: [] });
-		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId() ?? "unknown");
-	});
+		disposeRlmRegistry((session as any).getEvalSessionId?.() ?? (session as any).getSessionId?.() ?? "unknown");
 
 	it("returns active subagents from registry", async () => {
 		mockAgents();
@@ -213,11 +201,7 @@ describe("runEvalRlmList", () => {
 		expect(result.subagents).toHaveLength(2);
 		expect(result.subagents.map(h => h.id)).toContain(handle1.id);
 		expect(result.subagents.map(h => h.id)).toContain(handle2.id);
-
-		disposeRlmRegistry(session.getEvalSessionId() ?? session.getSessionId() ?? "unknown");
-	});
-});
-
+		disposeRlmRegistry((session as any).getEvalSessionId?.() ?? (session as any).getSessionId?.() ?? "unknown");
 describe("rlm() through eval runtimes", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
