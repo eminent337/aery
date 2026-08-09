@@ -15,6 +15,24 @@ export const INJECTION_KINDS: readonly RefinementKind[] = ["prompt", "memory", "
 /** Cap on entries rendered per kind before the token cap kicks in. */
 const MAX_ENTRIES_PER_KIND = 8;
 
+/** Default minimum relevance score for an entry to be injected. */
+export const DEFAULT_MIN_SCORE = 1;
+
+/** Default minimum relevance threshold (entries scoring below this are excluded). */
+export const DEFAULT_THRESHOLD = 2;
+
+/**
+ * Log an injection event for debugging.
+ */
+export function logInjectionEvent(
+	message: string,
+	data?: Record<string, unknown>,
+): void {
+	const timestamp = new Date().toISOString();
+	const logLine = `[harness-inject] ${timestamp} ${message}`;
+	console.debug(logLine, ...(data ? [data] : []));
+}
+
 /**
  * Render a single harness entry as an injectable line.
  */
@@ -97,14 +115,21 @@ export function buildHarnessRecallBlock(
 	state: HarnessState,
 	query: string,
 	tokenLimit: number,
+	minScore = DEFAULT_MIN_SCORE,
+	threshold = DEFAULT_THRESHOLD,
 ): string | undefined {
 	if (query) {
-		const recalled = recallHarnessEntries(state, query, tokenLimit);
+		const recalled = recallHarnessEntries(state, query, tokenLimit, minScore, threshold);
 		if (recalled.length > 0) {
+			logInjectionEvent("recall-block", { count: recalled.length, query: query.slice(0, 50) });
 			return buildHarnessBlockFromEntries(recalled, tokenLimit);
 		}
 	}
-	return buildHarnessBlock(state, tokenLimit);
+	const block = buildHarnessBlock(state, tokenLimit);
+	if (block) {
+		logInjectionEvent("fallback-block", { count: Object.values(state.entries).flat().length });
+	}
+	return block;
 }
 
 /**
@@ -133,20 +158,22 @@ export function scoreHarnessEntry(entry: HarnessEntry, query: string): number {
 /**
  * Pick the most relevant entries for a query, capped by token limit.
  *
- * Returns entries that scored > 0, sorted by score desc, then filtered by
- * the token cap (0 = no cap). If nothing scores, returns [].
+ * Returns entries that scored >= threshold, sorted by score desc, then filtered by
+ * the token cap (0 = no cap). If nothing scores above threshold, returns [].
  */
 export function recallHarnessEntries(
 	state: HarnessState,
 	query: string,
 	tokenLimit: number,
+	minScore = DEFAULT_MIN_SCORE,
+	threshold = DEFAULT_THRESHOLD,
 ): HarnessEntry[] {
 	if (!query) return [];
 	const scored: { entry: HarnessEntry; score: number }[] = [];
 	for (const kind of INJECTION_KINDS) {
 		for (const entry of Object.values(state.entries[kind])) {
 			const score = scoreHarnessEntry(entry, query);
-			if (score > 0) scored.push({ entry, score });
+			if (score >= threshold) scored.push({ entry, score });
 		}
 	}
 	scored.sort((a, b) => b.score - a.score);
