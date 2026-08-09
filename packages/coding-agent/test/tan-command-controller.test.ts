@@ -43,6 +43,7 @@ describe("TanCommandController", () => {
 					return undefined;
 				}),
 				getGroup: mock(() => ({})),
+				getStorage: mock(() => null),
 			} as any,
 		};
 

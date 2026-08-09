@@ -115,7 +115,7 @@ describe("SettingsSelectorComponent memory tab", () => {
 			.filter(line => line.includes("│"))
 			.map(line => line.split("│")[0].trim())
 			.filter(title => title.length > 0);
-		expect(sidebarTitles).toEqual(["Other", "Hindsight"]);
+		expect(sidebarTitles).toEqual(["Other", "Hindsight", "Continual Harness"]);
 	});
 
 	it("clears the global settings search on Escape before closing the selector", () => {
