@@ -19,7 +19,7 @@ import * as path from "node:path";
 import { scheduler } from "node:timers/promises";
 import { isPromise } from "node:util/types";
 import { createAutonomousRuntime, type AutonomousRuntime, type AutonomousRuntimeHost } from "../autonomous/index.js";
-import { createContinualHarnessEngine, createSessionHarnessHost, type ContinualHarnessEngine, type HarnessHost } from "../continual-harness/index.js";
+import { buildHarnessRecallBlock, createContinualHarnessEngine, createSessionHarnessHost, type ContinualHarnessEngine, type HarnessHost } from "../continual-harness/index.js";
 import type {
 	AssistantMessage,
 	Context,
@@ -3857,20 +3857,47 @@ export class AgentSession {
 	}
 
 	async #buildSystemPromptForAgentStart(promptText: string): Promise<string[]> {
+		const blocks: string[] = [];
 		const backend = resolveMemoryBackend(this.settings);
-		if (!backend.beforeAgentStartPrompt) return this.#baseSystemPrompt;
-
-		try {
-			const injected = await backend.beforeAgentStartPrompt(this, promptText);
-			if (!injected) return this.#baseSystemPrompt;
-			return [...this.#baseSystemPrompt, injected];
-		} catch (err) {
-			logger.debug("Memory backend beforeAgentStartPrompt failed", {
-				backend: backend.id,
-				error: String(err),
-			});
-			return this.#baseSystemPrompt;
+		if (backend.beforeAgentStartPrompt) {
+			try {
+				const injected = await backend.beforeAgentStartPrompt(this, promptText);
+				if (injected) blocks.push(injected);
+			} catch (err) {
+				logger.debug("Memory backend beforeAgentStartPrompt failed", {
+					backend: backend.id,
+					error: String(err),
+				});
+			}
 		}
+		// Continual harness: inject the refined prompts/memories/skills back
+		// into the working context (recall-aware per turn, gated by settings).
+		if (this.settings.get("harness.inject")) {
+			try {
+				const harnessBlock = await this.#buildHarnessPromptBlock(promptText);
+				if (harnessBlock) blocks.push(harnessBlock);
+			} catch (err) {
+				logger.debug("Harness context injection failed", { error: String(err) });
+			}
+		}
+		if (blocks.length === 0) return this.#baseSystemPrompt;
+		return [...this.#baseSystemPrompt, ...blocks];
+	}
+	/**
+	 * Build the continual-harness context block for the current prompt.
+	 * Recall-aware: scores harness entries against the user's prompt and
+	 * injects only the relevant ones; falls back to the top-N block when
+	 * the query yields nothing.
+	 */
+	async #buildHarnessPromptBlock(promptText: string): Promise<string | undefined> {
+		if (!this.#harnessHost) {
+			// Lazily materialize the host only when injection is enabled so
+			// sessions that never refine don't pay the harness I/O cost.
+			this.getHarnessHost();
+		}
+		const state = await this.#harnessHost!.getHarnessState();
+		const tokenLimit = this.settings.get("harness.injectTokenLimit");
+		return buildHarnessRecallBlock(state, promptText, tokenLimit);
 	}
 
 	/**

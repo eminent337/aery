@@ -33,6 +33,7 @@ import { createCronScheduler, getGlobalCronScheduler } from "../cron/scheduler.j
 import type { CronScheduler } from "../cron/scheduler.js";
 import { createRefinementEngine } from "../refinement/engine.js";
 import type { RefinementEngine } from "../refinement/engine.js";
+import { buildHarnessBlock } from "../continual-harness/inject.js";
 import { getChangelogPath, parseChangelog } from "../utils/changelog";
 import { createMarketplaceManager } from "./helpers/marketplace-manager";
 import { handleMcpAcp } from "./helpers/mcp";
@@ -417,13 +418,19 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 					const memoriesCount = Object.keys(state.entries.memory).length;
 					const skillsCount = Object.keys(state.entries.skill).length;
 					const subagentsCount = Object.keys(state.entries.subagent).length;
+					const injectEnabled = session.settings.get("harness.inject");
+					const injectTokenLimit = session.settings.get("harness.injectTokenLimit");
+					const block = buildHarnessBlock(state, injectTokenLimit);
+					const injectedCount = block ? (block.match(/^- /gm) ?? []).length : 0;
 					return out(
 						`Continual Harness Status:\n` +
 						`Prompt addendums: ${promptsCount}\n` +
 						`Memories: ${memoriesCount}\n` +
 						`Skills: ${skillsCount}\n` +
 						`Subagents: ${subagentsCount}\n` +
-						`Refinement passes run: ${history.length}`
+						`Refinement passes run: ${history.length}\n` +
+						`Context injection: ${injectEnabled ? "on" : "off"} (limit ${injectTokenLimit} tokens)\n` +
+						`Entries injected: ${injectedCount}`
 					);
 				}
 				case "rollback": {

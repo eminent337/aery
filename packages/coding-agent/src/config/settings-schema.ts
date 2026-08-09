@@ -1642,6 +1642,27 @@ export const SETTINGS_SCHEMA = {
 	"mnemopi.recallMaxQueryChars": { type: "number", default: 4000 },
 	"mnemopi.injectionTokenLimit": { type: "number", default: 5000 },
 	"mnemopi.debug": { type: "boolean", default: false },
+	// Continual Harness (self-improving memories/prompts/skills)
+	"harness.inject": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "memory",
+			group: "Continual Harness",
+			label: "Inject harness context",
+			description: "Inject the continual-harness entries (prompts, memories, skills) into the system prompt at agent start",
+		},
+	},
+	"harness.injectTokenLimit": {
+		type: "number",
+		default: 5000,
+		ui: {
+			tab: "memory",
+			group: "Continual Harness",
+			label: "Harness injection token limit",
+			description: "Maximum tokens of harness context injected into the system prompt (0 = no cap)",
+		},
+	},
 
 	// Hindsight (https://hindsight.vectorize.io)
 	"hindsight.apiUrl": {
