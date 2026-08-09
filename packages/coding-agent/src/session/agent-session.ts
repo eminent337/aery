@@ -1767,23 +1767,10 @@ export class AgentSession {
 			}
 			// Auto-refine review check (every 20 turns)
 			this.#turnsSinceLastRefineReview++;
-			if (this.#turnsSinceLastRefineReview >= 20 && this.model) {
-				const engine = this.getHarnessEngine();
+			if (this.#turnsSinceLastRefineReview >= 20) {
 				const currentTurns = this.#turnsSinceLastRefineReview;
 				this.#turnsSinceLastRefineReview = 0;
-				const model = this.model;
-				this.#modelRegistry.getApiKey(model).then(async apiKey => {
-					const key = apiKey || "";
-					const review = await engine.reviewAutoRefine(model, key, {
-						reason: "turn_interval",
-						turnsSinceLastReview: currentTurns,
-					});
-					if (review.shouldRefine) {
-						await engine.refine(model, key, {
-							instructions: review.instructions || review.rationale,
-						});
-					}
-				}).catch(() => {});
+				void this.#maybeAutoRefine("turn_interval", currentTurns);
 			}
 		}
 		if (event.type === "turn_start") {
@@ -2987,6 +2974,13 @@ export class AgentSession {
 				errorMessage: event.errorMessage,
 				skipped: event.skipped,
 			});
+			// Compaction is a natural refinement point: after a successful compact,
+			// review the (now summarized) trajectory and refine the harness when
+			// warranted. Skip when aborted/failed/skipped so we don't review garbage.
+			if (!event.aborted && !event.willRetry && !event.skipped && event.result) {
+				void this.#maybeAutoRefine("compact", this.#turnsSinceLastRefineReview);
+				this.#turnsSinceLastRefineReview = 0;
+			}
 		} else if (event.type === "auto_retry_start") {
 			await this.#extensionRunner.emit({
 				type: "auto_retry_start",
@@ -3169,6 +3163,8 @@ export class AgentSession {
 		}
 		await disposeKernelSessionsByOwner(this.#evalKernelOwnerId);
 		await shutdownTinyTitleClient();
+		// Flush continual-harness state so local refinements survive the process.
+		await this.#flushHarnessState();
 		this.#releasePowerAssertion();
 		await this.sessionManager.close();
 		this.#closeAllProviderSessions("dispose");
@@ -3275,6 +3271,17 @@ export class AgentSession {
 		}
 		return this.#harnessEngine;
 	}
+	async #flushHarnessState(): Promise<void> {
+		if (!this.#harnessHost) return;
+		try {
+			const state = await this.#harnessHost.getHarnessState();
+			await this.#harnessHost.saveHarnessState(state);
+		} catch (error) {
+			logger.warn("Failed to flush continual-harness state during dispose", {
+				error: String(error),
+			});
+		}
+	}
 
 	getAgentId(): string | undefined {
 		return this.#agentId;
@@ -3289,6 +3296,32 @@ export class AgentSession {
 	async waitForIdle(): Promise<void> {
 		await this.agent.waitForIdle();
 		await this.#waitForPostPromptRecovery();
+	}
+	/**
+	 * Run the auto-refine review (and refine if warranted) for the given trigger.
+	 * Fire-and-forget: failures are logged, never surfaced to the caller.
+	 */
+	async #maybeAutoRefine(
+		reason: "turn_interval" | "compact",
+		turnsSinceLastReview: number,
+	): Promise<void> {
+		const model = this.model;
+		if (!model) return;
+		try {
+			const engine = this.getHarnessEngine();
+			const apiKey = (await this.#modelRegistry.getApiKey(model)) || "";
+			const review = await engine.reviewAutoRefine(model, apiKey, {
+				reason,
+				turnsSinceLastReview,
+			});
+			if (review.shouldRefine) {
+				await engine.refine(model, apiKey, {
+					instructions: review.instructions || review.rationale,
+				});
+			}
+		} catch (error) {
+			logger.warn(`Auto-refine review failed (${reason})`, { error: String(error) });
+		}
 	}
 
 	async drainAsyncJobDeliveriesForAcp(options?: { timeoutMs?: number }): Promise<boolean> {

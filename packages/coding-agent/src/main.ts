@@ -270,6 +270,10 @@ async function runInteractiveMode(
 	});
 
 	await mode.init({ suppressWelcomeIntro: setupScenes.length > 0 });
+	// Expose the interactive-mode context globally so background schedulers
+	// (e.g. /schedule auto-fire timers) can trigger sessions without holding a
+	// reference of their own.
+	(globalThis as Record<string, unknown>).__aery_ctx = mode;
 
 	if (setupScenes.length > 0) {
 		await runSetupWizard(mode, setupScenes);

@@ -217,4 +217,6 @@ export interface HarnessHost {
 	now(): string;
 	/** Current time in ms */
 	nowMs(): number;
+	/** Resolve the file path where harness state is (or will be) persisted. */
+	getStatePath?(): string;
 }

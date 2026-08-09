@@ -175,6 +175,37 @@ export function mergeHarnessStates(
 	
 	return merged;
 }
+/**
+ * Split a merged harness state back into its global and local halves.
+ *
+ * Global entries (scope === "global") go to the global store; everything else
+ * goes to the local store. IDs that carry a display-only `local:` prefix from
+ * `mergeHarnessStates` are stripped back to the bare id.
+ */
+export function splitHarnessStateByScope(state: HarnessState): {
+	global: HarnessState;
+	local: HarnessState;
+} {
+	const global = emptyHarnessState();
+	const local = emptyHarnessState();
+	global.schema = state.schema;
+	local.schema = state.schema;
+	for (const kind of Object.keys(state.entries) as RefinementKind[]) {
+		for (const [id, entry] of Object.entries(state.entries[kind])) {
+			if (entry.scope === "global") {
+				global.entries[kind][id] = { ...entry, scope: "global" };
+			} else {
+				const bareId = id.startsWith("local:") ? id.slice("local:".length) : id;
+				local.entries[kind][bareId] = { ...entry, scope: "local" };
+			}
+		}
+	}
+	// Refinement events are deduplicated by id; keep the merged list in both
+	// stores so history reads stay consistent after a split-write cycle.
+	global.refinements = state.refinements;
+	local.refinements = state.refinements;
+	return { global, local };
+}
 
 /**
  * Append a refinement result to the global history.
@@ -344,11 +375,19 @@ export function createSessionHarnessHost(
 			return mergeHarnessStates(globalState, localState);
 		},
 		async saveHarnessState(state: HarnessState): Promise<void> {
+			const { global: globalHalf, local: localHalf } = splitHarnessStateByScope(state);
 			if (localDir) {
-				await saveHarnessState(localDir, state);
+				// Persist global-scoped entries to the global store and local-scoped
+				// entries to the session store so a merged state never bleeds global
+				// entries into the local file (and vice versa).
+				await saveHarnessState(globalDir, globalHalf);
+				await saveHarnessState(localDir, localHalf);
 			} else {
-				await saveHarnessState(globalDir, state);
+				await saveHarnessState(globalDir, globalHalf);
 			}
+		},
+		getStatePath(): string {
+			return getHarnessStatePath(localDir ?? globalDir);
 		},
 		async getRefinementHistory(): Promise<RefinementResult[]> {
 			const globalHist = loadGlobalRefinementHistory(globalDir);

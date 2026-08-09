@@ -2,9 +2,14 @@ import { describe, expect, it, beforeEach } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createSessionHarnessHost } from "../src/continual-harness/state.js";
+import {
+	createSessionHarnessHost,
+	loadHarnessState,
+	splitHarnessStateByScope,
+} from "../src/continual-harness/state.js";
+import { createCronScheduler, getGlobalCronScheduler, type CronScheduler } from "../src/cron/scheduler.js";
+import type { CronSchedulerHost } from "../src/cron/types.js";
 import { ContinualHarnessEngine, createContinualHarnessEngine } from "../src/continual-harness/engine.js";
-import { getGlobalCronScheduler } from "../src/cron/scheduler.js";
 
 describe("Continual Harness Integration", () => {
 	let tmpDir: string;
@@ -72,5 +77,139 @@ describe("Continual Harness Integration", () => {
 
 		const deleted = await scheduler.store.delete(created.id);
 		expect(deleted).toBe(true);
+	});
+	it("should split a merged harness state back into global and local halves", async () => {
+		const state = {
+			schema: 1,
+			entries: {
+				prompt: {},
+				memory: {
+					"mem-1": {
+						id: "mem-1",
+						kind: "memory",
+						title: "Global fact",
+						content: "g",
+						path: "",
+						scope: "global",
+						reference: {},
+						arguments: {},
+						metadata: {},
+						source: "test",
+						created_at: new Date().toISOString(),
+						updated_at: new Date().toISOString(),
+						version: 1,
+					},
+					"local:mem-2": {
+						id: "mem-2",
+						kind: "memory",
+						title: "Local fact",
+						content: "l",
+						path: "",
+						scope: "local",
+						reference: {},
+						arguments: {},
+						metadata: {},
+						source: "test",
+						created_at: new Date().toISOString(),
+						updated_at: new Date().toISOString(),
+						version: 1,
+					},
+				},
+				skill: {},
+				subagent: {},
+			},
+			refinements: [],
+		};
+		const { global, local } = splitHarnessStateByScope(state as any);
+		expect(Object.keys(global.entries.memory)).toEqual(["mem-1"]);
+		expect(Object.keys(local.entries.memory)).toEqual(["mem-2"]);
+		expect(local.entries.memory["mem-2"].scope).toBe("local");
+	});
+	it("should persist global and local harness state to separate files", async () => {
+		const mockSessionManager: any = {
+			sessionFile: path.join(tmpDir, "sessions", "test-session.jsonl"),
+			getBranch: () => [],
+		};
+		const host = createSessionHarnessHost(mockSessionManager, tmpDir);
+		const state = await host.getHarnessState();
+		state.entries.memory["global-mem"] = {
+			id: "global-mem",
+			kind: "memory",
+			title: "Global memory",
+			content: "g",
+			path: "",
+			scope: "global",
+			reference: {},
+			arguments: {},
+			metadata: {},
+			source: "test",
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			version: 1,
+		};
+		state.entries.memory["local-mem"] = {
+			id: "local-mem",
+			kind: "memory",
+			title: "Local memory",
+			content: "l",
+			path: "",
+			scope: "local",
+			reference: {},
+			arguments: {},
+			metadata: {},
+			source: "test",
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			version: 1,
+		};
+		await host.saveHarnessState(state);
+		// Global file should contain only the global entry; local only the local.
+		const globalDir = path.join(tmpDir, "harness");
+		const localDir = path.join(tmpDir, "sessions", "harness");
+		const globalState = loadHarnessState(globalDir, "global");
+		const localState = loadHarnessState(localDir, "local");
+		expect(Object.keys(globalState.entries.memory)).toContain("global-mem");
+		expect(Object.keys(globalState.entries.memory)).not.toContain("local-mem");
+		expect(Object.keys(localState.entries.memory)).toContain("local-mem");
+		expect(Object.keys(localState.entries.memory)).not.toContain("global-mem");
+	});
+	it("should deliver cron jobs to the resolved live session", async () => {
+		const delivered: string[] = [];
+		const store = {
+			list: async () => [],
+			get: async () => undefined,
+			create: async () => {
+				throw new Error("not used");
+			},
+			update: async () => undefined,
+			delete: async () => true,
+			findDue: async () => [],
+		};
+		const host: CronSchedulerHost = {
+			store: store as any,
+			now: () => Date.now(),
+			emit: () => {},
+			executeSession: async (sessionId, deliveryMode) => {
+				delivered.push(`${sessionId}:${deliveryMode}`);
+			},
+		};
+		const scheduler: CronScheduler = createCronScheduler(host, { checkIntervalMs: 1 });
+		scheduler.start();
+		// Use executeDue directly to avoid waiting on the interval.
+		// Instead simulate by calling the scheduler's public path with a due job.
+		const fakeJob = {
+			id: "job-1",
+			schedule: "every 5m",
+			sessionId: "sess-1",
+			deliveryMode: "follow_up" as const,
+			enabled: true,
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+			nextRunAt: Date.now() - 1,
+		};
+		(store.findDue as any) = async () => [fakeJob];
+		await (scheduler as any).executeDue();
+		expect(delivered).toContain("sess-1:follow_up");
+		scheduler.stop();
 	});
 });

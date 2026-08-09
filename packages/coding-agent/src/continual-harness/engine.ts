@@ -570,14 +570,17 @@ export class ContinualHarnessEngine {
 	 * Save state to disk.
 	 */
 	async #saveState(state: HarnessState): Promise<string> {
-		// This would be implemented based on Aery's storage system
-		return "/tmp/harness_state.json";
+		const path = this.#host.getStatePath?.();
+		if (!path) {
+			// Host did not expose a state path — persist via saveHarnessState and
+			// report an empty path rather than a fake /tmp file.
+			await this.#host.saveHarnessState(state);
+			return "";
+		}
+		await this.#host.saveHarnessState(state);
+		return path;
 	}
 }
-
-/**
- * Create a continual harness engine instance.
- */
 export function createContinualHarnessEngine(host: HarnessHost): ContinualHarnessEngine {
 	return new ContinualHarnessEngine(host);
 }

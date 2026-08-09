@@ -393,9 +393,10 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 					const instructions = instIdx !== -1 ? args.slice(instIdx + 1).join(" ") : undefined;
 					const model = session.model;
 					if (!model) return out("Error: No model selected for refinement");
+					const apiKey = (await session.modelRegistry.getApiKey(model)) || "";
 					out("Running continual harness refinement...");
 					try {
-						const result = await engine.refine(model, "", { global: isGlobal, instructions });
+						const result = await engine.refine(model, apiKey, { global: isGlobal, instructions });
 						const appliedCount = result.appliedEdits.filter(e => e.applied).length;
 						return out(
 							`Refinement complete!\n` +
