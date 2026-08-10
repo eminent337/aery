@@ -155,7 +155,22 @@ export async function claimFreebuffSessionSlot(options: {
 	baseUrl?: string;
 	modelId?: string;
 	signal?: AbortSignal;
-}): Promise<FreebuffSessionResponse | null> {
+}): Promise<{
+		status: string;
+		accessTier: string;
+		instanceId: string;
+		model: string;
+		admittedAt: string;
+		expiresAt: string;
+		remainingMs: number;
+		countryCode: string;
+		countryBlockReason?: string;
+		rateLimit?: {
+			limit: number;
+			recentCount: number;
+			period: string;
+		};
+	} | null> {
 	const { apiKey } = options;
 	const apiBase = resolveFreebuffApiBase(options.baseUrl);
 	const modelId = options.modelId ?? "base2-free";
