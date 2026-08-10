@@ -18,6 +18,7 @@ import { ThoughtTree } from "@aryee337/aery-tui";
 import * as z from "zod/v4";
 import { parseModelString } from "../config/model-resolver";
 import type { RenderResultOptions } from "../extensibility/custom-tools/types";
+import type { Theme } from "../modes/theme/theme";
 import { ToolError } from "./tool-errors";
 
 const bestOfNSchema = z.object({
@@ -310,7 +311,7 @@ export class BestOfNTool implements AgentTool<typeof bestOfNSchema, BestOfNDetai
 	renderResult(
 		result: AgentToolResult<BestOfNDetails>,
 		options: RenderResultOptions,
-		_theme: import("../modes/theme/theme").Theme,
+		uiTheme: Theme,
 	): Component | undefined {
 		if (result.details?.treeNodes) {
 			return new ThoughtTree(result.details.treeNodes, options.spinnerFrame);

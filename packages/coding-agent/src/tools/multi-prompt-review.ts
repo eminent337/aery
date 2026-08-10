@@ -15,6 +15,7 @@ import type { Component, TreeNode } from "@aryee337/aery-tui";
 import { ThoughtTree } from "@aryee337/aery-tui";
 import * as z from "zod/v4";
 import type { RenderResultOptions } from "../extensibility/custom-tools/types";
+import type { Theme } from "../modes/theme/theme";
 import { extractAssistantText, resolveGenerationModel } from "./best-of-n";
 import { ToolError } from "./tool-errors";
 
@@ -216,7 +217,7 @@ export class MultiPromptReviewTool implements AgentTool<typeof multiPromptReview
 	renderResult(
 		result: AgentToolResult<MultiPromptReviewDetails>,
 		options: RenderResultOptions,
-		_theme: import("../modes/theme/theme").Theme,
+		uiTheme: Theme,
 	): Component | undefined {
 		if (result.details?.treeNodes) {
 			return new ThoughtTree(result.details.treeNodes, options.spinnerFrame);
