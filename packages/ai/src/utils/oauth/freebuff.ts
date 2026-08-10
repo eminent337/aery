@@ -348,6 +348,9 @@ export function createFreebuffFetch(options: {
 						...mergeHeaders(init.headers),
 					},
 				};
+				console.log("[Freebuff] Injected run_id:", runId);
+			} else {
+				console.log("[Freebuff] WARNING: Could not get run_id, request may fail");
 			}
 		}
 		const response = await baseFetch(input, init);
