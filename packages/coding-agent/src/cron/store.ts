@@ -148,17 +148,7 @@ export class SqliteCronJobStore implements CronJobStore {
 			INSERT INTO cron_jobs (id, schedule, session_id, delivery_mode, description, enabled, last_run_at, next_run_at, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
-		this.#updateStmt = this.#db.prepare(`
-			UPDATE cron_jobs SET
-				schedule = COALESCE(?1, schedule),
-				session_id = COALESCE(?2, session_id),
-				delivery_mode = COALESCE(?3, delivery_mode),
-				description = COALESCE(?4, description),
-				enabled = COALESCE(?5, enabled),
-				next_run_at = COALESCE(?6, next_run_at),
-				updated_at = ?7
-			WHERE id = ?8
-		`);
+
 		this.#deleteStmt = this.#db.prepare("DELETE FROM cron_jobs WHERE id = ?");
 		this.#findDueStmt = this.#db.prepare(`
 			SELECT * FROM cron_jobs

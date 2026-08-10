@@ -50,7 +50,7 @@ describe("ContinualHarnessEngine", () => {
 
 describe("Harness State Management", () => {
 	it("should load empty state when file doesn't exist", () => {
-		const _state = loadHarnessState(`/tmp/nonexistent-harness-${Date.now()}`);
+		const state = loadHarnessState(`/tmp/nonexistent-harness-${Date.now()}`);
 		expect(state.schema).toBe(1);
 		expect(state.entries).toBeDefined();
 		expect(state.refinements).toEqual([]);
@@ -58,7 +58,7 @@ describe("Harness State Management", () => {
 
 	it("should save and load state", async () => {
 		const dir = `/tmp/harness-test-${Date.now()}`;
-		const _state = loadHarnessState(dir);
+		const state = loadHarnessState(dir);
 
 		// Add an entry
 		state.entries.memory["test-id"] = {
@@ -132,7 +132,7 @@ describe("Harness State Management", () => {
 
 	it("should handle corrupt state file gracefully", () => {
 		const dir = `/tmp/corrupt-test-${Date.now()}`;
-		const _state = loadHarnessState(dir);
+		loadHarnessState(dir);
 
 		// Write corrupt data
 		const path = `/tmp/corrupt-${Date.now()}.json`;

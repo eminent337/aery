@@ -65,7 +65,7 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 						isStreaming = true;
 						try {
 							currentSlackMsg = await thread.post("...");
-						} catch (_e) {
+						} catch (e) {
 							log(`Failed to post message: ${e}`);
 						}
 					}

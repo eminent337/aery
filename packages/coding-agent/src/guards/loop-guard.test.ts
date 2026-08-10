@@ -6,7 +6,7 @@ describe("LoopGuard", () => {
 		const guard = new LoopGuard({ consecutiveThreshold: 3 });
 		guard.record("read", { file: "a.ts" }, false, "output-a");
 		guard.record("read", { file: "a.ts" }, false, "output-a");
-		const _result = guard.check("read", { file: "a.ts" }, false, "output-a");
+		const result = guard.check("read", { file: "a.ts" }, false, "output-a");
 		expect(result.state).toBe("warn");
 	});
 
@@ -15,7 +15,7 @@ describe("LoopGuard", () => {
 		guard.record("read", { file: "a.ts" }, false, "output-a");
 		guard.record("read", { file: "a.ts" }, false, "output-a");
 		guard.check("read", { file: "a.ts" }, false, "output-a"); // warn
-		const _result = guard.check("read", { file: "a.ts" }, false, "output-a"); // terminate
+		const result = guard.check("read", { file: "a.ts" }, false, "output-a"); // terminate
 		expect(result.state).toBe("terminate");
 	});
 
@@ -24,7 +24,7 @@ describe("LoopGuard", () => {
 		guard.record("read", { file: "a.ts" }, false, "out");
 		guard.record("edit", { file: "a.ts" }, false, "out");
 		guard.record("bash", { command: "npm test" }, false, "out");
-		const _result = guard.check("bash", { command: "npm test" }, false, "out");
+		const result = guard.check("bash", { command: "npm test" }, false, "out");
 		expect(result.state).toBe("ok");
 	});
 
@@ -35,7 +35,7 @@ describe("LoopGuard", () => {
 		guard.record("edit", { file: "c.ts" }, false, "out"); // breaks
 		guard.record("read", { file: "d.ts" }, false, "out");
 		guard.record("read", { file: "e.ts" }, false, "out");
-		const _result = guard.check("read", { file: "f.ts" }, false, "out");
+		const result = guard.check("read", { file: "f.ts" }, false, "out");
 		expect(result.state).toBe("ok");
 	});
 
@@ -43,7 +43,7 @@ describe("LoopGuard", () => {
 		const guard = new LoopGuard({ consecutiveThreshold: 3 });
 		guard.record("bash", { command: "npm test" }, false, "out");
 		guard.record("bash", { command: "npm test" }, false, "out");
-		const _result = guard.check("bash", { command: "npm test" }, false, "out");
+		guard.check("bash", { command: "npm test" }, false, "out");
 		expect(guard.getPattern()).toContain("bash");
 	});
 
@@ -69,7 +69,7 @@ describe("LoopGuard", () => {
 		guard.record("read", { file: "a.ts" }, false, "out");
 		guard.record("read", { file: "a.ts" }, false, "out");
 		guard.reset();
-		const _result = guard.check("read", { file: "a.ts" }, false, "out");
+		const result = guard.check("read", { file: "a.ts" }, false, "out");
 		expect(result.state).toBe("ok");
 	});
 
@@ -77,7 +77,7 @@ describe("LoopGuard", () => {
 		const guard = new LoopGuard({ consecutiveThreshold: 3 });
 		guard.record("bash", { command: "rm -rf /" }, true, "permission denied");
 		guard.record("bash", { command: "rm -rf /" }, true, "permission denied");
-		const _result = guard.check("bash", { command: "rm -rf /" }, true, "permission denied");
+		const result = guard.check("bash", { command: "rm -rf /" }, true, "permission denied");
 		expect(result.state).toBe("warn");
 	});
 });

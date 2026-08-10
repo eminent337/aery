@@ -479,14 +479,14 @@ async function resolveCommonDir(gitDir: string): Promise<string> {
 	return path.resolve(gitDir, relative);
 }
 
-function _isLinkedWorktree(repository: GitRepository): boolean {
+function isLinkedWorktree(repository: GitRepository): boolean {
 	return (
 		repository.gitDir !== repository.commonDir &&
 		getEntryTypeSync(path.join(repository.gitDir, "commondir")) === "file"
 	);
 }
 
-async function _isLinkedWorktreeAsync(repository: GitRepository): Promise<boolean> {
+async function _isLinkedWorktree(repository: GitRepository): Promise<boolean> {
 	return (
 		repository.gitDir !== repository.commonDir &&
 		(await getEntryType(path.join(repository.gitDir, "commondir"))) === "file"
@@ -495,7 +495,7 @@ async function _isLinkedWorktreeAsync(repository: GitRepository): Promise<boolea
 
 async function primaryRootFromRepository(repository: GitRepository): Promise<string> {
 	if (path.basename(repository.commonDir) === ".git") return path.dirname(repository.commonDir);
-	if (await isLinkedWorktreeAsync(repository)) return repository.commonDir;
+	if (await isLinkedWorktree(repository)) return repository.commonDir;
 	return repository.repoRoot;
 }
 

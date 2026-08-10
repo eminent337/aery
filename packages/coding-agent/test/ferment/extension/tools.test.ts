@@ -49,10 +49,6 @@ function makeRunningFerment(): Ferment {
 
 // Captures applyTransition calls for inspection
 
-function _setupApplyTransitionCapture() {
-	applyTransitionCalls = [];
-}
-
 // ─── Lifecycle tool tests ─────────────────────────────────────────────────────
 
 test("registerLifecycleTools registers without throwing", async () => {
