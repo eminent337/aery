@@ -152,7 +152,7 @@ Evaluate each candidate on (in order of importance):
 Respond with exactly one line containing the letter of the best candidate (e.g. "${candidates[0]?.id}"). Do not include any other text.`;
 }
 
-export class BestOfNTool implements AgentTool<typeof bestOfNSchema, BestOfNDetails> {
+export class BestOfNTool implements AgentTool<typeof bestOfNSchema, BestOfNDetails, Theme> {
 	readonly loadMode = "discoverable" as const;
 	readonly name = "best_of_n";
 	readonly approval = "read" as const;
