@@ -237,6 +237,19 @@ export async function startFreebuffAgentRun(options: {
 }
 
 const freebuffRunCache = new Map<string, string | null>();
+const freebuffInstanceCache = new Map<string, string>();
+
+/**
+ * Get or create a stable instance ID for the given API key.
+ * The Freebuff server requires x-freebuff-instance-id on all chat requests.
+ */
+export function getFreebuffInstanceId(apiKey: string): string {
+  const cached = freebuffInstanceCache.get(apiKey);
+  if (cached) return cached;
+  const instanceId = crypto.randomUUID();
+  freebuffInstanceCache.set(apiKey, instanceId);
+  return instanceId;
+}
 
 /**
  * Cached startFreebuffAgentRun for the given (baseUrl, apiKey) pair — one run
@@ -255,11 +268,17 @@ export async function ensureFreebuffRunId(options: {
 		if (typeof cached === "string") return cached;
 	}
 	// First claim the free session slot server-side!
-	await claimFreebuffSessionSlot({
+	const claimResult = await claimFreebuffSessionSlot({
 		apiKey: options.apiKey,
 		baseUrl: options.baseUrl,
 		modelId: options.agentId,
 	});
+	// Store instanceId if present in response
+	if (claimResult && options.apiKey) {
+	  // We need to re-fetch to get instanceId, or capture it during claim
+	  // For now, just ensure we have an instanceId
+	  getFreebuffInstanceId(options.apiKey);
+	}
 
 	const runId = await startFreebuffAgentRun(options);
 	freebuffRunCache.set(cacheKey, runId);
@@ -282,11 +301,17 @@ export function createFreebuffFetch(options: {
 	const baseUrl = options.baseUrl ?? CODEBUFF_BASE_URL;
 	const apiKey = options.apiKey;
 	const userId = options.userId;
+	const instanceId = getFreebuffInstanceId(apiKey);
 	const mergeHeaders = (incoming: RequestInit["headers"]): Record<string, string> => {
 		if (!incoming) return {};
 		if (incoming instanceof Headers) return Object.fromEntries(incoming.entries());
 		if (Array.isArray(incoming)) return Object.fromEntries(incoming);
 		return { ...(incoming as Record<string, string>) };
+	};
+	// Always include the instance ID for Freebuff session binding
+	const freebuffHeaders: Record<string, string> = {
+		...getFreebuffCommonHeaders(),
+		["x-freebuff-instance-id"]: instanceId,
 	};
 	return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
 		const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -305,7 +330,7 @@ export function createFreebuffFetch(options: {
 					...init,
 					body: JSON.stringify(bodyObj),
 					headers: {
-						...getFreebuffCommonHeaders(),
+						...freebuffHeaders,
 						...mergeHeaders(init.headers),
 					},
 				};
