@@ -274,7 +274,7 @@ export async function ensureFreebuffRunId(options: {
 		modelId: options.agentId,
 	});
 	// Store session instanceId if present in response
-	if (claimResult?.instanceId && options.apiKey) {
+	if (claimResult && claimResult.instanceId && options.apiKey) {
 	  freebuffInstanceCache.set(options.apiKey, claimResult.instanceId);
 	}
 
