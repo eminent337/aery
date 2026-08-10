@@ -325,7 +325,7 @@ export function createFreebuffFetch(options: {
 	// Always include the instance ID for Freebuff session binding
 	const freebuffHeaders: Record<string, string> = {
 		...getFreebuffCommonHeaders(),
-		["x-freebuff-instance-id"]: instanceId,
+		"x-freebuff-instance-id": instanceId,
 	};
 	return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
 		const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
