@@ -155,7 +155,7 @@ export async function claimFreebuffSessionSlot(options: {
 	baseUrl?: string;
 	modelId?: string;
 	signal?: AbortSignal;
-}): Promise<boolean> {
+}): Promise<FreebuffSessionResponse | null> {
 	const { apiKey } = options;
 	const apiBase = resolveFreebuffApiBase(options.baseUrl);
 	const modelId = options.modelId ?? "base2-free";
@@ -243,7 +243,7 @@ const freebuffInstanceCache = new Map<string, string>();
  * Get or create a stable instance ID for the given API key.
  * The Freebuff server requires x-freebuff-instance-id on all chat requests.
  */
-export function getFreebuffInstanceId(apiKey: string): string {
+export function getFreebuffInstanceId(apiKey: string, sessionInstanceId?: string): string {
   const cached = freebuffInstanceCache.get(apiKey);
   if (cached) return cached;
   const instanceId = crypto.randomUUID();
