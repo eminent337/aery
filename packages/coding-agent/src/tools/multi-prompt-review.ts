@@ -11,10 +11,10 @@
 import type { Api, AssistantMessage, Context, GenerateOptionsUnified, Model } from "@aryee337/aery-ai";
 import { generateComplete } from "@aryee337/aery-ai";
 import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallback } from "@aryee337/aery-core";
-import type { TreeNode } from "@aryee337/aery-tui";
+import type { Component, TreeNode } from "@aryee337/aery-tui";
+import { ThoughtTree } from "@aryee337/aery-tui";
 import * as z from "zod/v4";
-import { extractAssistantText, resolveGenerationModel } from "./best-of-n";
-import { ToolError } from "./tool-errors";
+import type { RenderResultOptions } from "../extensibility/custom-tools/types";
 
 const multiPromptReviewSchema = z.object({
 	subject: z
@@ -210,6 +210,16 @@ export class MultiPromptReviewTool implements AgentTool<typeof multiPromptReview
 			content: [{ type: "text", text: report }],
 			details,
 		};
+	}
+	renderResult(
+		result: AgentToolResult<MultiPromptReviewDetails>,
+		options: RenderResultOptions,
+		_theme: import("../modes/theme/theme").Theme,
+	): Component | undefined {
+		if (result.details?.treeNodes) {
+			return new ThoughtTree(result.details.treeNodes, options.spinnerFrame);
+		}
+		return undefined;
 	}
 }
 

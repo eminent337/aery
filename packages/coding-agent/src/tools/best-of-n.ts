@@ -13,10 +13,11 @@
 import type { Api, AssistantMessage, Context, GenerateOptionsUnified, Model, TextContent } from "@aryee337/aery-ai";
 import { generateComplete } from "@aryee337/aery-ai";
 import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallback } from "@aryee337/aery-core";
-import type { TreeNode } from "@aryee337/aery-tui";
+import type { Component, TreeNode } from "@aryee337/aery-tui";
+import { ThoughtTree } from "@aryee337/aery-tui";
 import * as z from "zod/v4";
 import { parseModelString } from "../config/model-resolver";
-import { ToolError } from "./tool-errors";
+import type { RenderResultOptions } from "../extensibility/custom-tools/types";
 
 const bestOfNSchema = z.object({
 	prompt: z
@@ -304,5 +305,15 @@ export class BestOfNTool implements AgentTool<typeof bestOfNSchema, BestOfNDetai
 				rationale: `Selector generation failed (${message}); fell back to first candidate.`,
 			};
 		}
+	}
+	renderResult(
+		result: AgentToolResult<BestOfNDetails>,
+		options: RenderResultOptions,
+		_theme: import("../modes/theme/theme").Theme,
+	): Component | undefined {
+		if (result.details?.treeNodes) {
+			return new ThoughtTree(result.details.treeNodes, options.spinnerFrame);
+		}
+		return undefined;
 	}
 }
