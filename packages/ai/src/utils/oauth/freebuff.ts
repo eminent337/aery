@@ -189,16 +189,16 @@ export async function claimFreebuffSessionSlot(options: {
 			const data = (await response.json()) as any;
 			console.log("FREEBUFF SESSION SUCCESS:", data);
 			if (data.status === "active") {
-				return true;
+				return data;
 			}
 		} else {
 			const text = await response.text();
 			console.log("FREEBUFF SESSION ERROR:", response.status, text);
 		}
 
-		return false;
+		return null;
 	} catch (_err) {
-		return false;
+		return null;
 	}
 }
 
