@@ -117,7 +117,9 @@ Rules:
 - If there are no findings, output exactly: FINDING P3: No issues found.`;
 }
 
-export class MultiPromptReviewTool implements AgentTool<typeof multiPromptReviewSchema, MultiPromptReviewDetails, Theme> {
+export class MultiPromptReviewTool
+	implements AgentTool<typeof multiPromptReviewSchema, MultiPromptReviewDetails, Theme>
+{
 	readonly loadMode = "discoverable" as const;
 	readonly name = "multi_prompt_review";
 	readonly approval = "read" as const;

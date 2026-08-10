@@ -156,21 +156,21 @@ export async function claimFreebuffSessionSlot(options: {
 	modelId?: string;
 	signal?: AbortSignal;
 }): Promise<{
-		status: string;
-		accessTier: string;
-		instanceId: string;
-		model: string;
-		admittedAt: string;
-		expiresAt: string;
-		remainingMs: number;
-		countryCode: string;
-		countryBlockReason?: string;
-		rateLimit?: {
-			limit: number;
-			recentCount: number;
-			period: string;
-		};
-	} | null> {
+	status: string;
+	accessTier: string;
+	instanceId: string;
+	model: string;
+	admittedAt: string;
+	expiresAt: string;
+	remainingMs: number;
+	countryCode: string;
+	countryBlockReason?: string;
+	rateLimit?: {
+		limit: number;
+		recentCount: number;
+		period: string;
+	};
+} | null> {
 	const { apiKey } = options;
 	const apiBase = resolveFreebuffApiBase(options.baseUrl);
 	const modelId = options.modelId ?? "base2-free";
@@ -259,11 +259,11 @@ const freebuffInstanceCache = new Map<string, string>();
  * The Freebuff server requires x-freebuff-instance-id on all chat requests.
  */
 export function getFreebuffInstanceId(apiKey: string, sessionInstanceId?: string): string {
-  const cached = freebuffInstanceCache.get(apiKey);
-  if (cached) return cached;
-  const instanceId = crypto.randomUUID();
-  freebuffInstanceCache.set(apiKey, instanceId);
-  return instanceId;
+	const cached = freebuffInstanceCache.get(apiKey);
+	if (cached) return cached;
+	const instanceId = crypto.randomUUID();
+	freebuffInstanceCache.set(apiKey, instanceId);
+	return instanceId;
 }
 
 /**
@@ -290,7 +290,7 @@ export async function ensureFreebuffRunId(options: {
 	});
 	// Store session instanceId if present in response
 	if (claimResult && claimResult.instanceId && options.apiKey) {
-	  freebuffInstanceCache.set(options.apiKey, claimResult.instanceId);
+		freebuffInstanceCache.set(options.apiKey, claimResult.instanceId);
 	}
 
 	const runId = await startFreebuffAgentRun(options);
