@@ -18,6 +18,7 @@ import { ThoughtTree } from "@aryee337/aery-tui";
 import * as z from "zod/v4";
 import { parseModelString } from "../config/model-resolver";
 import type { RenderResultOptions } from "../extensibility/custom-tools/types";
+import { ToolError } from "./tool-errors";
 
 const bestOfNSchema = z.object({
 	prompt: z
