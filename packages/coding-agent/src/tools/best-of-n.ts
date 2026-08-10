@@ -13,7 +13,7 @@
 import type { Api, AssistantMessage, Context, GenerateOptionsUnified, Model, TextContent } from "@aryee337/aery-ai";
 import { generateComplete } from "@aryee337/aery-ai";
 import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallback } from "@aryee337/aery-core";
-import type { Component, TreeNode } from "@aryee337/aery-tui";
+import type { TreeNode } from "@aryee337/aery-tui";
 import { ThoughtTree } from "@aryee337/aery-tui";
 import * as z from "zod/v4";
 import { parseModelString } from "../config/model-resolver";
@@ -308,11 +308,7 @@ export class BestOfNTool implements AgentTool<typeof bestOfNSchema, BestOfNDetai
 			};
 		}
 	}
-	renderResult(
-		result: AgentToolResult<BestOfNDetails>,
-		options: RenderResultOptions,
-		uiTheme: Theme,
-	): Component | undefined {
+	renderResult(result: AgentToolResult<BestOfNDetails>, options: RenderResultOptions, _theme: Theme): unknown {
 		if (result.details?.treeNodes) {
 			return new ThoughtTree(result.details.treeNodes, options.spinnerFrame);
 		}

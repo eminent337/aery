@@ -11,7 +11,7 @@
 import type { Api, AssistantMessage, Context, GenerateOptionsUnified, Model } from "@aryee337/aery-ai";
 import { generateComplete } from "@aryee337/aery-ai";
 import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallback } from "@aryee337/aery-core";
-import type { Component, TreeNode } from "@aryee337/aery-tui";
+import type { TreeNode } from "@aryee337/aery-tui";
 import { ThoughtTree } from "@aryee337/aery-tui";
 import * as z from "zod/v4";
 import type { RenderResultOptions } from "../extensibility/custom-tools/types";
@@ -217,8 +217,8 @@ export class MultiPromptReviewTool implements AgentTool<typeof multiPromptReview
 	renderResult(
 		result: AgentToolResult<MultiPromptReviewDetails>,
 		options: RenderResultOptions,
-		uiTheme: Theme,
-	): Component | undefined {
+		_theme: Theme,
+	): unknown {
 		if (result.details?.treeNodes) {
 			return new ThoughtTree(result.details.treeNodes, options.spinnerFrame);
 		}
