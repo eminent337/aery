@@ -22,6 +22,7 @@ export * from "./components/settings-list";
 export * from "./components/spacer";
 export * from "./components/tab-bar";
 export * from "./components/text";
+export * from "./components/thought-tree";
 export * from "./components/tool-card";
 export * from "./components/truncated-text";
 // Editor component interface (for custom editors)

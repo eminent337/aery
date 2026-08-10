@@ -11,6 +11,7 @@
 import type { Api, AssistantMessage, Context, GenerateOptionsUnified, Model } from "@aryee337/aery-ai";
 import { generateComplete } from "@aryee337/aery-ai";
 import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallback } from "@aryee337/aery-core";
+import type { TreeNode } from "@aryee337/aery-tui";
 import * as z from "zod/v4";
 import { extractAssistantText, resolveGenerationModel } from "./best-of-n";
 import { ToolError } from "./tool-errors";
@@ -44,6 +45,7 @@ export interface MultiPromptFinding {
 }
 
 export interface MultiPromptReviewDetails {
+	treeNodes?: TreeNode[];
 	focuses: string[];
 	reviews: { focus: string; text: string }[];
 	findings: MultiPromptFinding[];
@@ -139,6 +141,21 @@ export class MultiPromptReviewTool implements AgentTool<typeof multiPromptReview
 		if (!subject) throw new ToolError("multi_prompt_review: subject is required and must not be empty.");
 
 		const focuses = params.prompts && params.prompts.length > 0 ? params.prompts : [...DEFAULT_REVIEW_FOCUSES];
+		const treeNodes: TreeNode[] = focuses.map((p, i) => ({
+			id: `prompt-${i}`,
+			label: `Reviewing: ${p.substring(0, 30)}...`,
+			state: "running",
+		}));
+
+		const pushUpdate = (details: Partial<MultiPromptReviewDetails> = {}) => {
+			if (_onUpdate) {
+				_onUpdate({
+					content: [],
+					details: { focuses, reviews: [], findings: [], model: "unknown", treeNodes, ...details },
+				});
+			}
+		};
+		pushUpdate();
 		const model = await resolveGenerationModel(params.model, context);
 		const modelSelector = `${model.provider}/${model.id}`;
 		const apiKey = context?.modelRegistry ? await context.modelRegistry.getApiKey(model) : undefined;

@@ -13,6 +13,7 @@
 import type { Api, AssistantMessage, Context, GenerateOptionsUnified, Model, TextContent } from "@aryee337/aery-ai";
 import { generateComplete } from "@aryee337/aery-ai";
 import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallback } from "@aryee337/aery-core";
+import type { TreeNode } from "@aryee337/aery-tui";
 import * as z from "zod/v4";
 import { parseModelString } from "../config/model-resolver";
 import { ToolError } from "./tool-errors";
@@ -45,6 +46,7 @@ export interface BestOfNCandidate {
 }
 
 export interface BestOfNDetails {
+	treeNodes?: TreeNode[];
 	n: number;
 	candidates: BestOfNCandidate[];
 	chosenId: string;
@@ -170,6 +172,27 @@ export class BestOfNTool implements AgentTool<typeof bestOfNSchema, BestOfNDetai
 		_onUpdate?: AgentToolUpdateCallback<BestOfNDetails>,
 		context?: AgentToolContext,
 	): Promise<AgentToolResult<BestOfNDetails>> {
+		const treeNodes: TreeNode[] = [
+			{ id: "root", label: "Best-of-N Candidate Generation", state: "running", children: [] },
+			{ id: "selection", label: "Evaluating Candidates", state: "pending" },
+		];
+
+		const pushUpdate = (details: Partial<BestOfNDetails> = {}) => {
+			if (_onUpdate) {
+				_onUpdate({
+					content: [],
+					details: {
+						n: params.n ?? 3,
+						candidates: [],
+						chosenId: "",
+						chosenText: "",
+						model: "unknown",
+						treeNodes,
+						...details,
+					},
+				});
+			}
+		};
 		const prompt = params.prompt.trim();
 		if (!prompt) throw new ToolError("best_of_n: prompt is required and must not be empty.");
 		const n = params.n ?? 3;
@@ -217,6 +240,10 @@ export class BestOfNTool implements AgentTool<typeof bestOfNSchema, BestOfNDetai
 
 		let chosen: BestOfNCandidate;
 		let selectionRationale: string | undefined;
+		treeNodes[0].state = "success";
+		treeNodes[1].state = "running";
+		pushUpdate();
+
 		if (candidates.length === 1) {
 			chosen = candidates[0];
 		} else {
