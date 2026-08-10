@@ -273,11 +273,9 @@ export async function ensureFreebuffRunId(options: {
 		baseUrl: options.baseUrl,
 		modelId: options.agentId,
 	});
-	// Store instanceId if present in response
-	if (claimResult && options.apiKey) {
-	  // We need to re-fetch to get instanceId, or capture it during claim
-	  // For now, just ensure we have an instanceId
-	  getFreebuffInstanceId(options.apiKey);
+	// Store session instanceId if present in response
+	if (claimResult?.instanceId && options.apiKey) {
+	  freebuffInstanceCache.set(options.apiKey, claimResult.instanceId);
 	}
 
 	const runId = await startFreebuffAgentRun(options);
@@ -296,12 +294,13 @@ export function createFreebuffFetch(options: {
 	baseUrl?: string;
 	userId?: string;
 	fetch?: FetchImpl;
+	sessionInstanceId?: string;
 }): FetchImpl {
 	const baseFetch = options.fetch ?? globalThis.fetch;
 	const baseUrl = options.baseUrl ?? CODEBUFF_BASE_URL;
 	const apiKey = options.apiKey;
 	const userId = options.userId;
-	const instanceId = getFreebuffInstanceId(apiKey);
+	const instanceId = getFreebuffInstanceId(apiKey, options.sessionInstanceId);
 	const mergeHeaders = (incoming: RequestInit["headers"]): Record<string, string> => {
 		if (!incoming) return {};
 		if (incoming instanceof Headers) return Object.fromEntries(incoming.entries());
