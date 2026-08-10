@@ -1,19 +1,15 @@
 /**
  * Cron Scheduler
- * 
+ *
  * Periodically checks for due jobs and executes them.
  */
 
 import { Database } from "bun:sqlite";
 import { getAgentDbPath } from "@aryee337/aery-utils";
-import { createCronJobStore } from "./store.js";
 import type { AgentSession } from "../session/agent-session.js";
-import type {
-	CronEvent,
-	CronJob,
-	CronJobStore,
-	CronSchedulerHost,
-} from "./types.js";
+import { createCronJobStore } from "./store.js";
+import type { CronJob, CronJobStore, CronSchedulerHost } from "./types.js";
+
 /** Default check interval in milliseconds */
 const DEFAULT_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 
@@ -87,7 +83,7 @@ export class CronScheduler {
 		const startTime = this.#host.now();
 		try {
 			await this.#host.executeSession(job.sessionId, job.deliveryMode);
-			
+
 			// Update last run and next run
 			const now = this.#host.now();
 			await this.#host.store.update(job.id, {
@@ -113,10 +109,7 @@ export class CronScheduler {
 /**
  * Create a cron scheduler instance.
  */
-export function createCronScheduler(
-	host: CronSchedulerHost,
-	options?: { checkIntervalMs?: number },
-): CronScheduler {
+export function createCronScheduler(host: CronSchedulerHost, options?: { checkIntervalMs?: number }): CronScheduler {
 	return new CronScheduler(host, options);
 }
 let globalCronSchedulerInstance: CronScheduler | undefined;
@@ -127,14 +120,17 @@ export function getGlobalCronScheduler(): CronScheduler {
 		const host: CronSchedulerHost = {
 			store,
 			now: () => Date.now(),
-			emit: (_event) => {},
+			emit: _event => {},
 			executeSession: async (sessionId, deliveryMode) => {
 				// Resolve the live session by id via the process-global agent registry.
 				const { AgentRegistry } = await import("../registry/agent-registry.js");
 				const registry = AgentRegistry.global();
 				let target: AgentSession | null = null;
 				for (const ref of registry.list()) {
-					if (ref.session && (ref.session.sessionManager.getSessionId() === sessionId || ref.sessionFile === sessionId)) {
+					if (
+						ref.session &&
+						(ref.session.sessionManager.getSessionId() === sessionId || ref.sessionFile === sessionId)
+					) {
 						target = ref.session;
 						break;
 					}

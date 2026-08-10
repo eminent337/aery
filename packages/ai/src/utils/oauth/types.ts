@@ -24,6 +24,8 @@ export type OAuthProvider =
 	| "huggingface"
 	| "kimi-code"
 	| "kilo"
+	| "kiro"
+	| "aery"
 	| "kagi"
 	| "litellm"
 	| "lm-studio"

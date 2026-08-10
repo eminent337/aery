@@ -24,11 +24,13 @@ import { AssistantMessageEventStream as EventStreamImpl } from "../utils/event-s
 import { getStreamFirstEventTimeoutMs, getStreamIdleTimeoutMs, iterateWithIdleTimeout } from "../utils/idle-iterator";
 import type { BedrockOptions } from "./amazon-bedrock";
 import type { AnthropicOptions } from "./anthropic";
+import type { AutoRouterOptions } from "./auto-router";
 import type { AzureOpenAIResponsesOptions } from "./azure-openai-responses";
 import type { CursorOptions } from "./cursor";
 import type { GoogleOptions } from "./google";
 import type { GoogleGeminiCliOptions } from "./google-gemini-cli";
 import type { GoogleVertexOptions } from "./google-vertex";
+import type { KiroCliOptions } from "./kiro";
 import type { OllamaChatOptions } from "./ollama";
 import type { OpenAICodexResponsesOptions } from "./openai-codex-responses";
 import type { OpenAICompletionsOptions } from "./openai-completions";
@@ -129,6 +131,16 @@ interface BedrockProviderModule {
 		options: BedrockOptions,
 	) => AssistantMessageEventStream;
 }
+interface KiroProviderModule {
+	streamKiro: (model: Model<"kiro-cli">, context: Context, options: KiroCliOptions) => AssistantMessageEventStream;
+}
+interface AutoRouterProviderModule {
+	streamAutoRouter: (
+		model: Model<"auto-router">,
+		context: Context,
+		options: AutoRouterOptions,
+	) => AssistantMessageEventStream;
+}
 
 // ---------------------------------------------------------------------------
 // Module-level lazy promise caches
@@ -146,6 +158,8 @@ let ollamaProviderModulePromise: Promise<LazyProviderModule<"ollama-chat">> | un
 let cursorProviderModulePromise: Promise<LazyProviderModule<"cursor-agent">> | undefined;
 let bedrockProviderModuleOverride: LazyProviderModule<"bedrock-converse-stream"> | undefined;
 let bedrockProviderModulePromise: Promise<LazyProviderModule<"bedrock-converse-stream">> | undefined;
+let kiroProviderModulePromise: Promise<LazyProviderModule<"kiro-cli">> | undefined;
+let autoRouterProviderModulePromise: Promise<LazyProviderModule<"auto-router">> | undefined;
 
 export function setBedrockProviderModule(module: BedrockProviderModule): void {
 	bedrockProviderModuleOverride = {
@@ -398,6 +412,13 @@ function loadBedrockProviderModule(): Promise<LazyProviderModule<"bedrock-conver
 	});
 	return bedrockProviderModulePromise;
 }
+function loadKiroProviderModule(): Promise<LazyProviderModule<"kiro-cli">> {
+	kiroProviderModulePromise ||= import("./kiro").then(module => {
+		const provider = module as KiroProviderModule;
+		return { stream: provider.streamKiro };
+	});
+	return kiroProviderModulePromise;
+}
 
 // ---------------------------------------------------------------------------
 // Lazy stream function exports
@@ -434,3 +455,13 @@ export const streamCursor = createLazyStream(loadCursorProviderModule);
 export const streamOllama = createLazyStream(loadOllamaProviderModule);
 
 export const streamBedrock = createLazyStream(loadBedrockProviderModule);
+export const streamKiro = createLazyStream(loadKiroProviderModule);
+function loadAutoRouterProviderModule(): Promise<LazyProviderModule<"auto-router">> {
+	autoRouterProviderModulePromise ||= import("./auto-router").then(module => {
+		const provider = module as AutoRouterProviderModule;
+		return { stream: provider.streamAutoRouter };
+	});
+	return autoRouterProviderModulePromise;
+}
+
+export const streamAutoRouter = createLazyStream(loadAutoRouterProviderModule);

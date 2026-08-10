@@ -56,7 +56,7 @@ export function createAdvisorMessageCard(
 	if (blockers > 0) meta.push(uiTheme.fg("error", `${blockers} blocker${blockers === 1 ? "" : "s"}`));
 
 	return createCachedComponent(getExpanded, (width, expanded) => {
-		const glyph = uiTheme.styledSymbol("status.info", "accent");
+		const _glyph = uiTheme.styledSymbol("status.info", "accent");
 		const lines = [renderStatusLine({ title: "Advisor", meta }, uiTheme)];
 		const quote = uiTheme.fg("dim", uiTheme.md.quoteBorder);
 		const shown = expanded ? notes : notes.slice(0, COLLAPSED_NOTES);

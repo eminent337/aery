@@ -1616,6 +1616,18 @@ export class AuthStorage {
 				await saveApiKeyCredential(apiKey);
 				return;
 			}
+			case "kiro": {
+				const { loginKiro } = await import("./utils/oauth/kiro");
+				const apiKey = await loginKiro(ctrl);
+				await saveApiKeyCredential(apiKey);
+				return;
+			}
+			case "aery": {
+				const { loginAery } = await import("./utils/oauth/aery");
+				const apiKey = await loginAery(ctrl);
+				await saveApiKeyCredential(apiKey);
+				return;
+			}
 			case "ollama-cloud": {
 				const { loginOllamaCloud } = await import("./utils/oauth/ollama-cloud");
 				const apiKey = await loginOllamaCloud(ctrl);

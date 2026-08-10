@@ -18,8 +18,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { scheduler } from "node:timers/promises";
 import { isPromise } from "node:util/types";
-import { createAutonomousRuntime, type AutonomousRuntime, type AutonomousRuntimeHost } from "../autonomous/index.js";
-import { buildHarnessRecallBlock, createContinualHarnessEngine, createSessionHarnessHost, type ContinualHarnessEngine, type HarnessHost } from "../continual-harness/index.js";
 import type {
 	AssistantMessage,
 	Context,
@@ -111,6 +109,7 @@ import {
 } from "../advisor";
 import { type AsyncJob, type AsyncJobDeliveryState, AsyncJobManager } from "../async";
 import { classifyDifficulty } from "../auto-thinking/classifier";
+import { type AutonomousRuntime, type AutonomousRuntimeHost, createAutonomousRuntime } from "../autonomous/index.js";
 import { reset as resetCapabilities } from "../capability";
 import type { Rule } from "../capability/rule";
 import { MODEL_ROLE_IDS, type ModelRegistry } from "../config/model-registry";
@@ -126,6 +125,13 @@ import {
 import { expandPromptTemplate, type PromptTemplate } from "../config/prompt-templates";
 import type { Settings, SkillsSettings } from "../config/settings";
 import { onAppendOnlyModeChanged } from "../config/settings";
+import {
+	buildHarnessRecallBlock,
+	type ContinualHarnessEngine,
+	createContinualHarnessEngine,
+	createSessionHarnessHost,
+	type HarnessHost,
+} from "../continual-harness/index.js";
 import { RawSseDebugBuffer } from "../debug/raw-sse-buffer";
 import { loadCapability } from "../discovery";
 import { expandApplyPatchToEntries, normalizeDiff, normalizeToLF, ParseError, previewPatch, stripBom } from "../edit";
@@ -1751,19 +1757,22 @@ export class AgentSession {
 			this.#advisorRuntime?.onTurnEnd();
 			// Autonomous mode execution check
 			if (this.#autonomousRuntime && this.#autonomousRuntime.status === "active") {
-				this.#autonomousRuntime.onTurnComplete().then(res => {
-					if (res.shouldContinue && res.continuationPrompt) {
-						this.sendCustomMessage(
-							{
-								customType: "autonomous_continuation",
-								content: res.continuationPrompt,
-								display: true,
-								attribution: "agent",
-							},
-							{ deliverAs: "followUp" },
-						).catch(() => {});
-					}
-				}).catch(() => {});
+				this.#autonomousRuntime
+					.onTurnComplete()
+					.then(res => {
+						if (res.shouldContinue && res.continuationPrompt) {
+							this.sendCustomMessage(
+								{
+									customType: "autonomous_continuation",
+									content: res.continuationPrompt,
+									display: true,
+									attribution: "agent",
+								},
+								{ deliverAs: "followUp" },
+							).catch(() => {});
+						}
+					})
+					.catch(() => {});
 			}
 			// Auto-refine review check (every 20 turns)
 			this.#turnsSinceLastRefineReview++;
@@ -3239,17 +3248,26 @@ export class AgentSession {
 			const host: AutonomousRuntimeHost = {
 				getCurrentUsage: () => {
 					const usage = this.getSessionStats().tokens;
-					return { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite };
+					return {
+						input: usage.input,
+						output: usage.output,
+						cacheRead: usage.cacheRead,
+						cacheWrite: usage.cacheWrite,
+					};
 				},
 				now: () => Date.now(),
 				executeCommand: async (cmd: string) => {
 					const proc = await Bun.$`sh -c ${cmd}`.quiet().nothrow();
-					return { exitCode: proc.exitCode, stdout: proc.stdout.toString("utf8"), stderr: proc.stderr.toString("utf8") };
+					return {
+						exitCode: proc.exitCode,
+						stdout: proc.stdout.toString("utf8"),
+						stderr: proc.stderr.toString("utf8"),
+					};
 				},
-				emit: (_event) => {},
+				emit: _event => {},
 				getState: () => this.#autonomousRuntime?.state ?? undefined,
-				setState: (_state) => {},
-				persist: async (_state) => {},
+				setState: _state => {},
+				persist: async _state => {},
 				sendHiddenMessage: async (msg: string) => {
 					await this.sendCustomMessage({ customType: "autonomous", content: msg, display: false });
 				},
@@ -3301,10 +3319,7 @@ export class AgentSession {
 	 * Run the auto-refine review (and refine if warranted) for the given trigger.
 	 * Fire-and-forget: failures are logged, never surfaced to the caller.
 	 */
-	async #maybeAutoRefine(
-		reason: "turn_interval" | "compact",
-		turnsSinceLastReview: number,
-	): Promise<void> {
+	async #maybeAutoRefine(reason: "turn_interval" | "compact", turnsSinceLastReview: number): Promise<void> {
 		const model = this.model;
 		if (!model) return;
 		try {

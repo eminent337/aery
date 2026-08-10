@@ -2,17 +2,26 @@ import { describe, expect, it } from "bun:test";
 import {
 	buildHarnessBlock,
 	buildHarnessRecallBlock,
+	DEFAULT_MIN_SCORE,
 	recallHarnessEntries,
 	scoreHarnessEntry,
-	DEFAULT_MIN_SCORE,
-	DEFAULT_THRESHOLD,
 } from "../src/continual-harness/inject.js";
 import type { HarnessEntry } from "../src/continual-harness/types.js";
 
 const entry = (id: string, kind: HarnessEntry["kind"], title: string, content: string): HarnessEntry => ({
-	id, kind, title, content, path: "", scope: "local",
-	reference: {}, arguments: {}, metadata: {}, source: "test",
-	created_at: new Date().toISOString(), updated_at: new Date().toISOString(), version: 1,
+	id,
+	kind,
+	title,
+	content,
+	path: "",
+	scope: "local",
+	reference: {},
+	arguments: {},
+	metadata: {},
+	source: "test",
+	created_at: new Date().toISOString(),
+	updated_at: new Date().toISOString(),
+	version: 1,
 });
 
 const state = {
@@ -57,14 +66,14 @@ describe("harness injection", () => {
 
 	it("recall returns only relevant entries above threshold", () => {
 		const recalled = recallHarnessEntries(state, "run bun tests", 0);
-		const titles = recalled.map((e) => e.title);
+		const titles = recalled.map(e => e.title);
 		expect(titles).toContain("Run tests");
 		expect(titles).not.toContain("Deploy process");
 	});
 
 	it("recall with minScore filters low-scoring entries", () => {
 		const recalled = recallHarnessEntries(state, "run bun tests", 0, 3);
-		const titles = recalled.map((e) => e.title);
+		const titles = recalled.map(e => e.title);
 		expect(titles).toContain("Run tests");
 	});
 
@@ -97,7 +106,7 @@ describe("harness injection", () => {
 		console.debug = (...args: unknown[]) => debugCalls.push(args.join(" "));
 		try {
 			buildHarnessRecallBlock(state, "run bun tests", 0);
-			expect(debugCalls.some((log) => log.includes("[harness-inject]"))).toBe(true);
+			expect(debugCalls.some(log => log.includes("[harness-inject]"))).toBe(true);
 		} finally {
 			console.debug = originalDebug;
 		}

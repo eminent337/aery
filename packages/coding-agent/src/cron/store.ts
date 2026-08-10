@@ -1,12 +1,11 @@
 /**
  * Cron Job Store (SQLite)
- * 
+ *
  * Persists cron jobs to the agent database.
  */
 
-import { Database, type Statement } from "bun:sqlite";
+import type { Database, Statement } from "bun:sqlite";
 import { Snowflake } from "@aryee337/aery-utils";
-import { getAgentDbPath } from "@aryee337/aery-utils";
 import { parseCronSchedule } from "./parser.js";
 import type { CronJob, CronJobStore } from "./types.js";
 
@@ -24,14 +23,13 @@ type CronJobRow = {
 	updated_at: number;
 };
 
-const SQLITE_NOW_EPOCH = "CAST(strftime('%s','now') AS INTEGER)";
+const _SQLITE_NOW_EPOCH = "CAST(strftime('%s','now') AS INTEGER)";
 
 export class SqliteCronJobStore implements CronJobStore {
 	readonly #db: Database;
 	#listStmt!: Statement;
 	#getStmt!: Statement;
 	#insertStmt!: Statement;
-	#updateStmt!: Statement;
 	#deleteStmt!: Statement;
 	#findDueStmt!: Statement;
 
@@ -144,12 +142,8 @@ export class SqliteCronJobStore implements CronJobStore {
 	}
 
 	#prepareStatements(): void {
-		this.#listStmt = this.#db.prepare(
-			"SELECT * FROM cron_jobs ORDER BY created_at DESC"
-		);
-		this.#getStmt = this.#db.prepare(
-			"SELECT * FROM cron_jobs WHERE id = ?"
-		);
+		this.#listStmt = this.#db.prepare("SELECT * FROM cron_jobs ORDER BY created_at DESC");
+		this.#getStmt = this.#db.prepare("SELECT * FROM cron_jobs WHERE id = ?");
 		this.#insertStmt = this.#db.prepare(`
 			INSERT INTO cron_jobs (id, schedule, session_id, delivery_mode, description, enabled, last_run_at, next_run_at, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -165,9 +159,7 @@ export class SqliteCronJobStore implements CronJobStore {
 				updated_at = ?7
 			WHERE id = ?8
 		`);
-		this.#deleteStmt = this.#db.prepare(
-			"DELETE FROM cron_jobs WHERE id = ?"
-		);
+		this.#deleteStmt = this.#db.prepare("DELETE FROM cron_jobs WHERE id = ?");
 		this.#findDueStmt = this.#db.prepare(`
 			SELECT * FROM cron_jobs
 			WHERE enabled = 1 AND next_run_at <= ?

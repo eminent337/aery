@@ -57,6 +57,10 @@ export interface AntigravityDiscoveryAgentModelSort {
 export interface AntigravityDiscoveryApiResponse {
 	models?: Record<string, AntigravityDiscoveryApiModel>;
 	agentModelSorts?: AntigravityDiscoveryAgentModelSort[];
+	/** Preferred agent model id chosen by Antigravity (surfaced as active even without a group/recommended flag). */
+	defaultAgentModelId?: string;
+	/** Model ids that Antigravity has deprecated, mapped to replacement metadata. */
+	deprecatedModelIds?: Record<string, unknown>;
 }
 const AntigravityDiscoveryApiModelSchema: z.ZodType<AntigravityDiscoveryApiModel> = z
 	.object({
@@ -143,6 +147,14 @@ const AntigravityDiscoveryApiResponseSchema: z.ZodType<AntigravityDiscoveryApiRe
 				)
 				.optional(),
 		),
+		defaultAgentModelId: z.preprocess(
+			value => (typeof value === "string" ? value : undefined),
+			z.string().optional(),
+		),
+		deprecatedModelIds: z.preprocess(
+			value => (typeof value === "object" && value !== null && !Array.isArray(value) ? value : undefined),
+			z.record(z.string(), z.unknown()).optional(),
+		),
 	})
 	.loose();
 
@@ -211,6 +223,9 @@ export async function fetchAntigravityDiscoveryModels(
 			continue;
 		}
 
+		const recommendedIds = collectRecommendedModelIds(parsed.agentModelSorts);
+		const deprecatedIds = new Set(Object.keys(parsed.deprecatedModelIds ?? {}));
+
 		const models: Model<"google-gemini-cli">[] = [];
 
 		for (const [modelId, model] of Object.entries(parsed.models ?? {})) {
@@ -220,7 +235,14 @@ export async function fetchAntigravityDiscoveryModels(
 			if (model.isInternal === true) {
 				continue;
 			}
-
+			if (deprecatedIds.has(modelId)) {
+				continue;
+			}
+			const isActive =
+				model.recommended === true || recommendedIds.has(modelId) || modelId === parsed.defaultAgentModelId;
+			if (!isActive) {
+				continue;
+			}
 			const supportsImages = model.supportsImages === true;
 			models.push({
 				id: modelId,
@@ -258,4 +280,21 @@ function parseAntigravityDiscoveryResponse(value: unknown): AntigravityDiscovery
 
 function trimTrailingSlashes(value: string): string {
 	return value.replace(/\/+$/, "");
+}
+
+/**
+ * Collects the model ids Antigravity surfaces in its recommended agent-model
+ * groups. Used together with per-model `recommended` flags to decide which
+ * dynamic models are "active" and should be shown.
+ */
+function collectRecommendedModelIds(sorts?: AntigravityDiscoveryAgentModelSort[]): Set<string> {
+	const ids = new Set<string>();
+	for (const sort of sorts ?? []) {
+		for (const group of sort.groups ?? []) {
+			for (const modelId of group.modelIds ?? []) {
+				ids.add(modelId);
+			}
+		}
+	}
+	return ids;
 }

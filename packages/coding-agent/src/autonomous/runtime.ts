@@ -1,6 +1,6 @@
 /**
  * Autonomous Mode Runtime
- * 
+ *
  * Core engine for bounded autonomous execution with quality gates.
  * Integrates with Ferment for structured workflow orchestration.
  */
@@ -8,13 +8,11 @@
 import { Snowflake } from "@aryee337/aery-utils";
 import type {
 	AutonomousBudget,
-	AutonomousEvent,
 	AutonomousFermentConfig,
 	AutonomousResult,
 	AutonomousRuntimeHost,
 	AutonomousState,
 	AutonomousStatus,
-	QualityGate,
 } from "./types.js";
 
 /** Default budget limits */
@@ -69,10 +67,7 @@ export class AutonomousRuntime {
 	/**
 	 * Start autonomous execution with the given objective and config.
 	 */
-	async start(input: {
-		objective: string;
-		config?: AutonomousFermentConfig;
-	}): Promise<AutonomousState> {
+	async start(input: { objective: string; config?: AutonomousFermentConfig }): Promise<AutonomousState> {
 		const objective = input.objective.trim();
 		if (!objective) {
 			throw new Error("Objective is required");
@@ -122,7 +117,7 @@ export class AutonomousRuntime {
 		this.#state.status = "paused";
 		this.#state.enabled = false;
 		this.#state.updatedAt = this.#host.now();
-		
+
 		this.#host.emit({ type: "paused" });
 		await this.#host.persist(this.#state);
 
@@ -143,7 +138,7 @@ export class AutonomousRuntime {
 		this.#state.status = "active";
 		this.#state.enabled = true;
 		this.#state.updatedAt = this.#host.now();
-		
+
 		this.#host.emit({ type: "resumed" });
 		await this.#host.persist(this.#state);
 
@@ -164,7 +159,7 @@ export class AutonomousRuntime {
 		this.#state.status = "aborted";
 		this.#state.enabled = false;
 		this.#state.updatedAt = this.#host.now();
-		
+
 		this.#host.emit({ type: "aborted", reason });
 		await this.#host.persist(this.#state);
 
@@ -185,7 +180,7 @@ export class AutonomousRuntime {
 		this.#state.status = "complete";
 		this.#state.enabled = false;
 		this.#state.updatedAt = this.#host.now();
-		
+
 		this.#host.emit({ type: "completed", finalState: this.#state });
 		await this.#host.persist(this.#state);
 
@@ -270,7 +265,7 @@ export class AutonomousRuntime {
 	#shouldContinue(): boolean {
 		if (!this.#state) return false;
 		if (this.#state.status !== "active") return false;
-		
+
 		const budgetCheck = this.#checkBudget();
 		return budgetCheck.ok;
 	}
@@ -299,10 +294,7 @@ export class AutonomousRuntime {
 	/**
 	 * Run quality gates and return result.
 	 */
-	async #runQualityGates(): Promise<
-		| { ok: true }
-		| { ok: false; gateName: string; error: string; retries: number }
-	> {
+	async #runQualityGates(): Promise<{ ok: true } | { ok: false; gateName: string; error: string; retries: number }> {
 		if (!this.#state || this.#state.gates.length === 0) {
 			return { ok: true };
 		}
@@ -310,7 +302,7 @@ export class AutonomousRuntime {
 		for (const gate of this.#state.gates) {
 			try {
 				const result = await this.#host.executeCommand(gate.command);
-				
+
 				if (result.exitCode === 0) {
 					this.#host.emit({ type: "gate_passed", gateName: gate.name });
 					gate.retries = 0;
@@ -320,7 +312,7 @@ export class AutonomousRuntime {
 				// Gate failed
 				gate.retries = (gate.retries ?? 0) + 1;
 				const error = `Gate '${gate.name}' failed with exit code ${result.exitCode}: ${result.stderr.slice(0, 500)}`;
-				
+
 				this.#host.emit({
 					type: "gate_failed",
 					gateName: gate.name,

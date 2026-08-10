@@ -212,6 +212,16 @@ const builtInOAuthProviders: OAuthProviderInfo[] = [
 		available: true,
 	},
 	{
+		id: "kiro",
+		name: "Kiro CLI (Local)",
+		available: true,
+	},
+	{
+		id: "aery",
+		name: "Aery Auto Router",
+		available: true,
+	},
+	{
 		id: "zenmux",
 		name: "ZenMux",
 		available: true,
@@ -389,6 +399,8 @@ export async function refreshOAuthToken(
 		case "opencode-go":
 		case "openrouter":
 		case "cerebras":
+		case "kiro":
+		case "aery":
 		case "fireworks":
 		case "firepass":
 		case "nvidia":

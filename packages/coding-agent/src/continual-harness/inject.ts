@@ -24,10 +24,7 @@ export const DEFAULT_THRESHOLD = 2;
 /**
  * Log an injection event for debugging.
  */
-export function logInjectionEvent(
-	message: string,
-	data?: Record<string, unknown>,
-): void {
+export function logInjectionEvent(message: string, data?: Record<string, unknown>): void {
 	const timestamp = new Date().toISOString();
 	const logLine = `[harness-inject] ${timestamp} ${message}`;
 	console.debug(logLine, ...(data ? [data] : []));
@@ -80,10 +77,7 @@ export function buildHarnessBlock(state: HarnessState, tokenLimit: number): stri
  * output of `recallHarnessEntries`). Same rendering + token-cap rules as
  * `buildHarnessBlock`.
  */
-export function buildHarnessBlockFromEntries(
-	entries: HarnessEntry[],
-	tokenLimit: number,
-): string | undefined {
+export function buildHarnessBlockFromEntries(entries: HarnessEntry[], tokenLimit: number): string | undefined {
 	if (entries.length === 0) return undefined;
 	const byKind = new Map<RefinementKind, HarnessEntry[]>();
 	for (const entry of entries) {

@@ -18,7 +18,7 @@ interface DDGSearchResult {
 	icon: string;
 }
 
-interface DDGSearchResults {
+interface _DDGSearchResults {
 	noResults: boolean;
 	vqd: string;
 	results: DDGSearchResult[];

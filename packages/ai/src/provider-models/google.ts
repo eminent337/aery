@@ -47,6 +47,10 @@ export function googleAntigravityModelManagerOptions(
 	const token = config?.oauthToken;
 	return {
 		providerId: "google-antigravity",
+		// The Antigravity discovery endpoint is the authoritative catalog for the
+		// provider: a successful fetch is the complete set of active models, so
+		// static-only entries from bundled models.json are pruned.
+		dynamicModelsAuthoritative: true,
 		...(token
 			? {
 					fetchDynamicModels: () =>

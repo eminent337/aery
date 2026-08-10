@@ -1,16 +1,16 @@
-import { describe, expect, it, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createContinualHarnessEngine } from "../src/continual-harness/engine.js";
 import {
 	createSessionHarnessHost,
 	loadHarnessState,
 	mergeHarnessStates,
 	splitHarnessStateByScope,
 } from "../src/continual-harness/state.js";
-import { createCronScheduler, getGlobalCronScheduler, type CronScheduler } from "../src/cron/scheduler.js";
+import { type CronScheduler, createCronScheduler, getGlobalCronScheduler } from "../src/cron/scheduler.js";
 import type { CronSchedulerHost } from "../src/cron/types.js";
-import { ContinualHarnessEngine, createContinualHarnessEngine } from "../src/continual-harness/engine.js";
 
 describe("Continual Harness Integration", () => {
 	let tmpDir: string;
@@ -48,7 +48,7 @@ describe("Continual Harness Integration", () => {
 		};
 
 		const host = createSessionHarnessHost(mockSessionManager, tmpDir);
-		const engine = createContinualHarnessEngine(host);
+		const _engine = createContinualHarnessEngine(host);
 
 		const initialStatus = await host.getHarnessState();
 		expect(initialStatus.entries.memory).toEqual({});

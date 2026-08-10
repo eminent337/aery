@@ -81,7 +81,7 @@ describe("FasPlanner", () => {
 			});
 
 			// Start create but don't await - just verify prompt was called
-			const promise = planner.create();
+			const _promise = planner.create();
 			// Allow microtasks to process
 			await Promise.resolve();
 

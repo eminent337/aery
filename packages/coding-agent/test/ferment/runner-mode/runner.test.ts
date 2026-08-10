@@ -283,9 +283,9 @@ describe("FasRunner", () => {
 		});
 
 		// Pause right after the first action (activate_phase) is processed
-		let didPause = false;
+		let _didPause = false;
 		void runner.run("goal").then(f => {
-			didPause = f.status === "paused";
+			_didPause = f.status === "paused";
 		});
 		// Request pause — will be checked at top of next loop iteration
 		runner.pause();
@@ -496,7 +496,7 @@ describe("FasRunner", () => {
 			),
 		}));
 
-		const { executeBash } = await import("../../../src/exec/bash-executor.js");
+		const { executeBash: _executeBash } = await import("../../../src/exec/bash-executor.js");
 
 		await runner.run("goal");
 

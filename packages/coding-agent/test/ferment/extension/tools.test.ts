@@ -6,26 +6,9 @@
 
 import { expect, test } from "bun:test";
 import type { ExtensionAPI } from "@aryee337/aery";
-import type { Ferment, FermentCommand } from "../../../src/ferment/types.js";
+import type { Ferment } from "../../../src/ferment/types.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
-
-function makeDraftFerment(): Ferment {
-	const now = new Date().toISOString();
-	return {
-		id: "f-test",
-		name: "Test Ferment",
-		status: "draft",
-		goal: "Test goal",
-		worktree: { path: "/tmp" },
-		scoping: {},
-		phases: [],
-		decisions: [],
-		memories: [],
-		createdAt: now,
-		updatedAt: now,
-	};
-}
 
 function makeRunningFerment(): Ferment {
 	const now = new Date().toISOString();
@@ -65,9 +48,8 @@ function makeRunningFerment(): Ferment {
 }
 
 // Captures applyTransition calls for inspection
-let applyTransitionCalls: Array<{ ferment: Ferment; cmd: FermentCommand }> = [];
 
-function setupApplyTransitionCapture() {
+function _setupApplyTransitionCapture() {
 	applyTransitionCalls = [];
 }
 

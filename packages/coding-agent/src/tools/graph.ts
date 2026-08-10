@@ -84,7 +84,7 @@ export class GraphTool implements AgentTool<typeof graphSchema, GraphToolDetails
 			let content = "";
 			try {
 				content = fs.readFileSync(currentPath, "utf-8");
-			} catch (err) {
+			} catch (_err) {
 				return;
 			}
 

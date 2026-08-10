@@ -66,7 +66,7 @@ export class ShadowWatchTool implements AgentTool<typeof shadowWatchSchema, any>
 						});
 
 						await fs.promises.writeFile(mailboxFile, JSON.stringify(messages, null, 2), "utf-8");
-					} catch (e) {
+					} catch (_e) {
 						// Silently ignore if mailbox fails to update
 					}
 				}, 500); // 500ms debounce

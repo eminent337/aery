@@ -1,6 +1,6 @@
 /**
  * Continual Harness Engine
- * 
+ *
  * Ported from Prime-Agent's refinement.ts to support persistent,
  * editable harness state for prompts, memories, skills, and subagents.
  */
@@ -8,15 +8,14 @@
 import { randomUUID } from "node:crypto";
 import type { Model } from "@aryee337/aery-ai";
 import { completeSimple } from "@aryee337/aery-ai";
-import { countTokens } from "@aryee337/aery-engine";
-import type { HarnessHost, HarnessState, RefinementEdit, RefinementProposal, RefinementResult, RefineOptions } from "./types.js";
-import {
-	appendGlobalRefinement,
-	 loadGlobalRefinementHistory,
-	loadHarnessState,
-	mergeHarnessStates,
-	saveHarnessState,
-} from "./state.js";
+import type {
+	HarnessHost,
+	HarnessState,
+	RefinementEdit,
+	RefinementProposal,
+	RefinementResult,
+	RefineOptions,
+} from "./types.js";
 
 const REFINEMENT_SYSTEM_PROMPT = `You are Aery's /refine continual harness subsystem.
 
@@ -99,23 +98,12 @@ export class ContinualHarnessEngine {
 	/**
 	 * Run a manual refinement.
 	 */
-	async refine(
-		model: Model,
-		apiKey: string,
-		options: RefineOptions = {},
-	): Promise<RefinementResult> {
+	async refine(model: Model, apiKey: string, options: RefineOptions = {}): Promise<RefinementResult> {
 		const state = await this.#host.getHarnessState();
 		const history = await this.#host.getRefinementHistory();
 		const trajectory = await this.#host.getTrajectory();
 
-		const proposal = await this.#planRefinement(
-			state,
-			history,
-			trajectory,
-			model,
-			apiKey,
-			options,
-		);
+		const proposal = await this.#planRefinement(state, history, trajectory, model, apiKey, options);
 
 		return this.#applyProposal(state, proposal, options);
 	}
@@ -132,14 +120,7 @@ export class ContinualHarnessEngine {
 		const history = await this.#host.getRefinementHistory();
 		const trajectory = await this.#host.getTrajectory();
 
-		const review = await this.#reviewAutoRefine(
-			state,
-			history,
-			trajectory,
-			model,
-			apiKey,
-			context,
-		);
+		const review = await this.#reviewAutoRefine(state, history, trajectory, model, apiKey, context);
 
 		return {
 			shouldRefine: review.shouldRefine,
@@ -154,13 +135,13 @@ export class ContinualHarnessEngine {
 	async rollback(resultId: string): Promise<RefinementResult | null> {
 		const state = await this.#host.getHarnessState();
 		const history = await this.#host.getRefinementHistory();
-		
+
 		const target = history.find(r => r.id === resultId);
 		if (!target) return null;
 
 		// Create rollback proposal
 		const rollbackProposal = this.#createRollbackProposal(target);
-		
+
 		return this.#applyProposal(state, rollbackProposal, {
 			rollbackId: resultId,
 			global: target.scope === "global",
@@ -180,21 +161,21 @@ export class ContinualHarnessEngine {
 	): Promise<RefinementProposal> {
 		const stateOverview = this.#formatStateForPrompt(state);
 		const historyOverview = this.#formatHistoryForPrompt(history);
-		
+
 		const userPrompt = [
 			`<trajectory>\n${trajectory.slice(-40_000)}\n</trajectory>`,
 			`<current_harness_state>\n${stateOverview}\n</current_harness_state>`,
 			`<refinement_history>\n${historyOverview}\n</refinement_history>`,
 			options.instructions ? `<instructions>\n${options.instructions}\n</instructions>` : "",
-		].filter(Boolean).join("\n\n");
+		]
+			.filter(Boolean)
+			.join("\n\n");
 
 		const response = await completeSimple(
 			model,
 			{
 				systemPrompt: [REFINEMENT_SYSTEM_PROMPT],
-				messages: [
-					{ role: "user", content: userPrompt, timestamp: Date.now() },
-				],
+				messages: [{ role: "user", content: userPrompt, timestamp: Date.now() }],
 			},
 			{
 				maxTokens: Math.min(model.maxTokens, REFINEMENT_MAX_OUTPUT_TOKENS),
@@ -237,9 +218,7 @@ export class ContinualHarnessEngine {
 			model,
 			{
 				systemPrompt: [AUTO_REFINE_REVIEW_SYSTEM_PROMPT],
-				messages: [
-					{ role: "user", content: userPrompt, timestamp: Date.now() },
-				],
+				messages: [{ role: "user", content: userPrompt, timestamp: Date.now() }],
 			},
 			{
 				maxTokens: Math.min(model.maxTokens, AUTO_REFINE_REVIEW_MAX_OUTPUT_TOKENS),
@@ -268,7 +247,7 @@ export class ContinualHarnessEngine {
 		options: RefineOptions,
 	): Promise<RefinementResult> {
 		const appliedEdits = await this.#applyEdits(state, proposal.edits, options);
-		
+
 		const result: RefinementResult = {
 			id: randomUUID(),
 			summary: proposal.summary,
@@ -300,27 +279,29 @@ export class ContinualHarnessEngine {
 		_options: RefineOptions,
 	): Promise<import("./types.js").AppliedRefinementEdit[]> {
 		let currentState = state;
-		return Promise.all(edits.map(async edit => {
-			try {
-				const before = this.#getEntry(currentState, edit.kind, edit.id);
-				currentState = this.#applySingleEdit(currentState, edit);
-				const after = edit.action === "delete" ? undefined : this.#getEntry(currentState, edit.kind, edit.id);
-				return {
-					...edit,
-					id: edit.id || randomUUID(),
-					before,
-					after,
-					applied: true,
-				};
-			} catch (error) {
-				return {
-					...edit,
-					id: edit.id || randomUUID(),
-					applied: false,
-					error: error instanceof Error ? error.message : "Unknown error",
-				};
-			}
-		}));
+		return Promise.all(
+			edits.map(async edit => {
+				try {
+					const before = this.#getEntry(currentState, edit.kind, edit.id);
+					currentState = this.#applySingleEdit(currentState, edit);
+					const after = edit.action === "delete" ? undefined : this.#getEntry(currentState, edit.kind, edit.id);
+					return {
+						...edit,
+						id: edit.id || randomUUID(),
+						before,
+						after,
+						applied: true,
+					};
+				} catch (error) {
+					return {
+						...edit,
+						id: edit.id || randomUUID(),
+						applied: false,
+						error: error instanceof Error ? error.message : "Unknown error",
+					};
+				}
+			}),
+		);
 	}
 
 	/**
@@ -329,7 +310,7 @@ export class ContinualHarnessEngine {
 	#applySingleEdit(state: HarnessState, edit: RefinementEdit): HarnessState {
 		const newState = { ...state };
 		const kindState = { ...newState.entries[edit.kind] };
-		
+
 		switch (edit.action) {
 			case "create":
 				if (!edit.title || !edit.content) {
@@ -341,7 +322,7 @@ export class ContinualHarnessEngine {
 					title: edit.title,
 					content: edit.content,
 					path: edit.path || "",
-					scope: edit.metadata?.scope as "local" | "global" || "local",
+					scope: (edit.metadata?.scope as "local" | "global") || "local",
 					reference: edit.reference || {},
 					arguments: edit.arguments || {},
 					metadata: edit.metadata || {},
@@ -351,7 +332,7 @@ export class ContinualHarnessEngine {
 					version: 1,
 				};
 				break;
-			case "update":
+			case "update": {
 				if (!edit.id) {
 					throw new Error("Update requires id");
 				}
@@ -371,6 +352,7 @@ export class ContinualHarnessEngine {
 					version: existing.version + 1,
 				};
 				break;
+			}
 			case "delete":
 				if (!edit.id) {
 					throw new Error("Delete requires id");
@@ -378,12 +360,12 @@ export class ContinualHarnessEngine {
 				delete kindState[edit.id];
 				break;
 		}
-		
+
 		newState.entries = {
 			...newState.entries,
 			[edit.kind]: kindState,
 		};
-		
+
 		return newState;
 	}
 
@@ -405,13 +387,13 @@ export class ContinualHarnessEngine {
 	 */
 	#formatStateForPrompt(state: HarnessState): string {
 		const lines: string[] = [];
-		
+
 		for (const kind of ["prompt", "memory", "skill", "subagent"] as const) {
 			const entries = Object.values(state.entries[kind]);
 			if (entries.length === 0) continue;
-			
+
 			lines.push(`## ${kind.toUpperCase()} Entries (${entries.length})`);
-			
+
 			for (const entry of entries.slice(0, 6)) {
 				lines.push(`- ${entry.id}: ${entry.title}`);
 				if (entry.content.length > 180) {
@@ -420,13 +402,13 @@ export class ContinualHarnessEngine {
 					lines.push(`  ${entry.content}`);
 				}
 			}
-			
+
 			if (entries.length > 6) {
 				lines.push(`  ... and ${entries.length - 6} more`);
 			}
 			lines.push("");
 		}
-		
+
 		return lines.join("\n") || "No entries yet.";
 	}
 
@@ -435,7 +417,7 @@ export class ContinualHarnessEngine {
 	 */
 	#formatHistoryForPrompt(history: RefinementResult[]): string {
 		if (history.length === 0) return "No refinement history.";
-		
+
 		const lines = history.slice(-5).map(r => {
 			const changes = r.appliedEdits
 				.filter(e => e.applied)
@@ -443,7 +425,7 @@ export class ContinualHarnessEngine {
 				.join(", ");
 			return `- ${r.summary}: ${changes}`;
 		});
-		
+
 		return lines.join("\n");
 	}
 
@@ -456,15 +438,17 @@ export class ContinualHarnessEngine {
 			if (!json || typeof json !== "object") {
 				throw new Error("Invalid proposal format");
 			}
-			
+
 			const proposal = json as Record<string, unknown>;
-			
+
 			return {
 				summary: typeof proposal.summary === "string" ? proposal.summary : "",
 				rationale: typeof proposal.rationale === "string" ? proposal.rationale : "",
 				expectedOutcome: typeof proposal.expectedOutcome === "string" ? proposal.expectedOutcome : "",
 				edits: Array.isArray(proposal.edits)
-					? proposal.edits.map((e: unknown) => this.#parseEdit(e)).filter((e): e is RefinementEdit => e !== undefined)
+					? proposal.edits
+							.map((e: unknown) => this.#parseEdit(e))
+							.filter((e): e is RefinementEdit => e !== undefined)
 					: [],
 			};
 		} catch {
@@ -477,13 +461,13 @@ export class ContinualHarnessEngine {
 	 */
 	#parseEdit(raw: unknown): RefinementEdit | undefined {
 		if (typeof raw !== "object" || raw === null) return undefined;
-		
+
 		const edit = raw as Record<string, unknown>;
-		
+
 		if (typeof edit.action !== "string" || typeof edit.kind !== "string") {
 			return undefined;
 		}
-		
+
 		return {
 			action: edit.action as RefinementEdit["action"],
 			kind: edit.kind as RefinementEdit["kind"],
@@ -491,9 +475,18 @@ export class ContinualHarnessEngine {
 			title: typeof edit.title === "string" ? edit.title : undefined,
 			content: typeof edit.content === "string" ? edit.content : undefined,
 			path: typeof edit.path === "string" ? edit.path : undefined,
-			reference: typeof edit.reference === "object" && edit.reference !== null ? edit.reference as Record<string, unknown> : undefined,
-			arguments: typeof edit.arguments === "object" && edit.arguments !== null ? edit.arguments as Record<string, unknown> : undefined,
-			metadata: typeof edit.metadata === "object" && edit.metadata !== null ? edit.metadata as Record<string, unknown> : undefined,
+			reference:
+				typeof edit.reference === "object" && edit.reference !== null
+					? (edit.reference as Record<string, unknown>)
+					: undefined,
+			arguments:
+				typeof edit.arguments === "object" && edit.arguments !== null
+					? (edit.arguments as Record<string, unknown>)
+					: undefined,
+			metadata:
+				typeof edit.metadata === "object" && edit.metadata !== null
+					? (edit.metadata as Record<string, unknown>)
+					: undefined,
 			reason: typeof edit.reason === "string" ? edit.reason : undefined,
 		};
 	}
@@ -507,9 +500,9 @@ export class ContinualHarnessEngine {
 			if (!json || typeof json !== "object") {
 				throw new Error("Invalid review format");
 			}
-			
+
 			const review = json as Record<string, unknown>;
-			
+
 			return {
 				shouldRefine: review.shouldRefine === true,
 				rationale: typeof review.rationale === "string" ? review.rationale : "No rationale provided.",
@@ -529,7 +522,7 @@ export class ContinualHarnessEngine {
 	#extractJsonObject(text: string): unknown {
 		const jsonMatch = text.match(/\{[\s\S]*\}/);
 		if (!jsonMatch) return null;
-		
+
 		try {
 			return JSON.parse(jsonMatch[0]);
 		} catch {

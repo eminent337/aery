@@ -1,4 +1,103 @@
 {
+	"aery": {
+		"auto": {
+			"id": "auto",
+			"name": "Aery Smart Auto Router",
+			"api": "auto-router",
+			"provider": "aery",
+			"baseUrl": "auto",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 8192
+		}
+	},
+	"kiro": {
+		"claude-sonnet-4.5": {
+			"id": "claude-sonnet-4.5",
+			"name": "Claude Sonnet 4.5 (Kiro CLI)",
+			"api": "kiro-cli",
+			"provider": "kiro",
+			"baseUrl": "local",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 8192
+		},
+		"claude-sonnet-4": {
+			"id": "claude-sonnet-4",
+			"name": "Claude Sonnet 4.0 (Kiro CLI)",
+			"api": "kiro-cli",
+			"provider": "kiro",
+			"baseUrl": "local",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 8192
+		},
+		"claude-haiku-4.5": {
+			"id": "claude-haiku-4.5",
+			"name": "Claude Haiku 4.5 (Kiro CLI)",
+			"api": "kiro-cli",
+			"provider": "kiro",
+			"baseUrl": "local",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 200000,
+			"maxTokens": 8192
+		},
+		"auto": {
+			"id": "auto",
+			"name": "Auto (Kiro CLI)",
+			"api": "kiro-cli",
+			"provider": "kiro",
+			"baseUrl": "local",
+			"reasoning": false,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 8192
+		}
+	},
 	"alibaba-coding-plan": {
 		"glm-4.7": {
 			"id": "glm-4.7",

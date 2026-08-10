@@ -66,8 +66,8 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 						isStreaming = true;
 						try {
 							currentTelegramMsg = await thread.post("...");
-						} catch (e) {
-							log(`Failed to post message: ${e}`);
+						} catch (_e) {
+							log(`Failed to post message: ${_e}`);
 						}
 					}
 				} else if (event.type === "message_update") {
@@ -78,7 +78,7 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 								updateTimeout = null;
 								try {
 									await currentTelegramMsg.edit(currentMessageText || "...");
-								} catch (e) {
+								} catch (_e) {
 									// Ignore edit errors
 								}
 							}, 500); // Telegram has stricter rate limits so batch updates
@@ -90,7 +90,7 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 						if (updateTimeout) clearTimeout(updateTimeout);
 						try {
 							await currentTelegramMsg.edit(currentMessageText || "...");
-						} catch (e) {
+						} catch (_e) {
 							// Ignore edit errors
 						}
 						currentTelegramMsg = null;

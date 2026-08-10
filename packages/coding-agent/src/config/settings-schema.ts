@@ -1650,7 +1650,8 @@ export const SETTINGS_SCHEMA = {
 			tab: "memory",
 			group: "Continual Harness",
 			label: "Inject harness context",
-			description: "Inject the continual-harness entries (prompts, memories, skills) into the system prompt at agent start",
+			description:
+				"Inject the continual-harness entries (prompts, memories, skills) into the system prompt at agent start",
 		},
 	},
 	"harness.injectTokenLimit": {

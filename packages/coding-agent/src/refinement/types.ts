@@ -1,6 +1,6 @@
 /**
  * Refinement System Types
- * 
+ *
  * Review trajectory and improve memories, prompts, and skills.
  */
 

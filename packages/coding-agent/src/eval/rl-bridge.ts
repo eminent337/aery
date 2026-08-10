@@ -18,7 +18,7 @@ import * as taskDiscovery from "../task/discovery";
 import * as taskExecutor from "../task/executor";
 import { filterSkillsJIT, getFileExtensions } from "../task/jit-skills";
 import { AgentOutputManager } from "../task/output-manager";
-import type { AgentDefinition, AgentProgress } from "../task/types";
+import type { AgentProgress } from "../task/types";
 import type { ToolSession } from "../tools";
 import { ToolError } from "../tools/tool-errors";
 import { withBridgeHeartbeat } from "./heartbeat";
@@ -325,9 +325,7 @@ export async function runEvalRlm(args: unknown, options: EvalRlmBridgeOptions): 
 	};
 
 	// Fire and forget - subagent runs in background
-	const _spawnPromise = withBridgeHeartbeat(options.emitStatus, () =>
-		taskExecutor.runSubprocess(restOptions),
-	);
+	const _spawnPromise = withBridgeHeartbeat(options.emitStatus, () => taskExecutor.runSubprocess(restOptions));
 
 	// Clean up and update registry on completion
 	_spawnPromise.then(

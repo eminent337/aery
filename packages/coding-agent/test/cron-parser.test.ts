@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { parseCronSchedule, formatCronSchedule, formatNextRun } from "../src/cron/parser.js";
+import { formatCronSchedule, formatNextRun, parseCronSchedule } from "../src/cron/parser.js";
 
 describe("CronParser", () => {
 	describe("parseCronSchedule", () => {

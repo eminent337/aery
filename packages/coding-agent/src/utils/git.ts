@@ -479,14 +479,14 @@ async function resolveCommonDir(gitDir: string): Promise<string> {
 	return path.resolve(gitDir, relative);
 }
 
-function isLinkedWorktree(repository: GitRepository): boolean {
+function _isLinkedWorktree(repository: GitRepository): boolean {
 	return (
 		repository.gitDir !== repository.commonDir &&
 		getEntryTypeSync(path.join(repository.gitDir, "commondir")) === "file"
 	);
 }
 
-async function isLinkedWorktreeAsync(repository: GitRepository): Promise<boolean> {
+async function _isLinkedWorktreeAsync(repository: GitRepository): Promise<boolean> {
 	return (
 		repository.gitDir !== repository.commonDir &&
 		(await getEntryType(path.join(repository.gitDir, "commondir"))) === "file"

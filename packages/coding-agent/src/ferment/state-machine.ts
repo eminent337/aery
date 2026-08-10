@@ -15,7 +15,6 @@ import type {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TERMINAL_STEP_STATUSES: readonly StepStatus[] = ["done", "verified", "skipped", "failed"];
 const TERMINAL_PHASE_STATUSES: readonly PhaseStatus[] = ["completed", "skipped", "failed"];
 const VALID_MEMORY_CATEGORIES = ["architecture", "convention", "gotcha", "pattern", "preference"] as const;
 

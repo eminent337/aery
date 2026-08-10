@@ -256,7 +256,7 @@ export class InputController {
 		// Scroll the chat scroll-box with PageUp / PageDown / mouse wheel.
 		// Using addInputListener so it fires globally before focus dispatch.
 		this.ctx.ui.addInputListener((_data: string) => {
-			const SCROLL_LINES = 5;
+			const _SCROLL_LINES = 5;
 			// Native scrolling is handled by the terminal itself, so we don't
 			// need to manually scroll a ScrollBox here anymore.
 		});

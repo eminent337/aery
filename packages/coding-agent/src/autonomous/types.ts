@@ -1,11 +1,9 @@
 /**
  * Autonomous Mode Types
- * 
+ *
  * Bounded autonomous execution with quality gates and continuation prompts.
  * Integrates with Ferment for structured workflow orchestration.
  */
-
-import type { Ferment } from "../ferment/types.js";
 
 /**
  * Budget constraints for autonomous execution.
@@ -65,14 +63,14 @@ export interface AutonomousState {
 	updatedAt: number;
 }
 
-export type AutonomousStatus = 
-	| "idle"           /** Not started */
-	| "active"         /** Running autonomously */
-	| "gate-failed"    /** Quality gate failed, awaiting retry */
+export type AutonomousStatus =
+	| "idle" /** Not started */
+	| "active" /** Running autonomously */
+	| "gate-failed" /** Quality gate failed, awaiting retry */
 	| "budget-exhausted" /** Token/time/turn budget exhausted */
-	| "paused"         /** Paused by user */
-	| "complete"       /** Objective achieved */
-	| "aborted";       /** Manually aborted */
+	| "paused" /** Paused by user */
+	| "complete" /** Objective achieved */
+	| "aborted"; /** Manually aborted */
 
 /**
  * Event emitted during autonomous execution.

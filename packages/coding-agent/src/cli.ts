@@ -43,9 +43,10 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
 import { type CliConfig, run } from "@aryee337/aery-utils/cli";
 import { APP_NAME, MIN_BUN_VERSION, VERSION } from "@aryee337/aery-utils/dirs";
 import { commands, isSubcommand } from "./cli-commands";
+import { getGlobalCronScheduler } from "./cron/scheduler.js";
 import { recoverStrandedFerments } from "./ferment/recovery.js";
 import { recoverStrandedSessions } from "./session/recovery.js";
-import { getGlobalCronScheduler } from "./cron/scheduler.js";
+
 if (Bun.semver.order(Bun.version, MIN_BUN_VERSION) < 0) {
 	process.stderr.write(
 		`error: Bun runtime must be >= ${MIN_BUN_VERSION} (found v${Bun.version}). Please upgrade: bun upgrade\n`,
@@ -142,7 +143,12 @@ export async function runCli(argv: string[]): Promise<void> {
 		const isLaunch =
 			first === undefined ||
 			first === "launch" ||
-			(!isSubcommand(first) && first !== "--help" && first !== "-h" && first !== "--version" && first !== "-v" && first !== "help");
+			(!isSubcommand(first) &&
+				first !== "--help" &&
+				first !== "-h" &&
+				first !== "--version" &&
+				first !== "-v" &&
+				first !== "help");
 		if (isLaunch) {
 			getGlobalCronScheduler().start();
 		}

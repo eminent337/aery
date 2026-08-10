@@ -13,6 +13,7 @@ import {
 import { streamAeryNative } from "./providers/aery-native-client";
 import type { BedrockOptions } from "./providers/amazon-bedrock";
 import type { AnthropicOptions } from "./providers/anthropic";
+import type { AutoRouterOptions } from "./providers/auto-router";
 import type { CursorOptions } from "./providers/cursor";
 import { isGitLabDuoModel, streamGitLabDuo } from "./providers/gitlab-duo";
 import type { GoogleOptions } from "./providers/google";
@@ -20,6 +21,7 @@ import { getVertexAccessToken } from "./providers/google-auth";
 import type { GoogleGeminiCliOptions } from "./providers/google-gemini-cli";
 import type { GoogleVertexOptions } from "./providers/google-vertex";
 import { isKimiModel, streamKimi } from "./providers/kimi";
+import type { KiroCliOptions } from "./providers/kiro";
 import type { OllamaChatOptions } from "./providers/ollama";
 import type { OpenAICompletionsOptions } from "./providers/openai-completions";
 // Heavy provider stream functions are imported lazily via register-builtins,
@@ -32,12 +34,14 @@ import type { OpenAICompletionsOptions } from "./providers/openai-completions";
 // modules are thin wrappers with no heavy SDK dependencies.
 import {
 	streamAnthropic,
+	streamAutoRouter,
 	streamAzureOpenAIResponses,
 	streamBedrock,
 	streamCursor,
 	streamGoogle,
 	streamGoogleGeminiCli,
 	streamGoogleVertex,
+	streamKiro,
 	streamOllama,
 	streamOpenAICodexResponses,
 	streamOpenAICompletions,
@@ -331,7 +335,16 @@ export function stream<TApi extends Api>(
 		);
 	}
 
-	const apiKey = requestOptions?.apiKey || getEnvApiKey(model.provider);
+	const apiKey =
+		requestOptions?.apiKey ||
+		getEnvApiKey(model.provider) ||
+		(model.api === "kiro-cli" ||
+		model.api === "auto-router" ||
+		model.provider === "google-antigravity" ||
+		model.provider === "kiro" ||
+		model.provider === "aery"
+			? "oauth-cli-token"
+			: undefined);
 	if (!apiKey) {
 		throw new Error(`No API key for provider: ${model.provider}`);
 	}
@@ -384,6 +397,10 @@ export function stream<TApi extends Api>(
 
 		case "cursor-agent":
 			return streamCursor(model as Model<"cursor-agent">, context, providerOptions as CursorOptions);
+		case "kiro-cli":
+			return streamKiro(model as Model<"kiro-cli">, context, providerOptions as KiroCliOptions);
+		case "auto-router":
+			return streamAutoRouter(model as Model<"auto-router">, context, providerOptions as AutoRouterOptions);
 
 		default:
 			throw new Error(`Unhandled API: ${api}`);
@@ -1030,6 +1047,14 @@ function mapOptionsForApi<TApi extends Api>(
 				onToolResult,
 			});
 		}
+		case "kiro-cli":
+			return castApi<"kiro-cli">({
+				...base,
+			});
+		case "auto-router":
+			return castApi<"auto-router">({
+				...base,
+			});
 
 		default:
 			throw new Error(`Unhandled API in mapOptionsForApi: ${model.api}`);

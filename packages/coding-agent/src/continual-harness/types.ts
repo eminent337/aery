@@ -1,6 +1,6 @@
 /**
  * Continual Harness Types
- * 
+ *
  * Ported from Prime-Agent's refinement.ts to support persistent,
  * editable harness state for prompts, memories, skills, and subagents.
  */

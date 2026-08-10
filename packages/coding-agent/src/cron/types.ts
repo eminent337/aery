@@ -1,6 +1,6 @@
 /**
  * Cron System Types
- * 
+ *
  * Scheduled session execution with persistence and delivery modes.
  */
 

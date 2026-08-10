@@ -6,17 +6,12 @@ import type { PlanModeState } from "../../plan-mode/state";
 import * as taskDiscovery from "../../task/discovery";
 import type { ExecutorOptions } from "../../task/executor";
 import * as taskExecutor from "../../task/executor";
-import { AgentOutputManager } from "../../task/output-manager";
-import type { AgentDefinition, AgentProgress, SingleResult } from "../../task/types";
+import type { AgentDefinition, SingleResult } from "../../task/types";
 import type { ToolSession } from "../../tools";
-import {
-	runEvalRlm,
-	runEvalRlmList,
-	disposeRlmRegistry,
-} from "../rl-bridge";
 import { disposeAllVmContexts } from "../js/context-manager";
 import { executeJs } from "../js/executor";
 import { disposeAllKernelSessions } from "../py/executor";
+import { disposeRlmRegistry, runEvalRlm, runEvalRlmList } from "../rl-bridge";
 
 const taskAgent = {
 	name: "task",
@@ -51,11 +46,13 @@ interface SessionOptions {
 }
 
 function makeSession(options: SessionOptions = {}): ToolSession {
-	const settings = options.settings ?? Settings.isolated({
-		"async.enabled": false,
-		"task.isolation.mode": "none",
-		"task.enableLsp": true,
-	});
+	const settings =
+		options.settings ??
+		Settings.isolated({
+			"async.enabled": false,
+			"task.isolation.mode": "none",
+			"task.enableLsp": true,
+		});
 	const artifactsDir = options.artifactsDir ?? null;
 	return {
 		cwd: options.cwd ?? "/",
@@ -132,14 +129,16 @@ describe("runEvalRlm", () => {
 
 	it("spawns a subagent and registers it in the registry", async () => {
 		mockAgents();
-		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
-			cwd: "/",
-			agent: taskAgent,
-			task: "test task",
-			assignment: "do something",
-			index: 0,
-			id: "output-1",
-		}));
+		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(
+			singleResult({
+				cwd: "/",
+				agent: taskAgent,
+				task: "test task",
+				assignment: "do something",
+				index: 0,
+				id: "output-1",
+			}),
+		);
 
 		const tempDir1 = TempDir.createSync("rlm-registry-");
 		const { session: session1 } = makeEvalSession(tempDir1, "test");
@@ -162,14 +161,16 @@ describe("runEvalRlm", () => {
 
 	it("removes subagent from registry on completion", async () => {
 		mockAgents();
-		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
-			cwd: "/",
-			agent: taskAgent,
-			task: "test task",
-			assignment: "do something",
-			index: 0,
-			id: "output-2",
-		}));
+		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(
+			singleResult({
+				cwd: "/",
+				agent: taskAgent,
+				task: "test task",
+				assignment: "do something",
+				index: 0,
+				id: "output-2",
+			}),
+		);
 
 		const tempDir2 = TempDir.createSync("rlm-cleanup-");
 		const { session: session2 } = makeEvalSession(tempDir2, "cleanup-test");
@@ -195,14 +196,16 @@ describe("runEvalRlmList", () => {
 
 	it("returns active subagents from registry", async () => {
 		mockAgents();
-		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
-			cwd: "/",
-			agent: taskAgent,
-			task: "test",
-			assignment: "test",
-			index: 0,
-			id: "output-list",
-		}));
+		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(
+			singleResult({
+				cwd: "/",
+				agent: taskAgent,
+				task: "test",
+				assignment: "test",
+				index: 0,
+				id: "output-list",
+			}),
+		);
 
 		const tempDir4 = TempDir.createSync("rlm-list-active-");
 		const { session: session4 } = makeEvalSession(tempDir4, "list-test");
@@ -229,17 +232,23 @@ describe("rlm() through eval runtimes", () => {
 
 	it("rlm() returns handle in JS eval", async () => {
 		mockAgents();
-		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(singleResult({
-			cwd: "/",
-			agent: taskAgent,
-			task: "test",
-			assignment: "test",
-			index: 0,
-			id: "js-output-1",
-		}));
+		vi.spyOn(taskExecutor, "runSubprocess").mockResolvedValue(
+			singleResult({
+				cwd: "/",
+				agent: taskAgent,
+				task: "test",
+				assignment: "test",
+				index: 0,
+				id: "js-output-1",
+			}),
+		);
 
 		const tempDir5 = TempDir.createSync("rlm-js-handle-");
-		const { session: session5, sessionFile: sessionFile5, sessionId: sessionId5 } = makeEvalSession(tempDir5, "js-handle");
+		const {
+			session: session5,
+			sessionFile: sessionFile5,
+			sessionId: sessionId5,
+		} = makeEvalSession(tempDir5, "js-handle");
 
 		const result = await executeJs(
 			`const handle = await rlm("test task", { agentType: "task" }); JSON.stringify(handle);`,
@@ -262,7 +271,11 @@ describe("rlm() through eval runtimes", () => {
 		vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(() => new Promise(() => {}));
 
 		const tempDir6 = TempDir.createSync("rlm-js-list-");
-		const { session: session6, sessionFile: sessionFile6, sessionId: sessionId6 } = makeEvalSession(tempDir6, "js-list");
+		const {
+			session: session6,
+			sessionFile: sessionFile6,
+			sessionId: sessionId6,
+		} = makeEvalSession(tempDir6, "js-list");
 
 		const result = await executeJs(
 			`const handle = await rlm("investigate bug"); const list = await rlm.list_subagents(); JSON.stringify({ handleId: handle.id, listLength: list.length });`,

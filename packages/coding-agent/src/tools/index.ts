@@ -32,12 +32,14 @@ import { AskTool } from "./ask";
 import { AstEditTool } from "./ast-edit";
 import { AstGrepTool } from "./ast-grep";
 import { BashTool } from "./bash";
+import { BestOfNTool } from "./best-of-n";
 import { BrowserTool } from "./browser";
 import { type CheckpointState, CheckpointTool, RewindTool } from "./checkpoint";
 import { ContextUsageTool } from "./context-usage";
 import { DebugTool } from "./debug";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
+import { ExploreTool } from "./explore";
 import { FindTool } from "./find";
 import { GithubTool } from "./gh";
 import { GraphTool } from "./graph";
@@ -49,6 +51,7 @@ import { MemoryEditTool } from "./memory-edit";
 import { MemoryRecallTool } from "./memory-recall";
 import { MemoryReflectTool } from "./memory-reflect";
 import { MemoryRetainTool } from "./memory-retain";
+import { MultiPromptReviewTool } from "./multi-prompt-review";
 import { wrapToolWithMetaNotice } from "./output-meta";
 import { EnterPlanModeTool, ExitPlanModeTool } from "./plan-mode";
 import { ReadTool } from "./read";
@@ -87,11 +90,13 @@ export * from "./ask";
 export * from "./ast-edit";
 export * from "./ast-grep";
 export * from "./bash";
+export * from "./best-of-n";
 export * from "./browser";
 export * from "./checkpoint";
 export * from "./debug";
 export * from "./eval";
 export * from "./eval-backends";
+export * from "./explore";
 export * from "./find";
 export * from "./gh";
 export * from "./graph";
@@ -104,6 +109,7 @@ export * from "./memory-edit";
 export * from "./memory-recall";
 export * from "./memory-reflect";
 export * from "./memory-retain";
+export * from "./multi-prompt-review";
 export * from "./plan-mode";
 export * from "./read";
 export * from "./render-mermaid";
@@ -458,6 +464,9 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	set_model: s => new SetModelTool(s),
 	set_fast: s => new SetFastTool(s),
 	advisor: s => new AdvisorTool(s),
+	best_of_n: () => new BestOfNTool(),
+	multi_prompt_review: () => new MultiPromptReviewTool(),
+	explore: s => new ExploreTool(s),
 	handoff: s => new HandoffTool(s),
 	...Object.fromEntries(
 		exaTools.map(tool => [

@@ -17,7 +17,7 @@ const analyzeFileSchema = z.object({
 	goal: z.string().describe("analysis focus").optional(),
 });
 
-const analyzeFileOutputSchema = {
+const _analyzeFileOutputSchema = {
 	properties: {
 		summary: { type: "string" },
 		highlights: { elements: { type: "string" } },

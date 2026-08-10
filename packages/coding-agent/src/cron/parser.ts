@@ -1,6 +1,6 @@
 /**
  * Cron Schedule Parser
- * 
+ *
  * Parses human-friendly schedules like "every 5m", "every 1h", "daily", etc.
  * Also supports standard cron expressions.
  */
@@ -119,9 +119,9 @@ function NextWeekBoundary(): number {
  * Convert unit multiplier to milliseconds.
  */
 const UnitToMs: Record<string, (value: number) => number> = {
-	m: (v) => v * 60_000, // minutes
-	h: (v) => v * 60 * 60_000, // hours
-	d: (v) => v * 24 * 60 * 60_000, // days
+	m: v => v * 60_000, // minutes
+	h: v => v * 60 * 60_000, // hours
+	d: v => v * 24 * 60 * 60_000, // days
 };
 
 /**

@@ -7,6 +7,8 @@ import { Snowflake, setProjectDir } from "@aryee337/aery-utils";
 import { $ } from "bun";
 import type { SettingPath, SettingValue } from "../config/settings";
 import { settings } from "../config/settings";
+import { buildHarnessBlock } from "../continual-harness/inject.js";
+import { getGlobalCronScheduler } from "../cron/scheduler.js";
 import {
 	clearPluginRootsAndCaches,
 	resolveActiveProjectRegistryPath,
@@ -27,13 +29,6 @@ import type { Ferment } from "../ferment/types.js";
 import { getMarketplaceArgumentCompletions } from "../marketplace/marketplace.js";
 import type { InteractiveModeContext } from "../modes/types";
 import { globalScheduler } from "../task/schedule/scheduler";
-import { createAutonomousRuntime } from "../autonomous/runtime.js";
-import type { AutonomousRuntime } from "../autonomous/runtime.js";
-import { createCronScheduler, getGlobalCronScheduler } from "../cron/scheduler.js";
-import type { CronScheduler } from "../cron/scheduler.js";
-import { createRefinementEngine } from "../refinement/engine.js";
-import type { RefinementEngine } from "../refinement/engine.js";
-import { buildHarnessBlock } from "../continual-harness/inject.js";
 import { getChangelogPath, parseChangelog } from "../utils/changelog";
 import { createMarketplaceManager } from "./helpers/marketplace-manager";
 import { handleMcpAcp } from "./helpers/mcp";
@@ -279,7 +274,9 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 					const budget = budgetMatch ? parseInt(budgetMatch[1], 10) : undefined;
 					const objWithoutBudget = objective.replace(/--budget\s+\d+/, "").trim();
 					await autoRuntime.start({ objective: objWithoutBudget, config: { budget: { tokens: budget } } });
-					return out(`Autonomous mode started for objective: "${objWithoutBudget}"${budget ? ` (budget: ${budget} tokens)` : ""}`);
+					return out(
+						`Autonomous mode started for objective: "${objWithoutBudget}"${budget ? ` (budget: ${budget} tokens)` : ""}`,
+					);
 				}
 				case "pause": {
 					await autoRuntime.pause();
@@ -293,11 +290,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 					const state = autoRuntime.state;
 					return out(
 						`Autonomous Mode Status:\n` +
-						`State: ${autoRuntime.status}\n` +
-						`Objective: ${state?.objective || "None"}\n` +
-						`Tokens Used: ${autoRuntime.tokensUsed} / ${state?.budget.tokens ?? "unbounded"}\n` +
-						`Turns: ${autoRuntime.turnsUsed}\n` +
-						`Time Elapsed: ${Math.round(autoRuntime.timeUsedMs / 1000)}s`
+							`State: ${autoRuntime.status}\n` +
+							`Objective: ${state?.objective || "None"}\n` +
+							`Tokens Used: ${autoRuntime.tokensUsed} / ${state?.budget.tokens ?? "unbounded"}\n` +
+							`Turns: ${autoRuntime.turnsUsed}\n` +
+							`Time Elapsed: ${Math.round(autoRuntime.timeUsedMs / 1000)}s`,
 					);
 				}
 				case "stop": {
@@ -348,7 +345,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 					const jobs = await scheduler.store.list();
 					if (jobs.length === 0) return out("No scheduled cron jobs found.");
 					const lines = jobs.map(
-						j => `- [${j.id}] ${j.schedule} -> ${j.sessionId} (${j.enabled ? "enabled" : "disabled"})`
+						j => `- [${j.id}] ${j.schedule} -> ${j.sessionId} (${j.enabled ? "enabled" : "disabled"})`,
 					);
 					return out(`Scheduled Cron Jobs:\n${lines.join("\n")}`);
 				}
@@ -360,7 +357,9 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				}
 				case "status": {
 					const jobs = await scheduler.store.list();
-					return out(`Cron Scheduler: ${scheduler.isRunning ? "Active" : "Inactive"} (${jobs.length} jobs configured)`);
+					return out(
+						`Cron Scheduler: ${scheduler.isRunning ? "Active" : "Inactive"} (${jobs.length} jobs configured)`,
+					);
 				}
 				default:
 					return out(`Unknown subcommand: ${subcommand}`);
@@ -371,7 +370,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		name: "refine",
 		description: "Review trajectory and improve memories/prompts/skills",
 		subcommands: [
-			{ name: "run", description: "Run refinement on current trajectory", usage: "[--global] [--instructions <text>]" },
+			{
+				name: "run",
+				description: "Run refinement on current trajectory",
+				usage: "[--global] [--instructions <text>]",
+			},
 			{ name: "status", description: "Show refinement status" },
 			{ name: "rollback", description: "Rollback a previous refinement", usage: "<result-id>" },
 		],
@@ -401,10 +404,10 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 						const appliedCount = result.appliedEdits.filter(e => e.applied).length;
 						return out(
 							`Refinement complete!\n` +
-							`Summary: ${result.summary}\n` +
-							`Rationale: ${result.rationale}\n` +
-							`Edits applied: ${appliedCount}\n` +
-							`Scope: ${result.scope}`
+								`Summary: ${result.summary}\n` +
+								`Rationale: ${result.rationale}\n` +
+								`Edits applied: ${appliedCount}\n` +
+								`Scope: ${result.scope}`,
 						);
 					} catch (err) {
 						return out(`Refinement failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -424,13 +427,13 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 					const injectedCount = block ? (block.match(/^- /gm) ?? []).length : 0;
 					return out(
 						`Continual Harness Status:\n` +
-						`Prompt addendums: ${promptsCount}\n` +
-						`Memories: ${memoriesCount}\n` +
-						`Skills: ${skillsCount}\n` +
-						`Subagents: ${subagentsCount}\n` +
-						`Refinement passes run: ${history.length}\n` +
-						`Context injection: ${injectEnabled ? "on" : "off"} (limit ${injectTokenLimit} tokens)\n` +
-						`Entries injected: ${injectedCount}`
+							`Prompt addendums: ${promptsCount}\n` +
+							`Memories: ${memoriesCount}\n` +
+							`Skills: ${skillsCount}\n` +
+							`Subagents: ${subagentsCount}\n` +
+							`Refinement passes run: ${history.length}\n` +
+							`Context injection: ${injectEnabled ? "on" : "off"} (limit ${injectTokenLimit} tokens)\n` +
+							`Entries injected: ${injectedCount}`,
 					);
 				}
 				case "rollback": {
@@ -480,7 +483,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				case "list": {
 					const schedules = globalScheduler.getSchedules();
 					if (schedules.length === 0) return out("No scheduled jobs");
-					return out(schedules.map(s => `- ${s.id}: ${s.name} (${s.cronPattern}) [${s.enabled ? "active" : "paused"}]`).join("\n"));
+					return out(
+						schedules
+							.map(s => `- ${s.id}: ${s.name} (${s.cronPattern}) [${s.enabled ? "active" : "paused"}]`)
+							.join("\n"),
+					);
 				}
 				case "delete": {
 					const id = args[1];
@@ -513,7 +520,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	},
 	{
 		name: "loop",
-		description: "Toggle loop mode. While enabled, the next prompt you send re-submits after every yield. Esc cancels the current iteration; /loop again to disable.",
+		description:
+			"Toggle loop mode. While enabled, the next prompt you send re-submits after every yield. Esc cancels the current iteration; /loop again to disable.",
 		inlineHint: "[count|duration]",
 		allowArgs: true,
 		handleTui: async (command, runtime) => {

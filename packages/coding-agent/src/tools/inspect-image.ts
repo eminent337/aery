@@ -100,7 +100,7 @@ export class InspectImageTool implements AgentTool<typeof inspectImageSchema, In
 						persist: false,
 					});
 					model = capableModel;
-				} catch (switchError) {
+				} catch (_switchError) {
 					// Fall through to error if switch fails
 				}
 			}

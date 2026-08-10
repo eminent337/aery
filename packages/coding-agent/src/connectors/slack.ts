@@ -65,7 +65,7 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 						isStreaming = true;
 						try {
 							currentSlackMsg = await thread.post("...");
-						} catch (e) {
+						} catch (_e) {
 							log(`Failed to post message: ${e}`);
 						}
 					}
@@ -77,7 +77,7 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 								updateTimeout = null;
 								try {
 									await currentSlackMsg.edit(currentMessageText || "...");
-								} catch (e) {
+								} catch (_e) {
 									// Ignore edit errors
 								}
 							}, 500);
@@ -89,7 +89,7 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 						if (updateTimeout) clearTimeout(updateTimeout);
 						try {
 							await currentSlackMsg.edit(currentMessageText || "...");
-						} catch (e) {
+						} catch (_e) {
 							// Ignore edit errors
 						}
 						currentSlackMsg = null;

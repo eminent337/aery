@@ -30,7 +30,7 @@ export class StressRunner extends EventEmitter {
 export async function replayEvents(events: any[], delayMs: number = 0): Promise<void> {
 	const runner = new StressRunner(events, delayMs);
 
-	runner.on("tui-event", event => {
+	runner.on("tui-event", _event => {
 		// Mock consuming event and triggering redraw
 	});
 

@@ -6,7 +6,9 @@
 import type { ModelManagerOptions } from "../model-manager";
 import type { Api, KnownProvider } from "../types";
 import type { OAuthProvider } from "../utils/oauth/types";
+import { autoRouterModelManagerOptions } from "./auto-router";
 import { googleModelManagerOptions, googleVertexModelManagerOptions } from "./google";
+import { kiroModelManagerOptions } from "./kiro";
 import { ollamaCloudModelManagerOptions } from "./ollama";
 import {
 	alibabaCodingPlanModelManagerOptions,
@@ -245,6 +247,20 @@ export const PROVIDER_DESCRIPTORS: readonly ProviderDescriptor[] = [
 		config => freebuffModelManagerOptions(config),
 		catalog("Freebuff (Codebuff)", ["FREEBUFF_API_KEY", "CODEBUFF_API_KEY"], { allowUnauthenticated: true }),
 		{ allowUnauthenticated: true, dynamicModelsAuthoritative: true },
+	),
+	catalogDescriptor(
+		"kiro",
+		"claude-sonnet-4.5",
+		config => kiroModelManagerOptions(config),
+		catalog("Kiro CLI", ["KIRO_CLI_PATH"], { allowUnauthenticated: true }),
+		{ allowUnauthenticated: true, dynamicModelsAuthoritative: true },
+	),
+	catalogDescriptor(
+		"aery",
+		"auto",
+		config => autoRouterModelManagerOptions(config),
+		catalog("Aery Auto Router", [], { allowUnauthenticated: true }),
+		{ allowUnauthenticated: true },
 	),
 	catalogDescriptor(
 		"vercel-ai-gateway",

@@ -143,6 +143,50 @@ export function resolveFreebuffApiBase(baseUrl?: string): string {
  * (`400 {"message":"No runId found in request body"}`), so every completion
  * must first create a run via `POST /api/v1/agent-runs`.
  */
+
+/**
+ * POSTs to /api/v1/freebuff/session to claim an active slot on the Freebuff server.
+ * The Codebuff backend requires an active session slot before it admits requests
+ * to the free queue. If the user doesn't have an active session, completions fail
+ * with 402 Out of credits.
+ */
+export async function claimFreebuffSessionSlot(options: {
+	apiKey: string;
+	baseUrl?: string;
+	modelId?: string;
+	signal?: AbortSignal;
+}): Promise<boolean> {
+	const { apiKey } = options;
+	const apiBase = resolveFreebuffApiBase(options.baseUrl);
+	const modelId = options.modelId ?? "base2-free";
+
+	try {
+		const response = await fetch(`${apiBase}/freebuff/session`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				"x-freebuff-model": modelId,
+			},
+			signal: options.signal ?? AbortSignal.timeout(10_000),
+		});
+
+		if (response.ok) {
+			const data = (await response.json()) as any;
+			console.log("FREEBUFF SESSION SUCCESS:", data);
+			if (data.status === "active") {
+				return true;
+			}
+		} else {
+			const text = await response.text();
+			console.log("FREEBUFF SESSION ERROR:", response.status, text);
+		}
+
+		return false;
+	} catch (_err) {
+		return false;
+	}
+}
+
 export async function startFreebuffAgentRun(options: {
 	apiKey: string;
 	baseUrl?: string;
@@ -155,29 +199,41 @@ export async function startFreebuffAgentRun(options: {
 	const apiBase = resolveFreebuffApiBase(baseUrl);
 	const agentId = options.agentId ?? "base2-free";
 	const userId = options.userId;
-	try {
-		const response = await fetch(`${apiBase}/agent-runs`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${apiKey}`,
-				...(userId ? { [FREEBUFF_ACTING_USER_HEADER]: userId } : {}),
-			},
-			body: JSON.stringify({
-				action: "START",
-				agentId,
-				ancestorRunIds: [],
-			}),
-			signal: options.signal ?? AbortSignal.timeout(20_000),
-		});
-		if (!response.ok) {
-			return null;
+	const maxAttempts = 3;
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		try {
+			const response = await fetch(`${apiBase}/agent-runs`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}`,
+					...(userId ? { [FREEBUFF_ACTING_USER_HEADER]: userId } : {}),
+				},
+				body: JSON.stringify({
+					action: "START",
+					agentId,
+					ancestorRunIds: [],
+				}),
+				signal: options.signal ?? AbortSignal.timeout(20_000),
+			});
+			if (!response.ok) {
+				return null;
+			}
+			const body = (await response.json()) as { runId?: unknown };
+			return typeof body.runId === "string" && body.runId.length > 0 ? body.runId : null;
+		} catch (_err) {
+			// Retry on transient network errors (socket reset, connection refused)
+			const message = _err instanceof Error ? _err.message : String(_err);
+			const isTransient =
+				message.includes("ECONNRESET") ||
+				message.includes("socket") ||
+				message.includes("connection refused") ||
+				message.includes("fetch failed");
+			if (!isTransient || attempt === maxAttempts - 1) return null;
+			await Bun.sleep(500 * 2 ** attempt);
 		}
-		const body = (await response.json()) as { runId?: unknown };
-		return typeof body.runId === "string" && body.runId.length > 0 ? body.runId : null;
-	} catch {
-		return null;
 	}
+	return null;
 }
 
 const freebuffRunCache = new Map<string, string | null>();
@@ -198,6 +254,13 @@ export async function ensureFreebuffRunId(options: {
 		const cached = freebuffRunCache.get(cacheKey);
 		if (typeof cached === "string") return cached;
 	}
+	// First claim the free session slot server-side!
+	await claimFreebuffSessionSlot({
+		apiKey: options.apiKey,
+		baseUrl: options.baseUrl,
+		modelId: options.agentId,
+	});
+
 	const runId = await startFreebuffAgentRun(options);
 	freebuffRunCache.set(cacheKey, runId);
 	return runId;
@@ -248,7 +311,10 @@ export function createFreebuffFetch(options: {
 				};
 			}
 		}
-		return baseFetch(input, init);
+		const response = await baseFetch(input, init);
+		// Notify capacity deferral listeners for 429 responses (ported from Freebuff SDK)
+		notifyCapacityDeferralFromResponse(response);
+		return response;
 	}) as FetchImpl;
 }
 
@@ -267,25 +333,76 @@ export async function fetchFreebuffActiveModels(options: {
 }): Promise<string[] | null> {
 	const { apiKey } = options;
 	const apiBase = resolveFreebuffApiBase(options.baseUrl);
-	try {
-		const response = await fetch(`${apiBase}/freebuff/session`, {
-			method: "GET",
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				"x-freebuff-include-unused-rate-limits": "1",
-			},
-			signal: options.signal ?? AbortSignal.timeout(10_000),
-		});
-		if (!response.ok) {
-			return null;
+	const maxAttempts = 3;
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		try {
+			const response = await fetch(`${apiBase}/freebuff/session`, {
+				method: "GET",
+				headers: {
+					Authorization: `Bearer ${apiKey}`,
+					"x-freebuff-include-unused-rate-limits": "1",
+				},
+				signal: options.signal ?? AbortSignal.timeout(10_000),
+			});
+			if (!response.ok) {
+				// Notify capacity deferral listeners (ported from Freebuff SDK)
+				notifyCapacityDeferralFromResponse(response);
+				return null;
+			}
+			const payload = (await response.json()) as { rateLimitsByModel?: Record<string, unknown> };
+			if (!payload.rateLimitsByModel || typeof payload.rateLimitsByModel !== "object") {
+				return null;
+			}
+			const ids = Object.keys(payload.rateLimitsByModel).filter(id => id.length > 0);
+			return ids.length > 0 ? ids : null;
+		} catch (_err) {
+			const message = _err instanceof Error ? _err.message : String(_err);
+			const isTransient =
+				message.includes("ECONNRESET") ||
+				message.includes("socket") ||
+				message.includes("connection refused") ||
+				message.includes("fetch failed");
+			if (!isTransient || attempt === maxAttempts - 1) return null;
+			await Bun.sleep(500 * 2 ** attempt);
 		}
-		const payload = (await response.json()) as { rateLimitsByModel?: Record<string, unknown> };
-		if (!payload.rateLimitsByModel || typeof payload.rateLimitsByModel !== "object") {
-			return null;
-		}
-		const ids = Object.keys(payload.rateLimitsByModel).filter(id => id.length > 0);
-		return ids.length > 0 ? ids : null;
-	} catch {
-		return null;
 	}
+	return null;
+}
+/**
+ * Capacity deferral notification for Freebuff/Codebuff free-mode overload.
+ * When the backend sheds a free-mode completion under saturation (HTTP 429
+ * with error: 'free_mode_capacity_deferred'), this listener is notified so
+ * the host can surface a "high demand" indicator instead of failing.
+ *
+ * Ported from Freebuff's SDK capacity deferral pattern.
+ */
+export type FreeModeCapacityDeferral = { retryAfterSeconds: number };
+const freeModeCapacityDeferralListeners = new Set<(deferral: FreeModeCapacityDeferral) => void>();
+export function registerFreeModeCapacityDeferralListener(listener: (deferral: FreeModeCapacityDeferral) => void): void {
+	freeModeCapacityDeferralListeners.add(listener);
+}
+export function unregisterFreeModeCapacityDeferralListener(
+	listener: (deferral: FreeModeCapacityDeferral) => void,
+): void {
+	freeModeCapacityDeferralListeners.delete(listener);
+}
+/**
+ * Check a response for free-mode capacity deferral signals and notify listeners.
+ * Returns true if a deferral was detected (caller may retry after the backoff).
+ */
+export function notifyCapacityDeferralFromResponse(response: Response): boolean {
+	if (response.status !== 429) return false;
+	const retryAfterHeader = response.headers.get("retry-after");
+	const retryAfterSeconds =
+		retryAfterHeader && Number.isFinite(Number(retryAfterHeader)) ? Number(retryAfterHeader) : undefined;
+	if (retryAfterSeconds === undefined || retryAfterSeconds <= 0) return false;
+	const deferral: FreeModeCapacityDeferral = { retryAfterSeconds };
+	for (const listener of freeModeCapacityDeferralListeners) {
+		try {
+			listener(deferral);
+		} catch {
+			// Listener errors must never break the request path
+		}
+	}
+	return true;
 }

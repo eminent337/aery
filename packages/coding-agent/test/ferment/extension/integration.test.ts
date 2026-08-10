@@ -76,7 +76,7 @@ describe("Ferment Extension Integration", () => {
 
 	test("full lifecycle: scope → activate → start → complete → complete phase → complete ferment", async () => {
 		await clearActive();
-		const { api, tools, messages } = createMockApi();
+		const { api, tools, messages: _messages } = createMockApi();
 		const ext = createFermentExtension();
 		ext(api);
 

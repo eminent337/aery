@@ -335,7 +335,7 @@ async function saveBrowserOutputArtifact(
 		if (!alloc?.path || !alloc.id) return undefined;
 		await Bun.write(alloc.path, originalText);
 		return alloc.id;
-	} catch (e) {
+	} catch (_e) {
 		return undefined;
 	}
 }

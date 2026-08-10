@@ -18,13 +18,13 @@ export const EVAL_AGENT_MESSAGE_BRIDGE_NAME = "__agent_message__";
 /** Op types accepted by the agent_message bridge. */
 type AgentMessageOp = "send" | "read" | "list";
 
-	const agentMessageSchema = z.object({
-		op: z.enum(["send", "read", "list"]).default("send"),
-		message: z.string().min(1, "message must be a non-empty string").optional(),
-		receiverRole: z.enum(["parent", "child"]).default("parent"),
-		receiverName: z.string().optional(),
-		mailbox: z.string().optional(),
-	});
+const agentMessageSchema = z.object({
+	op: z.enum(["send", "read", "list"]).default("send"),
+	message: z.string().min(1, "message must be a non-empty string").optional(),
+	receiverRole: z.enum(["parent", "child"]).default("parent"),
+	receiverName: z.string().optional(),
+	mailbox: z.string().optional(),
+});
 
 interface EvalAgentMessageArgs {
 	op: AgentMessageOp;
@@ -119,11 +119,14 @@ function resolveMailbox(receiverRole: "parent" | "child", receiverName?: string)
 /**
  * Send a message to a mailbox.
  */
-function runEvalAgentMessageSend(args: EvalAgentMessageArgs, options: EvalAgentMessageBridgeOptions): EvalAgentMessageResult {
+function runEvalAgentMessageSend(
+	args: EvalAgentMessageArgs,
+	options: EvalAgentMessageBridgeOptions,
+): EvalAgentMessageResult {
 	if (!args.message) {
 		throw new ToolError("agent_message.send() requires a non-empty message.");
 	}
-	const sessionId = options.session.getSessionId?.() ?? "unknown";
+	const _sessionId = options.session.getSessionId?.() ?? "unknown";
 	const mailbox = resolveMailbox(args.receiverRole, args.receiverName);
 	const store = getStoreForSession(options.session);
 
@@ -153,7 +156,10 @@ function runEvalAgentMessageSend(args: EvalAgentMessageArgs, options: EvalAgentM
 /**
  * Read (drain) a mailbox. Returns all queued messages and clears the queue.
  */
-function runEvalAgentMessageRead(args: EvalAgentMessageArgs, options: EvalAgentMessageBridgeOptions): EvalAgentMessageReadResult {
+function runEvalAgentMessageRead(
+	args: EvalAgentMessageArgs,
+	options: EvalAgentMessageBridgeOptions,
+): EvalAgentMessageReadResult {
 	const mailbox = args.mailbox ?? "parent";
 	const store = getStoreForSession(options.session);
 
@@ -170,7 +176,10 @@ function runEvalAgentMessageRead(args: EvalAgentMessageArgs, options: EvalAgentM
 /**
  * List all mailboxes and their message counts.
  */
-function runEvalAgentMessageList(_args: EvalAgentMessageArgs, options: EvalAgentMessageBridgeOptions): EvalAgentMessageListResult {
+function runEvalAgentMessageList(
+	_args: EvalAgentMessageArgs,
+	options: EvalAgentMessageBridgeOptions,
+): EvalAgentMessageListResult {
 	const store = getStoreForSession(options.session);
 	const mailboxes = Array.from(store.entries()).map(([mailbox, queue]) => ({
 		mailbox,

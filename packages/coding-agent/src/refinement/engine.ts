@@ -1,6 +1,6 @@
 /**
  * Refinement Engine
- * 
+ *
  * Reviews trajectory and produces refinement decisions.
  */
 
@@ -57,22 +57,14 @@ export class RefinementEngine {
 			try {
 				switch (decision.action) {
 					case "create": {
-						const id = await this.#host.createArtifact(
-							decision.target,
-							decision.reasoning,
-							decision.scope,
-						);
+						const id = await this.#host.createArtifact(decision.target, decision.reasoning, decision.scope);
 						if (id) applied++;
 						else failed++;
 						break;
 					}
 					case "update": {
 						if (decision.targetId) {
-							const ok = await this.#host.updateArtifact(
-								decision.target,
-								decision.targetId,
-								decision.reasoning,
-							);
+							const ok = await this.#host.updateArtifact(decision.target, decision.targetId, decision.reasoning);
 							if (ok) applied++;
 							else failed++;
 						} else {
@@ -82,10 +74,7 @@ export class RefinementEngine {
 					}
 					case "delete": {
 						if (decision.targetId) {
-							const ok = await this.#host.deleteArtifact(
-								decision.target,
-								decision.targetId,
-							);
+							const ok = await this.#host.deleteArtifact(decision.target, decision.targetId);
 							if (ok) applied++;
 							else failed++;
 						} else {
@@ -123,26 +112,25 @@ export class RefinementEngine {
 		// Check for recurring patterns
 		if (trajectoryLower.includes("error") || trajectoryLower.includes("bug")) {
 			suggestions.push("Consider adding error handling to memory");
-			decisions.push(this.#createDecision(
-				"memory",
-				undefined,
-				"local",
-				"create",
-				"Add error handling memory based on trajectory",
-				[this.#createEvidence("trajectory", "Found error patterns in trajectory")],
-			));
+			decisions.push(
+				this.#createDecision(
+					"memory",
+					undefined,
+					"local",
+					"create",
+					"Add error handling memory based on trajectory",
+					[this.#createEvidence("trajectory", "Found error patterns in trajectory")],
+				),
+			);
 		}
 
 		if (trajectoryLower.includes("repeated") || trajectoryLower.includes("again")) {
 			suggestions.push("Consider creating a skill for repeated operations");
-			decisions.push(this.#createDecision(
-				"skill",
-				undefined,
-				"global",
-				"create",
-				"Create skill for repeated operations",
-				[this.#createEvidence("trajectory", "Found repeated patterns in trajectory")],
-			));
+			decisions.push(
+				this.#createDecision("skill", undefined, "global", "create", "Create skill for repeated operations", [
+					this.#createEvidence("trajectory", "Found repeated patterns in trajectory"),
+				]),
+			);
 		}
 
 		return { decisions, suggestions };
@@ -161,10 +149,12 @@ export class RefinementEngine {
 			delete: decisions.filter(d => d.action === "delete").length,
 		};
 
-		return `Refinement complete: ${decisions.length} decisions made\n` +
+		return (
+			`Refinement complete: ${decisions.length} decisions made\n` +
 			`- Memory: ${stats.memory} (create: ${stats.create}, update: ${stats.update}, delete: ${stats.delete})\n` +
 			`- Prompt: ${stats.prompt}\n` +
-			`- Skill: ${stats.skill}`;
+			`- Skill: ${stats.skill}`
+		);
 	}
 
 	/**

@@ -1,14 +1,15 @@
 /**
  * Continual Harness State Management
- * 
+ *
  * Ported from Prime-Agent's refinement.ts to support persistent,
  * editable harness state for prompts, memories, skills, and subagents.
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
+import { join } from "node:path";
+import type { SessionManager } from "../session/session-manager.js";
 import type {
 	HarnessEntry,
 	HarnessHost,
@@ -17,7 +18,6 @@ import type {
 	RefinementKind,
 	RefinementResult,
 } from "./types.js";
-import type { SessionManager } from "../session/session-manager.js";
 
 const HARNESS_STATE_DIR_NAME = "harness";
 const HARNESS_STATE_FILE_NAME = "harness_state.json";
@@ -72,16 +72,13 @@ function emptyHarnessState(): HarnessState {
  * Load harness state from disk.
  * Returns empty state if file doesn't exist or is corrupt.
  */
-export function loadHarnessState(
-	harnessStateDir: string,
-	scope: "local" | "global" = "global",
-): HarnessState {
+export function loadHarnessState(harnessStateDir: string, scope: "local" | "global" = "global"): HarnessState {
 	const statePath = getHarnessStatePath(harnessStateDir);
-	
+
 	if (!existsSync(statePath)) {
 		return emptyHarnessState();
 	}
-	
+
 	let parsed: Partial<HarnessState>;
 	try {
 		const raw = readFileSync(statePath, "utf8");
@@ -97,10 +94,10 @@ export function loadHarnessState(
 		// Corrupt state file - degrade to empty
 		return emptyHarnessState();
 	}
-	
+
 	const state = emptyHarnessState();
 	state.schema = typeof parsed.schema === "number" ? parsed.schema : CURRENT_SCHEMA;
-	
+
 	for (const kind of Object.keys(state.entries) as RefinementKind[]) {
 		const records = parsed.entries?.[kind];
 		if (records && typeof records === "object") {
@@ -115,11 +112,11 @@ export function loadHarnessState(
 			}
 		}
 	}
-	
+
 	if (Array.isArray(parsed.refinements)) {
 		state.refinements = parsed.refinements as HarnessRefinementEvent[];
 	}
-	
+
 	return state;
 }
 
@@ -145,19 +142,16 @@ export async function saveHarnessState(harnessStateDir: string, state: HarnessSt
 	}
 	return statePath;
 }
-export function mergeHarnessStates(
-	globalState: HarnessState,
-	localState?: HarnessState,
-): HarnessState {
+export function mergeHarnessStates(globalState: HarnessState, localState?: HarnessState): HarnessState {
 	const merged = emptyHarnessState();
 	merged.schema = Math.max(globalState.schema, localState?.schema ?? 1);
-	
+
 	for (const kind of Object.keys(merged.entries) as RefinementKind[]) {
 		// Start with global entries
 		for (const [id, entry] of Object.entries(globalState.entries[kind])) {
 			merged.entries[kind][id] = { ...entry, scope: "global" };
 		}
-		
+
 		// Add local entries with scope prefix if conflict
 		if (localState) {
 			for (const [id, entry] of Object.entries(localState.entries[kind])) {
@@ -166,13 +160,10 @@ export function mergeHarnessStates(
 			}
 		}
 	}
-	
+
 	// Merge refinement events (global first, then local)
-	merged.refinements = [
-		...globalState.refinements,
-		...(localState?.refinements ?? []),
-	];
-	
+	merged.refinements = [...globalState.refinements, ...(localState?.refinements ?? [])];
+
 	return merged;
 }
 /**
@@ -224,10 +215,7 @@ export function splitHarnessStateByScope(state: HarnessState): {
 /**
  * Append a refinement result to the global history.
  */
-export function appendGlobalRefinement(
-	harnessStateDir: string,
-	result: RefinementResult,
-): string {
+export function appendGlobalRefinement(harnessStateDir: string, result: RefinementResult): string {
 	const historyPath = getRefinementHistoryPath(harnessStateDir);
 	mkdirSync(harnessStateDir, { recursive: true });
 	appendFileSync(historyPath, `${JSON.stringify(result)}\n`, "utf8");
@@ -237,15 +225,13 @@ export function appendGlobalRefinement(
 /**
  * Load global refinement history from disk.
  */
-export function loadGlobalRefinementHistory(
-	harnessStateDir: string,
-): RefinementResult[] {
+export function loadGlobalRefinementHistory(harnessStateDir: string): RefinementResult[] {
 	const historyPath = getRefinementHistoryPath(harnessStateDir);
-	
+
 	if (!existsSync(historyPath)) {
 		return [];
 	}
-	
+
 	const results: RefinementResult[] = [];
 	try {
 		const content = readFileSync(historyPath, "utf8");
@@ -264,7 +250,7 @@ export function loadGlobalRefinementHistory(
 	} catch {
 		// Return empty if file can't be read
 	}
-	
+
 	return results;
 }
 
@@ -272,16 +258,13 @@ export function loadGlobalRefinementHistory(
  * Merge global and session refinement history, deduplicating by ID.
  * Session entries win on conflict.
  */
-export function mergeRefinementHistory(
-	global: RefinementResult[],
-	session: RefinementResult[],
-): RefinementResult[] {
+export function mergeRefinementHistory(global: RefinementResult[], session: RefinementResult[]): RefinementResult[] {
 	const byId = new Map<string, RefinementResult>();
-	
+
 	for (const result of global) {
 		byId.set(result.id, result);
 	}
-	
+
 	for (const result of session) {
 		const existing = byId.get(result.id);
 		byId.set(result.id, {
@@ -289,7 +272,7 @@ export function mergeRefinementHistory(
 			scope: result.scope || !existing?.scope ? result.scope : existing.scope,
 		});
 	}
-	
+
 	return [...byId.values()];
 }
 
@@ -298,9 +281,9 @@ export function mergeRefinementHistory(
  */
 function parseHarnessEntry(raw: unknown): HarnessEntry | undefined {
 	if (typeof raw !== "object" || raw === null) return undefined;
-	
+
 	const entry = raw as Record<string, unknown>;
-	
+
 	// Required fields
 	if (typeof entry.id !== "string") return undefined;
 	if (typeof entry.kind !== "string") return undefined;
@@ -310,7 +293,7 @@ function parseHarnessEntry(raw: unknown): HarnessEntry | undefined {
 	if (typeof entry.created_at !== "string") return undefined;
 	if (typeof entry.updated_at !== "string") return undefined;
 	if (typeof entry.version !== "number") return undefined;
-	
+
 	return {
 		id: entry.id as string,
 		kind: entry.kind as RefinementKind,
@@ -318,15 +301,18 @@ function parseHarnessEntry(raw: unknown): HarnessEntry | undefined {
 		content: entry.content as string,
 		path: (typeof entry.path === "string" ? entry.path : "") as string,
 		scope: normalizeScope(entry.scope as string | undefined, "global"),
-		reference: (typeof entry.reference === "object" && entry.reference !== null && !Array.isArray(entry.reference)) 
-			? entry.reference as Record<string, unknown>
-			: {},
-		arguments: (typeof entry.arguments === "object" && entry.arguments !== null && !Array.isArray(entry.arguments))
-			? entry.arguments as Record<string, unknown>
-			: {},
-		metadata: (typeof entry.metadata === "object" && entry.metadata !== null && !Array.isArray(entry.metadata))
-			? entry.metadata as Record<string, unknown>
-			: {},
+		reference:
+			typeof entry.reference === "object" && entry.reference !== null && !Array.isArray(entry.reference)
+				? (entry.reference as Record<string, unknown>)
+				: {},
+		arguments:
+			typeof entry.arguments === "object" && entry.arguments !== null && !Array.isArray(entry.arguments)
+				? (entry.arguments as Record<string, unknown>)
+				: {},
+		metadata:
+			typeof entry.metadata === "object" && entry.metadata !== null && !Array.isArray(entry.metadata)
+				? (entry.metadata as Record<string, unknown>)
+				: {},
 		source: entry.source as string,
 		created_at: entry.created_at as string,
 		updated_at: entry.updated_at as string,
@@ -369,23 +355,20 @@ function withDefaultScope(result: RefinementResult, scope: "local" | "global"): 
 /**
  * Create a HarnessHost backed by a SessionManager and agent directory.
  */
-export function createSessionHarnessHost(
-	sessionManager: SessionManager,
-	agentDir: string,
-): HarnessHost {
+export function createSessionHarnessHost(sessionManager: SessionManager, agentDir: string): HarnessHost {
 	const globalDir = getGlobalHarnessStateDir(agentDir);
-	const sessionDir = sessionManager.sessionFile
-		? path.dirname(sessionManager.sessionFile)
-		: undefined;
+	const sessionDir = sessionManager.sessionFile ? path.dirname(sessionManager.sessionFile) : undefined;
 	const localDir = getLocalHarnessStateDir(sessionDir);
 	return {
 		async getHarnessState(): Promise<HarnessState> {
 			const globalState = loadHarnessState(globalDir, "global");
-			const localState = localDir ? loadHarnessState(localDir, "local") : {
-				schema: 1,
-				entries: { prompt: {}, memory: {}, skill: {}, subagent: {} },
-				refinements: [],
-			};
+			const localState = localDir
+				? loadHarnessState(localDir, "local")
+				: {
+						schema: 1,
+						entries: { prompt: {}, memory: {}, skill: {}, subagent: {} },
+						refinements: [],
+					};
 			return mergeHarnessStates(globalState, localState);
 		},
 		async saveHarnessState(state: HarnessState): Promise<void> {
@@ -422,11 +405,12 @@ export function createSessionHarnessHost(
 				if ("message" in entry && entry.message) {
 					const msg = entry.message as any;
 					if (msg.role === "user" || msg.role === "assistant") {
-						const text = typeof msg.content === "string" 
-							? msg.content 
-							: Array.isArray(msg.content)
-								? msg.content.map((c: any) => c.text || "").join("")
-								: "";
+						const text =
+							typeof msg.content === "string"
+								? msg.content
+								: Array.isArray(msg.content)
+									? msg.content.map((c: any) => c.text || "").join("")
+									: "";
 						if (text) {
 							parts.push(`${msg.role.toUpperCase()}: ${text}`);
 						}

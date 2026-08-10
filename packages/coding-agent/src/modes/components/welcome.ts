@@ -11,7 +11,7 @@ import { theme } from "../../modes/theme/theme";
 import tipsText from "./tips.txt" with { type: "text" };
 
 /** Tips embedded at build time, one per line; blanks dropped. */
-const TIPS: readonly string[] = tipsText
+const _TIPS: readonly string[] = tipsText
 	.split("\n")
 	.map(line => line.trim())
 	.filter(line => line.length > 0);

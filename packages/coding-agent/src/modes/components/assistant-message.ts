@@ -48,7 +48,7 @@ export class AssistantMessageComponent extends Container {
 		// switches are reflected immediately — the same pattern OpenClaude uses
 		// by calling useTheme() inside each component's render function.
 		const BAR_COLOR = theme.fg.bind(theme, "accent");
-		const RESET = "\x1b[0m";
+		const _RESET = "\x1b[0m";
 		const bar = `${BAR_COLOR("▎")} `;
 
 		// Reduce width to account for the left bar

@@ -665,7 +665,6 @@ export function convertTools(tools: Tool[], strictMode: boolean, model: Model<"o
 			} as unknown as OpenAITool;
 		}
 		const strict = !NO_STRICT && strictMode && tool.strict !== false;
-		const baseParameters = toolWireSchema(tool);
 		const responseParameters = normalizeSchemaForOpenAI(toolWireSchema(tool)) as Record<string, unknown>;
 		const { schema: parameters, strict: effectiveStrict } = adaptSchemaForStrict(responseParameters, strict);
 		return {

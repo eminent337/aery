@@ -12,7 +12,6 @@ import * as path from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { ImageContent } from "@aryee337/aery-ai";
 import { EventLoopKeepalive } from "@aryee337/aery-core";
-import { getGlobalCronScheduler } from "./cron/scheduler.js";
 import {
 	$env,
 	getProjectDir,
@@ -34,6 +33,7 @@ import { findConfigFile } from "./config";
 import { ModelRegistry, ModelsConfigFile } from "./config/model-registry";
 import { resolveCliModel, resolveModelRoleValue, resolveModelScope, type ScopedModel } from "./config/model-resolver";
 import { getDefault, type SettingPath, Settings, settings } from "./config/settings";
+import { getGlobalCronScheduler } from "./cron/scheduler.js";
 import { initializeWithSettings } from "./discovery";
 import { injectAeryExtensionCliRoots } from "./discovery/aery-extension-roots";
 import {
