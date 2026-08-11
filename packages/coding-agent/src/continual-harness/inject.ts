@@ -22,9 +22,12 @@ export const DEFAULT_MIN_SCORE = 1;
 export const DEFAULT_THRESHOLD = 2;
 
 /**
- * Log an injection event for debugging.
+ * Log an injection event for debugging. Gated behind the opt-in
+ * `AERY_HARNESS_DEBUG` env var so it never leaks into the TUI in normal
+ * use (defaults to off); tests enable it explicitly.
  */
 export function logInjectionEvent(message: string, data?: Record<string, unknown>): void {
+	if (!process.env.AERY_HARNESS_DEBUG) return;
 	const timestamp = new Date().toISOString();
 	const logLine = `[harness-inject] ${timestamp} ${message}`;
 	console.debug(logLine, ...(data ? [data] : []));

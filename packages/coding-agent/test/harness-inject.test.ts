@@ -100,15 +100,19 @@ describe("harness injection", () => {
 		expect(recalled).toHaveLength(0);
 	});
 
-	it("logs injection events to console.debug", () => {
+	it("logs injection events to console.debug when AERY_HARNESS_DEBUG is set", () => {
 		const debugCalls: string[] = [];
 		const originalDebug = console.debug;
+		const originalEnv = process.env.AERY_HARNESS_DEBUG;
+		process.env.AERY_HARNESS_DEBUG = "1";
 		console.debug = (...args: unknown[]) => debugCalls.push(args.join(" "));
 		try {
 			buildHarnessRecallBlock(state, "run bun tests", 0);
 			expect(debugCalls.some(log => log.includes("[harness-inject]"))).toBe(true);
 		} finally {
 			console.debug = originalDebug;
+			if (originalEnv === undefined) delete process.env.AERY_HARNESS_DEBUG;
+			else process.env.AERY_HARNESS_DEBUG = originalEnv;
 		}
 	});
 });
