@@ -54,4 +54,41 @@ describe("Kiro CLI provider", () => {
 			expect(message).toContain("Kiro CLI is not authenticated");
 		}
 	}, 15000);
+
+	it("strips the kiro/ provider prefix before invoking the CLI", async () => {
+		const model: Model<"kiro-cli"> = {
+			id: "kiro/claude-haiku-4.5",
+			name: "Claude Haiku 4.5 (Kiro CLI)",
+			api: "kiro-cli",
+			provider: "kiro",
+			baseUrl: "local",
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 200000,
+			maxTokens: 8192,
+		};
+		const context: Context = {
+			messages: [
+				{
+					role: "user",
+					content: "Say KIRO_PREFIX_TEST in one word.",
+					timestamp: Date.now(),
+				},
+			],
+		};
+		const stream = streamKiro(model, context);
+		try {
+			for await (const _event of stream) {
+				// draining; result() below asserts the response
+			}
+			const result = await stream.result();
+			expect(result.role).toBe("assistant");
+			const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("");
+			expect(text.toUpperCase()).toContain("KIRO_PREFIX_TEST");
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			expect(message).toContain("Kiro CLI is not authenticated");
+		}
+	}, 15000);
 });

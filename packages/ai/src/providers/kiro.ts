@@ -53,7 +53,9 @@ export function streamKiro(
 			if (!(await isKiroAuthenticated(kiroPath))) {
 				throw new Error("Kiro CLI is not authenticated. Please run kiro-cli login.");
 			}
-			const modelId = model.id || "claude-sonnet-4.5";
+			// The CLI knows model ids without the provider prefix; strip a
+			// leading "kiro/" (e.g. from "kiro/claude-sonnet-4.5" selectors).
+			const modelId = (model.id || "claude-sonnet-4.5").replace(/^kiro\//, "");
 
 			let promptText = "You are Aery, an advanced agentic AI coding assistant.\n\n";
 			if (context.systemPrompt) {
