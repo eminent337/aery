@@ -495,12 +495,21 @@ function extractLlamaCppInputCapabilities(payload: Record<string, unknown>): ("t
 function extractGoogleOAuthToken(value: string | undefined): string | undefined {
 	if (!isAuthenticated(value)) return undefined;
 	try {
-		const parsed = JSON.parse(value) as { token?: unknown };
+		const parsed = JSON.parse(value) as { token?: unknown; access?: unknown };
+		// Some Google providers (e.g. antigravity) store the access token under
+		// `access` rather than `token`. Fall back to whichever field is present.
 		if (Object.hasOwn(parsed, "token")) {
 			if (typeof parsed.token !== "string") {
 				return undefined;
 			}
 			const token = parsed.token.trim();
+			return token.length > 0 ? token : undefined;
+		}
+		if (Object.hasOwn(parsed, "access")) {
+			if (typeof parsed.access !== "string") {
+				return undefined;
+			}
+			const token = parsed.access.trim();
 			return token.length > 0 ? token : undefined;
 		}
 	} catch {
