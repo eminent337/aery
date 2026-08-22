@@ -345,3 +345,105 @@ describe("todoMatchesAnyDescription", () => {
 		expect(todoMatchesAnyDescription("Audit AGENTS.md compliance", ["Audit AGENTS md compliance"])).toBe(true);
 	});
 });
+describe("feedback loop grading", () => {
+	it("feedback_loop_completion_bar_scales_at_involved_difficulty", async () => {
+		const tool = new TodoWriteTool(createSession());
+		await tool.execute("call-1", {
+			ops: [
+				{
+					op: "init",
+					list: [{ phase: "Work", items: ["complex task"] }],
+					difficulty: "involved",
+					feedback_loop_relevance: "acceptance_aligned",
+					feedback_loop_coverage: "edge_and_integration_paths",
+				},
+			],
+		});
+		const result = await tool.execute("call-2", { ops: [{ op: "done", task: "complex task" }] });
+		const tasks = result.details?.phases[0]?.tasks ?? [];
+		expect(tasks[0].difficulty).toBe("involved");
+		expect(tasks[0].feedbackLoopRelevance).toBe("acceptance_aligned");
+		expect(tasks[0].feedbackLoopCoverage).toBe("edge_and_integration_paths");
+		const summary = result.content.find(part => part.type === "text");
+		if (summary?.type !== "text") throw new Error("Expected text summary");
+		expect(summary.text).toContain("[feedback: ✓]");
+	});
+	it("feedback_loop_relevance_passes_for_representative_when_simple", async () => {
+		const tool = new TodoWriteTool(createSession());
+		await tool.execute("call-1", {
+			ops: [
+				{
+					op: "init",
+					list: [{ phase: "Work", items: ["simple task"] }],
+					difficulty: "simple",
+					feedback_loop_relevance: "representative",
+					feedback_loop_coverage: "main_paths",
+				},
+			],
+		});
+		const result = await tool.execute("call-2", { ops: [{ op: "done", task: "simple task" }] });
+		const summary = result.content.find(part => part.type === "text");
+		if (summary?.type !== "text") throw new Error("Expected text summary");
+		expect(summary.text).toContain("[feedback: ✓]");
+	});
+	it("feedback_loop_coverage_passes_for_main_paths_when_simple", async () => {
+		const tool = new TodoWriteTool(createSession());
+		await tool.execute("call-1", {
+			ops: [
+				{
+					op: "init",
+					list: [{ phase: "Work", items: ["simple task"] }],
+					difficulty: "simple",
+					feedback_loop_relevance: "representative",
+					feedback_loop_coverage: "main_paths",
+				},
+			],
+		});
+		const result = await tool.execute("call-2", { ops: [{ op: "done", task: "simple task" }] });
+		const summary = result.content.find(part => part.type === "text");
+		if (summary?.type !== "text") throw new Error("Expected text summary");
+		expect(summary.text).toContain("[feedback: ✓]");
+	});
+	it("feedback_loop_requires_acceptance_aligned_when_involved", async () => {
+		const tool = new TodoWriteTool(createSession());
+		await tool.execute("call-1", {
+			ops: [
+				{
+					op: "init",
+					list: [{ phase: "Work", items: ["involved task"] }],
+					difficulty: "involved",
+					feedback_loop_relevance: "representative",
+					feedback_loop_coverage: "main_paths",
+				},
+			],
+		});
+		const result = await tool.execute("call-2", { ops: [{ op: "done", task: "involved task" }] });
+		const summary = result.content.find(part => part.type === "text");
+		if (summary?.type !== "text") throw new Error("Expected text summary");
+		// representative is below acceptance_aligned, so it should fail
+		expect(summary.text).toContain("[feedback: ✗relevance ✗coverage]");
+	});
+	it("completion_confidence_passes_when_both_pass", async () => {
+		const tool = new TodoWriteTool(createSession());
+		await tool.execute("call-1", {
+			ops: [
+				{
+					op: "init",
+					list: [{ phase: "Work", items: ["task"] }],
+					difficulty: "moderate",
+					feedback_loop_relevance: "representative",
+					feedback_loop_coverage: "main_paths",
+				},
+			],
+		});
+		const result = await tool.execute("call-2", { ops: [{ op: "done", task: "task" }] });
+		const summary = result.content.find(part => part.type === "text");
+		if (summary?.type !== "text") throw new Error("Expected text summary");
+		expect(summary.text).toContain("[feedback: ✓]");
+	});
+	it("long_session_review_message_exported", () => {
+		const { TODO_LONG_SESSION_REVIEW_MESSAGE, checkLongSessionReview } = require("../../src/tools/todo-write");
+		expect(TODO_LONG_SESSION_REVIEW_MESSAGE).toContain("feedback loop review");
+		expect(typeof checkLongSessionReview).toBe("function");
+	});
+});

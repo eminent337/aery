@@ -17,6 +17,9 @@ import { PREVIEW_LIMITS } from "./render-utils";
 // =============================================================================
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "abandoned";
+export type Difficulty = "simple" | "moderate" | "involved" | "complex" | "research";
+export type FeedbackLoopRelevance = "indirect" | "representative" | "acceptance_aligned";
+export type FeedbackLoopCoverage = "narrow" | "main_paths" | "edge_and_integration_paths";
 
 export interface TodoItem {
 	content: string;
@@ -28,6 +31,9 @@ export interface TodoItem {
 	 * dim marker indicating the task has notes.
 	 */
 	notes?: string[];
+	difficulty?: Difficulty;
+	feedbackLoopRelevance?: FeedbackLoopRelevance;
+	feedbackLoopCoverage?: FeedbackLoopCoverage;
 }
 
 export interface TodoPhase {
@@ -66,6 +72,9 @@ const TodoOpEntry = z.object({
 	phase: z.string().optional().describe("phase name"),
 	items: z.array(z.string().describe("task content")).min(1).optional().describe("tasks to append"),
 	text: z.string().optional().describe("note text"),
+	difficulty: z.enum(["simple", "moderate", "involved", "complex", "research"]).optional(),
+	feedback_loop_relevance: z.enum(["indirect", "representative", "acceptance_aligned"]).optional(),
+	feedback_loop_coverage: z.enum(["narrow", "main_paths", "edge_and_integration_paths"]).optional(),
 });
 
 const todoWriteSchema = z
@@ -96,6 +105,9 @@ function findPhaseByName(phases: TodoPhase[], name: string): TodoPhase | undefin
 function cloneTask(task: TodoItem): TodoItem {
 	const out: TodoItem = { content: task.content, status: task.status };
 	if (task.notes && task.notes.length > 0) out.notes = [...task.notes];
+	if (task.difficulty) out.difficulty = task.difficulty;
+	if (task.feedbackLoopRelevance) out.feedbackLoopRelevance = task.feedbackLoopRelevance;
+	if (task.feedbackLoopCoverage) out.feedbackLoopCoverage = task.feedbackLoopCoverage;
 	return out;
 }
 
@@ -145,6 +157,31 @@ function normalizeInProgressTask(phases: TodoPhase[]): void {
 	if (firstPendingTask) firstPendingTask.status = "in_progress";
 }
 
+const DIFFICULTY_ORDER = ["simple", "moderate", "involved", "complex", "research"];
+
+function requiredFeedbackLoopRelevance(difficulty?: Difficulty): FeedbackLoopRelevance {
+	if (difficulty && DIFFICULTY_ORDER.indexOf(difficulty) >= DIFFICULTY_ORDER.indexOf("involved")) return "acceptance_aligned";
+	return "representative";
+}
+function requiredFeedbackLoopCoverage(difficulty?: Difficulty): FeedbackLoopCoverage {
+	if (difficulty && DIFFICULTY_ORDER.indexOf(difficulty) >= DIFFICULTY_ORDER.indexOf("involved")) return "edge_and_integration_paths";
+	return "main_paths";
+}
+function feedbackLoopRelevancePasses(item: TodoItem): boolean {
+	if (!item.feedbackLoopRelevance) return false;
+	const required = requiredFeedbackLoopRelevance(item.difficulty);
+	const order = ["indirect", "representative", "acceptance_aligned"];
+	return order.indexOf(item.feedbackLoopRelevance) >= order.indexOf(required);
+}
+function feedbackLoopCoveragePasses(item: TodoItem): boolean {
+	if (!item.feedbackLoopCoverage) return false;
+	const required = requiredFeedbackLoopCoverage(item.difficulty);
+	const order = ["narrow", "main_paths", "edge_and_integration_paths"];
+	return order.indexOf(item.feedbackLoopCoverage) >= order.indexOf(required);
+}
+function completionConfidencePasses(item: TodoItem): boolean {
+	return feedbackLoopRelevancePasses(item) && feedbackLoopCoveragePasses(item);
+}
 export const USER_TODO_EDIT_CUSTOM_TYPE = "user_todo_edit";
 
 export function getLatestTodoPhasesFromEntries(entries: SessionEntry[]): TodoPhase[] {
@@ -287,7 +324,13 @@ function initPhases(entry: TodoOpEntryValue, errors: string[]): TodoPhase[] {
 	}
 	return entry.list.map(listEntry => ({
 		name: listEntry.phase,
-		tasks: listEntry.items.map<TodoItem>(content => ({ content, status: "pending" })),
+		tasks: listEntry.items.map<TodoItem>(content => ({
+			content,
+			status: "pending",
+			difficulty: entry.difficulty,
+			feedbackLoopRelevance: entry.feedback_loop_relevance,
+			feedbackLoopCoverage: entry.feedback_loop_coverage,
+		})),
 	}));
 }
 
@@ -306,13 +349,18 @@ function appendItems(phases: TodoPhase[], entry: TodoOpEntryValue, errors: strin
 		phase = { name: entry.phase, tasks: [] };
 		phases.push(phase);
 	}
-
 	for (const content of entry.items) {
 		if (findTaskByContent(phases, content)) {
 			errors.push(`Task "${content}" already exists`);
 			return phases;
 		}
-		phase.tasks.push({ content, status: "pending" });
+		phase.tasks.push({
+			content,
+			status: "pending",
+			difficulty: entry.difficulty,
+			feedbackLoopRelevance: entry.feedback_loop_relevance,
+			feedbackLoopCoverage: entry.feedback_loop_coverage,
+		});
 	}
 	return phases;
 }
@@ -568,7 +616,21 @@ function formatSummary(phases: TodoPhase[], errors: string[]): string {
 							: "○";
 			const noteCount = task.notes?.length ?? 0;
 			const noteMarker = noteCount > 0 ? ` (+${noteCount} note${noteCount === 1 ? "" : "s"})` : "";
-			lines.push(`    ${sym} ${task.content}${noteMarker}`);
+			let feedbackMarker = "";
+			if (task.status === "completed") {
+				const relevanceOk = feedbackLoopRelevancePasses(task);
+				const coverageOk = feedbackLoopCoveragePasses(task);
+				if (!relevanceOk && !coverageOk) {
+					feedbackMarker = " [feedback: ✗relevance ✗coverage]";
+				} else if (!relevanceOk) {
+					feedbackMarker = " [feedback: ✗relevance]";
+				} else if (!coverageOk) {
+					feedbackMarker = " [feedback: ✗coverage]";
+				} else if (task.feedbackLoopRelevance && task.feedbackLoopCoverage) {
+					feedbackMarker = " [feedback: ✓]";
+				}
+			}
+			lines.push(`    ${sym} ${task.content}${feedbackMarker}${noteMarker}`);
 			if (task.status === "in_progress" && task.notes && task.notes.length > 0) {
 				for (let j = 0; j < task.notes.length; j++) {
 					if (j > 0) lines.push("        ---");
@@ -857,3 +919,24 @@ export const todoWriteToolRenderer = {
 	},
 	mergeCallAndResult: true,
 };
+export const TODO_LONG_SESSION_REVIEW_MESSAGE =
+	"This session has been running for a while without a review. Consider running a feedback loop review to validate completed work.";
+/**
+ * Check if a session has been running too long without review.
+ * Returns a review message if review is needed, or null otherwise.
+ * This function is exported for wiring into the agent loop later.
+ */
+export function checkLongSessionReview(
+	lastReviewTimestamp: number | undefined,
+	currentTimestamp: number,
+	thresholdMs = 30 * 60 * 1000,
+): string | null {
+	if (lastReviewTimestamp === undefined) {
+		return TODO_LONG_SESSION_REVIEW_MESSAGE;
+	}
+	const elapsed = currentTimestamp - lastReviewTimestamp;
+	if (elapsed >= thresholdMs) {
+		return TODO_LONG_SESSION_REVIEW_MESSAGE;
+	}
+	return null;
+}
