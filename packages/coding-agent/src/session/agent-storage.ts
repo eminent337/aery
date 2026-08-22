@@ -186,6 +186,8 @@ export class AgentStorage {
 	#listModelUsageStmt: Statement;
 	#upsertModelPerfStmt: Statement;
 	#listModelPerfStmt: Statement;
+	#upsertCommandUsageStmt: Statement;
+	#listCommandUsageStmt: Statement;
 	#modelUsageCache: string[] | null = null;
 	/** Only the real user db auto-imports stats.db history; custom paths (tests, embedding) opt in explicitly. */
 	#autoPerfBackfill: boolean;
@@ -239,6 +241,11 @@ ON CONFLICT(model_key) DO UPDATE SET
 		this.#listModelPerfStmt = this.#db.prepare(
 			"SELECT model_key, samples, output_tokens, gen_ms, ttft_samples, ttft_ms FROM model_perf",
 		);
+		this.#upsertCommandUsageStmt = this.#db.prepare(
+			`INSERT INTO command_usage (name, count, last_used_at) VALUES (?, 1, ${SQLITE_NOW_EPOCH})
+ON CONFLICT(name) DO UPDATE SET count = command_usage.count + 1, last_used_at = ${SQLITE_NOW_EPOCH}`,
+		);
+		this.#listCommandUsageStmt = this.#db.prepare("SELECT name, count FROM command_usage");
 	}
 
 	/**
@@ -270,6 +277,12 @@ CREATE TABLE IF NOT EXISTS model_perf (
 	ttft_samples REAL NOT NULL DEFAULT 0,
 	ttft_ms REAL NOT NULL DEFAULT 0,
 	updated_at INTEGER NOT NULL DEFAULT (${SQLITE_NOW_EPOCH})
+);
+
+CREATE TABLE IF NOT EXISTS command_usage (
+	name TEXT PRIMARY KEY,
+	count INTEGER NOT NULL DEFAULT 0,
+	last_used_at INTEGER NOT NULL DEFAULT (${SQLITE_NOW_EPOCH})
 );
 
 CREATE TABLE IF NOT EXISTS meta (
@@ -451,6 +464,8 @@ FROM model_usage_legacy
 		this.#listModelUsageStmt.finalize();
 		this.#upsertModelPerfStmt.finalize();
 		this.#listModelPerfStmt.finalize();
+		this.#upsertCommandUsageStmt.finalize();
+		this.#listCommandUsageStmt.finalize();
 		// SqliteAuthCredentialStore.close() finalizes its own statements and
 		// closes the shared #db handle — must run after our statements finalize.
 		this.#authStore.close();
@@ -852,6 +867,36 @@ ON CONFLICT(model_key) DO UPDATE SET
 			fs.chmodSync(dbPath, 0o600);
 		} catch (error) {
 			logger.warn("AgentStorage failed to chmod db file", { path: dbPath, error: String(error) });
+		}
+	}
+	/**
+	 * Records one slash-command invocation, bumping its usage count and
+	 * last-used timestamp. Frequency-ranked autocomplete reads these counts.
+	 * @param name - Canonical command name (e.g. "model", "skill:review")
+	 */
+	recordCommandUsage(name: string): void {
+		try {
+			this.#upsertCommandUsageStmt.run(name);
+		} catch (error) {
+			logger.warn("AgentStorage failed to record command usage", { name, error: String(error) });
+		}
+	}
+
+	/**
+	 * Gets slash-command usage counts keyed by canonical command name.
+	 * @returns Command name → invocation count
+	 */
+	listCommandUsage(): Record<string, number> {
+		try {
+			const rows = this.#listCommandUsageStmt.all() as Array<{ name: string; count: number }>;
+			const result: Record<string, number> = {};
+			for (const row of rows) {
+				result[row.name] = row.count;
+			}
+			return result;
+		} catch (error) {
+			logger.warn("AgentStorage failed to list command usage", { error: String(error) });
+			return {};
 		}
 	}
 }
