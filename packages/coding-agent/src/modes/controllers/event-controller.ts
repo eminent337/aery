@@ -3,6 +3,7 @@ import { INTENT_FIELD } from "@aryee337/aery-core";
 import { calculatePromptTokens } from "@aryee337/aery-core/compaction/compaction";
 import { type Component, Loader, TERMINAL, Text } from "@aryee337/aery-tui";
 import { settings } from "../../config/settings";
+import { buildTurnNotification, detectTerminalKind, sendTurnNotification } from "../../utils/turn-notifier";
 import { getFileSnapshotStore } from "../../edit/file-snapshot-store";
 import { AssistantMessageComponent } from "../../modes/components/assistant-message";
 import {
@@ -657,6 +658,15 @@ export class EventController {
 		this.ctx.ui.requestRender();
 		this.#scheduleIdleCompaction();
 		this.sendCompletionNotification();
+		this.sendTurnNotificationIfNeeded();
+	}
+
+	sendTurnNotificationIfNeeded(): void {
+		const terminalKind = detectTerminalKind();
+		if (terminalKind === "unknown") return;
+		const sessionName = this.ctx.sessionManager.getSessionName();
+		const notification = buildTurnNotification(sessionName);
+		sendTurnNotification(notification);
 	}
 
 	async #handleAutoCompactionStart(

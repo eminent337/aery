@@ -1182,6 +1182,17 @@ export const SETTINGS_SCHEMA = {
 		ui: { tab: "interaction", label: "Completion Notification", description: "Notify when the agent completes" },
 	},
 
+	"batchNudge.enabled": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "interaction",
+			group: "Notifications",
+			label: "Batch Tool Nudge",
+			description: "Remind the model to batch concurrent tool calls after several sequential single-tool rounds",
+		},
+	},
+
 	"ask.timeout": {
 		type: "number",
 		default: 0,

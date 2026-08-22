@@ -228,6 +228,13 @@ import { getLatestTodoPhasesFromEntries, type TodoItem, type TodoPhase } from ".
 import { ToolAbortError, ToolError } from "../tools/tool-errors";
 import { clampTimeout } from "../tools/tool-timeouts";
 import { parseCommandArgs } from "../utils/command-args";
+import {
+	BATCH_NUDGE_MESSAGE,
+	batchToolAvailable,
+	SEQUENTIAL_TOOL_ROUNDS_BEFORE_BATCH_NUDGE,
+	shouldInjectBatchNudge,
+	updateSequentialToolRounds,
+} from "../utils/batch-nudge";
 import { type EditMode, resolveEditMode } from "../utils/edit-mode";
 import { resolveFileDisplayMode } from "../utils/file-display-mode";
 import { extractFileMentions, generateFileMentionMessages } from "../utils/file-mentions";
@@ -968,6 +975,10 @@ export class AgentSession {
 	// Extension system
 	#extensionRunner: ExtensionRunner | undefined = undefined;
 	#turnIndex = 0;
+	/** Consecutive single-tool rounds without batching, used to nudge the model
+	 *  toward concurrent tool calls (jcode batch-nudge port). Resets when the
+	 *  model uses parallel/batch tool calls in a single assistant turn. */
+	#sequentialToolRounds = 0;
 
 	#skills: Skill[];
 	#skillWarnings: SkillWarning[];
@@ -1970,6 +1981,30 @@ export class AgentSession {
 				const assistantMsg = event.message as AssistantMessage;
 				const currentGrantsAnthropicPriority =
 					this.serviceTier === "priority" || this.serviceTier === "claude-only";
+				const toolCallItems = assistantMsg.content.filter(item => item.type === "toolCall");
+				const toolCount = toolCallItems.length;
+				const usedBatch = toolCallItems.some(item => item.type === "toolCall" && item.name === "batch");
+				this.#sequentialToolRounds = updateSequentialToolRounds(
+					this.#sequentialToolRounds,
+					toolCount,
+					usedBatch,
+				);
+				if (
+					this.#sequentialToolRounds >= SEQUENTIAL_TOOL_ROUNDS_BEFORE_BATCH_NUDGE &&
+					this.settings.get("batchNudge.enabled") &&
+					batchToolAvailable(this.#toolRegistry ? [...this.#toolRegistry.values()] : [])
+				) {
+					this.#sequentialToolRounds = 0;
+					void this.sendCustomMessage(
+						{
+							customType: "batch-nudge",
+							content: BATCH_NUDGE_MESSAGE,
+							display: false,
+							attribution: "agent",
+						},
+						{ deliverAs: "nextTurn" },
+					).catch(err => logger.debug("batch nudge send failed", { err: String(err) }));
+				}
 				if (assistantMsg.disabledFeatures?.includes("priority") && currentGrantsAnthropicPriority) {
 					this.setServiceTier(undefined);
 					this.emitNotice(
