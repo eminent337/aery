@@ -36,6 +36,8 @@ import { BestOfNTool } from "./best-of-n";
 import { BrowserTool } from "./browser";
 import { type CheckpointState, CheckpointTool, RewindTool } from "./checkpoint";
 import { ContextUsageTool } from "./context-usage";
+import { DaemonControlTool } from "./daemon-control";
+import { DaemonTool } from "./daemon";
 import { DebugTool } from "./debug";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
@@ -467,6 +469,8 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	best_of_n: () => new BestOfNTool(),
 	multi_prompt_review: () => new MultiPromptReviewTool(),
 	explore: s => new ExploreTool(s),
+	daemon: s => new DaemonTool(s),
+	daemon_control: s => new DaemonControlTool(s),
 	handoff: s => new HandoffTool(s),
 	...Object.fromEntries(
 		exaTools.map(tool => [
