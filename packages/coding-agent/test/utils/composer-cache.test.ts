@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdir, rm } from "node:fs/promises";
 import { env } from "node:process";
-import { join } from "node:path";
 
 let originalHome: string | undefined;
 const TEST_HOME = "/tmp/aery-test-home";
@@ -26,9 +25,7 @@ describe("composer-cache", () => {
 
 	it("save_and_load_round_trip", async () => {
 		const { saveComposerCache, loadComposerCache } = require("../../src/utils/composer-cache");
-		const testEntries = [
-			{ prompt: "test prompt", timestamp: Date.now(), sessionId: "test-123" },
-		];
+		const testEntries = [{ prompt: "test prompt", timestamp: Date.now(), sessionId: "test-123" }];
 		await saveComposerCache(testEntries);
 		const loaded = await loadComposerCache();
 		expect(loaded).toHaveLength(1);

@@ -1,13 +1,6 @@
-import { execFile } from "node:child_process";
-import { env, platform } from "node:process";
+import { env } from "node:process";
 
-export type TerminalKind =
-	| "apple_terminal"
-	| "iterm2"
-	| "kitty"
-	| "ghostty"
-	| "windows_terminal"
-	| "unknown";
+export type TerminalKind = "apple_terminal" | "iterm2" | "kitty" | "ghostty" | "windows_terminal" | "unknown";
 
 export interface TurnNotification {
 	title: string;
@@ -113,14 +106,16 @@ function sendTerminalSequenceNotification(notification: TurnNotification): boole
 	return false;
 }
 
-export function buildTurnNotification(sessionName?: string, todoProgress?: { total: number; completed: number }): TurnNotification {
+export function buildTurnNotification(
+	sessionName?: string,
+	todoProgress?: { total: number; completed: number },
+): TurnNotification {
 	const title = sessionName ? `aery · ${sessionName}` : "aery · done";
-	const subtitle = todoProgress
-		? `${todoProgress.completed}/${todoProgress.total} todos`
-		: undefined;
-	const body = todoProgress && todoProgress.total > 0
-		? `Finished turn — ${todoProgress.completed}/${todoProgress.total} tasks complete`
-		: "Turn complete";
+	const subtitle = todoProgress ? `${todoProgress.completed}/${todoProgress.total} todos` : undefined;
+	const body =
+		todoProgress && todoProgress.total > 0
+			? `Finished turn — ${todoProgress.completed}/${todoProgress.total} tasks complete`
+			: "Turn complete";
 
 	return { title, subtitle, body };
 }

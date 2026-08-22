@@ -227,7 +227,6 @@ import { isAutoQaEnabled } from "../tools/report-tool-issue";
 import { getLatestTodoPhasesFromEntries, type TodoItem, type TodoPhase } from "../tools/todo-write";
 import { ToolAbortError, ToolError } from "../tools/tool-errors";
 import { clampTimeout } from "../tools/tool-timeouts";
-import { parseCommandArgs } from "../utils/command-args";
 import {
 	BATCH_NUDGE_MESSAGE,
 	batchToolAvailable,
@@ -235,6 +234,7 @@ import {
 	shouldInjectBatchNudge,
 	updateSequentialToolRounds,
 } from "../utils/batch-nudge";
+import { parseCommandArgs } from "../utils/command-args";
 import { type EditMode, resolveEditMode } from "../utils/edit-mode";
 import { resolveFileDisplayMode } from "../utils/file-display-mode";
 import { extractFileMentions, generateFileMentionMessages } from "../utils/file-mentions";
@@ -1984,15 +1984,15 @@ export class AgentSession {
 				const toolCallItems = assistantMsg.content.filter(item => item.type === "toolCall");
 				const toolCount = toolCallItems.length;
 				const usedBatch = toolCallItems.some(item => item.type === "toolCall" && item.name === "batch");
-				this.#sequentialToolRounds = updateSequentialToolRounds(
-					this.#sequentialToolRounds,
-					toolCount,
-					usedBatch,
-				);
-				if (
+				this.#sequentialToolRounds = updateSequentialToolRounds(this.#sequentialToolRounds, toolCount, usedBatch);
+				const batchNudgePending =
 					this.#sequentialToolRounds >= SEQUENTIAL_TOOL_ROUNDS_BEFORE_BATCH_NUDGE &&
-					this.settings.get("batchNudge.enabled") &&
-					batchToolAvailable(this.#toolRegistry ? [...this.#toolRegistry.values()] : [])
+					this.settings.get("batchNudge.enabled");
+				if (
+					shouldInjectBatchNudge(
+						batchNudgePending,
+						batchToolAvailable(this.#toolRegistry ? [...this.#toolRegistry.values()] : []),
+					)
 				) {
 					this.#sequentialToolRounds = 0;
 					void this.sendCustomMessage(

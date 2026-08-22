@@ -1,8 +1,11 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
 describe("batch-nudge", () => {
 	it("sequential_tool_rounds_trigger_after_three_single_calls", () => {
-		const { updateSequentialToolRounds, SEQUENTIAL_TOOL_ROUNDS_BEFORE_BATCH_NUDGE } = require("../../src/utils/batch-nudge");
+		const {
+			updateSequentialToolRounds,
+			SEQUENTIAL_TOOL_ROUNDS_BEFORE_BATCH_NUDGE,
+		} = require("../../src/utils/batch-nudge");
 		let rounds = 0;
 		for (let i = 0; i < 3; i++) {
 			rounds = updateSequentialToolRounds(rounds, 1, false);

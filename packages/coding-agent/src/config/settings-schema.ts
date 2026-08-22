@@ -1182,6 +1182,17 @@ export const SETTINGS_SCHEMA = {
 		ui: { tab: "interaction", label: "Completion Notification", description: "Notify when the agent completes" },
 	},
 
+	"turnNotifications.enabled": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "interaction",
+			group: "Notifications",
+			label: "Turn Notifications",
+			description: "Show a desktop/terminal notification when a turn completes",
+		},
+	},
+
 	"batchNudge.enabled": {
 		type: "boolean",
 		default: true,

@@ -15,11 +15,7 @@ export const BATCH_NUDGE_MESSAGE =
  * Resets to 0 when parallel or batch calls are used.
  * Increments by 1 for sequential single-tool rounds.
  */
-export function updateSequentialToolRounds(
-	current: number,
-	toolCount: number,
-	usedBatch: boolean,
-): number {
+export function updateSequentialToolRounds(current: number, toolCount: number, usedBatch: boolean): number {
 	if (toolCount === 1 && !usedBatch) {
 		return current + 1;
 	}

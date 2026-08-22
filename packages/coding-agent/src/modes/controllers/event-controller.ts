@@ -3,7 +3,6 @@ import { INTENT_FIELD } from "@aryee337/aery-core";
 import { calculatePromptTokens } from "@aryee337/aery-core/compaction/compaction";
 import { type Component, Loader, TERMINAL, Text } from "@aryee337/aery-tui";
 import { settings } from "../../config/settings";
-import { buildTurnNotification, detectTerminalKind, sendTurnNotification } from "../../utils/turn-notifier";
 import { getFileSnapshotStore } from "../../edit/file-snapshot-store";
 import { AssistantMessageComponent } from "../../modes/components/assistant-message";
 import {
@@ -20,6 +19,7 @@ import type { PlanApprovalDetails } from "../../plan-mode/approved-plan";
 import type { AgentSessionEvent } from "../../session/agent-session";
 import { isSilentAbort, readPendingDisplayTag } from "../../session/messages";
 import type { ResolveToolDetails } from "../../tools/resolve";
+import { buildTurnNotification, detectTerminalKind, sendTurnNotification } from "../../utils/turn-notifier";
 import { interruptHint } from "../shared";
 
 type AgentSessionEventKind = AgentSessionEvent["type"];
@@ -662,8 +662,12 @@ export class EventController {
 	}
 
 	sendTurnNotificationIfNeeded(): void {
+		if (settings.get("turnNotifications.enabled") !== true) return;
 		const terminalKind = detectTerminalKind();
 		if (terminalKind === "unknown") return;
+		// Skip aborted/errored turns — not "turn complete" events.
+		const last = this.ctx.session.getLastAssistantMessage?.();
+		if (last?.stopReason === "aborted" || last?.stopReason === "error") return;
 		const sessionName = this.ctx.sessionManager.getSessionName();
 		const notification = buildTurnNotification(sessionName);
 		sendTurnNotification(notification);

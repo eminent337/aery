@@ -18,6 +18,7 @@ import { tinyTitleClient } from "../../tiny/title-client";
 import type { TinyTitleProgressEvent } from "../../tiny/title-protocol";
 import { copyToClipboard, readImageFromClipboard, readTextFromClipboard } from "../../utils/clipboard";
 import { getSlashCommandUsage, loadSlashCommandUsage, recordSlashCommandUsage } from "../../utils/command-usage";
+import { recordPrompt } from "../../utils/composer-cache";
 import { detectMultiplexer, getEditorCommand, openInEditor } from "../../utils/external-editor";
 import { ensureSupportedImageInput } from "../../utils/image-loading";
 import { resizeImage } from "../../utils/image-resize";
@@ -399,6 +400,7 @@ export class InputController {
 					{ imageCount: images?.length ?? 0 },
 				);
 				this.ctx.updatePendingMessagesDisplay();
+				void recordPrompt(text, this.ctx.session.sessionId).catch(() => {});
 				this.ctx.ui.requestRender();
 				return;
 			}
@@ -446,6 +448,7 @@ export class InputController {
 
 				this.ctx.onInputCallback(submission);
 			}
+			void recordPrompt(text, this.ctx.session.sessionId).catch(() => {});
 			this.ctx.editor.addToHistory(text);
 		};
 	}

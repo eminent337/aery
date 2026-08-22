@@ -160,11 +160,13 @@ function normalizeInProgressTask(phases: TodoPhase[]): void {
 const DIFFICULTY_ORDER = ["simple", "moderate", "involved", "complex", "research"];
 
 function requiredFeedbackLoopRelevance(difficulty?: Difficulty): FeedbackLoopRelevance {
-	if (difficulty && DIFFICULTY_ORDER.indexOf(difficulty) >= DIFFICULTY_ORDER.indexOf("involved")) return "acceptance_aligned";
+	if (difficulty && DIFFICULTY_ORDER.indexOf(difficulty) >= DIFFICULTY_ORDER.indexOf("involved"))
+		return "acceptance_aligned";
 	return "representative";
 }
 function requiredFeedbackLoopCoverage(difficulty?: Difficulty): FeedbackLoopCoverage {
-	if (difficulty && DIFFICULTY_ORDER.indexOf(difficulty) >= DIFFICULTY_ORDER.indexOf("involved")) return "edge_and_integration_paths";
+	if (difficulty && DIFFICULTY_ORDER.indexOf(difficulty) >= DIFFICULTY_ORDER.indexOf("involved"))
+		return "edge_and_integration_paths";
 	return "main_paths";
 }
 function feedbackLoopRelevancePasses(item: TodoItem): boolean {
@@ -178,9 +180,6 @@ function feedbackLoopCoveragePasses(item: TodoItem): boolean {
 	const required = requiredFeedbackLoopCoverage(item.difficulty);
 	const order = ["narrow", "main_paths", "edge_and_integration_paths"];
 	return order.indexOf(item.feedbackLoopCoverage) >= order.indexOf(required);
-}
-function completionConfidencePasses(item: TodoItem): boolean {
-	return feedbackLoopRelevancePasses(item) && feedbackLoopCoveragePasses(item);
 }
 export const USER_TODO_EDIT_CUSTOM_TYPE = "user_todo_edit";
 
