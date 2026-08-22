@@ -2,9 +2,9 @@ import type { AgentTool, AgentToolResult, ToolApprovalDecision } from "@aryee337
 import * as z from "zod/v4";
 import daemonControlDescription from "../prompts/tools/daemon-control.md" with { type: "text" };
 import type { ToolSession } from ".";
-import { ToolError } from "./tool-errors";
-import { daemonStateDir, isPidAlive, listDaemons, readDaemon } from "./daemon-state";
 import { readLogTail, stopDaemon } from "./daemon-spawn";
+import { daemonStateDir, isPidAlive, listDaemons, readDaemon } from "./daemon-state";
+import { ToolError } from "./tool-errors";
 
 const daemonControlSchema = z.object({
 	action: z
@@ -12,10 +12,7 @@ const daemonControlSchema = z.object({
 		.describe(
 			"'list' shows all live daemons; 'status' checks one daemon's liveness; 'logs' tails its log file; 'stop' terminates it.",
 		),
-	id: z
-		.string()
-		.optional()
-		.describe("Daemon id (returned by the daemon tool). Required for status/logs/stop."),
+	id: z.string().optional().describe("Daemon id (returned by the daemon tool). Required for status/logs/stop."),
 	max_bytes: z
 		.number()
 		.int()
@@ -63,7 +60,7 @@ export class DaemonControlTool implements AgentTool<typeof daemonControlSchema, 
 	readonly summary = "check or stop detached daemons";
 	readonly approval = (): ToolApprovalDecision => ({ tier: "exec", override: true });
 
-	constructor(private readonly session: ToolSession) {}
+	constructor(readonly _session: ToolSession) {}
 
 	async execute(
 		_id: string,

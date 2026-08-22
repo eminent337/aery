@@ -8,8 +8,8 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
-import { daemonStateDir, isPidAlive, makeDaemonId, registerDaemon, unregisterDaemon } from "./daemon-state";
 import type { DaemonRecord } from "./daemon-state";
+import { daemonStateDir, isPidAlive, makeDaemonId, registerDaemon, unregisterDaemon } from "./daemon-state";
 
 const CRASH_GRACE_MS = 500;
 const STOP_TERM_GRACE_MS = 2000;

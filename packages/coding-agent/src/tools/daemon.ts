@@ -2,9 +2,9 @@ import type { AgentTool, AgentToolResult, ToolApprovalDecision } from "@aryee337
 import * as z from "zod/v4";
 import daemonDescription from "../prompts/tools/daemon.md" with { type: "text" };
 import type { ToolSession } from ".";
-import { ToolError } from "./tool-errors";
-import { daemonStateDir, validateDaemonName } from "./daemon-state";
 import { spawnDaemon } from "./daemon-spawn";
+import { daemonStateDir, validateDaemonName } from "./daemon-state";
+import { ToolError } from "./tool-errors";
 
 const daemonSchema = z.object({
 	command: z

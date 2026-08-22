@@ -13,7 +13,6 @@ import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import { loadAerySkills } from "../../skills/loader";
-import type { Skill } from "../../extensibility/skills";
 
 export interface AcpSkillInfo {
 	readonly name: string;
@@ -53,10 +52,7 @@ export async function discoverAcpSkillCommands(
 	return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function discoverClaudeCodeSkills(
-	cwd: string,
-	_options: DiscoverAcpSkillCommandsOptions,
-): AcpSkillInfo[] {
+function discoverClaudeCodeSkills(cwd: string, _options: DiscoverAcpSkillCommandsOptions): AcpSkillInfo[] {
 	const skills: AcpSkillInfo[] = [];
 	const claudeSkillsDir = path.join(cwd, ".claude", "skills");
 	try {
@@ -82,7 +78,6 @@ function discoverClaudeCodeSkills(
 	}
 	return skills;
 }
-
 
 export function buildSkillAvailableCommands(skills: readonly AcpSkillInfo[]): AvailableCommand[] {
 	return skills.map(skill => ({
@@ -159,4 +154,3 @@ export function buildSkillCommandPrompt(rewrite: SkillCommandRewrite): string {
 	const prefix = [header, "", skillContent].join("\n");
 	return remainingText ? `${prefix}\n\n${remainingText}` : prefix;
 }
-

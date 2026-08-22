@@ -1,10 +1,10 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readLogTail, spawnDaemon, stopDaemon } from "../../src/tools/daemon-spawn";
-import { isPidAlive, makeDaemonId, registerDaemon } from "../../src/tools/daemon-state";
 import type { DaemonRecord } from "../../src/tools/daemon-state";
+import { isPidAlive, makeDaemonId, registerDaemon } from "../../src/tools/daemon-state";
 
 describe("spawnDaemon", () => {
 	let stateDir: string;
