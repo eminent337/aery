@@ -11,11 +11,9 @@
 
 import { readFile } from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import { loadAerySkills } from "../../skills/loader";
 import type { Skill } from "../../extensibility/skills";
-import { logger } from "@aryee337/aery-utils";
 
 export interface AcpSkillInfo {
 	readonly name: string;
