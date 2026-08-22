@@ -1247,9 +1247,12 @@ function openCodeModelManagerOptions(
 					baseUrl: discoveryBaseUrl,
 					apiKey,
 					filterModel: (entry, model) => {
-						if (providerId !== "opencode-zen") return true;
 						const lowerId = model.id.toLowerCase();
-						return lowerId.endsWith("-free") || lowerId === "big-pickle";
+						// Free models are those whose id carries a "-free" suffix.
+						// OpenCode Go additionally exposes ox-alpha-free; big-pickle is a
+						// Zen-specific free alias. Anything else requires a paid
+						// subscription/credits, so it must not surface in the free list.
+						return lowerId.endsWith("-free") || (providerId === "opencode-zen" && lowerId === "big-pickle");
 					},
 					mapModel: (entry, defaults) => {
 						const reference = references.get(defaults.id);
