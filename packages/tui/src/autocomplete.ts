@@ -252,7 +252,11 @@ function hasPromptTextBeforeSlash(
 	return textBeforeCursor.slice(0, slashStart).trim() !== "";
 }
 
-export function buildSlashCommandCompletions(commands: CommandEntry[], lowerPrefix: string): AutocompleteItem[] {
+export function buildSlashCommandCompletions(
+	commands: CommandEntry[],
+	lowerPrefix: string,
+	commandUsage?: (name: string) => number,
+): AutocompleteItem[] {
 	return commands
 		.filter(cmd => {
 			const name = getCommandName(cmd);
@@ -278,16 +282,19 @@ export function buildSlashCommandCompletions(commands: CommandEntry[], lowerPref
 				fullDesc = fullDesc ? `${fullDesc} ${preview}` : preview;
 			}
 
+			const usage = commandUsage ? commandUsage(name ?? "") : 0;
+
 			return {
 				value: name ?? "",
 				label: cmd.kind === "slash" ? cmd.name : (cmd.label ?? ""),
 				score: Math.max(nameScore, descScore),
+				usage,
 				...(fullDesc && { description: fullDesc }),
 				...(cmd.category && { category: cmd.category }),
-			} as AutocompleteItem & { score: number };
+			} as AutocompleteItem & { score: number; usage: number };
 		})
-		.sort((a, b) => b.score - a.score)
-		.map(({ score: _, ...rest }) => rest);
+		.sort((a, b) => b.score - a.score || b.usage - a.usage)
+		.map(({ score: _score, usage: _usage, ...rest }) => rest);
 }
 
 function getCommandName(cmd: CommandEntry): string | undefined {
@@ -311,13 +318,20 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 	#dirCache: Map<string, { entries: fs.Dirent[]; timestamp: number }> = new Map();
 	readonly #DIR_CACHE_TTL = 2000; // 2 seconds
 
-	constructor(commands: (SlashCommand | AutocompleteItem)[] = [], basePath: string = getProjectDir()) {
+	#commandUsage?: (name: string) => number;
+
+	constructor(
+		commands: (SlashCommand | AutocompleteItem)[] = [],
+		basePath: string = getProjectDir(),
+		options?: { commandUsage?: (name: string) => number },
+	) {
 		this.#commands = commands.map(cmd =>
 			"name" in cmd
 				? ({ kind: "slash", ...cmd } as AutocompleteCommand)
 				: ({ kind: "item", ...cmd } as AutocompleteCommand),
 		);
 		this.#basePath = basePath;
+		this.#commandUsage = options?.commandUsage;
 	}
 
 	async getSuggestions(

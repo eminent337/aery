@@ -30,6 +30,7 @@ interface PromptActionAutocompleteItem extends AutocompleteItem {
 interface PromptActionAutocompleteOptions {
 	commands: SlashCommand[];
 	basePath: string;
+	commandUsage?: (name: string) => number;
 	keybindings: KeybindingsManager;
 	copyCurrentLine: () => void;
 	copyPrompt: () => void;
@@ -97,8 +98,13 @@ export class PromptActionAutocompleteProvider implements AutocompleteProvider {
 	#baseProvider: CombinedAutocompleteProvider;
 	#actions: PromptActionDefinition[];
 
-	constructor(commands: SlashCommand[], basePath: string, actions: PromptActionDefinition[]) {
-		this.#baseProvider = new CombinedAutocompleteProvider(commands, basePath);
+	constructor(
+		commands: SlashCommand[],
+		basePath: string,
+		actions: PromptActionDefinition[],
+		options?: { commandUsage?: (name: string) => number },
+	) {
+		this.#baseProvider = new CombinedAutocompleteProvider(commands, basePath, options);
 		this.#actions = actions;
 	}
 
@@ -256,5 +262,7 @@ export function createPromptActionAutocompleteProvider(
 		},
 	];
 
-	return new PromptActionAutocompleteProvider(options.commands, options.basePath, actions);
+	return new PromptActionAutocompleteProvider(options.commands, options.basePath, actions, {
+		commandUsage: options.commandUsage,
+	});
 }

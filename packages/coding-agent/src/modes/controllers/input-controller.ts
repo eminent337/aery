@@ -11,11 +11,13 @@ import { createPromptActionAutocompleteProvider } from "../../modes/prompt-actio
 import type { InteractiveModeContext } from "../../modes/types";
 import type { AgentSessionEvent } from "../../session/agent-session";
 import { SKILL_PROMPT_MESSAGE_TYPE, type SkillPromptDetails } from "../../session/messages";
-import { executeBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
+import { executeBuiltinSlashCommand, lookupBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
+import { parseSlashCommand } from "../../slash-commands/helpers/parse";
 import { isTinyTitleLocalModelKey } from "../../tiny/models";
 import { tinyTitleClient } from "../../tiny/title-client";
 import type { TinyTitleProgressEvent } from "../../tiny/title-protocol";
 import { copyToClipboard, readImageFromClipboard, readTextFromClipboard } from "../../utils/clipboard";
+import { getSlashCommandUsage, loadSlashCommandUsage, recordSlashCommandUsage } from "../../utils/command-usage";
 import { detectMultiplexer, getEditorCommand, openInEditor } from "../../utils/external-editor";
 import { ensureSupportedImageInput } from "../../utils/image-loading";
 import { resizeImage } from "../../utils/image-resize";
@@ -307,6 +309,7 @@ export class InputController {
 			if (!text) return;
 
 			// Handle built-in slash commands
+			this.#recordSlashCommandUsage(text);
 			const slashResult = await executeBuiltinSlashCommand(text, {
 				ctx: this.ctx,
 				handleBackgroundCommand: () => this.handleBackgroundCommand(),
@@ -743,10 +746,35 @@ export class InputController {
 		}
 	}
 
+	/**
+	 * Record a usage hit for a submitted known slash command so autocomplete
+	 * can rank frequent commands first.
+	 */
+	#recordSlashCommandUsage(text: string): void {
+		if (!text.startsWith("/")) return;
+		const token = text.slice(1).split(/\s+/, 1)[0] ?? "";
+		if (!token) return;
+		const knownToken =
+			this.ctx.skillCommands.has(token) ||
+			this.ctx.fileSlashCommands.has(token) ||
+			this.ctx.extensionRunner?.getCommand(token) !== undefined ||
+			this.ctx.customCommands.some(loaded => loaded.command.name === token) ||
+			this.ctx.promptTemplates.some(template => template.name === token);
+		if (knownToken) {
+			recordSlashCommandUsage(token);
+			return;
+		}
+		const parsedName = parseSlashCommand(text)?.name;
+		const builtin = parsedName ? lookupBuiltinSlashCommand(parsedName) : undefined;
+		if (builtin) recordSlashCommandUsage(builtin.name);
+	}
+
 	createAutocompleteProvider(commands: SlashCommand[], basePath: string): AutocompleteProvider {
+		void loadSlashCommandUsage();
 		return createPromptActionAutocompleteProvider({
 			commands,
 			basePath,
+			commandUsage: getSlashCommandUsage,
 			keybindings: this.ctx.keybindings,
 			copyCurrentLine: () => this.handleCopyCurrentLine(),
 			copyPrompt: () => this.handleCopyPrompt(),
