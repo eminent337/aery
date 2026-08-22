@@ -6081,6 +6081,40 @@ export class AgentSession {
 		this.#closeCodexProviderSessionsForHistoryRewrite();
 		return { removed };
 	}
+	/**
+	 * Drop all thinking blocks from the branch's assistant messages.
+	 * Mutates entries in place, then rewrites and replays through the agent.
+	 */
+	async dropThinking(): Promise<{ dropped: number }> {
+		const branchEntries = this.sessionManager.getBranch();
+		let dropped = 0;
+		for (const entry of branchEntries) {
+			if (entry.type !== "message") continue;
+			if (entry.message.role !== "assistant") continue;
+			const content = entry.message.content;
+			if (!Array.isArray(content)) continue;
+			const kept: typeof content = [];
+			for (const block of content) {
+				if (block.type === "thinking") {
+					dropped++;
+				} else {
+					kept.push(block);
+				}
+			}
+			if (dropped > 0) {
+				entry.message.content = kept;
+			}
+		}
+		if (dropped === 0) {
+			return { dropped: 0 };
+		}
+		await this.sessionManager.rewriteEntries();
+		const sessionContext = this.buildDisplaySessionContext();
+		this.agent.replaceMessages(sessionContext.messages);
+		this.#advisorRuntime?.reset();
+		this.#closeCodexProviderSessionsForHistoryRewrite();
+		return { dropped };
+	}
 
 	/**
 	 * Surgically reduce context by dropping heavy content ("shake").
@@ -6099,6 +6133,10 @@ export class AgentSession {
 		if (mode === "images") {
 			const { removed } = await this.dropImages();
 			return { mode, toolResultsDropped: 0, blocksDropped: 0, imagesDropped: removed, tokensFreed: 0 };
+		}
+		if (mode === "thinking") {
+			const { dropped } = await this.dropThinking();
+			return { mode, toolResultsDropped: 0, blocksDropped: 0, thinkingBlocksDropped: dropped, tokensFreed: 0 };
 		}
 
 		const config = this.#withPlanProtection(opts.config ?? AGGRESSIVE_SHAKE_CONFIG);

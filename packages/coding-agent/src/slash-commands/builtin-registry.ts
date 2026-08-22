@@ -28,6 +28,7 @@ import { FermentStore } from "../ferment/store.js";
 import type { Ferment } from "../ferment/types.js";
 import { getMarketplaceArgumentCompletions } from "../marketplace/marketplace.js";
 import type { InteractiveModeContext } from "../modes/types";
+import type { ShakeMode } from "../session/shake-types";
 import { globalScheduler } from "../task/schedule/scheduler";
 import { getChangelogPath, parseChangelog } from "../utils/changelog";
 import { createMarketplaceManager } from "./helpers/marketplace-manager";
@@ -57,6 +58,15 @@ function refreshStatusLine(ctx: InteractiveModeContext): void {
 	ctx.statusLine.invalidate();
 	ctx.updateEditorTopBorder();
 	ctx.ui.requestRender();
+}
+
+/** Parse /shake mode from args; returns the mode or an error object. */
+function parseShakeMode(args: string): ShakeMode | { error: string } {
+	const verb = args.trim().toLowerCase();
+	if (verb === "" || verb === "elide") return "elide";
+	if (verb === "images") return "images";
+	if (verb === "thinking") return "thinking";
+	return { error: `Unknown /shake mode "${verb}". Use elide, images, or thinking.` };
 }
 
 const shutdownHandlerTui = (_command: ParsedSlashCommand, runtime: TuiSlashCommandRuntime): SlashCommandResult => {
@@ -1260,25 +1270,34 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	},
 	{
 		name: "shake",
-		description: "Drop heavy content from context (tool results, large blocks)",
+		description: "Drop heavy content from context (tool results, large blocks, thinking)",
 		acpDescription: "Shake heavy content out of the conversation context",
 		subcommands: [
 			{ name: "elide", description: "Strip tool results + large blocks (default)" },
 			{ name: "images", description: "Strip image blocks" },
+			{ name: "thinking", description: "Drop all thinking blocks" },
 		],
-		acpInputHint: "[elide|images]",
+		acpInputHint: "[elide|images|thinking]",
 		allowArgs: true,
 		handle: async (command, runtime) => {
-			const mode = command.args.trim().toLowerCase() === "images" ? "images" : "elide";
-			const result = await runtime.session.shake(mode);
-			const { formatShakeSummary } = await import("../session/shake-types");
-			await runtime.output(formatShakeSummary(result));
+			const mode = parseShakeMode(command.args);
+			if (typeof mode === "string") {
+				const result = await runtime.session.shake(mode);
+				const { formatShakeSummary } = await import("../session/shake-types");
+				await runtime.output(formatShakeSummary(result));
+			} else {
+				await runtime.output(`Error: ${mode.error}`);
+			}
 			return commandConsumed();
 		},
 		handleTui: async (command, runtime) => {
 			runtime.ctx.editor.setText("");
-			const mode = command.args.trim().toLowerCase() === "images" ? "images" : "elide";
-			await runtime.ctx.handleShakeCommand(mode);
+			const mode = parseShakeMode(command.args);
+			if (typeof mode === "string") {
+				await runtime.ctx.handleShakeCommand(mode);
+			} else {
+				runtime.ctx.showStatus(`Error: ${mode.error}`);
+			}
 		},
 	},
 	{
