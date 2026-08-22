@@ -757,9 +757,9 @@ export class InputController {
 		const knownToken =
 			this.ctx.skillCommands.has(token) ||
 			this.ctx.fileSlashCommands.has(token) ||
-			this.ctx.extensionRunner?.getCommand(token) !== undefined ||
-			this.ctx.customCommands.some(loaded => loaded.command.name === token) ||
-			this.ctx.promptTemplates.some(template => template.name === token);
+			this.ctx.session.extensionRunner?.getCommand(token) !== undefined ||
+			this.ctx.session.customCommands.some(loaded => loaded.command.name === token) ||
+			this.ctx.session.promptTemplates.some(template => template.name === token);
 		if (knownToken) {
 			recordSlashCommandUsage(token);
 			return;
