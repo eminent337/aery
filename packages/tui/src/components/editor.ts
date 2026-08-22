@@ -286,6 +286,41 @@ interface EditorState {
 	cursorCol: number;
 }
 
+/** Replacement candidates and the current-line span they replace. */
+export interface EditorWordReplacements {
+	line: number;
+	startCol: number;
+	endCol: number;
+	items: readonly string[];
+}
+
+/** Source location for one visual text segment passed to decorate hooks. */
+export interface EditorTextDecorationContext {
+	line: number;
+	startCol: number;
+	endCol: number;
+}
+
+/** An inline correction replacing `replaceLen` chars just before the cursor. */
+export interface EditorInlineReplacement {
+	replaceLen: number;
+	insert: string;
+}
+
+/**
+ * Optional prose-assistance kept separate from command/file autocomplete.
+ * Hosts independently decide whether word completion and autocorrection are
+ * enabled. Implemented by a spelling provider wired via `setTextAssistProvider`.
+ */
+export interface EditorTextAssistProvider {
+	/** Return ghost-text suffix for the partial word at the cursor, or `null`. */
+	getWordCompletion?(lines: string[], cursorLine: number, cursorCol: number): string | null;
+	/** Return a correction after one completed prose word, or `null`. */
+	tryAutocorrect?(lines: string[], cursorLine: number, cursorCol: number): EditorInlineReplacement | null;
+	/** Return replacement candidates for the misspelled word at the cursor. */
+	getWordReplacements?(lines: string[], cursorLine: number, cursorCol: number): EditorWordReplacements | null;
+}
+
 interface LayoutLine {
 	text: string;
 	hasCursor: boolean;
@@ -365,11 +400,15 @@ export class Editor implements Component, Focusable {
 
 	// Autocomplete support
 	#autocompleteProvider?: AutocompleteProvider;
+	#textAssistProvider?: EditorTextAssistProvider;
 	#autocompleteList?: SelectList;
-	#autocompleteState: "regular" | "force" | null = null;
+	#autocompleteState: "regular" | "force" | "assist" | null = null;
 	#autocompletePrefix: string = "";
 	#autocompleteRequestId: number = 0;
 	#autocompleteMaxVisible: number = 5;
+	#textAssistReplacement:
+		| { line: number; startCol: number; endCol: number; original: string; cursorOffset: number }
+		| undefined;
 	onAutocompleteUpdate?: () => void;
 
 	// Paste tracking for large pastes
@@ -408,6 +447,17 @@ export class Editor implements Component, Focusable {
 
 	setAutocompleteProvider(provider: AutocompleteProvider): void {
 		this.#autocompleteProvider = provider;
+	}
+
+	/** Wire an optional prose-assist provider (spelling suggestions, etc.). */
+	setTextAssistProvider(provider: EditorTextAssistProvider | undefined): void {
+		this.#textAssistProvider = provider;
+		if (!provider) {
+			this.#textAssistReplacement = undefined;
+			if (this.#autocompleteState === "assist") {
+				this.#cancelAutocomplete();
+			}
+		}
 	}
 
 	/**
@@ -977,6 +1027,15 @@ export class Editor implements Component, Focusable {
 			return;
 		}
 
+		// Spelling suggestions (ctrl+.)
+		if (kb.matches(data, "tui.editor.spellingSuggestions")) {
+			if (this.#autocompleteState === "regular" || this.#autocompleteState === "force") {
+				this.#cancelAutocomplete();
+			}
+			this.#showSpellingSuggestions();
+			return;
+		}
+
 		// Handle autocomplete special keys first (but don't block other input)
 		if (this.#autocompleteState && this.#autocompleteList) {
 			// Escape - cancel autocomplete
@@ -1003,6 +1062,15 @@ export class Editor implements Component, Focusable {
 				) {
 					this.#autocompleteList.handleInput(data);
 					this.onAutocompleteUpdate?.();
+					return;
+				}
+
+				// Assist state (spelling suggestions): Tab/Enter applies the
+				// selected replacement directly; the whole span is replaced.
+				if (this.#autocompleteState === "assist") {
+					if (kb.matches(data, "tui.input.tab") || kb.matches(data, "tui.input.submit") || data === "\n") {
+						this.#applySpellingSuggestion();
+					}
 					return;
 				}
 
@@ -1541,7 +1609,11 @@ export class Editor implements Component, Focusable {
 		this.#exitHistoryForEditing();
 		this.#resetKillSequence();
 		this.#recordUndoState();
-
+		// Typing over an open spelling-assist popup invalidates its span.
+		if (this.#autocompleteState === "assist") {
+			this.#cancelAutocomplete();
+			this.onAutocompleteUpdate?.();
+		}
 		const line = this.#state.lines[this.#state.cursorLine] || "";
 
 		const before = line.slice(0, this.#state.cursorCol);
@@ -1574,6 +1646,26 @@ export class Editor implements Component, Focusable {
 					this.onAutocompleteUpdate?.();
 				}
 				return;
+			}
+		}
+
+		// Consult the text-assist provider after a completed prose word so
+		// autocorrect can fire once a boundary character has been typed.
+		if (this.#textAssistProvider?.tryAutocorrect && /^[\s.,;:!?")\]}]$/.test(char)) {
+			const replacement = this.#textAssistProvider.tryAutocorrect(
+				this.#state.lines,
+				this.#state.cursorLine,
+				this.#state.cursorCol,
+			);
+			if (replacement) {
+				const replaceLine = this.#state.lines[this.#state.cursorLine] || "";
+				const before = replaceLine.slice(0, this.#state.cursorCol - replacement.replaceLen);
+				const after = replaceLine.slice(this.#state.cursorCol);
+				this.#state.lines[this.#state.cursorLine] = before + replacement.insert + after;
+				this.#setCursorCol(before.length + replacement.insert.length);
+				if (this.onChange) {
+					this.onChange(this.getText());
+				}
 			}
 		}
 
@@ -2604,9 +2696,75 @@ https://github.com/EsotericSoftware/spine-runtimes/actions/runs/19536643416/job/
 		this.#autocompleteState = null;
 		this.#autocompleteList = undefined;
 		this.#autocompletePrefix = "";
+		this.#textAssistReplacement = undefined;
 		if (notifyCancel && wasAutocompleting) {
 			this.onAutocompleteCancel?.();
 		}
+	}
+
+	/**
+	 * Show replacement candidates for the misspelled word at the cursor via the
+	 * optional text-assist provider (spelling suggestions).
+	 */
+	#showSpellingSuggestions(): void {
+		const replacements = this.#textAssistProvider?.getWordReplacements?.(
+			this.#state.lines,
+			this.#state.cursorLine,
+			this.#state.cursorCol,
+		);
+		if (
+			!replacements ||
+			replacements.line < 0 ||
+			replacements.line >= this.#state.lines.length ||
+			replacements.startCol < 0 ||
+			replacements.endCol <= replacements.startCol ||
+			replacements.items.length === 0
+		) {
+			return;
+		}
+		const line = this.#state.lines[replacements.line] ?? "";
+		if (replacements.endCol > line.length) return;
+		const original = line.slice(replacements.startCol, replacements.endCol);
+		this.#autocompletePrefix = original;
+		this.#autocompleteList = this.#createAutocompleteList(
+			original,
+			replacements.items.map(value => ({ value, label: value })),
+		);
+		this.#autocompleteState = "assist";
+		this.#textAssistReplacement = {
+			line: replacements.line,
+			startCol: replacements.startCol,
+			endCol: replacements.endCol,
+			original,
+			cursorOffset:
+				replacements.line === this.#state.cursorLine ? Math.max(0, this.#state.cursorCol - replacements.endCol) : 0,
+		};
+		this.#clearAutocompleteTimeout();
+		this.onAutocompleteUpdate?.();
+	}
+
+	/** Apply the selected spelling replacement to the original misspelled span. */
+	#applySpellingSuggestion(): void {
+		const replacement = this.#textAssistReplacement;
+		const selected = this.#autocompleteList?.getSelectedItem();
+		if (!replacement || !selected) {
+			this.#cancelAutocomplete();
+			return;
+		}
+		const line = this.#state.lines[replacement.line] ?? "";
+		if (line.slice(replacement.startCol, replacement.endCol) !== replacement.original) {
+			this.#cancelAutocomplete();
+			return;
+		}
+		this.#recordUndoState();
+		this.#state.lines[replacement.line] =
+			line.slice(0, replacement.startCol) + selected.value + line.slice(replacement.endCol);
+		this.#state.cursorLine = replacement.line;
+		this.#setCursorCol(replacement.startCol + selected.value.length + replacement.cursorOffset);
+		this.#lastAction = null;
+		this.#cancelAutocomplete();
+		this.onAutocompleteUpdate?.();
+		this.onChange?.(this.getText());
 	}
 
 	#autocompletePrefixMatchesCursorText(currentTextBeforeCursor: string): boolean {
