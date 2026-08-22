@@ -66,19 +66,19 @@ describe("antigravity discovery active-model filter", () => {
 		expect(ids).toEqual(
 			[
 				"claude-sonnet-4-6",
+				"gemini-3.1-flash-image",
+				"gemini-3.1-flash-lite",
 				"gemini-3.6-flash-high",
 				"gemini-3.6-flash-medium",
 				"gemini-pro-agent",
 				"gpt-oss-120b-medium",
+				"tab_flash_lite_preview",
 			].sort(),
 		);
 
 		expect(models!.some(model => model.id === "gemini-3.1-pro-high")).toBe(false);
 		expect(models!.some(model => model.id === "chat_20706")).toBe(false);
 		expect(models!.some(model => model.id === "gemini-2.5-pro")).toBe(false);
-		expect(models!.some(model => model.id === "gemini-3.1-flash-image")).toBe(false);
-		expect(models!.some(model => model.id === "gemini-3.1-flash-lite")).toBe(false);
-		expect(models!.some(model => model.id === "tab_flash_lite_preview")).toBe(false);
 	});
 
 	it("normalizes kept models into canonical entries", async () => {

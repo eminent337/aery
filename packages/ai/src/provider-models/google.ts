@@ -17,11 +17,13 @@ export interface GoogleVertexModelManagerConfig {
 
 export interface GoogleAntigravityModelManagerConfig {
 	oauthToken?: string;
+	resolveToken?: () => Promise<string | undefined> | string | undefined;
 	endpoint?: string;
 }
 
 export interface GoogleGeminiCliModelManagerConfig {
 	oauthToken?: string;
+	resolveToken?: () => Promise<string | undefined> | string | undefined;
 	endpoint?: string;
 }
 
@@ -44,20 +46,25 @@ export function googleVertexModelManagerOptions(_config?: GoogleVertexModelManag
 export function googleAntigravityModelManagerOptions(
 	config?: GoogleAntigravityModelManagerConfig,
 ): ModelManagerOptions<"google-gemini-cli"> {
-	const token = config?.oauthToken;
+	const hasAuth = Boolean(config?.oauthToken || config?.resolveToken);
 	return {
 		providerId: "google-antigravity",
 		// The Antigravity discovery endpoint is the authoritative catalog for the
 		// provider: a successful fetch is the complete set of active models, so
 		// static-only entries from bundled models.json are pruned.
 		dynamicModelsAuthoritative: true,
-		...(token
+		...(hasAuth
 			? {
-					fetchDynamicModels: () =>
-						fetchAntigravityDiscoveryModels({
+					fetchDynamicModels: async () => {
+						const token = config?.resolveToken ? await config.resolveToken() : config?.oauthToken;
+						if (!token) {
+							return null;
+						}
+						return fetchAntigravityDiscoveryModels({
 							token,
 							endpoint: config?.endpoint,
-						}),
+						});
+					},
 				}
 			: undefined),
 	};
@@ -66,13 +73,17 @@ export function googleAntigravityModelManagerOptions(
 export function googleGeminiCliModelManagerOptions(
 	config?: GoogleGeminiCliModelManagerConfig,
 ): ModelManagerOptions<"google-gemini-cli"> {
-	const token = config?.oauthToken;
+	const hasAuth = Boolean(config?.oauthToken || config?.resolveToken);
 	const endpoint = config?.endpoint ?? CLOUD_CODE_ASSIST_ENDPOINT;
 	return {
 		providerId: "google-gemini-cli",
-		...(token
+		...(hasAuth
 			? {
 					fetchDynamicModels: async () => {
+						const token = config?.resolveToken ? await config.resolveToken() : config?.oauthToken;
+						if (!token) {
+							return null;
+						}
 						const models = await fetchAntigravityDiscoveryModels({
 							token,
 							endpoint,

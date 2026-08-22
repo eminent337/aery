@@ -193,6 +193,24 @@ export async function fetchAntigravityDiscoveryModels(
 	for (const endpoint of endpoints) {
 		let response: Response;
 		try {
+			// Perform loadCodeAssist handshake prior to model discovery to match agy client negotiation
+			await fetcher(`${endpoint}/v1internal:loadCodeAssist`, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${options.token}`,
+					"Content-Type": "application/json",
+					"User-Agent": options.userAgent ?? getAntigravityUserAgent(),
+				},
+				body: JSON.stringify({
+					metadata: {
+						ideType: "ANTIGRAVITY",
+						platform: "PLATFORM_UNSPECIFIED",
+						pluginType: "GEMINI",
+					},
+				}),
+				signal: options.signal,
+			}).catch(() => {});
+
 			response = await fetcher(`${endpoint}${FETCH_AVAILABLE_MODELS_PATH}`, {
 				method: "POST",
 				headers: {
@@ -223,7 +241,6 @@ export async function fetchAntigravityDiscoveryModels(
 			continue;
 		}
 
-		const recommendedIds = collectRecommendedModelIds(parsed.agentModelSorts);
 		const deprecatedIds = new Set(Object.keys(parsed.deprecatedModelIds ?? {}));
 
 		const models: Model<"google-gemini-cli">[] = [];
@@ -232,15 +249,7 @@ export async function fetchAntigravityDiscoveryModels(
 			if (ANTIGRAVITY_DISCOVERY_DENYLIST.has(modelId)) {
 				continue;
 			}
-			if (model.isInternal === true) {
-				continue;
-			}
 			if (deprecatedIds.has(modelId)) {
-				continue;
-			}
-			const isActive =
-				model.recommended === true || recommendedIds.has(modelId) || modelId === parsed.defaultAgentModelId;
-			if (!isActive) {
 				continue;
 			}
 			const supportsImages = model.supportsImages === true;
@@ -280,21 +289,4 @@ function parseAntigravityDiscoveryResponse(value: unknown): AntigravityDiscovery
 
 function trimTrailingSlashes(value: string): string {
 	return value.replace(/\/+$/, "");
-}
-
-/**
- * Collects the model ids Antigravity surfaces in its recommended agent-model
- * groups. Used together with per-model `recommended` flags to decide which
- * dynamic models are "active" and should be shown.
- */
-function collectRecommendedModelIds(sorts?: AntigravityDiscoveryAgentModelSort[]): Set<string> {
-	const ids = new Set<string>();
-	for (const sort of sorts ?? []) {
-		for (const group of sort.groups ?? []) {
-			for (const modelId of group.modelIds ?? []) {
-				ids.add(modelId);
-			}
-		}
-	}
-	return ids;
 }

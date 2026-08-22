@@ -22,6 +22,8 @@ import {
 	UNK_MAX_TOKENS,
 	unregisterCustomApis,
 } from "@aryee337/aery-ai";
+import { readAgyKeyringAccessToken } from "@aryee337/aery-ai/utils/oauth/agy-keyring";
+import { readFreebuffLocalToken } from "@aryee337/aery-ai/utils/oauth/freebuff-local";
 
 // Sentinel for local-only OAuth token (LM Studio, vLLM) — declared inline to avoid loading
 // any provider module at startup. Must match `DEFAULT_LOCAL_TOKEN` in oauth/lm-studio.ts.
@@ -922,11 +924,25 @@ export class ModelRegistry {
 	) {
 		this.#modelsConfigFile = ModelsConfigFile.relocate(modelsPath);
 		this.#cacheDbPath = modelsPath ? path.join(path.dirname(modelsPath), "models.db") : undefined;
-		// Set up fallback resolver for custom provider API keys
+		// Set up fallback resolver for custom provider API keys and local CLI credentials.
+		// The freebuff token is pre-warmed asynchronously so the synchronous resolver path
+		// can return it without awaiting.
+		let cachedFreebuffToken: string | undefined;
+		readFreebuffLocalToken()
+			.then(token => {
+				cachedFreebuffToken = token;
+			})
+			.catch(() => {});
+
 		this.authStorage.setFallbackResolver(provider => {
+			// 1. Custom provider API keys (user-configured)
 			const keyConfig = this.#customProviderApiKeys.get(provider);
 			if (keyConfig) {
 				return resolveApiKeyConfig(keyConfig);
+			}
+			// 2. Freebuff: pre-warmed token from official freebuff CLI credential store
+			if (provider === "freebuff" && cachedFreebuffToken) {
+				return cachedFreebuffToken;
 			}
 			return undefined;
 		});
@@ -1585,6 +1601,14 @@ export class ModelRegistry {
 				createOptions: oauthToken =>
 					googleAntigravityModelManagerOptions({
 						oauthToken,
+						resolveToken: async () => {
+							// 1. Try Aery's own stored credential (SQLite)
+							const key = await this.authStorage.getApiKey("google-antigravity");
+							const fromStorage = extractGoogleOAuthToken(key);
+							if (fromStorage) return fromStorage;
+							// 2. Fall back to agy's OS keyring token (auto-refreshed by agy)
+							return readAgyKeyringAccessToken();
+						},
 						endpoint: this.getProviderBaseUrl("google-antigravity"),
 					}),
 			},
@@ -1594,6 +1618,10 @@ export class ModelRegistry {
 				createOptions: oauthToken =>
 					googleGeminiCliModelManagerOptions({
 						oauthToken,
+						resolveToken: async () => {
+							const key = await this.authStorage.getApiKey("google-gemini-cli");
+							return extractGoogleOAuthToken(key);
+						},
 						endpoint: this.getProviderBaseUrl("google-gemini-cli"),
 					}),
 			},
