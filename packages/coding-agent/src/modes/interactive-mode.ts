@@ -77,6 +77,7 @@ import type { AgentSession, AgentSessionEvent, ResolvedRoleModel } from "../sess
 import { HistoryStorage } from "../session/history-storage";
 import type { SessionContext, SessionManager } from "../session/session-manager";
 import { getRecentSessions } from "../session/session-manager";
+import { getRecentPrompts } from "../utils/composer-cache";
 import type { ShakeMode } from "../session/shake-types";
 import { formatDuration } from "../slash-commands/helpers/format";
 import { STTController, type SttState } from "../stt";
@@ -530,8 +531,11 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.ui.addChild(new Text(theme.fg("warning", `Warning: ${warning}`), 1, 0));
 			this.ui.addChild(new Spacer(1));
 		}
-
 		if (!startupQuiet) {
+			// Load recent prompts from composer cache
+			const recentPrompts = await getRecentPrompts(3);
+			const promptTexts = recentPrompts.map(e => e.prompt);
+
 			// Add welcome header
 			this.#welcomeComponent = new WelcomeComponent(
 				this.#version,
@@ -540,10 +544,12 @@ export class InteractiveMode implements InteractiveModeContext {
 				recentSessions,
 				this.#getWelcomeLspServers(),
 			);
+			this.#welcomeComponent.setRecentPrompts(promptTexts);
 
 			// Setup UI layout
 			this.ui.addChild(new Spacer(1));
 			this.ui.addChild(this.#welcomeComponent);
+			this.ui.addChild(new Spacer(1));
 			this.ui.addChild(new Spacer(1));
 			if (!options.suppressWelcomeIntro) {
 				this.playWelcomeIntro();

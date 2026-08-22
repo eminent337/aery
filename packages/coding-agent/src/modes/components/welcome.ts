@@ -49,6 +49,8 @@ export interface LspServerInfo {
  * Minimalist welcome screen matching classic Aery identity.
  */
 export class WelcomeComponent implements Component {
+	private recentPrompts: string[] = [];
+
 	constructor(
 		private readonly version: string,
 		public modelName: string,
@@ -77,6 +79,10 @@ export class WelcomeComponent implements Component {
 
 	setLspServers(servers: LspServerInfo[]): void {
 		this.lspServers = servers;
+	}
+
+	setRecentPrompts(prompts: string[]): void {
+		this.recentPrompts = prompts;
 	}
 
 	render(termWidth: number): string[] {
@@ -144,6 +150,27 @@ export class WelcomeComponent implements Component {
 					padding(Math.max(0, contentWidth - visibleWidth(truncServer))) +
 					border("│"),
 			);
+		}
+
+		// Recent prompts section (jcode startup composer cache)
+		if (this.recentPrompts.length > 0) {
+			out.push(border("│") + padding(contentWidth) + border("│"));
+			const promptsLabel = " recent prompts:";
+			out.push(
+				border("│") +
+					theme.fg("headerLabel", promptsLabel) +
+					padding(Math.max(0, contentWidth - visibleWidth(promptsLabel))) +
+					border("│"),
+			);
+			for (const prompt of this.recentPrompts.slice(0, 3)) {
+				const truncated = truncateToWidth(`   • ${prompt}`, contentWidth - 4, Ellipsis.Unicode);
+				out.push(
+					border("│") +
+						theme.fg("headerValue", truncated) +
+						padding(Math.max(0, contentWidth - visibleWidth(truncated))) +
+						border("│"),
+				);
+			}
 		}
 
 		out.push(border(`╰${"─".repeat(contentWidth)}╯`));
