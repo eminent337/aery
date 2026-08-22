@@ -7489,6 +7489,9 @@ export class AgentSession {
 		const candidates = this.#getCompactionModelCandidates(this.#modelRegistry.getAvailable());
 		const telemetry = resolveTelemetry(this.agent.telemetry, this.sessionId);
 
+		let lastError: unknown;
+		let sawAuthFailure = false;
+
 		for (const candidate of candidates) {
 			const apiKey = await this.#modelRegistry.getApiKey(candidate, this.sessionId);
 			if (!apiKey) continue;
@@ -7506,13 +7509,34 @@ export class AgentSession {
 					thinkingLevel: this.thinkingLevel,
 				});
 			} catch (error) {
-				if (!this.#isCompactionAuthFailure(error)) {
+				// Abort must propagate immediately — compacting with another
+				// candidate after the user cancelled would mask the cancellation.
+				if (signal.aborted || (error instanceof Error && error.name === "AbortError")) {
 					throw error;
 				}
+
+				// A provider rejection (456, 429, 5xx, network, output-budget
+				// exhaustion, …) on the current model must not kill compaction:
+				// record it and fall through to the next candidate (role
+				// fallbacks, largest-window model), mirroring the auto-compaction
+				// path. Only auth failures are terminal — they get the dedicated
+				// "no authenticated compaction model" error below.
+				sawAuthFailure = sawAuthFailure || this.#isCompactionAuthFailure(error);
+				lastError = error;
+				logger.warn("Compaction failed on candidate, trying next model", {
+					model: `${candidate.provider}/${candidate.id}`,
+					error: error instanceof Error ? error.message : String(error),
+				});
 			}
 		}
 
-		throw this.#buildCompactionAuthError();
+		if (sawAuthFailure) {
+			throw this.#buildCompactionAuthError();
+		}
+		if (lastError !== undefined) {
+			throw lastError;
+		}
+		throw new Error("Compaction failed: no available model");
 	}
 
 	async #prepareCompactionFromHooks(

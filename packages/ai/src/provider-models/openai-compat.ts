@@ -1539,6 +1539,23 @@ export function kiloModelManagerOptions(config?: KiloModelManagerConfig): ModelM
 				baseUrl,
 				apiKey,
 				filterModel: entry => entry.isFree === true,
+				mapModel: (entry, defaults) => {
+					const topProvider = entry.top_provider as Record<string, unknown> | undefined;
+					const params = Array.isArray(entry.supported_parameters) ? (entry.supported_parameters as string[]) : [];
+					return {
+						...defaults,
+						reasoning: params.includes("reasoning"),
+						contextWindow:
+							typeof entry.context_length === "number" ? entry.context_length : defaults.contextWindow,
+						maxTokens:
+							typeof topProvider?.max_completion_tokens === "number"
+								? topProvider.max_completion_tokens
+								: defaults.maxTokens,
+						...(!params.includes("tool_choice") && {
+							compat: { supportsToolChoice: false },
+						}),
+					};
+				},
 			}),
 	};
 }
