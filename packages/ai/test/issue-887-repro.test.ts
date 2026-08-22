@@ -49,25 +49,28 @@ describe("opencode-go resolver routes 404-ing ids to openai-completions (issue #
 		expect(resolved).toEqual({ api: "openai-completions", baseUrl: OPENCODE_GO_BASE });
 	});
 
-	test("runtime /v1/models refresh preserves qwen3.7-max Anthropic transport", async () => {
+	test("runtime /v1/models refresh returns only free models on the go endpoint", async () => {
 		let requestedUrl = "";
 		const mockFetch = async (input: string | Request | URL): Promise<Response> => {
 			requestedUrl = input instanceof Request ? input.url : String(input);
 			return new Response(
 				JSON.stringify({
-					data: [{ id: "qwen3.7-max", name: "Qwen3.7 Max", context_length: 1000000 }],
+					data: [
+						{ id: "ox-alpha-free", name: "Ox Alpha Free", context_length: 1000000 },
+						{ id: "qwen3.7-max", name: "Qwen3.7 Max", context_length: 1000000 },
+					],
 				}),
 				{ headers: { "content-type": "application/json" } },
 			);
 		};
 		global.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect });
-
 		const options = opencodeGoModelManagerOptions({ apiKey: "opencode-test-key" });
 		const models = await options.fetchDynamicModels?.();
 		const qwenMax = models?.find(model => model.id === "qwen3.7-max");
-
+		const oxAlpha = models?.find(model => model.id === "ox-alpha-free");
 		expect(requestedUrl).toBe("https://opencode.ai/zen/go/v1/models");
-		expect(qwenMax?.api).toBe("anthropic-messages");
-		expect(qwenMax?.baseUrl).toBe("https://opencode.ai/zen/go");
+		// Free models survive the filter; paid models are excluded from the list.
+		expect(oxAlpha?.id).toBe("ox-alpha-free");
+		expect(qwenMax).toBeUndefined();
 	});
 });
