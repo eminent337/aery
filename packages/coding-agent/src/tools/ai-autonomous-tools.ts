@@ -878,3 +878,64 @@ export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
 		);
 	}
 }
+
+const reviewSchema = confirmSchema.extend({
+	mode: z.enum(["branch", "uncommitted", "commit", "custom"]).optional().describe("Review mode"),
+	focus: z.string().optional().describe("Specific commit hash, branch name, or custom instructions"),
+});
+
+export class ReviewTool implements AgentTool<typeof reviewSchema> {
+	readonly name = "ai_review";
+	readonly approval = "exec" as const;
+	readonly label = "Code Review";
+	readonly description = "Launch interactive code review. Review against a base branch (PR style), uncommitted changes, a specific commit, or custom instructions.";
+	readonly parameters = reviewSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Interactive code review launcher";
+
+	constructor(private readonly session: ToolSession) {}
+
+	static createIf(session: ToolSession): ReviewTool | null {
+		return new ReviewTool(session);
+	}
+
+	async execute(_id: string, params: z.infer<typeof reviewSchema>): Promise<AgentToolResult> {
+		const mode = params.mode ?? "branch";
+		if (!params.confirmed) {
+			return confirmNeeded(`Review code (${mode})?`, { tool: "review", mode });
+		}
+		return successResult(`Code review initiated (${mode}).`, { tool: "review", mode });
+	}
+}
+
+const greenSchema = confirmSchema.extend({
+	focus: z.string().optional().describe("Specific CI failure to focus on"),
+});
+
+export class GreenTool implements AgentTool<typeof greenSchema> {
+	readonly name = "ai_green";
+	readonly approval = "exec" as const;
+	readonly label = "CI Green";
+	readonly description = "Generate a prompt to iterate on CI failures until the branch is green.";
+	readonly parameters = greenSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Iterate on CI failures until green";
+
+	constructor(private readonly session: ToolSession) {}
+
+	static createIf(session: ToolSession): GreenTool | null {
+		return new GreenTool(session);
+	}
+
+	async execute(_id: string, params: z.infer<typeof greenSchema>): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			return confirmNeeded(
+				`Iterate on CI failures until green${params.focus ? ` (focus: ${params.focus})` : ""}?`,
+				{ tool: "green", focus: params.focus },
+			);
+		}
+		return successResult("CI green iteration initiated.", { tool: "green", focus: params.focus });
+	}
+}
