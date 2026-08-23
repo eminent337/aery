@@ -3686,7 +3686,8 @@ export class AgentSession {
 				) => {
 					const permissionIntent = getPermissionIntent(target.name, args);
 					if (!permissionIntent) {
-						return await target.execute(toolCallId, args as never, signal, onUpdate, ctx);
+						const { executeWithHooks } = await import("../hooks/tool-hooks");
+						return await executeWithHooks(target, toolCallId, args, signal ?? new AbortController().signal);
 					}
 					const command =
 						target.name === "bash" && args && typeof args === "object" && !Array.isArray(args)
