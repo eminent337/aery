@@ -36,6 +36,7 @@ import { BestOfNTool } from "./best-of-n";
 import { BrowserTool } from "./browser";
 import { type CheckpointState, CheckpointTool, RewindTool } from "./checkpoint";
 import { ContextUsageTool } from "./context-usage";
+import { ConversationSearchTool } from "./conversation-search";
 import { DaemonTool } from "./daemon";
 import { DaemonControlTool } from "./daemon-control";
 import { DebugTool } from "./debug";
@@ -95,6 +96,7 @@ export * from "./bash";
 export * from "./best-of-n";
 export * from "./browser";
 export * from "./checkpoint";
+export * from "./conversation-search";
 export * from "./debug";
 export * from "./eval";
 export * from "./eval-backends";
@@ -447,8 +449,9 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	irc: IrcTool.createIf,
 	todo_write: s => new TodoWriteTool(s),
 	context: s => new ContextUsageTool(s),
-	web_search: s => new WebSearchTool(s),
 	search_tool_bm25: SearchToolBm25Tool.createIf,
+	conversation_search: ConversationSearchTool.createIf,
+	web_search: s => new WebSearchTool(s),
 	write: s => new WriteTool(s),
 	memory_edit: MemoryEditTool.createIf,
 	retain: MemoryRetainTool.createIf,
