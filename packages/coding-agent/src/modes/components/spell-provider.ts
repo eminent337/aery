@@ -208,8 +208,8 @@ export class SpellProvider implements EditorTextAssistProvider {
 	}
 }
 
-const TYPO_UNDERLINE = "\u001b[4:3m\u001b[58:2::255:95:95m";
-const TYPO_RESET = "\u001b[4:0m\u001b[59m";
+const TYPO_UNDERLINE = "\u001b[4m\u001b[38:2::255:95:95m";
+const TYPO_RESET = "\u001b[24m\u001b[39m";
 
 export type { SpellingBackend };
 export { DictionarySpellingBackend, isUnavailableBackend };
