@@ -51,8 +51,10 @@ import { InspectImageTool } from "./inspect-image";
 import { IrcTool } from "./irc";
 import { JobTool } from "./job";
 import { MemoryEditTool } from "./memory-edit";
+import { MemoryLinkTool } from "./memory-link";
 import { MemoryRecallTool } from "./memory-recall";
 import { MemoryReflectTool } from "./memory-reflect";
+import { MemoryRelatedTool } from "./memory-related";
 import { MemoryRetainTool } from "./memory-retain";
 import { MultiPromptReviewTool } from "./multi-prompt-review";
 import { wrapToolWithMetaNotice } from "./output-meta";
@@ -110,8 +112,10 @@ export * from "./inspect-image";
 export * from "./irc";
 export * from "./job";
 export * from "./memory-edit";
+export * from "./memory-link";
 export * from "./memory-recall";
 export * from "./memory-reflect";
+export * from "./memory-related";
 export * from "./memory-retain";
 export * from "./multi-prompt-review";
 export * from "./plan-mode";
@@ -457,6 +461,8 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	retain: MemoryRetainTool.createIf,
 	recall: MemoryRecallTool.createIf,
 	reflect: MemoryReflectTool.createIf,
+	memory_link: MemoryLinkTool.createIf,
+	memory_related: MemoryRelatedTool.createIf,
 
 	shadow_watch: ShadowWatchTool.createIf,
 	task_create: () => new TaskCreateTool(),
