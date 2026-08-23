@@ -87,6 +87,30 @@ export * from "../exa";
 
 import { exaTools } from "../exa";
 import { CustomToolAdapter } from "../extensibility/custom-tools/wrapper";
+import {
+	BtwTool,
+	DropSessionTool,
+	ForkSessionTool,
+	ListArtifactsTool,
+	LoginTool,
+	LogoutTool,
+	MarketplaceTool,
+	NewSessionTool,
+	ReloadPluginsTool,
+	RenameSessionTool,
+	ResumeSessionTool,
+	RetryTurnTool,
+	ShakeContextTool,
+	ShowModelTool,
+	ShowSessionTool,
+	ShowToolsTool,
+	ShowUsageTool,
+	SwitchModelTool,
+	ToggleAdvisorTool,
+	ToggleFastTool,
+	TogglePlanTool,
+	ToggleVimTool,
+} from "./ai-autonomous-tools";
 
 export type * from "../exa/types";
 export * from "../goals";
@@ -497,6 +521,29 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 			(s: ToolSession) => CustomToolAdapter.wrap(tool, () => ({ cwd: s.cwd }) as any),
 		]),
 	),
+	// AI-autonomous tools (convert slash commands to agent-callable tools)
+	ai_show_model: s => new ShowModelTool(s),
+	ai_show_usage: s => new ShowUsageTool(s),
+	ai_show_tools: s => new ShowToolsTool(s),
+	ai_show_session: s => new ShowSessionTool(s),
+	ai_list_artifacts: s => new ListArtifactsTool(s),
+	ai_switch_model: s => new SwitchModelTool(s),
+	ai_toggle_fast: s => new ToggleFastTool(s),
+	ai_toggle_plan: s => new TogglePlanTool(s),
+	ai_toggle_advisor: s => new ToggleAdvisorTool(s),
+	ai_retry_turn: s => new RetryTurnTool(s),
+	ai_shake_context: s => new ShakeContextTool(s),
+	ai_fork_session: s => new ForkSessionTool(s),
+	ai_rename_session: s => new RenameSessionTool(s),
+	ai_reload_plugins: s => new ReloadPluginsTool(s),
+	ai_new_session: s => new NewSessionTool(s),
+	ai_drop_session: s => new DropSessionTool(s),
+	ai_resume_session: s => new ResumeSessionTool(s),
+	ai_login: s => new LoginTool(s),
+	ai_logout: s => new LogoutTool(s),
+	ai_toggle_vim: s => new ToggleVimTool(s),
+	ai_marketplace: s => new MarketplaceTool(s),
+	ai_btw: s => new BtwTool(s),
 };
 
 export const HIDDEN_TOOLS: Record<string, ToolFactory> = {

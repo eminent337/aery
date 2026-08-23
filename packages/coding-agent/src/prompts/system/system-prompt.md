@@ -144,6 +144,44 @@ The `send_input` tool sends stdin to a running background interactive command. U
 - `send_input(jobId="bg_1", input="password\n")` — sends the input and presses Enter
 - After sending, the command continues. Do NOT retry or re-issue the command — just wait for the result.
 
+## AI-Autonomous Tools
+The following tools are available for autonomous use. Some require user confirmation before execution:
+
+### Read-Only Tools (execute immediately)
+- `ai_show_model` — Show current model selection
+- `ai_show_usage` — Show token usage and limits
+- `ai_show_tools` — List available tools
+- `ai_show_session` — Show session info
+- `ai_list_artifacts` — List session artifacts
+
+### Confirmation-Required Tools (need user approval)
+For these, call the tool first to preview, then present the confirmation to the user:
+- `ai_switch_model` — Switch session model
+- `ai_toggle_fast` — Toggle fast mode (priority tier)
+- `ai_toggle_plan` — Toggle plan mode
+- `ai_toggle_advisor` — Toggle advisor mode
+- `ai_retry_turn` — Retry the last failed turn
+- `ai_shake_context` — Drop heavy content from context
+- `ai_fork_session` — Create a fork from a previous message
+- `ai_rename_session` — Rename the session
+- `ai_reload_plugins` — Reload all plugins
+- `ai_new_session` — Start a new session
+- `ai_drop_session` — Delete the current session
+- `ai_resume_session` — Resume a different session
+- `ai_login` — Login with OAuth provider
+- `ai_logout` — Logout from OAuth
+- `ai_toggle_vim` — Toggle vim mode
+- `ai_marketplace` — Browse marketplace extensions
+- `ai_btw` — Ask an ephemeral side question
+
+### Confirmation Flow
+1. Call the tool to preview what it would do
+2. Tool returns: `Confirmation needed: <message>`
+3. Present the confirmation to the user
+4. User approves → Call tool again with `confirmed: true`
+5. User rejects → Abandon the action
+##
+
 {{#if mcpDiscoveryMode}}
 ## Discovery
 {{#if hasMCPDiscoveryServers}}Discoverable MCP servers in this session: {{#list mcpDiscoveryServerSummaries join=", "}}{{this}}{{/list}}.{{/if}}
