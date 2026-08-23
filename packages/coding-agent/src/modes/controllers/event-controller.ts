@@ -668,7 +668,7 @@ export class EventController {
 		// Skip aborted/errored turns — not "turn complete" events.
 		const last = this.ctx.session.getLastAssistantMessage?.();
 		if (last?.stopReason === "aborted" || last?.stopReason === "error") return;
-		const sessionName = this.ctx.sessionManager?.getSessionName() ?? '';
+		const sessionName = this.ctx.sessionManager?.getSessionName() ?? "";
 		const notification = buildTurnNotification(sessionName);
 		sendTurnNotification(notification);
 	}
