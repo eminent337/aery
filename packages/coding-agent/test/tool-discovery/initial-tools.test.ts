@@ -1,4 +1,3 @@
-import { EventBus } from "../../src/utils/event-bus";
 import { describe, expect, it } from "bun:test";
 import { Settings } from "../../src/config/settings";
 import type { ToolSession } from "../../src/tools/index";
@@ -12,6 +11,8 @@ import {
 	JobTool,
 	SshTool,
 } from "../../src/tools/index";
+
+import { EventBus } from "../../src/utils/event-bus";
 
 const allToolsSettings = Settings.isolated({
 	"astGrep.enabled": true,
