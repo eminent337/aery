@@ -18,9 +18,14 @@ import { NON_INTERACTIVE_ENV } from "../exec/non-interactive-env";
 import type { Theme } from "../modes/theme/theme";
 import { OutputSink, type OutputSummary } from "../session/streaming-output";
 import { sanitizeWithOptionalSixelPassthrough } from "../utils/sixel";
+import {
+	appendInteractiveOutput,
+	completeInteractiveSession,
+	createInteractiveSession,
+	timeoutInteractiveSession,
+} from "./bash-interactive-session";
 import { resolveOutputMaxColumns, resolveOutputSinkHeadBytes } from "./output-meta";
 import { formatStatusIcon, replaceTabs } from "./render-utils";
-
 export interface BashInteractiveResult extends OutputSummary {
 	exitCode: number | undefined;
 	cancelled: boolean;
@@ -384,5 +389,88 @@ export async function runInteractiveBashPty(
 		},
 		{ overlay: true },
 	);
+	return result;
+}
+
+/**
+ * Run a PTY command in the background and track it for send_input.
+ * Used when bash is called with pty: true in background mode.
+ */
+export async function runBackgroundInteractiveBashPty(
+	jobId: string,
+	options: {
+		command: string;
+		cwd: string;
+		timeoutMs: number;
+		signal?: AbortSignal;
+		env?: Record<string, string>;
+		artifactPath?: string;
+		artifactId?: string;
+		onOutput?: (text: string) => void;
+	},
+): Promise<BashInteractiveResult> {
+	const settings = await Settings.init();
+	const { shell: resolvedShell } = settings.getShellConfig();
+	const sink = new OutputSink({
+		artifactPath: options.artifactPath,
+		artifactId: options.artifactId,
+		headBytes: resolveOutputSinkHeadBytes(settings),
+		maxColumns: resolveOutputMaxColumns(settings),
+	});
+
+	const session = new PtySession();
+	const state = createInteractiveSession(jobId, session, options.command);
+
+	const result = await new Promise<BashInteractiveResult>(resolve => {
+		let finished = false;
+		const finalize = (run: PtyRunResult) => {
+			if (finished) return;
+			finished = true;
+			if (run.timedOut) {
+				timeoutInteractiveSession(jobId);
+			} else {
+				completeInteractiveSession(jobId, run.exitCode);
+			}
+			void (async () => {
+				const summary = await sink.dump();
+				resolve({
+					exitCode: run.exitCode,
+					cancelled: run.cancelled,
+					timedOut: run.timedOut,
+					...summary,
+				});
+			})();
+		};
+
+		void session
+			.start(
+				{
+					command: options.command,
+					cwd: options.cwd,
+					timeoutMs: options.timeoutMs,
+					env: {
+						...NON_INTERACTIVE_ENV,
+						...options.env,
+					},
+					signal: options.signal,
+					cols: 120,
+					rows: 40,
+					shell: resolvedShell,
+				},
+				(err, chunk) => {
+					if (finished || err || !chunk) return;
+					appendInteractiveOutput(jobId, chunk);
+					const normalizedChunk = normalizeCaptureChunk(chunk);
+					sink.push(normalizedChunk);
+					options.onOutput?.(state.output);
+				},
+			)
+			.then(finalize)
+			.catch(error => {
+				sink.push(`PTY error: ${error instanceof Error ? error.message : String(error)}\n`);
+				finalize({ exitCode: undefined, cancelled: false, timedOut: false });
+			});
+	});
+
 	return result;
 }

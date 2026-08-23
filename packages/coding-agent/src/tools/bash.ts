@@ -26,7 +26,7 @@ import { getSixelLineMask } from "../utils/sixel";
 import type { ToolSession } from ".";
 import { truncateForPrompt } from "./approval";
 import { applyBashFixups } from "./bash-command-fixup";
-import { type BashInteractiveResult, runInteractiveBashPty } from "./bash-interactive";
+import { type BashInteractiveResult, runBackgroundInteractiveBashPty, runInteractiveBashPty } from "./bash-interactive";
 import { checkBashInterception } from "./bash-interceptor";
 import { canUseInteractiveBashPty } from "./bash-pty-selection";
 import { expandInternalUrls, type InternalUrlExpansionOptions } from "./bash-skill-urls";
@@ -782,6 +782,62 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 				requestedTimeoutSec,
 				notices: pendingNotices,
 			});
+		}
+		// Background interactive PTY: pty + async.
+		if (pty && asyncRequested) {
+			const manager = AsyncJobManager.instance();
+			if (!manager) {
+				throw new ToolError("Background job manager unavailable for this session.");
+			}
+			const jobId = manager.register(
+				"bash",
+				command.length > 120 ? `${command.slice(0, 117)}...` : command,
+				async ({ jobId: id, signal: runSignal, reportProgress }) => {
+					const { path: bgArtifactPath, id: bgArtifactId } =
+						(await this.session.allocateOutputArtifact?.("bash")) ?? {};
+					let latestText = "";
+					const result = await runBackgroundInteractiveBashPty(id, {
+						command,
+						cwd: commandCwd,
+						timeoutMs,
+						signal: runSignal,
+						env: resolvedEnv,
+						artifactPath: bgArtifactPath,
+						artifactId: bgArtifactId,
+						onOutput: text => {
+							latestText = text;
+							const trimmed = latestText.trimEnd();
+							void reportProgress(trimmed, { async: { state: "running", jobId: id, type: "bash" } });
+						},
+					});
+					const finalText = result.output || "(no output)";
+					latestText = finalText;
+					await reportProgress(finalText, { async: { state: "completed", jobId: id, type: "bash" } });
+					if ((result.exitCode ?? 0) !== 0 && !result.cancelled && !result.timedOut) {
+						throw new ToolError(finalText);
+					}
+					return finalText;
+				},
+				{
+					ownerId: this.session.getAgentId?.() ?? undefined,
+					onProgress: async (text, details) => {
+						await onUpdate?.({
+							content: [{ type: "text", text }],
+							details: (details ?? {}) as BashToolDetails,
+						});
+					},
+				},
+			);
+			return this.#buildBackgroundStartResult(
+				jobId,
+				command.length > 120 ? `${command.slice(0, 117)}...` : command,
+				"",
+				timeoutSec,
+				{
+					requestedTimeoutSec,
+					notices: pendingNotices,
+				},
+			);
 		}
 
 		const autoBgManager = AsyncJobManager.instance();

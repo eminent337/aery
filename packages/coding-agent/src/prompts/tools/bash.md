@@ -35,6 +35,22 @@ Executes bash command in shell session for terminal operations like git, bun, ca
 - `timeout` (seconds) caps the **wall-clock duration** of the command. When it elapses the process is killed and the call returns with a timeout annotation. Range: `1`–`3600`s; default `300`s (see `clampTimeout("bash", …)` in `tool-timeouts.ts`).
 - `async: true` only defers **reporting** of the result — it does NOT disable, extend, or detach the timeout. A daemon started with `async: true` is still killed when `timeout` elapses, regardless of how long the agent waits before reading the result.
 - For long-running daemons (dev servers, watchers): either pass an explicit large `timeout` (up to `3600`), or fully detach the process from this shell using `nohup …  &` / `setsid … &` / `disown` so it survives independent of the bash call's lifecycle.
+
+## Background Interactive Commands
+
+When a command needs interactive input AND won't finish quickly, combine `pty: true` with `async: true`:
+
+```
+bash(command="sudo apt install something", pty=true, async=true)
+```
+
+This runs the command in the background. When it prompts for input, use `send_input` to type:
+
+```
+send_input(jobId="bg_1", input="yourpassword\n")
+```
+
+The `send_input` tool is the way to type passwords, passphrases, or yes/no responses into a running background command. After the user types, the command continues automatically.
 {{/if}}
 
 # Output minimizer

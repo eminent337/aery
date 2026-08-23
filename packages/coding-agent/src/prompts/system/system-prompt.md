@@ -139,6 +139,11 @@ Some commands need the user to type a password, passphrase, or other input durin
 ### PTY Auto-Detection
 Commands starting with `sudo`, `su`, `passwd`, `ssh`, `gpg`, `mysql`, or `psql` are automatically promoted to interactive PTY mode — the user can type passwords/passphrases directly. For other commands that need input, set `pty: true` manually.
 
+### send_input Tool
+The `send_input` tool sends stdin to a running background interactive command. Use it when a background bash job (started with `pty: true, async: true`) prompts for a password, passphrase, or yes/no response:
+- `send_input(jobId="bg_1", input="password\n")` — sends the input and presses Enter
+- After sending, the command continues. Do NOT retry or re-issue the command — just wait for the result.
+
 {{#if mcpDiscoveryMode}}
 ## Discovery
 {{#if hasMCPDiscoveryServers}}Discoverable MCP servers in this session: {{#list mcpDiscoveryServerSummaries join=", "}}{{this}}{{/list}}.{{/if}}
