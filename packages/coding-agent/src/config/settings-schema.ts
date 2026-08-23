@@ -1102,39 +1102,6 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
-	"spelling.typoDetection": {
-		type: "boolean",
-		default: true,
-		ui: {
-			tab: "interaction",
-			group: "Spelling",
-			label: "Typo Detection",
-			description: "Undercurl misspelled words in the input editor and suggest fixes on ctrl+.",
-		},
-	},
-
-	"spelling.autocomplete": {
-		type: "boolean",
-		default: true,
-		ui: {
-			tab: "interaction",
-			group: "Spelling",
-			label: "Word Completion",
-			description: "Show ghost-text completions after a partial word in prose",
-		},
-	},
-
-	"spelling.autocorrect": {
-		type: "boolean",
-		default: false,
-		ui: {
-			tab: "interaction",
-			group: "Spelling",
-			label: "Autocorrect",
-			description: "Automatically fix confident misspellings after a word boundary",
-		},
-	},
-
 	"startup.quiet": {
 		type: "boolean",
 		default: false,

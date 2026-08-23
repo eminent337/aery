@@ -100,7 +100,6 @@ import type { EvalExecutionComponent } from "./components/eval-execution";
 import type { HookEditorComponent } from "./components/hook-editor";
 import type { HookInputComponent } from "./components/hook-input";
 import type { HookSelectorComponent, HookSelectorSlider } from "./components/hook-selector";
-import { SpellProvider } from "./components/spell-provider";
 import { StatusLineComponent } from "./components/status-line";
 import type { ToolExecutionHandle } from "./components/tool-execution";
 import { WelcomeComponent, type LspServerInfo as WelcomeLspServerInfo } from "./components/welcome";
@@ -363,26 +362,6 @@ export class InteractiveMode implements InteractiveModeContext {
 	#eventBus?: EventBus;
 	#eventBusUnsubscribers: Array<() => void> = [];
 	#welcomeComponent?: WelcomeComponent;
-	#spellProvider: SpellProvider | undefined;
-
-	/**
-	 * Build (once) the prose text-assist provider wired into the editor:
-	 * typo detection, word completion, and autocorrect — all backed by the
-	 * pure-TS dictionary. Feature gates come from settings; default on for
-	 * typo detection and autocomplete, autocorrect opt-in.
-	 */
-	createSpellProvider(): SpellProvider {
-		if (this.#spellProvider) return this.#spellProvider;
-		const provider = new SpellProvider();
-		provider.setFeatures({
-			typoDetection: this.settings.get("spelling.typoDetection"),
-			autocomplete: this.settings.get("spelling.autocomplete"),
-			autocorrect: this.settings.get("spelling.autocorrect"),
-		});
-		provider.setLineResolver(index => this.editor.getLines()[index]);
-		this.#spellProvider = provider;
-		return provider;
-	}
 
 	constructor(
 		session: AgentSession,
@@ -423,8 +402,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.editor = new CustomEditor(getEditorTheme());
 		this.editor.setUseTerminalCursor(this.ui.getShowHardwareCursor());
 		this.editor.setAutocompleteMaxVisible(settings.get("autocompleteMaxVisible"));
-		this.editor.setTextAssistProvider(this.createSpellProvider());
-		this.editor.setSpellProvider(this.createSpellProvider());
 		this.editor.onAutocompleteCancel = () => {
 			this.ui.requestRender(true);
 		};
@@ -2445,8 +2422,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (this.historyStorage) {
 			nextEditor.setHistoryStorage(this.historyStorage);
 		}
-		nextEditor.setTextAssistProvider(this.createSpellProvider());
-		nextEditor.setSpellProvider(this.createSpellProvider());
 		nextEditor.setText(previousText);
 
 		this.editorContainer.clear();

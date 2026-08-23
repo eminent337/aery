@@ -1,7 +1,6 @@
 import { Editor, type KeyId, matchesKey, parseKittySequence } from "@aryee337/aery-tui";
 import type { AppKeybinding } from "../../config/keybindings";
 import { highlightMagicKeywords } from "../magic-keywords";
-import type { SpellProvider } from "./spell-provider";
 
 type ConfigurableEditorAction = Extract<
 	AppKeybinding,
@@ -52,30 +51,6 @@ export class CustomEditor extends Editor {
 		super(theme);
 		this.setPromptGutter("> ");
 	}
-	/**
-	 * Gradient-highlight the "ultrathink" / "orchestrate" / "workflow" keywords
-	 * as the user types, skipping any occurrence inside code spans, fenced
-	 * blocks, or XML sections. When a spell provider is attached, red
-	 * undercurls are layered on top of misspellings (width-preserving SGR).
-	 */
-	#spellProvider: SpellProvider | undefined;
-	/** Attach the spell provider used for typo undercurls. */
-	setSpellProvider(provider: SpellProvider | undefined): void {
-		this.#spellProvider = provider;
-	}
-	decorateText = (text: string, lineIndex?: number, colOffset?: number): string => {
-		const provider = this.#spellProvider;
-		if (provider && text.length > 0) {
-			// omp-style composition: paint each literal span (and the inner
-			// text of typo spans) with the keyword gradient, then wrap typo
-			// spans in the red undercurl codes. Both passes only inject
-			// zero-width SGR escapes, so visible widths and cursor/autocomplete
-			// positions stay intact.
-			return provider.decorateTypos(text, lineIndex ?? 0, colOffset ?? 0, highlightMagicKeywords);
-		}
-		return highlightMagicKeywords(text);
-	};
-	onEscape?: () => void;
 	onClear?: () => void;
 	onExit?: () => void;
 	onCycleThinkingLevel?: () => void;
