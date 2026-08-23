@@ -153,6 +153,11 @@ The following tools are available for autonomous use. Some require user confirma
 - `ai_show_tools` — List available tools
 - `ai_show_session` — Show session info
 - `ai_list_artifacts` — List session artifacts
+- `ai_show_goal` — Show current goal details
+- `ai_list_cron` — List scheduled cron jobs
+- `ai_list_mcp` — List configured MCP servers
+- `ai_list_plugins` — List installed plugins
+- `ai_list_schedule` — List scheduled agent runs
 
 ### Confirmation-Required Tools (need user approval)
 For these, call the tool first to preview, then present the confirmation to the user:
@@ -173,6 +178,22 @@ For these, call the tool first to preview, then present the confirmation to the 
 - `ai_toggle_vim` — Toggle vim mode
 - `ai_marketplace` — Browse marketplace extensions
 - `ai_btw` — Ask an ephemeral side question
+- `ai_goal` — Manage goal mode (set, pause, resume, drop, budget)
+- `ai_autonomous` — Manage autonomous mode (start, pause, resume, stop)
+- `ai_loop` — Toggle loop mode (re-submit prompt after each yield)
+- `ai_cron_manage` — Add or remove cron jobs
+- `ai_mcp_manage` — Manage MCP servers (add, remove, enable, disable)
+- `ai_plugin_manage` — Enable or disable plugins
+- `ai_refine` — Run refinement or rollback
+- `ai_force_tool` — Force next turn to use a specific tool
+- `ai_session_manage` — Delete, move, or handoff the current session
+- `ai_tan` — Run tangential work in background
+- `ai_omfg` — Forge a TTSR rule from a complaint
+- `ai_ferment` — Create and execute a ferment workflow
+- `ai_export_dump` — Export, dump, or share session
+- `ai_copy` — Copy last message/code/cmd to clipboard
+- `ai_connect` — Connect to Slack or Telegram
+- `ai_schedule_manage` — Create, delete, pause, resume, or trigger schedules
 
 ### Confirmation Flow
 1. Call the tool to preview what it would do
