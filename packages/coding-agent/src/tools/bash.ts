@@ -663,6 +663,13 @@ export class BashTool implements AgentTool<BashToolSchema, BashToolDetails> {
 		onUpdate?: AgentToolUpdateCallback<BashToolDetails>,
 		ctx?: AgentToolContext,
 	): Promise<AgentToolResult<BashToolDetails>> {
+		// Auto-detect commands that typically need interactive input.
+		// If the agent forgot pty: true but the command matches a known
+		// interactive pattern, promote to PTY so the user can type.
+		if (!pty && !asyncRequested) {
+			const trimmed = rawCommand.trim();
+			pty = /^(sudo|su|passwd|ssh|gpg|mysql|psql)\b/.test(trimmed);
+		}
 		let command = rawCommand;
 		const env = normalizeBashEnv(rawEnv);
 

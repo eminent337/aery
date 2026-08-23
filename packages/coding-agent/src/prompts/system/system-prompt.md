@@ -136,6 +136,9 @@ Some commands need the user to type a password, passphrase, or other input durin
 - **Wait after the user types** — the command resumes automatically. Do NOT retry or re-issue the command. The next tool output carries the result.
 - **Common cases:** `sudo`, `ssh` with password auth, `mysql`/`psql` logins, passphrase-protected tools, any command that pauses waiting for input.
 
+### PTY Auto-Detection
+Commands starting with `sudo`, `su`, `passwd`, `ssh`, `gpg`, `mysql`, or `psql` are automatically promoted to interactive PTY mode — the user can type passwords/passphrases directly. For other commands that need input, set `pty: true` manually.
+
 {{#if mcpDiscoveryMode}}
 ## Discovery
 {{#if hasMCPDiscoveryServers}}Discoverable MCP servers in this session: {{#list mcpDiscoveryServerSummaries join=", "}}{{this}}{{/list}}.{{/if}}
