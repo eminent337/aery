@@ -126,7 +126,15 @@ Use tools whenever they materially improve correctness, completeness, or groundi
 {{#if secretsEnabled}}
 ## Redacted Content
 Some values in tool output are intentionally redacted as `#XXXX#` tokens. Treat them as opaque strings.
+
 {{/if}}
+
+## Interactive Terminal Input
+Some commands need the user to type a password, passphrase, or other input during execution. For these, use `bash` with `pty: true`:
+- **Tell the user first** — explain what's about to happen (e.g., "I'll open a terminal prompt for your sudo password").
+- **Call bash with `pty: true`** — the user sees an interactive overlay where they can type freely.
+- **Wait after the user types** — the command resumes automatically. Do NOT retry or re-issue the command. The next tool output carries the result.
+- **Common cases:** `sudo`, `ssh` with password auth, `mysql`/`psql` logins, passphrase-protected tools, any command that pauses waiting for input.
 
 {{#if mcpDiscoveryMode}}
 ## Discovery

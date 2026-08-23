@@ -4,7 +4,11 @@ Executes bash command in shell session for terminal operations like git, bun, ca
 - Use `cwd` to set working directory, not `cd dir && …`
 - Prefer `env: { NAME: "…" }` for multiline, quote-heavy, or untrusted values; reference as `$NAME`
 - Quote variable expansions like `"$NAME"` to preserve exact content
-- PTY mode is opt-in: set `pty: true` only when the command needs a real terminal (e.g. `sudo`, `ssh` requiring user input); default is `false`
+- **PTY mode (`pty: true`)** — opens an interactive terminal overlay where the user can type directly (passwords, sudo, ssh passphrases, etc.).
+  - **When to use:** any command that requires user input — `sudo`, `ssh` with password auth, `mysql`/`psql` logins, `passphrase`-protected tools, or any command that pauses waiting for the user.
+  - **How to use:** tell the user what's happening, then call bash with `pty: true`. The overlay appears — the user types their password (or other input) and presses Enter. The command continues.
+  - **After the user types:** the command resumes automatically. You will see the result in the next tool output. Do NOT retry the command — just wait for the result.
+  - **Default is `false`** (non-interactive, captures stdout/stderr only).
 - Use `;` only when later commands should run regardless of earlier failures
 - Internal URIs (`skill://`, `agent://`, etc.) are auto-resolved to filesystem paths
 {{#if asyncEnabled}}

@@ -258,10 +258,10 @@ class BashInteractiveOverlayComponent implements Component {
 		const footer =
 			this.#state === "running"
 				? truncateToWidth(
-						`${this.uiTheme.fg("warning", "esc")} ${this.uiTheme.fg("dim", "force-kill")} ${this.uiTheme.fg("dim", "· input forwarded to PTY")}`,
+						`${this.uiTheme.fg("warning", "esc")} ${this.uiTheme.fg("dim", "force-kill")} ${this.uiTheme.fg("dim", "· type here → forwarded to terminal")}`,
 						innerWidth,
 					)
-				: truncateToWidth(this.uiTheme.fg("dim", "session finished"), innerWidth);
+				: truncateToWidth(this.uiTheme.fg("dim", "session finished — result returned below"), innerWidth);
 		const visibleLines = this.#readViewport(innerWidth, maxContentRows);
 		const content = visibleLines.length > 0 ? visibleLines : [padding(innerWidth)];
 		const borderHorizontal = this.uiTheme.fg("border", this.uiTheme.boxSharp.horizontal.repeat(innerWidth));
