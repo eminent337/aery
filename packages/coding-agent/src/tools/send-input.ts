@@ -31,6 +31,7 @@ export class SendInputTool implements AgentTool<typeof sendInputSchema> {
 	readonly parameters = sendInputSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
+	readonly summary = "Send stdin to a background PTY command";
 
 	static createIf(_session: ToolSession): SendInputTool | null {
 		return new SendInputTool();
