@@ -64,6 +64,7 @@ import { RenderMermaidTool } from "./render-mermaid";
 import { createReportToolIssueTool, isAutoQaEnabled } from "./report-tool-issue";
 import { ResolveTool } from "./resolve";
 import { reportFindingTool } from "./review";
+import { ScheduleTool } from "./schedule";
 import { SearchTool } from "./search";
 import { SearchToolBm25Tool } from "./search-tool-bm25";
 import { SetFastTool } from "./set-fast";
@@ -124,6 +125,7 @@ export * from "./render-mermaid";
 export * from "./report-tool-issue";
 export * from "./resolve";
 export * from "./review";
+export * from "./schedule";
 export * from "./search";
 export * from "./search-tool-bm25";
 export * from "./set-fast";
@@ -463,7 +465,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	reflect: MemoryReflectTool.createIf,
 	memory_link: MemoryLinkTool.createIf,
 	memory_related: MemoryRelatedTool.createIf,
-
+	schedule: ScheduleTool.createIf,
 	shadow_watch: ShadowWatchTool.createIf,
 	task_create: () => new TaskCreateTool(),
 	task_update: () => new TaskUpdateTool(),
