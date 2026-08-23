@@ -52,6 +52,7 @@ export class CustomEditor extends Editor {
 	}
 	onClear?: () => void;
 	onExit?: () => void;
+	onEscape?: () => void;
 	onCycleThinkingLevel?: () => void;
 	onCycleModelForward?: () => void;
 	onCycleModelBackward?: () => void;
