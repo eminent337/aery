@@ -145,9 +145,10 @@ The `send_input` tool sends stdin to a running background interactive command. U
 - After sending, the command continues. Do NOT retry or re-issue the command — just wait for the result.
 
 ## AI-Autonomous Tools
-The following tools are available for autonomous use. Some require user confirmation before execution:
+The following tools are available for autonomous use.
 
-### Read-Only Tools (execute immediately)
+### Tier 1: Autonomous (no confirmation needed)
+Read-only tools:
 - `ai_show_model` — Show current model selection
 - `ai_show_usage` — Show token usage and limits
 - `ai_show_tools` — List available tools
@@ -159,7 +160,12 @@ The following tools are available for autonomous use. Some require user confirma
 - `ai_list_plugins` — List installed plugins
 - `ai_list_schedule` — List scheduled agent runs
 
-### Confirmation-Required Tools (need user approval)
+Non-harmful autonomous tools (no confirmation needed):
+- `ai_goal` — Set, pause, resume, drop, or adjust goal budget
+- `ai_copy` — Copy last message/code/cmd/all to clipboard
+- `ai_omfg` — Forge a TTSR rule from a complaint
+
+### Tier 2: Confirmation-Required
 For these, call the tool first to preview, then present the confirmation to the user:
 - `ai_switch_model` — Switch session model
 - `ai_toggle_fast` — Toggle fast mode (priority tier)
@@ -173,25 +179,20 @@ For these, call the tool first to preview, then present the confirmation to the 
 - `ai_new_session` — Start a new session
 - `ai_drop_session` — Delete the current session
 - `ai_resume_session` — Resume a different session
-- `ai_login` — Login with OAuth provider
-- `ai_logout` — Logout from OAuth
 - `ai_toggle_vim` — Toggle vim mode
 - `ai_marketplace` — Browse marketplace extensions
 - `ai_btw` — Ask an ephemeral side question
-- `ai_goal` — Manage goal mode (set, pause, resume, drop, budget)
-- `ai_autonomous` — Manage autonomous mode (start, pause, resume, stop)
-- `ai_loop` — Toggle loop mode (re-submit prompt after each yield)
+- `ai_autonomous` — Manage autonomous mode
+- `ai_loop` — Toggle loop mode
 - `ai_cron_manage` — Add or remove cron jobs
-- `ai_mcp_manage` — Manage MCP servers (add, remove, enable, disable)
+- `ai_mcp_manage` — Manage MCP servers
 - `ai_plugin_manage` — Enable or disable plugins
 - `ai_refine` — Run refinement or rollback
 - `ai_force_tool` — Force next turn to use a specific tool
 - `ai_session_manage` — Delete, move, or handoff the current session
 - `ai_tan` — Run tangential work in background
-- `ai_omfg` — Forge a TTSR rule from a complaint
 - `ai_ferment` — Create and execute a ferment workflow
 - `ai_export_dump` — Export, dump, or share session
-- `ai_copy` — Copy last message/code/cmd to clipboard
 - `ai_connect` — Connect to Slack or Telegram
 - `ai_schedule_manage` — Create, delete, pause, resume, or trigger schedules
 

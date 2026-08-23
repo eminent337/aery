@@ -2,8 +2,12 @@
  * AI-Autonomous Tools — convert slash commands into agent-callable tools.
  *
  * Many of Aery's slash commands are manual-only. This module wraps them as
- * tools the AI agent can call autonomously. Sensitive operations require
- * user confirmation before execution.
+ * tools the AI agent can call autonomously.
+ *
+ * Three tiers:
+ * - Tier 1: Autonomous (no confirmation needed) — read-only + non-harmful actions
+ * - Tier 2: Confirmation-required — state-changing actions
+ * - Excluded: UI navigation, app control, auth (too sensitive)
  */
 
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
@@ -31,8 +35,11 @@ function successResult(message: string, details?: Record<string, unknown>): Agen
 
 const emptySchema = z.object({});
 
-// ── Tier 1: Read-Only ──────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Tier 1: Autonomous (no confirmation needed)
+// ─────────────────────────────────────────────────────────────────────────────
 
+// Read-only tools
 export class ShowModelTool implements AgentTool<typeof emptySchema> {
 	readonly name = "ai_show_model";
 	readonly approval = "read" as const;
@@ -202,7 +209,67 @@ export class ListScheduleTool implements AgentTool<typeof emptySchema> {
 	}
 }
 
-// ── Tier 2: Confirmation-Required ───────────────────────────────────────────
+// Non-harmful autonomous tools (no confirmation needed)
+const goalSchema = z.object({
+	action: z.enum(["set", "pause", "resume", "drop", "budget"]),
+	objective: z.string().optional(),
+	budget: z.number().int().optional(),
+});
+export class GoalModeTool implements AgentTool<typeof goalSchema> {
+	readonly name = "ai_goal";
+	readonly approval = "read" as const;
+	readonly label = "Goal Mode";
+	readonly description = "Manage goal mode (set, pause, resume, drop, budget). Non-harmful, no confirmation needed.";
+	readonly parameters = goalSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Set/pause/resume/drop goal (autonomous)";
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): GoalModeTool | null { return new GoalModeTool(session); }
+	async execute(_id: string, params: z.infer<typeof goalSchema>): Promise<AgentToolResult> {
+		return successResult(`Goal ${params.action} executed.${params.objective ? ` "${params.objective}"` : ""}`);
+	}
+}
+
+const copySchema = z.object({
+	what: z.enum(["last", "code", "all", "cmd"]).describe("What to copy to clipboard"),
+});
+export class CopyTool implements AgentTool<typeof copySchema> {
+	readonly name = "ai_copy";
+	readonly approval = "read" as const;
+	readonly label = "Copy";
+	readonly description = "Copy last message/code/cmd/all to clipboard. Non-harmful, no confirmation needed.";
+	readonly parameters = copySchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Copy to clipboard (autonomous)";
+	constructor(_session: ToolSession) {}
+	static createIf(session: ToolSession): CopyTool | null { return new CopyTool(session); }
+	async execute(_id: string, params: z.infer<typeof copySchema>): Promise<AgentToolResult> {
+		return successResult(`Copied ${params.what}.`);
+	}
+}
+
+const omfgSchema = z.object({ complaint: z.string() });
+export class OmfgTool implements AgentTool<typeof omfgSchema> {
+	readonly name = "ai_omfg";
+	readonly approval = "read" as const;
+	readonly label = "OMFG";
+	readonly description = "Forge a TTSR rule from a complaint to stop a recurring behavior. Non-harmful, no confirmation needed.";
+	readonly parameters = omfgSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Create rule from complaint (autonomous)";
+	constructor(_session: ToolSession) {}
+	static createIf(session: ToolSession): OmfgTool | null { return new OmfgTool(session); }
+	async execute(_id: string, params: z.infer<typeof omfgSchema>): Promise<AgentToolResult> {
+		return successResult("Rule forged from complaint.");
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tier 2: Confirmation-Required
+// ─────────────────────────────────────────────────────────────────────────────
 
 const switchModelSchema = confirmSchema.extend({ model: z.string() });
 export class SwitchModelTool implements AgentTool<typeof switchModelSchema> {
@@ -417,41 +484,6 @@ export class ResumeSessionTool implements AgentTool<typeof confirmSchema> {
 	}
 }
 
-const loginSchema = confirmSchema.extend({ provider: z.string().optional() });
-export class LoginTool implements AgentTool<typeof loginSchema> {
-	readonly name = "ai_login";
-	readonly approval = "read" as const;
-	readonly label = "Login";
-	readonly description = "Login with OAuth provider.";
-	readonly parameters = loginSchema;
-	readonly strict = true;
-	readonly loadMode = "discoverable";
-	readonly summary = "Login with OAuth (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): LoginTool | null { return new LoginTool(session); }
-	async execute(_id: string, params: z.infer<typeof loginSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Login${params.provider ? ` with ${params.provider}` : ""}?`);
-		return successResult("Login initiated.");
-	}
-}
-
-export class LogoutTool implements AgentTool<typeof confirmSchema> {
-	readonly name = "ai_logout";
-	readonly approval = "read" as const;
-	readonly label = "Logout";
-	readonly description = "Logout from OAuth provider.";
-	readonly parameters = confirmSchema;
-	readonly strict = true;
-	readonly loadMode = "discoverable";
-	readonly summary = "Logout (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): LogoutTool | null { return new LogoutTool(session); }
-	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Logout from OAuth provider?");
-		return successResult("Logged out.");
-	}
-}
-
 const vimSchema = confirmSchema.extend({ enabled: z.enum(["on", "off", "toggle"]) });
 export class ToggleVimTool implements AgentTool<typeof vimSchema> {
 	readonly name = "ai_toggle_vim";
@@ -470,23 +502,6 @@ export class ToggleVimTool implements AgentTool<typeof vimSchema> {
 	}
 }
 
-export class MarketplaceTool implements AgentTool<typeof confirmSchema> {
-	readonly name = "ai_marketplace";
-	readonly approval = "read" as const;
-	readonly label = "Marketplace";
-	readonly description = "Browse and install marketplace extensions.";
-	readonly parameters = confirmSchema;
-	readonly strict = true;
-	readonly loadMode = "discoverable";
-	readonly summary = "Browse marketplace (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): MarketplaceTool | null { return new MarketplaceTool(session); }
-	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Open marketplace browser?");
-		return successResult("Marketplace opened.");
-	}
-}
-
 const btwSchema = confirmSchema.extend({ question: z.string() });
 export class BtwTool implements AgentTool<typeof btwSchema> {
 	readonly name = "ai_btw";
@@ -502,30 +517,6 @@ export class BtwTool implements AgentTool<typeof btwSchema> {
 	async execute(_id: string, params: z.infer<typeof btwSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Ask: "${params.question}"?`);
 		return successResult("Side question answered.");
-	}
-}
-
-const goalSchema = confirmSchema.extend({
-	action: z.enum(["set", "pause", "resume", "drop", "budget"]),
-	objective: z.string().optional(),
-	budget: z.number().int().optional(),
-});
-export class GoalModeTool implements AgentTool<typeof goalSchema> {
-	readonly name = "ai_goal";
-	readonly approval = "read" as const;
-	readonly label = "Goal Mode";
-	readonly description = "Manage goal mode (set, pause, resume, drop, budget).";
-	readonly parameters = goalSchema;
-	readonly strict = true;
-	readonly loadMode = "discoverable";
-	readonly summary = "Manage goal mode (requires confirmation)";
-	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): GoalModeTool | null { return new GoalModeTool(session); }
-	async execute(_id: string, params: z.infer<typeof goalSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) {
-			return confirmNeeded(`Goal mode: ${params.action}${params.objective ? ` "${params.objective}"` : ""}?`);
-		}
-		return successResult(`Goal ${params.action} executed.`);
 	}
 }
 
@@ -727,24 +718,6 @@ export class TanTool implements AgentTool<typeof tanSchema> {
 	}
 }
 
-const omfgSchema = confirmSchema.extend({ complaint: z.string() });
-export class OmfgTool implements AgentTool<typeof omfgSchema> {
-	readonly name = "ai_omfg";
-	readonly approval = "read" as const;
-	readonly label = "OMFG";
-	readonly description = "Forge a TTSR rule from a complaint to stop a recurring behavior.";
-	readonly parameters = omfgSchema;
-	readonly strict = true;
-	readonly loadMode = "discoverable";
-	readonly summary = "Create rule from complaint (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): OmfgTool | null { return new OmfgTool(session); }
-	async execute(_id: string, params: z.infer<typeof omfgSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Create rule from complaint: "${params.complaint}"?`);
-		return successResult("Rule forged from complaint.");
-	}
-}
-
 const fermentSchema = confirmSchema.extend({
 	action: z.enum(["one-shot"]),
 	goal: z.string(),
@@ -785,26 +758,6 @@ export class ExportDumpTool implements AgentTool<typeof exportDumpSchema> {
 	async execute(_id: string, params: z.infer<typeof exportDumpSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`${params.action} session?`);
 		return successResult(`${params.action} executed.`);
-	}
-}
-
-const copySchema = confirmSchema.extend({
-	what: z.enum(["last", "code", "all", "cmd"]).describe("What to copy to clipboard"),
-});
-export class CopyTool implements AgentTool<typeof copySchema> {
-	readonly name = "ai_copy";
-	readonly approval = "read" as const;
-	readonly label = "Copy";
-	readonly description = "Copy last message/code/cmd/all to clipboard.";
-	readonly parameters = copySchema;
-	readonly strict = true;
-	readonly loadMode = "discoverable";
-	readonly summary = "Copy to clipboard (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): CopyTool | null { return new CopyTool(session); }
-	async execute(_id: string, params: z.infer<typeof copySchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Copy ${params.what} to clipboard?`);
-		return successResult(`Copied ${params.what}.`);
 	}
 }
 
@@ -852,5 +805,25 @@ export class ScheduleManageTool implements AgentTool<typeof scheduleManageSchema
 	async execute(_id: string, params: z.infer<typeof scheduleManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Schedule: ${params.action}?`);
 		return successResult(`Schedule ${params.action} executed.`);
+	}
+}
+
+const marketplaceSchema = confirmSchema.extend({
+	action: z.enum(["discover", "list"]),
+});
+export class MarketplaceTool implements AgentTool<typeof marketplaceSchema> {
+	readonly name = "ai_marketplace";
+	readonly approval = "read" as const;
+	readonly label = "Marketplace";
+	readonly description = "Browse and install marketplace extensions.";
+	readonly parameters = marketplaceSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Browse marketplace (requires confirmation)";
+	constructor(_session: ToolSession) {}
+	static createIf(session: ToolSession): MarketplaceTool | null { return new MarketplaceTool(session); }
+	async execute(_id: string, params: z.infer<typeof marketplaceSchema>): Promise<AgentToolResult> {
+		if (!params.confirmed) return confirmNeeded(`Marketplace: ${params.action}?`);
+		return successResult(`Marketplace ${params.action} executed.`);
 	}
 }
