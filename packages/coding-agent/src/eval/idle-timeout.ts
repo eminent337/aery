@@ -9,9 +9,9 @@
  * updates, `log()`/`phase()`) never trips the timeout, while a genuinely
  * stalled cell still gets interrupted.
  *
- * The timer self-reschedules instead of being torn down and recreated on every
- * bump, so a high-frequency stream of bumps (sub-second agent progress) costs
- * one timestamp write per event rather than churning a timer each time.
+ * The timer is re-armed on every bump, so a high-frequency stream of bumps
+ * (sub-second agent progress) stays protected against a timer armed before the
+ * latest bump firing early and aborting the cell mid-flight.
  */
 export class IdleTimeout {
 	readonly #controller = new AbortController();
@@ -41,6 +41,16 @@ export class IdleTimeout {
 	bump(): void {
 		if (this.#settled) return;
 		this.#deadlineMs = Date.now() + this.#idleMs;
+		// Re-arm the timer so a high-frequency bump stream can't be preempted by
+		// a timer that was armed before the latest bump. Without re-arming, the
+		// timer and a bump can race when scheduled for the same instant: the
+		// timer fires first, sees remainingMs = 0 based on the pre-bump deadline,
+		// and aborts even though activity just occurred.
+		if (this.#timer) {
+			clearTimeout(this.#timer);
+			this.#timer = undefined;
+		}
+		this.#arm(this.#idleMs);
 	}
 
 	/** Stop the watchdog. Safe to call multiple times. */

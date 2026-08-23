@@ -45,10 +45,10 @@ export class SearchContextTool implements AgentTool<typeof searchContextSchema> 
 	readonly label = "Search Context";
 	readonly description =
 		"Manage the session's search context — track searched files/regions/symbols with confidence scores. Use to coordinate search coverage across calls: read status to find unexplored areas, record_file/region/symbol to mark coverage, add_focus to prioritize, prune to clean stale entries.";
-	readonly parameters = searchContextSchema;
-	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Read/write search context with confidence scores";
+	readonly parameters = searchContextSchema;
+	readonly strict = true;
 
 	constructor(private readonly session: ToolSession) {}
 

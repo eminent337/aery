@@ -1,3 +1,4 @@
+import { EventBus } from "../../src/utils/event-bus";
 import { describe, expect, it } from "bun:test";
 import { Settings } from "../../src/config/settings";
 import type { ToolSession } from "../../src/tools/index";
@@ -33,6 +34,7 @@ const allToolsSettings = Settings.isolated({
 const toolSession: ToolSession = {
 	cwd: "/tmp/test",
 	hasUI: false,
+	eventBus: new EventBus(),
 	getSessionFile: () => null,
 	getSessionSpawns: () => null,
 	settings: allToolsSettings,
