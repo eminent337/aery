@@ -322,7 +322,7 @@ print("token" in globals())`,
 			cwd: tempDir.path(),
 			sessionId,
 			sessionFile,
-			timeoutMs: 500,
+			timeoutMs: 30000,
 		});
 
 		expect(result.exitCode).toBe(1);

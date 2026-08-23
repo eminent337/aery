@@ -53,7 +53,7 @@ interface JsSession {
 const sessions = new Map<string, JsSession>();
 const startingSessions = new Map<string, Promise<JsSession>>();
 const resettingSessions = new Set<string>();
-const READY_TIMEOUT_MS_DEFAULT = 5_000;
+const READY_TIMEOUT_MS_DEFAULT = 15_000;
 
 export async function executeInVmContext(options: {
 	sessionKey: string;
