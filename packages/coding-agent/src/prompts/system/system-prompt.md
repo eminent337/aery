@@ -209,6 +209,9 @@ For these, call the tool first to preview, then present the confirmation to the 
 - `ai_connect` — Connect to Slack or Telegram
 - `ai_schedule_manage` — Create, delete, pause, resume, or trigger schedules
 
+### Special Tools
+- `ai_auto_research` — Autonomous multi-step research. Breaks down the question, searches the web, reads pages, gathers information, and compiles findings into a structured report. Requires confirmation.
+
 ### Confirmation Flow
 1. Call the tool to preview what it would do
 2. Tool returns: `Confirmation needed: <message>`

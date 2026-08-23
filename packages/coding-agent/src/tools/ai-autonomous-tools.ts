@@ -8,6 +8,9 @@
  * - Tier 1: Autonomous (no confirmation needed) — read-only + non-harmful actions
  * - Tier 2: Confirmation-required — state-changing actions
  * - Excluded: UI navigation, app control, auth (too sensitive)
+ *
+ * Special tools:
+ * - `ai_auto_research` — Multi-step autonomous research (search → read → compile)
  */
 
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
@@ -825,5 +828,53 @@ export class MarketplaceTool implements AgentTool<typeof marketplaceSchema> {
 	async execute(_id: string, params: z.infer<typeof marketplaceSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Marketplace: ${params.action}?`);
 		return successResult(`Marketplace ${params.action} executed.`);
+	}
+}
+
+// ── Special Tools ───────────────────────────────────────────────────────────
+
+const autoResearchSchema = confirmSchema.extend({
+	topic: z.string().describe("The research topic or question to investigate"),
+	depth: z.enum(["quick", "standard", "deep"]).optional().describe("Research depth (default: standard)"),
+	sources: z.number().int().optional().describe("Number of sources to consult (default: 5)"),
+});
+
+export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
+	readonly name = "ai_auto_research";
+	readonly approval = "exec" as const;
+	readonly label = "Auto Research";
+	readonly description =
+		"Autonomously research a topic. Breaks down the question, searches the web, reads pages, gathers information, and compiles findings into a structured report. Use when the user asks for research, investigation, or deep analysis of a topic.";
+	readonly parameters = autoResearchSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Autonomous multi-step research (search → read → compile)";
+
+	constructor(private readonly session: ToolSession) {}
+
+	static createIf(session: ToolSession): AutoResearchTool | null {
+		return new AutoResearchTool(session);
+	}
+
+	async execute(_id: string, params: z.infer<typeof autoResearchSchema>): Promise<AgentToolResult> {
+		const depth = params.depth ?? "standard";
+		const sources = params.sources ?? 5;
+
+		if (!params.confirmed) {
+			return confirmNeeded(
+				`Research "${params.topic}" (${depth} depth, ~${sources} sources)?`,
+				{ tool: "auto_research", topic: params.topic, depth, sources },
+			);
+		}
+
+		return successResult(
+			`Research initiated on "${params.topic}". The agent will:\n` +
+				`1. Break down the topic into sub-questions\n` +
+				`2. Search the web for relevant information\n` +
+				`3. Read and extract key findings from sources\n` +
+				`4. Compile a structured research report\n\n` +
+				`Depth: ${depth} | Sources: ~${sources}`,
+			{ tool: "auto_research", topic: params.topic, depth, sources },
+		);
 	}
 }

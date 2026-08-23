@@ -89,6 +89,7 @@ import { exaTools } from "../exa";
 import { CustomToolAdapter } from "../extensibility/custom-tools/wrapper";
 import {
 	AutonomousModeTool,
+	AutoResearchTool,
 	BtwTool,
 	LoopModeTool,
 	ConnectTool,
@@ -105,8 +106,6 @@ import {
 	ListMcpTool,
 	ListPluginsTool,
 	ListScheduleTool,
-	LoginTool,
-	LogoutTool,
 	MarketplaceTool,
 	McpManageTool,
 	NewSessionTool,
@@ -560,11 +559,10 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	ai_new_session: s => new NewSessionTool(s),
 	ai_drop_session: s => new DropSessionTool(s),
 	ai_resume_session: s => new ResumeSessionTool(s),
-	ai_login: s => new LoginTool(s),
-	ai_logout: s => new LogoutTool(s),
 	ai_toggle_vim: s => new ToggleVimTool(s),
 	ai_marketplace: s => new MarketplaceTool(s),
 	ai_btw: s => new BtwTool(s),
+	ai_auto_research: s => new AutoResearchTool(s),
 	// New AI-autonomous tools
 	ai_show_goal: s => new ShowGoalTool(s),
 	ai_list_cron: s => new ListCronTool(s),
