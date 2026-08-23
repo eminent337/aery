@@ -1,8 +1,8 @@
-import type { SessionEvent, UserMessageEvent } from "@aryee337/aery/session/event-log";
-import { describe, expect, it, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import * as path from "node:path";
-import { EventStore } from "@aryee337/aery/session/event-store";
+import type { SessionEvent, UserMessageEvent } from "@aryee337/aery/session/event-log";
 import { deriveMessages, findEvent, getToolCallEvents } from "@aryee337/aery/session/event-log";
+import { EventStore } from "@aryee337/aery/session/event-store";
 
 let store: EventStore;
 let testDir: string;

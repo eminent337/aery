@@ -10,6 +10,7 @@ import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import { untilAborted } from "@aryee337/aery-utils";
 import * as z from "zod/v4";
 import { AmbientScheduler, type SchedulePriority } from "../ambient/scheduler";
+import type { EventBus } from "../utils/event-bus";
 import type { ToolSession } from "./index";
 
 const scheduleSchema = z.object({
@@ -22,6 +23,30 @@ const scheduleSchema = z.object({
 export type ScheduleToolParams = z.infer<typeof scheduleSchema>;
 
 const PRIORITY_SET: ReadonlySet<string> = new Set(["low", "normal", "high"]);
+
+type AmbientPollerHandle = ReturnType<typeof setInterval>;
+
+/** Global schedulers per session, persists across tool calls */
+const sessionSchedulers = new Map<string, AmbientScheduler>();
+
+/** Polling intervals per session */
+const sessionPollers = new Map<string, AmbientPollerHandle>();
+
+/** Start polling for due items */
+function startPolling(sessionId: string, scheduler: AmbientScheduler, bus: EventBus): void {
+	if (sessionPollers.has(sessionId)) return;
+	const interval = setInterval(() => {
+		const due = scheduler.collectDue();
+		for (const item of due) {
+			void bus.emit("ambient:deliver", {
+				type: "ambient_deliver",
+				item,
+				sessionId,
+			});
+		}
+	}, 10_000);
+	sessionPollers.set(sessionId, interval);
+}
 
 export class ScheduleTool implements AgentTool<typeof scheduleSchema> {
 	readonly name = "schedule";
@@ -40,7 +65,12 @@ export class ScheduleTool implements AgentTool<typeof scheduleSchema> {
 		const bus = session.eventBus;
 		if (!bus) return null;
 		const sessionId = session.getSessionId?.() ?? "default";
-		const scheduler = new AmbientScheduler(sessionId, bus);
+		let scheduler = sessionSchedulers.get(sessionId);
+		if (!scheduler) {
+			scheduler = new AmbientScheduler(sessionId, bus);
+			sessionSchedulers.set(sessionId, scheduler);
+			startPolling(sessionId, scheduler, bus);
+		}
 		return new ScheduleTool(scheduler);
 	}
 

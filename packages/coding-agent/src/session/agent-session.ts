@@ -241,6 +241,7 @@ import { extractFileMentions, generateFileMentionMessages } from "../utils/file-
 import { buildNamedToolChoice } from "../utils/tool-choice";
 import type { AuthStorage } from "./auth-storage";
 import type { ClientBridge, ClientBridgePermissionOption, ClientBridgePermissionOutcome } from "./client-bridge";
+import { EventStore } from "./event-store";
 import {
 	type BashExecutionMessage,
 	type CompactionSummaryMessage,
@@ -924,6 +925,9 @@ export class AgentSession {
 	#clientBridge: ClientBridge | undefined;
 	#allowAcpAgentInitiatedTurns = false;
 	/** Per-session memory of allow_always / reject_always decisions for gated tools. */
+	/** Event-sourced session log — append-only event store */
+	#eventStore: EventStore | undefined = undefined;
+
 	#acpPermissionDecisions: Map<string, "allow_always" | "reject_always"> = new Map();
 
 	// Compaction state
@@ -1315,11 +1319,97 @@ export class AgentSession {
 		// Always subscribe to agent events for internal handling
 		// (session persistence, hooks, auto-compaction, retry logic)
 		this.#unsubscribeAgent = this.agent.subscribe(this.#handleAgentEvent);
+		this.agent.subscribe(this.#logEventToStore);
 		// Re-evaluate append-only context mode when the setting changes at runtime.
 		this.#unsubscribeAppendOnly = onAppendOnlyModeChanged(_value => this.#syncAppendOnlyContext(this.model));
 
 		this.#persistSessionState("running");
+		void this.#initializeEventStore();
 	}
+
+	/** Initialize event-sourced session log (called after constructor) */
+	async #initializeEventStore(): Promise<void> {
+		try {
+			const { getAgentDbPath } = await import("@aryee337/aery-utils");
+			this.#eventStore = new EventStore({ dir: `${getAgentDbPath()}/events` });
+			await this.#eventStore.append({
+				id: this.#eventStore.generateEventId(),
+				type: "system/session-start",
+				timestamp: Date.now(),
+				sessionId: this.sessionManager.getSessionId(),
+				payload: { reason: "session_initialized" },
+			});
+		} catch (err) {
+			logger.warn("Failed to initialize event store", { err: String(err) });
+		}
+	}
+
+	/** Log agent events to the event-sourced session log */
+	#logEventToStore = async (event: AgentEvent): Promise<void> => {
+		if (!this.#eventStore) return;
+		try {
+			const sessionId = this.sessionManager.getSessionId();
+			switch (event.type) {
+				case "message_start":
+					if (event.message.role === "user") {
+						await this.#eventStore.append({
+							id: this.#eventStore.generateEventId(),
+							type: "user/message",
+							timestamp: Date.now(),
+							sessionId,
+							payload: { text: this.#getUserMessageText(event.message) ?? "" },
+						});
+					}
+					break;
+				case "message_end":
+					if (event.message.role === "assistant") {
+						await this.#eventStore.append({
+							id: this.#eventStore.generateEventId(),
+							type: "assistant/message",
+							timestamp: Date.now(),
+							sessionId,
+							payload: {
+								message: {
+									content: (event.message as AssistantMessage).content,
+									tool_calls: (event.message as AssistantMessage).content.filter(c => c.type === "toolCall"),
+								},
+							},
+						});
+					}
+					break;
+				case "tool_execution_start":
+					await this.#eventStore.append({
+						id: this.#eventStore.generateEventId(),
+						type: "tool/call",
+						timestamp: Date.now(),
+						sessionId,
+						payload: {
+							callId: event.toolCallId,
+							toolName: event.toolName,
+							args: event.args ?? {},
+						},
+					});
+					break;
+				case "tool_execution_end":
+					await this.#eventStore.append({
+						id: this.#eventStore.generateEventId(),
+						type: "tool/result",
+						timestamp: Date.now(),
+						sessionId,
+						payload: {
+							callId: event.toolCallId,
+							toolName: event.toolName,
+							content: event.result?.content,
+							success: !event.isError,
+						},
+					});
+					break;
+			}
+		} catch (err) {
+			logger.warn("Failed to log event to event store", { err: String(err) });
+		}
+	};
+
 	// -------------------------------------------------------------------------
 	// Advisor runtime lifecycle
 	// -------------------------------------------------------------------------

@@ -47,7 +47,7 @@ export class EventStore {
 
 	async append(event: SessionEvent): Promise<void> {
 		const file = this.getSessionFile(event.sessionId);
-		const line = JSON.stringify(event) + "\n";
+		const line = `${JSON.stringify(event)}\n`;
 		await fsp.appendFile(file, line, "utf-8");
 	}
 
@@ -63,7 +63,7 @@ export class EventStore {
 
 		for (const [sessionId, sessionEvents] of bySession) {
 			const file = this.getSessionFile(sessionId);
-			const lines = sessionEvents.map(e => JSON.stringify(e) + "\n").join("");
+			const lines = sessionEvents.map(e => `${JSON.stringify(e)}\n`).join("");
 			await fsp.appendFile(file, lines, "utf-8");
 		}
 	}
@@ -146,8 +146,6 @@ export class EventStore {
 
 	async listSessions(): Promise<string[]> {
 		const files = await fsp.readdir(this.dir);
-		return files
-			.filter(f => f.endsWith(".events.jsonl"))
-			.map(f => f.replace(".events.jsonl", ""));
+		return files.filter(f => f.endsWith(".events.jsonl")).map(f => f.replace(".events.jsonl", ""));
 	}
 }
