@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { installedEndorsedSkillNames, renderEndorsedSkills } from "../skills/endorsed-catalog";
 import { commandConsumed } from "./helpers/parse";
 import type {
 	ParsedSlashCommand,
@@ -67,7 +68,15 @@ async function runSkillCommand(
 	userArgs: readonly string[],
 	io: { writeln: (t?: string) => Promise<void> | void; writeErr: (t: string) => Promise<void> | void },
 	cwd: string,
+	installedSkills: readonly { name: string }[] = [],
 ): Promise<void> {
+	const [subcommand, ..._] = userArgs;
+	if (subcommand === "endorsed" || subcommand === "catalog" || subcommand === "recommended") {
+		const installed = new Set(installedSkills.map(skill => skill.name));
+		await io.writeln(renderEndorsedSkills(installedEndorsedSkillNames(installed)));
+		return;
+	}
+
 	const args = buildSkillsArgs(userArgs);
 	const isWindows = process.platform === "win32";
 
@@ -113,11 +122,12 @@ export const skillCommand: SlashCommandSpec = {
 		{ name: "install", description: "Install a skill" },
 		{ name: "uninstall", description: "Uninstall a skill" },
 		{ name: "list", description: "List installed skills" },
+		{ name: "endorsed", description: "Show the endorsed skills catalog with install status" },
 	],
 	handle: async (command: ParsedSlashCommand, runtime: SlashCommandRuntime): Promise<SlashCommandResult> => {
 		const userArgs = command.args.trim().split(/\s+/).filter(Boolean);
 		if (userArgs.length === 0) {
-			await runtime.output(`Usage: /skill <install|uninstall|list> [options]`);
+			await runtime.output(`Usage: /skill <install|uninstall|list|endorsed> [options]`);
 			return commandConsumed();
 		}
 
@@ -132,6 +142,7 @@ export const skillCommand: SlashCommandSpec = {
 				writeErr: async t => await runtime.output(`Error: ${t}`),
 			},
 			runtime.cwd,
+			runtime.session.skills,
 		);
 
 		return commandConsumed();
@@ -155,6 +166,7 @@ export const skillCommand: SlashCommandSpec = {
 				writeErr: t => runtime.ctx.showStatus(`Error: ${t}`),
 			},
 			runtime.ctx.sessionManager.getCwd(),
+			runtime.ctx.session.skills,
 		);
 		runtime.ctx.editor.setText("");
 	},
