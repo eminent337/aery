@@ -1,6 +1,5 @@
 import { Editor, type KeyId, matchesKey, parseKittySequence } from "@aryee337/aery-tui";
 import type { AppKeybinding } from "../../config/keybindings";
-import { highlightMagicKeywords } from "../magic-keywords";
 
 type ConfigurableEditorAction = Extract<
 	AppKeybinding,
