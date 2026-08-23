@@ -16,6 +16,10 @@ export interface AsyncJob {
 	promise: Promise<void>;
 	resultText?: string;
 	errorText?: string;
+	/** Output buffer — accumulated output for streaming read via bash_output */
+	outputBuffer: string;
+	/** Output delivered via onProgress — don't re-deliver via bash_output */
+	lastDeliveredIndex: number;
 	/**
 	 * Registry id of the agent that registered the job (e.g. "Main",
 	 * "AuthLoader"). Used by scoped cancel/list APIs so a subagent's teardown
@@ -143,10 +147,14 @@ export class AsyncJobManager {
 			label,
 			abortController,
 			promise: Promise.resolve(),
+			outputBuffer: "",
+			lastDeliveredIndex: 0,
 			ownerId: options?.ownerId,
 		};
 
 		const reportProgress = async (text: string, details?: Record<string, unknown>): Promise<void> => {
+			// Accumulate output for streaming read
+			job.outputBuffer = text;
 			if (!options?.onProgress) return;
 			try {
 				await options.onProgress(text, details);
@@ -293,6 +301,24 @@ export class AsyncJobManager {
 
 	async waitForAll(): Promise<void> {
 		await Promise.all(Array.from(this.#jobs.values()).map(job => job.promise));
+	}
+
+	/**
+	 * Read new output from a background job without blocking.
+	 * Returns output produced since the last read for that job.
+	 */
+	readOutput(jobId: string): { text: string; status: string; done: boolean } | null {
+		const job = this.#jobs.get(jobId);
+		if (!job) return null;
+		const fullOutput = job.outputBuffer;
+		const newText = fullOutput.slice(job.lastDeliveredIndex);
+		job.lastDeliveredIndex = fullOutput.length;
+		const done = job.status === "completed" || job.status === "failed" || job.status === "cancelled";
+		return {
+			text: newText,
+			status: job.status,
+			done,
+		};
 	}
 
 	async drainDeliveries(options?: { timeoutMs?: number; filter?: AsyncJobFilter }): Promise<boolean> {

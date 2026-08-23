@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import {
-	registerPreExecute,
-	registerPostExecute,
 	executeWithHooks,
+	registerPostExecute,
+	registerPreExecute,
 	ToolDenyError,
 } from "@aryee337/aery/hooks/tool-hooks";
+import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 
 function makeTool(name: string, result: AgentToolResult): AgentTool {
 	return {
@@ -24,11 +24,11 @@ describe("tool hooks", () => {
 
 	it("runs pre-execute hooks in order", async () => {
 		const calls: string[] = [];
-		registerPreExecute("test2", async (args) => {
+		registerPreExecute("test2", async args => {
 			calls.push("pre1");
 			return args;
 		});
-		registerPreExecute("test2", async (args) => {
+		registerPreExecute("test2", async args => {
 			calls.push("pre2");
 			return args;
 		});
@@ -40,11 +40,11 @@ describe("tool hooks", () => {
 
 	it("runs post-execute hooks in order", async () => {
 		const calls: string[] = [];
-		registerPostExecute("test3", async (result) => {
+		registerPostExecute("test3", async result => {
 			calls.push("post1");
 			return result;
 		});
-		registerPostExecute("test3", async (result) => {
+		registerPostExecute("test3", async result => {
 			calls.push("post2");
 			return result;
 		});
@@ -55,7 +55,7 @@ describe("tool hooks", () => {
 	});
 
 	it("pre-execute hook can modify args", async () => {
-		registerPreExecute("test4", async (_args) => {
+		registerPreExecute("test4", async _args => {
 			return { modified: true };
 		});
 
@@ -74,7 +74,7 @@ describe("tool hooks", () => {
 	});
 
 	it("post-execute hook can modify result", async () => {
-		registerPostExecute("test5", async (_result) => {
+		registerPostExecute("test5", async _result => {
 			return { content: [{ type: "text", text: "replaced" }] };
 		});
 
@@ -89,18 +89,16 @@ describe("tool hooks", () => {
 		});
 
 		const tool = makeTool("test6", { content: [{ type: "text", text: "should not run" }] });
-		await expect(executeWithHooks(tool, "call_6", {}, new AbortController().signal)).rejects.toThrow(
-			ToolDenyError,
-		);
+		await expect(executeWithHooks(tool, "call_6", {}, new AbortController().signal)).rejects.toThrow(ToolDenyError);
 	});
 
 	it("global hooks run for all tools", async () => {
 		const calls: string[] = [];
-		registerPreExecute("*", async (args) => {
+		registerPreExecute("*", async args => {
 			calls.push("global-pre");
 			return args;
 		});
-		registerPostExecute("*", async (result) => {
+		registerPostExecute("*", async result => {
 			calls.push("global-post");
 			return result;
 		});
@@ -112,7 +110,7 @@ describe("tool hooks", () => {
 
 	it("disposer unregisters hook", async () => {
 		const calls: string[] = [];
-		const dispose = registerPreExecute("test8", async (args) => {
+		const dispose = registerPreExecute("test8", async args => {
 			calls.push("hooked");
 			return args;
 		});

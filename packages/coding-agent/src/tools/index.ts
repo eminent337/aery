@@ -32,6 +32,7 @@ import { AskTool } from "./ask";
 import { AstEditTool } from "./ast-edit";
 import { AstGrepTool } from "./ast-grep";
 import { BashTool } from "./bash";
+import { BashOutputTool } from "./bash-output";
 import { BestOfNTool } from "./best-of-n";
 import { BrowserTool } from "./browser";
 import { type CheckpointState, CheckpointTool, RewindTool } from "./checkpoint";
@@ -98,6 +99,7 @@ export * from "./ask";
 export * from "./ast-edit";
 export * from "./ast-grep";
 export * from "./bash";
+export * from "./bash-output";
 export * from "./best-of-n";
 export * from "./browser";
 export * from "./checkpoint";
@@ -136,7 +138,6 @@ export * from "./set-fast";
 export * from "./set-model";
 export * from "./shadow";
 export * from "./ssh";
-
 export * from "./task-tracker";
 export * from "./todo-write";
 export * from "./tts";
@@ -476,6 +477,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	task_create: () => new TaskCreateTool(),
 	task_update: () => new TaskUpdateTool(),
 	task_stop: () => new TaskStopTool(),
+	bash_output: BashOutputTool.createIf,
 	task_get: () => new TaskGetTool(),
 	task_list: () => new TaskListTool(),
 	enter_plan_mode: s => new EnterPlanModeTool(s),

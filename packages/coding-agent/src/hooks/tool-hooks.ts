@@ -40,10 +40,7 @@ export interface ToolHookContext {
  * @returns Modified args (or the same args if no modification).
  * @throws {ToolDenyError} To deny the tool call.
  */
-export type PreExecuteHook = (
-	args: unknown,
-	ctx: ToolHookContext,
-) => Promise<unknown> | unknown;
+export type PreExecuteHook = (args: unknown, ctx: ToolHookContext) => Promise<unknown> | unknown;
 
 /**
  * Post-execute hook. Runs after the tool body settles.
