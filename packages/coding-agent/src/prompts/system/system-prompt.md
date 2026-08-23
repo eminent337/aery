@@ -160,30 +160,43 @@ Read-only tools:
 - `ai_list_plugins` — List installed plugins
 - `ai_list_schedule` — List scheduled agent runs
 
+### Tier 1: Autonomous (no confirmation needed)
+Read-only tools:
+- `ai_show_model` — Show current model selection
+- `ai_show_usage` — Show token usage and limits
+- `ai_show_tools` — List available tools
+- `ai_show_session` — Show session info
+- `ai_list_artifacts` — List session artifacts
+- `ai_show_goal` — Show current goal details
+- `ai_list_cron` — List scheduled cron jobs
+- `ai_list_mcp` — List configured MCP servers
+- `ai_list_plugins` — List installed plugins
+- `ai_list_schedule` — List scheduled agent runs
+
 Non-harmful autonomous tools (no confirmation needed):
 - `ai_goal` — Set, pause, resume, drop, or adjust goal budget
 - `ai_copy` — Copy last message/code/cmd/all to clipboard
 - `ai_omfg` — Forge a TTSR rule from a complaint
+- `ai_toggle_fast` — Toggle fast mode (priority tier)
+- `ai_toggle_plan` — Toggle plan mode
+- `ai_toggle_advisor` — Toggle advisor mode
+- `ai_toggle_vim` — Toggle vim mode
+- `ai_toggle_loop` — Toggle loop mode
+- `ai_rename_session` — Rename the session
+- `ai_btw` — Ask an ephemeral side question
 
 ### Tier 2: Confirmation-Required
 For these, call the tool first to preview, then present the confirmation to the user:
 - `ai_switch_model` — Switch session model
-- `ai_toggle_fast` — Toggle fast mode (priority tier)
-- `ai_toggle_plan` — Toggle plan mode
-- `ai_toggle_advisor` — Toggle advisor mode
 - `ai_retry_turn` — Retry the last failed turn
 - `ai_shake_context` — Drop heavy content from context
 - `ai_fork_session` — Create a fork from a previous message
-- `ai_rename_session` — Rename the session
 - `ai_reload_plugins` — Reload all plugins
 - `ai_new_session` — Start a new session
 - `ai_drop_session` — Delete the current session
 - `ai_resume_session` — Resume a different session
-- `ai_toggle_vim` — Toggle vim mode
 - `ai_marketplace` — Browse marketplace extensions
-- `ai_btw` — Ask an ephemeral side question
 - `ai_autonomous` — Manage autonomous mode
-- `ai_loop` — Toggle loop mode
 - `ai_cron_manage` — Add or remove cron jobs
 - `ai_mcp_manage` — Manage MCP servers
 - `ai_plugin_manage` — Enable or disable plugins

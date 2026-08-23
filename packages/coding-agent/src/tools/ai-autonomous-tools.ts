@@ -294,11 +294,11 @@ export class ToggleFastTool implements AgentTool<typeof toggleFastSchema> {
 	readonly name = "ai_toggle_fast";
 	readonly approval = "read" as const;
 	readonly label = "Toggle Fast Mode";
-	readonly description = "Toggle priority service tier.";
+	readonly description = "Toggle priority service tier. Non-harmful, no confirmation needed.";
 	readonly parameters = toggleFastSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Toggle fast mode (requires confirmation)";
+	readonly summary = "Toggle fast mode (autonomous)";
 	constructor(_session: ToolSession) {}
 	static createIf(session: ToolSession): ToggleFastTool | null { return new ToggleFastTool(session); }
 	async execute(_id: string, params: z.infer<typeof toggleFastSchema>): Promise<AgentToolResult> {
@@ -312,11 +312,11 @@ export class TogglePlanTool implements AgentTool<typeof togglePlanSchema> {
 	readonly name = "ai_toggle_plan";
 	readonly approval = "read" as const;
 	readonly label = "Toggle Plan Mode";
-	readonly description = "Toggle plan mode.";
+	readonly description = "Toggle plan mode. Non-harmful, no confirmation needed.";
 	readonly parameters = togglePlanSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Toggle plan mode (requires confirmation)";
+	readonly summary = "Toggle plan mode (autonomous)";
 	constructor(_session: ToolSession) {}
 	static createIf(session: ToolSession): TogglePlanTool | null { return new TogglePlanTool(session); }
 	async execute(_id: string, params: z.infer<typeof togglePlanSchema>): Promise<AgentToolResult> {
@@ -330,11 +330,11 @@ export class ToggleAdvisorTool implements AgentTool<typeof toggleAdvisorSchema> 
 	readonly name = "ai_toggle_advisor";
 	readonly approval = "read" as const;
 	readonly label = "Toggle Advisor";
-	readonly description = "Toggle the advisor.";
+	readonly description = "Toggle the advisor. Non-harmful, no confirmation needed.";
 	readonly parameters = toggleAdvisorSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Toggle advisor (requires confirmation)";
+	readonly summary = "Toggle advisor (autonomous)";
 	constructor(_session: ToolSession) {}
 	static createIf(session: ToolSession): ToggleAdvisorTool | null { return new ToggleAdvisorTool(session); }
 	async execute(_id: string, params: z.infer<typeof toggleAdvisorSchema>): Promise<AgentToolResult> {
@@ -403,11 +403,11 @@ export class RenameSessionTool implements AgentTool<typeof renameSchema> {
 	readonly name = "ai_rename_session";
 	readonly approval = "read" as const;
 	readonly label = "Rename Session";
-	readonly description = "Rename the current session.";
+	readonly description = "Rename the current session. Non-harmful, no confirmation needed.";
 	readonly parameters = renameSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Rename session (requires confirmation)";
+	readonly summary = "Rename session (autonomous)";
 	constructor(_session: ToolSession) {}
 	static createIf(session: ToolSession): RenameSessionTool | null { return new RenameSessionTool(session); }
 	async execute(_id: string, params: z.infer<typeof renameSchema>): Promise<AgentToolResult> {
@@ -489,11 +489,11 @@ export class ToggleVimTool implements AgentTool<typeof vimSchema> {
 	readonly name = "ai_toggle_vim";
 	readonly approval = "read" as const;
 	readonly label = "Toggle Vim";
-	readonly description = "Toggle Vim modal editing mode.";
+	readonly description = "Toggle Vim modal editing mode. Non-harmful, no confirmation needed.";
 	readonly parameters = vimSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Toggle vim mode (requires confirmation)";
+	readonly summary = "Toggle vim mode (autonomous)";
 	constructor(_session: ToolSession) {}
 	static createIf(session: ToolSession): ToggleVimTool | null { return new ToggleVimTool(session); }
 	async execute(_id: string, params: z.infer<typeof vimSchema>): Promise<AgentToolResult> {
@@ -507,11 +507,11 @@ export class BtwTool implements AgentTool<typeof btwSchema> {
 	readonly name = "ai_btw";
 	readonly approval = "read" as const;
 	readonly label = "BTW";
-	readonly description = "Ask an ephemeral side question.";
+	readonly description = "Ask an ephemeral side question. Non-harmful, no confirmation needed.";
 	readonly parameters = btwSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Ask side question (requires confirmation)";
+	readonly summary = "Ask side question (autonomous)";
 	constructor(_session: ToolSession) {}
 	static createIf(session: ToolSession): BtwTool | null { return new BtwTool(session); }
 	async execute(_id: string, params: z.infer<typeof btwSchema>): Promise<AgentToolResult> {
@@ -553,11 +553,11 @@ export class LoopModeTool implements AgentTool<typeof loopSchema> {
 	readonly name = "ai_loop";
 	readonly approval = "read" as const;
 	readonly label = "Loop Mode";
-	readonly description = "Toggle loop mode (re-submit prompt after each yield).";
+	readonly description = "Toggle loop mode (re-submit prompt after each yield). Non-harmful, no confirmation needed.";
 	readonly parameters = loopSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Toggle loop mode (requires confirmation)";
+	readonly summary = "Toggle loop mode (autonomous)";
 	constructor(_session: ToolSession) {}
 	static createIf(session: ToolSession): LoopModeTool | null { return new LoopModeTool(session); }
 	async execute(_id: string, params: z.infer<typeof loopSchema>): Promise<AgentToolResult> {
