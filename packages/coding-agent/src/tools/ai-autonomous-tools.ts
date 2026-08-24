@@ -46,21 +46,20 @@ const emptySchema = z.object({});
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Read-only tools
-export class ShowModelTool implements AgentTool<typeof confirmSchema> {
+export class ShowModelTool implements AgentTool<typeof emptySchema> {
 	readonly name = "ai_show_model";
 	readonly approval = "read" as const;
 	readonly label = "Show Model";
 	readonly description = "Show the currently selected model for this session.";
-	readonly parameters = confirmSchema;
+	readonly parameters = emptySchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Show current model selection (requires confirmation)";
+	readonly summary = "Show current model selection (autonomous)";
 	constructor(private readonly session: ToolSession) {}
 	static createIf(session: ToolSession): ShowModelTool | null {
 		return new ShowModelTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Show the current model?");
+	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
 		const modelState = this.session.getModelState?.();
 		if (!modelState) return successResult("Model state not available.");
 		return successResult(`Current model: ${modelState.currentModel ?? "none"}`);
