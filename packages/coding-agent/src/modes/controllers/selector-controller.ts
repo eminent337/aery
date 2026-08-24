@@ -51,6 +51,7 @@ import { AssistantMessageComponent } from "../components/assistant-message";
 import { CustomOpenAICompatibleMenuComponent } from "../components/custom-openai-menu";
 import { ExtensionDashboard } from "../components/extensions";
 import { HistorySearchComponent } from "../components/history-search";
+import { PluginMarketplaceHub } from "../components/marketplace/plugin-marketplace-hub";
 import { ModelSelectorComponent } from "../components/model-selector";
 import { OAuthSelectorComponent } from "../components/oauth-selector";
 import { PluginSelectorComponent } from "../components/plugin-selector";
@@ -1434,7 +1435,6 @@ export class SelectorController {
 			this.ctx.ui.requestRender();
 		};
 
-		const { PluginMarketplaceHub } = require("../components/marketplace/plugin-marketplace-hub");
 		const hub = new PluginMarketplaceHub(this.ctx.sessionManager.getCwd(), initialTab);
 		hub.onClose = done;
 		hub.onRequestRender = () => this.ctx.ui.requestRender();
