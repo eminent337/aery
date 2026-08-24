@@ -90,15 +90,21 @@ export * from "../exa";
 import { exaTools } from "../exa";
 import { CustomToolAdapter } from "../extensibility/custom-tools/wrapper";
 import {
+	AutoresearchCmdTool,
 	AutonomousModeTool,
 	AutoResearchTool,
-	BtwTool,
 	BrowserModeTool,
+	BtwTool,
 	ChangelogTool,
+	CommitPushPrTool,
+	CommitTool,
 	ConnectTool,
 	CopyTool,
 	CronManageTool,
+	DiffTool,
 	DropSessionTool,
+	EvalStatsTool,
+	ExecuteSlashTool,
 	ExportDumpTool,
 	FermentTool,
 	ForceToolTool,
@@ -133,6 +139,7 @@ import {
 	SSHManageTool,
 	SwitchModelTool,
 	TanTool,
+	ThinkingStepsTool,
 	ToggleAdvisorTool,
 	ToggleFastTool,
 	TogglePlanTool,
@@ -510,6 +517,8 @@ export interface ToolSession {
 	getAgentDir?: () => string | undefined;
 	/** Trigger a scheduled run immediately. */
 	triggerSchedule?: (jobId: string) => Promise<{ ok: boolean; error?: string }>;
+	/** Execute a slash command by line (e.g. "/commit", "/review", "/eval-stats"). */
+	executeSlashCommand?: (commandLine: string) => Promise<{ ok: boolean; output?: string; error?: string }>;
 	runRefine?: (params: {
 		action: "run" | "rollback";
 		global?: boolean;
@@ -647,8 +656,15 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	ai_plugin_manage: s => new PluginManageTool(s),
 	ai_refine: s => new RefineTool(s),
 	ai_force_tool: s => new ForceToolTool(s),
-	ai_review: () => new ReviewTool(),
-	ai_green: () => new GreenTool(),
+	ai_review: s => new ReviewTool(s),
+	ai_green: s => new GreenTool(s),
+	ai_commit: s => new CommitTool(s),
+	ai_commit_push_pr: s => new CommitPushPrTool(s),
+	ai_diff: s => new DiffTool(s),
+	ai_autoresearch_cmd: s => new AutoresearchCmdTool(s),
+	ai_thinking_steps: s => new ThinkingStepsTool(s),
+	ai_eval_stats: s => new EvalStatsTool(s),
+	ai_execute_slash: s => new ExecuteSlashTool(s),
 	ai_session_manage: s => new SessionManageTool(s),
 	ai_tan: s => new TanTool(s),
 	ai_omfg: s => new OmfgTool(s),

@@ -172,6 +172,7 @@ import { ExtensionToolWrapper } from "../extensibility/extensions/wrapper";
 import type { HookCommandContext } from "../extensibility/hooks/types";
 import type { Skill, SkillWarning } from "../extensibility/skills";
 import { expandSlashCommand, type FileSlashCommand } from "../extensibility/slash-commands";
+import { executeBuiltinSlashCommand } from "../slash-commands/builtin-registry";
 import { GoalRuntime } from "../goals/runtime";
 import type { Goal, GoalModeState } from "../goals/state";
 import type { HindsightSessionState } from "../hindsight/state";
@@ -5070,6 +5071,34 @@ export class AgentSession {
 			}
 			return ""; // Command was handled (with error)
 		}
+	}
+
+	/**
+	 * Execute a slash command (extension command, custom command, or builtin).
+	 * Returns ok true/false with output or error message.
+	 */
+	async executeSlashCommand(text: string): Promise<{ ok: boolean; output?: string; error?: string }> {
+		const trimmed = text.trim();
+		if (!trimmed) return { ok: false, error: "Empty command." };
+		const commandText = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+
+		// Try extension command first
+		const extResult = await this.#tryExecuteExtensionCommand(commandText);
+		if (extResult) return { ok: true };
+
+		// Try custom command / MCP prompt command
+		const customResult = await this.#tryExecuteCustomCommand(commandText);
+		if (customResult !== null) return { ok: true, output: customResult || undefined };
+
+		// Try builtin slash command
+		const slashResult = await executeBuiltinSlashCommand(commandText, {
+			ctx: this.#createCommandContext() as any,
+			handleBackgroundCommand: () => {},
+		});
+		if (slashResult === true) return { ok: true };
+		if (typeof slashResult === "string") return { ok: true, output: slashResult };
+
+		return { ok: false, error: `Command not found or non-executable: ${text}` };
 	}
 
 	/**

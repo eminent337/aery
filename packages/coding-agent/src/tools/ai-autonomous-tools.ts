@@ -1410,14 +1410,20 @@ export class ReviewTool implements AgentTool<typeof reviewSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Interactive code review launcher";
 
+	constructor(private readonly session?: ToolSession) {}
+
 	static createIf(session: ToolSession): ReviewTool | null {
-		return new ReviewTool();
+		return new ReviewTool(session);
 	}
 
 	async execute(_id: string, params: z.infer<typeof reviewSchema>): Promise<AgentToolResult> {
 		const mode = params.mode ?? "branch";
 		if (!params.confirmed) {
 			return confirmNeeded(`Review code (${mode})?`, { tool: "review", mode });
+		}
+		if (this.session?.executeSlashCommand) {
+			const res = await this.session.executeSlashCommand(`/review ${params.focus ?? ""}`);
+			if (res.ok) return successResult(res.output ?? `Code review initiated (${mode}).`, { tool: "review", mode });
 		}
 		return successResult(`Code review initiated (${mode}).`, { tool: "review", mode });
 	}
@@ -1437,8 +1443,10 @@ export class GreenTool implements AgentTool<typeof greenSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Iterate on CI failures until green";
 
+	constructor(private readonly session?: ToolSession) {}
+
 	static createIf(session: ToolSession): GreenTool | null {
-		return new GreenTool();
+		return new GreenTool(session);
 	}
 
 	async execute(_id: string, params: z.infer<typeof greenSchema>): Promise<AgentToolResult> {
@@ -1447,6 +1455,11 @@ export class GreenTool implements AgentTool<typeof greenSchema> {
 				tool: "green",
 				focus: params.focus,
 			});
+		}
+		if (this.session?.executeSlashCommand) {
+			const res = await this.session.executeSlashCommand(`/green ${params.focus ?? ""}`);
+			if (res.ok)
+				return successResult(res.output ?? "CI green iteration initiated.", { tool: "green", focus: params.focus });
 		}
 		return successResult("CI green iteration initiated.", { tool: "green", focus: params.focus });
 	}
@@ -1601,5 +1614,186 @@ export class SSHManageTool implements AgentTool<typeof sshManageSchema> {
 			return successResult(`SSH ${params.action} failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 		return successResult("SSH command completed.");
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom & Hook Slash Command Wrappers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const commitSchema = confirmSchema.extend({
+	context: z.string().optional().describe("Optional context or commit hint message"),
+});
+export class CommitTool implements AgentTool<typeof commitSchema> {
+	readonly name = "ai_commit";
+	readonly approval = "write" as const;
+	readonly label = "Commit Changes";
+	readonly description = "Stage changes and commit with an AI-generated message (autonomous with confirmation).";
+	readonly parameters = commitSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Stage and commit changes (requires confirmation)";
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): CommitTool | null {
+		return new CommitTool(session);
+	}
+	async execute(_id: string, params: z.infer<typeof commitSchema>): Promise<AgentToolResult> {
+		if (!params.confirmed) return confirmNeeded("Stage changes and commit?");
+		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
+		const res = await this.session.executeSlashCommand(`/commit ${params.context ?? ""}`);
+		return res.ok
+			? successResult(res.output ?? "Commit command executed.")
+			: successResult(res.error ?? "Commit command failed.");
+	}
+}
+
+const commitPushPrSchema = confirmSchema.extend({
+	hint: z.string().optional().describe("Optional hint or description for the PR"),
+});
+export class CommitPushPrTool implements AgentTool<typeof commitPushPrSchema> {
+	readonly name = "ai_commit_push_pr";
+	readonly approval = "write" as const;
+	readonly label = "Commit Push PR";
+	readonly description = "Commit, push to remote, and create a GitHub PR (autonomous with confirmation).";
+	readonly parameters = commitPushPrSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Commit, push, and create PR (requires confirmation)";
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): CommitPushPrTool | null {
+		return new CommitPushPrTool(session);
+	}
+	async execute(_id: string, params: z.infer<typeof commitPushPrSchema>): Promise<AgentToolResult> {
+		if (!params.confirmed) return confirmNeeded("Commit, push, and create PR?");
+		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
+		const res = await this.session.executeSlashCommand(`/commit-push-pr ${params.hint ?? ""}`);
+		return res.ok
+			? successResult(res.output ?? "Commit-push-PR command executed.")
+			: successResult(res.error ?? "Commit-push-PR command failed.");
+	}
+}
+
+export class DiffTool implements AgentTool<typeof emptySchema> {
+	readonly name = "ai_diff";
+	readonly approval = "read" as const;
+	readonly label = "Show Diff";
+	readonly description = "Show uncommitted changes and git diff summary (autonomous).";
+	readonly parameters = emptySchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Show uncommitted diff";
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): DiffTool | null {
+		return new DiffTool(session);
+	}
+	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
+		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
+		const res = await this.session.executeSlashCommand("/diff");
+		return res.ok
+			? successResult(res.output ?? "Diff displayed.")
+			: successResult(res.error ?? "Diff command failed.");
+	}
+}
+
+const autoresearchCmdSchema = confirmSchema.extend({
+	args: z.string().optional().describe("Arguments for the autoresearch command"),
+});
+export class AutoresearchCmdTool implements AgentTool<typeof autoresearchCmdSchema> {
+	readonly name = "ai_autoresearch_cmd";
+	readonly approval = "write" as const;
+	readonly label = "Autoresearch Command";
+	readonly description = "Toggle or configure builtin autoresearch mode.";
+	readonly parameters = autoresearchCmdSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Run autoresearch command (requires confirmation)";
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): AutoresearchCmdTool | null {
+		return new AutoresearchCmdTool(session);
+	}
+	async execute(_id: string, params: z.infer<typeof autoresearchCmdSchema>): Promise<AgentToolResult> {
+		if (!params.confirmed) return confirmNeeded("Run autoresearch command?");
+		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
+		const res = await this.session.executeSlashCommand(`/autoresearch ${params.args ?? ""}`);
+		return res.ok
+			? successResult(res.output ?? "Autoresearch command executed.")
+			: successResult(res.error ?? "Autoresearch command failed.");
+	}
+}
+
+const thinkingStepsSchema = confirmSchema.extend({
+	mode: z.string().optional().describe("Mode: collapsed, expanded, or off"),
+});
+export class ThinkingStepsTool implements AgentTool<typeof thinkingStepsSchema> {
+	readonly name = "ai_thinking_steps";
+	readonly approval = "write" as const;
+	readonly label = "Thinking Steps";
+	readonly description = "Toggle thinking steps display: /thinking-steps [collapsed|expanded|off]";
+	readonly parameters = thinkingStepsSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Toggle thinking steps display";
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ThinkingStepsTool | null {
+		return new ThinkingStepsTool(session);
+	}
+	async execute(_id: string, params: z.infer<typeof thinkingStepsSchema>): Promise<AgentToolResult> {
+		if (!params.confirmed) return confirmNeeded(`Set thinking steps to ${params.mode ?? "toggle"}?`);
+		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
+		const res = await this.session.executeSlashCommand(`/thinking-steps ${params.mode ?? ""}`);
+		return res.ok
+			? successResult(res.output ?? "Thinking steps updated.")
+			: successResult(res.error ?? "Thinking steps command failed.");
+	}
+}
+
+export class EvalStatsTool implements AgentTool<typeof emptySchema> {
+	readonly name = "ai_eval_stats";
+	readonly approval = "read" as const;
+	readonly label = "Eval Stats";
+	readonly description = "Show current eval benchmark statistics.";
+	readonly parameters = emptySchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Show eval benchmark stats";
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): EvalStatsTool | null {
+		return new EvalStatsTool(session);
+	}
+	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
+		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
+		const res = await this.session.executeSlashCommand("/eval-stats");
+		return res.ok
+			? successResult(res.output ?? "Eval stats displayed.")
+			: successResult(res.error ?? "Eval stats command failed.");
+	}
+}
+
+const executeSlashSchema = confirmSchema.extend({
+	command: z.string().describe("Slash command name (with or without leading slash)"),
+	args: z.string().optional().describe("Command arguments string"),
+});
+export class ExecuteSlashTool implements AgentTool<typeof executeSlashSchema> {
+	readonly name = "ai_execute_slash";
+	readonly approval = "write" as const;
+	readonly label = "Execute Custom Slash Command";
+	readonly description = "Execute any registered custom, hook, or extension slash command by name and args.";
+	readonly parameters = executeSlashSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Execute custom/extension slash command (requires confirmation)";
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ExecuteSlashTool | null {
+		return new ExecuteSlashTool(session);
+	}
+	async execute(_id: string, params: z.infer<typeof executeSlashSchema>): Promise<AgentToolResult> {
+		const cmdName = params.command.startsWith("/") ? params.command : `/${params.command}`;
+		const fullCmd = `${cmdName}${params.args ? ` ${params.args}` : ""}`;
+		if (!params.confirmed) return confirmNeeded(`Execute slash command '${fullCmd}'?`);
+		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
+		const res = await this.session.executeSlashCommand(fullCmd);
+		return res.ok
+			? successResult(res.output ?? `Command '${fullCmd}' executed successfully.`)
+			: successResult(res.error ?? `Execution of '${fullCmd}' failed.`);
 	}
 }

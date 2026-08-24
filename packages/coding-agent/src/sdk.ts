@@ -1631,6 +1631,14 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				return { ok: false, error: error instanceof Error ? error.message : String(error) };
 			}
 		};
+		toolSession.executeSlashCommand = async commandLine => {
+			if (!session) return { ok: false, error: "No active session." };
+			try {
+				return await session.executeSlashCommand(commandLine);
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
 		toolSession.runRefine = async params => {
 			if (!session) return { ok: false, error: "No active session." };
 			try {

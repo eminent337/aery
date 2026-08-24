@@ -19,21 +19,29 @@ import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES, BUILTIN_SLASH_COMMANDS } from "..
 const TUI_HIDDEN_SLASH_COMMANDS: Record<string, true> = {
 	advisor: true,
 	artifact: true,
+	autoresearch: true,
 	autonomous: true,
 	browser: true,
 	btw: true,
 	changelog: true,
+	commit: true,
+	"commit-push-pr": true,
 	connect: true,
 	copy: true,
 	cron: true,
+	diff: true,
+	"dir-entry-ext": true,
 	drop: true,
 	dump: true,
+	eval: true,
+	"eval-stats": true,
 	export: true,
 	fast: true,
 	ferment: true,
 	force: true,
 	fork: true,
 	goal: true,
+	green: true,
 	handoff: true,
 	loop: true,
 	marketplace: true,
@@ -48,6 +56,7 @@ const TUI_HIDDEN_SLASH_COMMANDS: Record<string, true> = {
 	rename: true,
 	resume: true,
 	retry: true,
+	review: true,
 	schedule: true,
 	session: true,
 	shake: true,
@@ -55,6 +64,7 @@ const TUI_HIDDEN_SLASH_COMMANDS: Record<string, true> = {
 	ssh: true,
 	switch: true,
 	tan: true,
+	"thinking-steps": true,
 	tools: true,
 	usage: true,
 	vim: true,
@@ -97,23 +107,31 @@ export class SlashCommandResolver {
 		const builtins = this.resolveBuiltinCommands();
 
 		const runner = this.extensionRunner ?? this.session.extensionRunner;
-		const hookCommands: SlashCommand[] = (
-			runner?.getRegisteredCommands(BUILTIN_SLASH_COMMAND_RESERVED_NAMES) ?? []
-		).map(cmd => ({
-			name: cmd.name,
-			description: cmd.description ?? "(hook command)",
-			getArgumentCompletions: cmd.getArgumentCompletions,
-			category: "custom" as const,
-		}));
+		const hookCommands: SlashCommand[] = (runner?.getRegisteredCommands(BUILTIN_SLASH_COMMAND_RESERVED_NAMES) ?? [])
+			.filter(cmd => !TUI_HIDDEN_SLASH_COMMANDS[cmd.name])
+			.map(cmd => ({
+				name: cmd.name,
+				description: cmd.description ?? "(hook command)",
+				getArgumentCompletions: cmd.getArgumentCompletions,
+				category: "custom" as const,
+			}));
 
-		const customCommands: SlashCommand[] = this.session.customCommands.map(loaded => ({
-			name: loaded.command.name,
-			description: `${loaded.command.description} (${loaded.source})`,
-			category: "custom" as const,
-		}));
+		const customCommands: SlashCommand[] = this.session.customCommands
+			.filter(loaded => !TUI_HIDDEN_SLASH_COMMANDS[loaded.command.name])
+			.map(loaded => ({
+				name: loaded.command.name,
+				description: `${loaded.command.description} (${loaded.source})`,
+				category: "custom" as const,
+			}));
 
 		const skillCommandList: SlashCommand[] = [];
-		if (settings.get("skills.enableSkillCommands")) {
+		let enableSkills = true;
+		try {
+			enableSkills = !!settings.get("skills.enableSkillCommands");
+		} catch {
+			enableSkills = true;
+		}
+		if (enableSkills) {
 			for (const skill of this.session.skills) {
 				const commandName = `skill:${skill.name}`;
 				skillCommandList.push({
@@ -124,7 +142,9 @@ export class SlashCommandResolver {
 			}
 		}
 
-		const fileCommands = preloadedFileCommands ?? (await this.resolveFileCommands(cwd));
+		const fileCommands = (preloadedFileCommands ?? (await this.resolveFileCommands(cwd))).filter(
+			cmd => !TUI_HIDDEN_SLASH_COMMANDS[cmd.name],
+		);
 
 		const reservedNames = new Set<string>([
 			...builtins.map(cmd => cmd.name),
