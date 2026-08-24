@@ -1434,6 +1434,21 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			options.parentTaskPrefix ? { parentPrefix: options.parentTaskPrefix } : undefined,
 		);
 
+		// AI-autonomous tool backing — route each to the real AgentSession/sessionManager call.
+		toolSession.getAutonomousRuntime = () => session?.getAutonomousRuntime();
+		toolSession.newSession = async options => (session ? await session.newSession(options) : false);
+		toolSession.fork = async () => (session ? await session.fork() : false);
+		toolSession.retry = async () => (session ? await session.retry() : false);
+		toolSession.shake = async (mode, opts) =>
+			session ? await session.shake(mode, { signal: opts?.signal }) : undefined;
+		toolSession.exportToHtml = async outputPath => (session ? await session.exportToHtml(outputPath) : "");
+		toolSession.setPlanModeState = state => session?.setPlanModeState(state);
+		toolSession.setSessionName = async (name, source) =>
+			session ? await session.setSessionName(name, source) : false;
+		toolSession.dropSession = async () => (session ? await session.newSession({ drop: true }) : false);
+		toolSession.commitSession = async () => await sessionManager.flush();
+		toolSession.setForcedToolChoice = toolName => session?.setForcedToolChoice(toolName);
+
 		// Create built-in tools (already wrapped with meta notice formatting)
 		const builtinTools = await logger.time("createAllTools", createTools, toolSession, options.toolNames);
 

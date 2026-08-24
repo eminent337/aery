@@ -53,7 +53,9 @@ export class ShowModelTool implements AgentTool<typeof emptySchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Show current model selection";
 	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): ShowModelTool | null { return new ShowModelTool(session); }
+	static createIf(session: ToolSession): ShowModelTool | null {
+		return new ShowModelTool(session);
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
 		const modelState = this.session.getModelState?.();
 		if (!modelState) return successResult("Model state not available.");
@@ -71,7 +73,9 @@ export class ShowUsageTool implements AgentTool<typeof emptySchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Show token usage and limits";
 	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): ShowUsageTool | null { return new ShowUsageTool(session); }
+	static createIf(session: ToolSession): ShowUsageTool | null {
+		return new ShowUsageTool(session);
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
 		const usage = this.session.getContextUsage?.();
 		if (!usage) return successResult("Usage data not available.");
@@ -88,10 +92,15 @@ export class ShowToolsTool implements AgentTool<typeof emptySchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Show available tools";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ShowToolsTool | null { return new ShowToolsTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ShowToolsTool | null {
+		return new ShowToolsTool(session);
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
-		return successResult("Tool listing requires session-level registry access.");
+		const tools = this.session.getDiscoverableTools?.();
+		if (!tools) return successResult("Tool listing requires session-level registry access.");
+		const names = tools.map(tool => tool.name).sort();
+		return successResult(`${names.length} tools available:\n${names.join("\n")}`, { count: names.length, names });
 	}
 }
 
@@ -105,10 +114,19 @@ export class ShowSessionTool implements AgentTool<typeof emptySchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Show session info";
 	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): ShowSessionTool | null { return new ShowSessionTool(session); }
+	static createIf(session: ToolSession): ShowSessionTool | null {
+		return new ShowSessionTool(session);
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
 		const sessionId = this.session.getSessionId?.() ?? "unknown";
-		return successResult(`Session: ${sessionId}`);
+		const model = this.session.getActiveModelString?.() ?? "unknown";
+		const stats = this.session.getUsageStatistics?.();
+		let line = `Session: ${sessionId}\nModel: ${model}`;
+		if (stats) {
+			line += `\nTokens: in=${stats.input} out=${stats.output}`;
+			line += `\nCost: $${stats.cost.toFixed(4)}`;
+		}
+		return successResult(line, { sessionId, model });
 	}
 }
 
@@ -122,11 +140,15 @@ export class ListArtifactsTool implements AgentTool<typeof emptySchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "List session artifacts";
 	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): ListArtifactsTool | null { return new ListArtifactsTool(session); }
+	static createIf(session: ToolSession): ListArtifactsTool | null {
+		return new ListArtifactsTool(session);
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
 		const dir = this.session.getArtifactsDir?.();
 		if (!dir) return successResult("No artifacts directory configured.");
-		return successResult(`Artifacts: ${dir}`);
+		const manager = this.session.getArtifactManager?.();
+		const files = manager ? await manager.listFiles() : [];
+		return successResult(`Artifacts: ${dir} (${files.length} files)`, { dir, count: files.length });
 	}
 }
 
@@ -140,11 +162,15 @@ export class ShowGoalTool implements AgentTool<typeof emptySchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Show current goal";
 	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): ShowGoalTool | null { return new ShowGoalTool(session); }
+	static createIf(session: ToolSession): ShowGoalTool | null {
+		return new ShowGoalTool(session);
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
 		const goalState = this.session.getGoalModeState?.();
 		if (!goalState) return successResult("Goal state not available.");
-		return successResult(`Goal: ${goalState.goal?.objective ?? "None"} (${goalState.enabled ? "active" : "inactive"})`);
+		return successResult(
+			`Goal: ${goalState.goal?.objective ?? "None"} (${goalState.enabled ? "active" : "inactive"})`,
+		);
 	}
 }
 
@@ -157,10 +183,13 @@ export class ListCronTool implements AgentTool<typeof emptySchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "List cron jobs";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ListCronTool | null { return new ListCronTool(session); }
+	static createIf(session: ToolSession): ListCronTool | null {
+		return new ListCronTool();
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
-		return successResult("Cron jobs listed.");
+		return successResult("Cron job listing is a TUI surface (see /cron); not available as an agent tool here.", {
+			unsupported: true,
+		});
 	}
 }
 
@@ -173,10 +202,18 @@ export class ListMcpTool implements AgentTool<typeof emptySchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "List MCP servers";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ListMcpTool | null { return new ListMcpTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ListMcpTool | null {
+		return new ListMcpTool(session);
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
-		return successResult("MCP servers listed.");
+		const manager = this.session.mcpManager;
+		if (!manager) return successResult("MCP manager not available in this session.");
+		const names = manager.getAllServerNames();
+		return successResult(
+			names.length > 0 ? `MCP servers (${names.length}):\n${names.join("\n")}` : "No MCP servers configured.",
+			{ servers: names },
+		);
 	}
 }
 
@@ -189,10 +226,13 @@ export class ListPluginsTool implements AgentTool<typeof emptySchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "List plugins";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ListPluginsTool | null { return new ListPluginsTool(session); }
+	static createIf(session: ToolSession): ListPluginsTool | null {
+		return new ListPluginsTool();
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
-		return successResult("Plugins listed.");
+		return successResult("Plugin listing is a TUI surface (see /plugins); not available as an agent tool here.", {
+			unsupported: true,
+		});
 	}
 }
 
@@ -205,10 +245,14 @@ export class ListScheduleTool implements AgentTool<typeof emptySchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "List schedules";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ListScheduleTool | null { return new ListScheduleTool(session); }
+	static createIf(session: ToolSession): ListScheduleTool | null {
+		return new ListScheduleTool();
+	}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
-		return successResult("Schedules listed.");
+		return successResult(
+			"Scheduled-run listing is a TUI surface (see /schedule); not available as an agent tool here.",
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -228,9 +272,41 @@ export class GoalModeTool implements AgentTool<typeof goalSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Set/pause/resume/drop goal (autonomous)";
 	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): GoalModeTool | null { return new GoalModeTool(session); }
+	static createIf(session: ToolSession): GoalModeTool | null {
+		return new GoalModeTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof goalSchema>): Promise<AgentToolResult> {
-		return successResult(`Goal ${params.action} executed.${params.objective ? ` "${params.objective}"` : ""}`);
+		const runtime = this.session.getGoalRuntime?.();
+		if (!runtime) return successResult("Goal runtime not available in this session.");
+		try {
+			switch (params.action) {
+				case "set": {
+					if (!params.objective) return successResult("Goal set requires an objective.", { needsObjective: true });
+					const state = await runtime.createGoal({ objective: params.objective, tokenBudget: params.budget });
+					return successResult(`Goal set: "${state.goal.objective}".`, { objective: state.goal.objective });
+				}
+				case "pause":
+					return successResult((await runtime.pauseGoal()) ? "Goal paused." : "No active goal to pause.");
+				case "resume": {
+					const state = await runtime.resumeGoal();
+					return successResult(
+						state?.goal ? `Goal resumed: "${state.goal.objective}".` : "No paused goal to resume.",
+					);
+				}
+				case "drop": {
+					const goal = await runtime.dropGoal();
+					return successResult(goal ? "Goal dropped." : "No goal to drop.");
+				}
+				case "budget": {
+					const state = await runtime.onBudgetMutated(params.budget);
+					return successResult(
+						state ? `Budget updated to ${params.budget ?? "unbounded"}.` : "No goal to budget.",
+					);
+				}
+			}
+		} catch (error) {
+			return successResult(`Goal operation failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 }
 
@@ -246,10 +322,14 @@ export class CopyTool implements AgentTool<typeof copySchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Copy to clipboard (autonomous)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): CopyTool | null { return new CopyTool(session); }
+	static createIf(session: ToolSession): CopyTool | null {
+		return new CopyTool();
+	}
 	async execute(_id: string, params: z.infer<typeof copySchema>): Promise<AgentToolResult> {
-		return successResult(`Copied ${params.what}.`);
+		return successResult(
+			`Clipboard copy (${params.what}) is a TUI action (see /copy); not available as an agent tool here.`,
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -258,15 +338,20 @@ export class OmfgTool implements AgentTool<typeof omfgSchema> {
 	readonly name = "ai_omfg";
 	readonly approval = "read" as const;
 	readonly label = "OMFG";
-	readonly description = "Forge a TTSR rule from a complaint to stop a recurring behavior. Non-harmful, no confirmation needed.";
+	readonly description =
+		"Forge a TTSR rule from a complaint to stop a recurring behavior. Non-harmful, no confirmation needed.";
 	readonly parameters = omfgSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Create rule from complaint (autonomous)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): OmfgTool | null { return new OmfgTool(session); }
+	static createIf(session: ToolSession): OmfgTool | null {
+		return new OmfgTool();
+	}
 	async execute(_id: string, params: z.infer<typeof omfgSchema>): Promise<AgentToolResult> {
-		return successResult("Rule forged from complaint.");
+		return successResult(
+			"TTSR rule forging is an interactive TUI flow (see /omfg); not available as an agent tool here.",
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -285,10 +370,20 @@ export class SwitchModelTool implements AgentTool<typeof switchModelSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Switch session model (requires confirmation)";
 	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): SwitchModelTool | null { return new SwitchModelTool(session); }
+	static createIf(session: ToolSession): SwitchModelTool | null {
+		return new SwitchModelTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof switchModelSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Switch model to ${params.model}?`);
-		return successResult(`Model switched to ${params.model}.`);
+		if (!this.session.setModel) return successResult("Model switching is not available in this session.");
+		try {
+			const result = await this.session.setModel({ model: params.model });
+			return successResult(`Model switched to ${result.applied}. Takes effect on the next turn.`, {
+				applied: result.applied,
+			});
+		} catch (error) {
+			return successResult(`Model switch failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 }
 
@@ -302,11 +397,21 @@ export class ToggleFastTool implements AgentTool<typeof toggleFastSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Toggle fast mode (autonomous)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ToggleFastTool | null { return new ToggleFastTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ToggleFastTool | null {
+		return new ToggleFastTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof toggleFastSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Turn fast mode ${params.enabled}?`);
-		return successResult(`Fast mode ${params.enabled}.`);
+		if (params.confirmed && this.session.setFastMode) {
+			this.session.setFastMode(params.enabled === "on");
+		}
+		const state = this.session.getFastModeState?.();
+		const enabled = state?.enabled ? "yes" : "no";
+		const active = state?.active ? "yes" : "no";
+		return successResult(`Fast mode: enabled=${enabled}, active=${active}.`, {
+			enabled: state?.enabled ?? false,
+			active: state?.active ?? false,
+		});
 	}
 }
 
@@ -320,11 +425,24 @@ export class TogglePlanTool implements AgentTool<typeof togglePlanSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Toggle plan mode (autonomous)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): TogglePlanTool | null { return new TogglePlanTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): TogglePlanTool | null {
+		return new TogglePlanTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof togglePlanSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Turn plan mode ${params.enabled}?`);
-		return successResult(`Plan mode ${params.enabled}.`);
+		if (params.confirmed && this.session.setPlanModeState) {
+			const current = this.session.getPlanModeState?.();
+			const next = params.enabled === "toggle" ? !(current?.enabled ?? false) : params.enabled === "on";
+			this.session.setPlanModeState({
+				enabled: next,
+				planFilePath: current?.planFilePath ?? "",
+				workflow: current?.workflow,
+			});
+		}
+		const current = this.session.getPlanModeState?.();
+		return successResult(`Plan mode: enabled=${current?.enabled ? "yes" : "no"}.`, {
+			enabled: current?.enabled ?? false,
+		});
 	}
 }
 
@@ -338,11 +456,21 @@ export class ToggleAdvisorTool implements AgentTool<typeof toggleAdvisorSchema> 
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Toggle advisor (autonomous)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ToggleAdvisorTool | null { return new ToggleAdvisorTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ToggleAdvisorTool | null {
+		return new ToggleAdvisorTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof toggleAdvisorSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Turn advisor ${params.enabled}?`);
-		return successResult(`Advisor ${params.enabled}.`);
+		if (params.confirmed && this.session.setAdvisorEnabled) {
+			this.session.setAdvisorEnabled(params.enabled === "on");
+		}
+		const state = this.session.getAdvisorState?.();
+		const configured = state?.configured ? "yes" : "no";
+		const active = state?.active ? "yes" : "no";
+		return successResult(`Advisor: configured=${configured}, active=${active}.`, {
+			configured: state?.configured ?? false,
+			active: state?.active ?? false,
+		});
 	}
 }
 
@@ -356,11 +484,17 @@ export class RetryTurnTool implements AgentTool<typeof retrySchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Retry last failed turn (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): RetryTurnTool | null { return new RetryTurnTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): RetryTurnTool | null {
+		return new RetryTurnTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof retrySchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded("Retry the last failed turn?");
-		return successResult("Last turn retried.");
+		if (!this.session.retry) return successResult("Retry is not available in this session.");
+		const started = await this.session.retry();
+		return successResult(
+			started ? "Retry initiated for the last failed turn." : "No failed turn to retry (or agent is busy).",
+		);
 	}
 }
 
@@ -374,11 +508,15 @@ export class ShakeContextTool implements AgentTool<typeof shakeSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Shake heavy content (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ShakeContextTool | null { return new ShakeContextTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ShakeContextTool | null {
+		return new ShakeContextTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof shakeSchema>): Promise<AgentToolResult> {
 		const mode = params.mode ?? "elide";
 		if (!params.confirmed) return confirmNeeded(`Shake context (${mode})?`);
+		if (!this.session.shake) return successResult("Shake is not available in this session.");
+		await this.session.shake(mode);
 		return successResult(`Context shaken (${mode}).`);
 	}
 }
@@ -393,11 +531,15 @@ export class ForkSessionTool implements AgentTool<typeof forkSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Fork session (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ForkSessionTool | null { return new ForkSessionTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ForkSessionTool | null {
+		return new ForkSessionTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof forkSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded("Create a fork from the previous message?");
-		return successResult("Fork created.");
+		if (!this.session.fork) return successResult("Forking is not available in this session.");
+		const done = await this.session.fork();
+		return successResult(done ? "Session forked into a new session file." : "Fork cancelled (hook or persistence).");
 	}
 }
 
@@ -411,11 +553,15 @@ export class RenameSessionTool implements AgentTool<typeof renameSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Rename session (autonomous)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): RenameSessionTool | null { return new RenameSessionTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): RenameSessionTool | null {
+		return new RenameSessionTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof renameSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Rename session to "${params.title}"?`);
-		return successResult(`Session renamed to "${params.title}".`);
+		if (!this.session.setSessionName) return successResult("Session rename is not available here.");
+		const done = await this.session.setSessionName(params.title, "user");
+		return successResult(done ? `Session renamed to "${params.title}".` : "Session rename failed.");
 	}
 }
 
@@ -428,11 +574,15 @@ export class ReloadPluginsTool implements AgentTool<typeof confirmSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Reload plugins (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ReloadPluginsTool | null { return new ReloadPluginsTool(session); }
+	static createIf(session: ToolSession): ReloadPluginsTool | null {
+		return new ReloadPluginsTool();
+	}
 	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded("Reload all plugins?");
-		return successResult("Plugins reloaded.");
+		return successResult(
+			"Plugin reload is a TUI action (see /reload-plugins); not available as an agent tool here.",
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -445,11 +595,15 @@ export class NewSessionTool implements AgentTool<typeof confirmSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Start new session (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): NewSessionTool | null { return new NewSessionTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): NewSessionTool | null {
+		return new NewSessionTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded("Start a new session?");
-		return successResult("New session started.");
+		if (!this.session.newSession) return successResult("New session is not available in this session.");
+		const done = await this.session.newSession();
+		return successResult(done ? "New session started." : "New session cancelled (hook).");
 	}
 }
 
@@ -462,11 +616,15 @@ export class DropSessionTool implements AgentTool<typeof confirmSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Drop session (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): DropSessionTool | null { return new DropSessionTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): DropSessionTool | null {
+		return new DropSessionTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded("Delete the current session?");
-		return successResult("Session dropped.");
+		if (!this.session.dropSession) return successResult("Drop session is not available here.");
+		const done = await this.session.dropSession();
+		return successResult(done ? "Session deleted and a new session started." : "Drop cancelled (hook).");
 	}
 }
 
@@ -479,11 +637,15 @@ export class ResumeSessionTool implements AgentTool<typeof confirmSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Resume session (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ResumeSessionTool | null { return new ResumeSessionTool(session); }
+	static createIf(session: ToolSession): ResumeSessionTool | null {
+		return new ResumeSessionTool();
+	}
 	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded("Resume a different session?");
-		return successResult("Session resumed.");
+		return successResult(
+			"Session resume is a TUI action (see /resume); not directly available as an agent tool here.",
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -497,8 +659,9 @@ export class ToggleVimTool implements AgentTool<typeof vimSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Toggle vim mode (autonomous)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ToggleVimTool | null { return new ToggleVimTool(session); }
+	static createIf(session: ToolSession): ToggleVimTool | null {
+		return new ToggleVimTool();
+	}
 	async execute(_id: string, params: z.infer<typeof vimSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Turn vim mode ${params.enabled}?`);
 		return successResult(`Vim mode ${params.enabled}.`);
@@ -515,11 +678,12 @@ export class BtwTool implements AgentTool<typeof btwSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Ask side question (autonomous)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): BtwTool | null { return new BtwTool(session); }
+	static createIf(session: ToolSession): BtwTool | null {
+		return new BtwTool();
+	}
 	async execute(_id: string, params: z.infer<typeof btwSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Ask: "${params.question}"?`);
-		return successResult("Side question answered.");
+		return successResult(`Side question noted (UI will surface): "${params.question}"`, { unsupported: true });
 	}
 }
 
@@ -538,12 +702,41 @@ export class AutonomousModeTool implements AgentTool<typeof autonomousSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage autonomous mode (requires confirmation)";
 	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): AutonomousModeTool | null { return new AutonomousModeTool(session); }
+	static createIf(session: ToolSession): AutonomousModeTool | null {
+		return new AutonomousModeTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof autonomousSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) {
 			return confirmNeeded(`Autonomous: ${params.action}${params.objective ? ` "${params.objective}"` : ""}?`);
 		}
-		return successResult(`Autonomous ${params.action} executed.`);
+		const runtime = this.session.getAutonomousRuntime?.();
+		if (!runtime) return successResult("Autonomous runtime not available in this session.");
+		try {
+			switch (params.action) {
+				case "start": {
+					if (!params.objective)
+						return successResult("Autonomous start requires an objective.", { needsObjective: true });
+					const state = await runtime.start({ objective: params.objective });
+					return successResult(`Autonomous started: "${state.objective}".`, { status: state.status });
+				}
+				case "pause": {
+					const state = await runtime.pause();
+					return successResult(`Autonomous paused (status: ${state.status}).`, { status: state.status });
+				}
+				case "resume": {
+					const state = await runtime.resume();
+					return successResult(`Autonomous resumed (status: ${state.status}).`, { status: state.status });
+				}
+				case "stop": {
+					const state = await runtime.abort("stopped by ai_autonomous");
+					return successResult(`Autonomous stopped (status: ${state.status}).`, { status: state.status });
+				}
+			}
+		} catch (error) {
+			return successResult(
+				`Autonomous ${params.action} failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 	}
 }
 
@@ -561,8 +754,9 @@ export class LoopModeTool implements AgentTool<typeof loopSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Toggle loop mode (autonomous)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): LoopModeTool | null { return new LoopModeTool(session); }
+	static createIf(session: ToolSession): LoopModeTool | null {
+		return new LoopModeTool();
+	}
 	async execute(_id: string, params: z.infer<typeof loopSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Turn loop mode ${params.action}?`);
 		return successResult(`Loop mode ${params.action}.`);
@@ -584,16 +778,20 @@ export class CronManageTool implements AgentTool<typeof cronManageSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage cron jobs (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): CronManageTool | null { return new CronManageTool(session); }
+	static createIf(session: ToolSession): CronManageTool | null {
+		return new CronManageTool();
+	}
 	async execute(_id: string, params: z.infer<typeof cronManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Cron: ${params.action}?`);
-		return successResult(`Cron ${params.action} executed.`);
+		return successResult(
+			`Cron ${params.action} is a scheduler-surface action (see /cron); not available as an agent tool here.`,
+			{ unsupported: true },
+		);
 	}
 }
 
 const mcpManageSchema = confirmSchema.extend({
-	action: z.enum(["add", "remove", "enable", "disable", "reconnect", "reload"]),
+	action: z.enum(["add", "remove", "enable", "disable", "reconnect", "reload", "disconnect"]),
 	name: z.string().optional(),
 	url: z.string().optional(),
 	scope: z.enum(["project", "user"]).optional(),
@@ -607,11 +805,33 @@ export class McpManageTool implements AgentTool<typeof mcpManageSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage MCP servers (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): McpManageTool | null { return new McpManageTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): McpManageTool | null {
+		return new McpManageTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof mcpManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`MCP: ${params.action}${params.name ? ` ${params.name}` : ""}?`);
-		return successResult(`MCP ${params.action} executed.`);
+		const manager = this.session.mcpManager;
+		if (!manager) return successResult("MCP manager not available in this session.");
+		if (!params.name) return successResult(`No server name given for MCP ${params.action}.`, { needsName: true });
+		switch (params.action) {
+			case "disconnect": {
+				await manager.disconnectServer(params.name);
+				return successResult(`MCP server "${params.name}" disconnected.`);
+			}
+			case "reconnect": {
+				const conn = await manager.reconnectServer(params.name);
+				return successResult(
+					conn ? `MCP server "${params.name}" reconnected.` : `Reconnect of "${params.name}" failed.`,
+				);
+			}
+			case "add":
+			case "remove":
+			case "enable":
+			case "disable":
+			case "reload":
+				return successResult(`MCP ${params.action} is a config-level change; use /mcp in the TUI.`);
+		}
 	}
 }
 
@@ -629,11 +849,15 @@ export class PluginManageTool implements AgentTool<typeof pluginManageSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage plugins (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): PluginManageTool | null { return new PluginManageTool(session); }
+	static createIf(session: ToolSession): PluginManageTool | null {
+		return new PluginManageTool();
+	}
 	async execute(_id: string, params: z.infer<typeof pluginManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Plugin: ${params.action} ${params.pluginId}?`);
-		return successResult(`Plugin ${params.action} executed.`);
+		return successResult(
+			`Plugin ${params.action} is a TUI action (see /plugins); not available as an agent tool here.`,
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -652,11 +876,15 @@ export class RefineTool implements AgentTool<typeof refineSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Refine prompts/memories (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): RefineTool | null { return new RefineTool(session); }
+	static createIf(session: ToolSession): RefineTool | null {
+		return new RefineTool();
+	}
 	async execute(_id: string, params: z.infer<typeof refineSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Refine: ${params.action}?`);
-		return successResult(`Refine ${params.action} executed.`);
+		return successResult(
+			`Refine ${params.action} is a trajectory-review flow driven from the TUI; not directly available as an agent tool here.`,
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -673,11 +901,20 @@ export class ForceToolTool implements AgentTool<typeof forceToolSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Force tool for next turn (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ForceToolTool | null { return new ForceToolTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ForceToolTool | null {
+		return new ForceToolTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof forceToolSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Force tool ${params.toolName}?`);
-		return successResult(`Tool ${params.toolName} forced for next turn.`);
+		if (!this.session.setForcedToolChoice)
+			return successResult("Forced tool choice is not available in this session.");
+		try {
+			this.session.setForcedToolChoice(params.toolName);
+			return successResult(`Next turn forced to use ${params.toolName}.`);
+		} catch (error) {
+			return successResult(`Force failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 }
 
@@ -695,11 +932,15 @@ export class SessionManageTool implements AgentTool<typeof sessionManageSchema> 
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage session (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): SessionManageTool | null { return new SessionManageTool(session); }
+	static createIf(session: ToolSession): SessionManageTool | null {
+		return new SessionManageTool();
+	}
 	async execute(_id: string, params: z.infer<typeof sessionManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Session: ${params.action}?`);
-		return successResult(`Session ${params.action} executed.`);
+		return successResult(
+			`Session ${params.action} is a TUI action (see /session); not available as an agent tool here.`,
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -713,11 +954,14 @@ export class TanTool implements AgentTool<typeof tanSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Run tangential work (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): TanTool | null { return new TanTool(session); }
+	static createIf(session: ToolSession): TanTool | null {
+		return new TanTool();
+	}
 	async execute(_id: string, params: z.infer<typeof tanSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Run tangential work: "${params.work}"?`);
-		return successResult("Tangential work started.");
+		return successResult("Tangential/background agent runs are not exposed here; use the /tan TUI flow.", {
+			unsupported: true,
+		});
 	}
 }
 
@@ -734,11 +978,15 @@ export class FermentTool implements AgentTool<typeof fermentSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Start ferment workflow (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): FermentTool | null { return new FermentTool(session); }
+	static createIf(session: ToolSession): FermentTool | null {
+		return new FermentTool();
+	}
 	async execute(_id: string, params: z.infer<typeof fermentSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Start ferment: "${params.goal}"?`);
-		return successResult("Ferment workflow started.");
+		return successResult(
+			"Ferment workflow creation is a TUI/slash flow (see /ferment); not available as an agent tool here.",
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -756,11 +1004,18 @@ export class ExportDumpTool implements AgentTool<typeof exportDumpSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Export/dump/share session (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ExportDumpTool | null { return new ExportDumpTool(session); }
+	constructor(private readonly session: ToolSession) {}
+	static createIf(session: ToolSession): ExportDumpTool | null {
+		return new ExportDumpTool(session);
+	}
 	async execute(_id: string, params: z.infer<typeof exportDumpSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`${params.action} session?`);
-		return successResult(`${params.action} executed.`);
+		if (params.action !== "export") {
+			return successResult(`${params.action} is a clipboard/network action handled in the TUI.`);
+		}
+		if (!this.session.exportToHtml) return successResult("HTML export is not available in this session.");
+		const outputPath = await this.session.exportToHtml(params.path);
+		return successResult(`Session exported to ${outputPath}.`, { outputPath });
 	}
 }
 
@@ -778,11 +1033,15 @@ export class ConnectTool implements AgentTool<typeof connectSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Connect to platform (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ConnectTool | null { return new ConnectTool(session); }
+	static createIf(session: ToolSession): ConnectTool | null {
+		return new ConnectTool();
+	}
 	async execute(_id: string, params: z.infer<typeof connectSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Connect to ${params.platform}?`);
-		return successResult(`Connected to ${params.platform}.`);
+		return successResult(
+			`Connecting to ${params.platform} is a user-driven action; not available as an agent tool here.`,
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -803,11 +1062,15 @@ export class ScheduleManageTool implements AgentTool<typeof scheduleManageSchema
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage schedules (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): ScheduleManageTool | null { return new ScheduleManageTool(session); }
+	static createIf(session: ToolSession): ScheduleManageTool | null {
+		return new ScheduleManageTool();
+	}
 	async execute(_id: string, params: z.infer<typeof scheduleManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Schedule: ${params.action}?`);
-		return successResult(`Schedule ${params.action} executed.`);
+		return successResult(
+			`Schedule ${params.action} is a scheduler-surface action (see /schedule); not available as an agent tool here.`,
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -823,11 +1086,15 @@ export class MarketplaceTool implements AgentTool<typeof marketplaceSchema> {
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Browse marketplace (requires confirmation)";
-	constructor(_session: ToolSession) {}
-	static createIf(session: ToolSession): MarketplaceTool | null { return new MarketplaceTool(session); }
+	static createIf(session: ToolSession): MarketplaceTool | null {
+		return new MarketplaceTool();
+	}
 	async execute(_id: string, params: z.infer<typeof marketplaceSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Marketplace: ${params.action}?`);
-		return successResult(`Marketplace ${params.action} executed.`);
+		return successResult(
+			`Marketplace ${params.action} is a TUI action (see /marketplace); not available as an agent tool here.`,
+			{ unsupported: true },
+		);
 	}
 }
 
@@ -850,10 +1117,8 @@ export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Autonomous multi-step research (search → read → compile)";
 
-	constructor(private readonly session: ToolSession) {}
-
 	static createIf(session: ToolSession): AutoResearchTool | null {
-		return new AutoResearchTool(session);
+		return new AutoResearchTool();
 	}
 
 	async execute(_id: string, params: z.infer<typeof autoResearchSchema>): Promise<AgentToolResult> {
@@ -861,10 +1126,12 @@ export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
 		const sources = params.sources ?? 5;
 
 		if (!params.confirmed) {
-			return confirmNeeded(
-				`Research "${params.topic}" (${depth} depth, ~${sources} sources)?`,
-				{ tool: "auto_research", topic: params.topic, depth, sources },
-			);
+			return confirmNeeded(`Research "${params.topic}" (${depth} depth, ~${sources} sources)?`, {
+				tool: "auto_research",
+				topic: params.topic,
+				depth,
+				sources,
+			});
 		}
 
 		return successResult(
@@ -888,16 +1155,15 @@ export class ReviewTool implements AgentTool<typeof reviewSchema> {
 	readonly name = "ai_review";
 	readonly approval = "exec" as const;
 	readonly label = "Code Review";
-	readonly description = "Launch interactive code review. Review against a base branch (PR style), uncommitted changes, a specific commit, or custom instructions.";
+	readonly description =
+		"Launch interactive code review. Review against a base branch (PR style), uncommitted changes, a specific commit, or custom instructions.";
 	readonly parameters = reviewSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Interactive code review launcher";
 
-	constructor(private readonly session: ToolSession) {}
-
 	static createIf(session: ToolSession): ReviewTool | null {
-		return new ReviewTool(session);
+		return new ReviewTool();
 	}
 
 	async execute(_id: string, params: z.infer<typeof reviewSchema>): Promise<AgentToolResult> {
@@ -923,18 +1189,16 @@ export class GreenTool implements AgentTool<typeof greenSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Iterate on CI failures until green";
 
-	constructor(private readonly session: ToolSession) {}
-
 	static createIf(session: ToolSession): GreenTool | null {
-		return new GreenTool(session);
+		return new GreenTool();
 	}
 
 	async execute(_id: string, params: z.infer<typeof greenSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) {
-			return confirmNeeded(
-				`Iterate on CI failures until green${params.focus ? ` (focus: ${params.focus})` : ""}?`,
-				{ tool: "green", focus: params.focus },
-			);
+			return confirmNeeded(`Iterate on CI failures until green${params.focus ? ` (focus: ${params.focus})` : ""}?`, {
+				tool: "green",
+				focus: params.focus,
+			});
 		}
 		return successResult("CI green iteration initiated.", { tool: "green", focus: params.focus });
 	}

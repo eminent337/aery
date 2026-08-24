@@ -2,6 +2,7 @@ import type { ToolChoice } from "@aryee337/aery-ai";
 import type { AgentTelemetryConfig, AgentTool } from "@aryee337/aery-core";
 import { logger } from "@aryee337/aery-utils";
 import type { InMemorySnapshotStore } from "@aryee337/hashline";
+import type { AutonomousRuntime } from "../autonomous";
 import type { PromptTemplate } from "../config/prompt-templates";
 import type { Settings } from "../config/settings";
 import { EditTool } from "../edit";
@@ -20,6 +21,7 @@ import type { AgentRegistry } from "../registry/agent-registry";
 import type { ArtifactManager } from "../session/artifacts";
 import type { ClientBridge } from "../session/client-bridge";
 import type { CustomMessage } from "../session/messages";
+import type { ShakeMode, ShakeResult } from "../session/shake-types";
 import type { ToolChoiceQueue } from "../session/tool-choice-queue";
 import { TaskTool } from "../task";
 import type { AgentOutputManager } from "../task/output-manager";
@@ -91,23 +93,22 @@ import {
 	AutonomousModeTool,
 	AutoResearchTool,
 	BtwTool,
-	LoopModeTool,
 	ConnectTool,
 	CopyTool,
 	CronManageTool,
 	DropSessionTool,
 	ExportDumpTool,
 	FermentTool,
-	ForkSessionTool,
 	ForceToolTool,
+	ForkSessionTool,
 	GoalModeTool,
 	GreenTool,
-	ReviewTool,
 	ListArtifactsTool,
 	ListCronTool,
 	ListMcpTool,
 	ListPluginsTool,
 	ListScheduleTool,
+	LoopModeTool,
 	MarketplaceTool,
 	McpManageTool,
 	NewSessionTool,
@@ -118,6 +119,7 @@ import {
 	RenameSessionTool,
 	ResumeSessionTool,
 	RetryTurnTool,
+	ReviewTool,
 	ScheduleManageTool,
 	SessionManageTool,
 	ShakeContextTool,
@@ -454,6 +456,28 @@ export interface ToolSession {
 	/** Get the active OpenTelemetry config so subagent dispatch can forward
 	 *  the parent's tracer/hooks with the subagent's own identity stamped. */
 	getTelemetry?: () => AgentTelemetryConfig | undefined;
+	/** Start a new session (clears messages). Returns false if cancelled by hook. */
+	newSession?: (options?: { parentSession?: string; drop?: boolean }) => Promise<boolean>;
+	/** Fork the current session, preserving all messages. */
+	fork?: () => Promise<boolean>;
+	/** Retry the last failed assistant turn. */
+	retry?: () => Promise<boolean>;
+	/** Drop heavy content from context (mode: elide|images|thinking). */
+	shake?: (mode: ShakeMode, opts?: { signal?: AbortSignal }) => Promise<ShakeResult | undefined>;
+	/** Export session to HTML. Returns output path. */
+	exportToHtml?: (outputPath?: string) => Promise<string>;
+	/** Get the autonomous execution runtime for this session. */
+	getAutonomousRuntime?: () => AutonomousRuntime;
+	/** Set plan mode state. */
+	setPlanModeState?: (state: PlanModeState | undefined) => void;
+	/** Set a display name for the current session. */
+	setSessionName?: (name: string, source?: "auto" | "user") => Promise<boolean>;
+	/** Drop the current session and start a new one. */
+	dropSession?: () => Promise<boolean>;
+	/** Commit the current session record for later resume. */
+	commitSession?: () => Promise<void>;
+	/** Force the next turn to use the named tool (used by /force). */
+	setForcedToolChoice?: (toolName: string) => void;
 }
 
 export type ToolFactory = (session: ToolSession) => Tool | null | Promise<Tool | null>;
@@ -557,38 +581,38 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	ai_shake_context: s => new ShakeContextTool(s),
 	ai_fork_session: s => new ForkSessionTool(s),
 	ai_rename_session: s => new RenameSessionTool(s),
-	ai_reload_plugins: s => new ReloadPluginsTool(s),
+	ai_reload_plugins: () => new ReloadPluginsTool(),
 	ai_new_session: s => new NewSessionTool(s),
 	ai_drop_session: s => new DropSessionTool(s),
-	ai_resume_session: s => new ResumeSessionTool(s),
-	ai_toggle_vim: s => new ToggleVimTool(s),
-	ai_marketplace: s => new MarketplaceTool(s),
-	ai_btw: s => new BtwTool(s),
-	ai_auto_research: s => new AutoResearchTool(s),
+	ai_resume_session: () => new ResumeSessionTool(),
+	ai_toggle_vim: () => new ToggleVimTool(),
+	ai_marketplace: () => new MarketplaceTool(),
+	ai_btw: () => new BtwTool(),
+	ai_auto_research: () => new AutoResearchTool(),
 	// New AI-autonomous tools
 	ai_show_goal: s => new ShowGoalTool(s),
-	ai_list_cron: s => new ListCronTool(s),
+	ai_list_cron: () => new ListCronTool(),
 	ai_list_mcp: s => new ListMcpTool(s),
-	ai_list_plugins: s => new ListPluginsTool(s),
-	ai_list_schedule: s => new ListScheduleTool(s),
+	ai_list_plugins: () => new ListPluginsTool(),
+	ai_list_schedule: () => new ListScheduleTool(),
 	ai_goal: s => new GoalModeTool(s),
 	ai_autonomous: s => new AutonomousModeTool(s),
-	ai_loop: s => new LoopModeTool(s),
-	ai_cron_manage: s => new CronManageTool(s),
+	ai_loop: () => new LoopModeTool(),
+	ai_cron_manage: () => new CronManageTool(),
 	ai_mcp_manage: s => new McpManageTool(s),
-	ai_plugin_manage: s => new PluginManageTool(s),
-	ai_refine: s => new RefineTool(s),
+	ai_plugin_manage: () => new PluginManageTool(),
+	ai_refine: () => new RefineTool(),
 	ai_force_tool: s => new ForceToolTool(s),
-	ai_review: s => new ReviewTool(s),
-	ai_green: s => new GreenTool(s),
-	ai_session_manage: s => new SessionManageTool(s),
-	ai_tan: s => new TanTool(s),
-	ai_omfg: s => new OmfgTool(s),
-	ai_ferment: s => new FermentTool(s),
+	ai_review: () => new ReviewTool(),
+	ai_green: () => new GreenTool(),
+	ai_session_manage: () => new SessionManageTool(),
+	ai_tan: () => new TanTool(),
+	ai_omfg: () => new OmfgTool(),
+	ai_ferment: () => new FermentTool(),
 	ai_export_dump: s => new ExportDumpTool(s),
-	ai_copy: s => new CopyTool(s),
-	ai_connect: s => new ConnectTool(s),
-	ai_schedule_manage: s => new ScheduleManageTool(s),
+	ai_copy: () => new CopyTool(),
+	ai_connect: () => new ConnectTool(),
+	ai_schedule_manage: () => new ScheduleManageTool(),
 };
 
 export const HIDDEN_TOOLS: Record<string, ToolFactory> = {
