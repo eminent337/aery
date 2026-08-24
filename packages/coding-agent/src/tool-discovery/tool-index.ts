@@ -61,7 +61,7 @@ const FIELD_WEIGHTS = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function isMCPToolName(name: string): boolean {
-	return name.startsWith("mcp__");
+	return typeof name === "string" && name.startsWith("mcp__");
 }
 
 function getSchemaPropertyKeys(parameters: unknown): string[] {
@@ -123,6 +123,7 @@ export function getDiscoverableTool(
 	tool: AgentTool,
 	overrides?: { source?: DiscoverableToolSource; summary?: string },
 ): DiscoverableTool | null {
+	if (!tool || typeof (tool as { name?: unknown }).name !== "string") return null;
 	const toolRecord = tool as AgentTool & {
 		label?: string;
 		description?: string;
