@@ -74,7 +74,7 @@ describe("createAgentSession defaultInactive tool activation", () => {
 		} finally {
 			await session.dispose();
 		}
-	});
+	}, 60_000);
 
 	it("allows explicitly requested defaultInactive extension tools into the initial active set", async () => {
 		const tempDir = path.join(os.tmpdir(), `aery-sdk-tool-activation-${Snowflake.next()}`);

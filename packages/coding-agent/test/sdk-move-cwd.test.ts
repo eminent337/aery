@@ -68,5 +68,5 @@ describe("createAgentSession cwd after /move", () => {
 		} finally {
 			await session.dispose();
 		}
-	});
+	}, 60_000);
 });

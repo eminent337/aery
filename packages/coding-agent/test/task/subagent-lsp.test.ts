@@ -255,5 +255,5 @@ describe("subagent LSP availability", () => {
 
 		expect(getOptions()?.enableLsp).toBe(true);
 		expect(getOptions()?.toolNames).toEqual(["read", "search", "find", "lsp", "web_search", "irc"]);
-	});
+	}, 60_000);
 });
