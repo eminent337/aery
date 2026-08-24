@@ -674,6 +674,8 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	ai_schedule_manage: s => new ScheduleManageTool(s),
 	ai_browser: s => new BrowserModeTool(s),
 	ai_ssh: s => new SSHManageTool(s),
+	ai_connect: s => new ConnectTool(s),
+	ai_changelog: s => new ChangelogTool(s),
 };
 
 export const HIDDEN_TOOLS: Record<string, ToolFactory> = {
