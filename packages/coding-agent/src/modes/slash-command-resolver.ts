@@ -49,7 +49,6 @@ const TUI_HIDDEN_SLASH_COMMANDS: Record<string, true> = {
 	plan: true,
 	plugins: true,
 	refine: true,
-	"reload-plugins": true,
 	rename: true,
 	retry: true,
 	review: true,
