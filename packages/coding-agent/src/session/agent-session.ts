@@ -172,7 +172,8 @@ import { ExtensionToolWrapper } from "../extensibility/extensions/wrapper";
 import type { HookCommandContext } from "../extensibility/hooks/types";
 import type { Skill, SkillWarning } from "../extensibility/skills";
 import { expandSlashCommand, type FileSlashCommand } from "../extensibility/slash-commands";
-import { executeBuiltinSlashCommand } from "../slash-commands/builtin-registry";
+import { executeAcpBuiltinSlashCommand } from "../slash-commands/acp-builtins";
+import type { SlashCommandRuntime } from "../slash-commands/types";
 import { GoalRuntime } from "../goals/runtime";
 import type { Goal, GoalModeState } from "../goals/state";
 import type { HindsightSessionState } from "../hindsight/state";
@@ -4940,7 +4941,7 @@ export class AgentSession {
 	/**
 	 * Try to execute an extension command. Returns true if command was found and executed.
 	 */
-	async #tryExecuteExtensionCommand(text: string): Promise<boolean> {
+	async #tryExecuteExtensionCommand(text: string, onOutput?: (msg: string) => void): Promise<boolean> {
 		if (!this.#extensionRunner) return false;
 
 		// Parse command name and args
@@ -4952,7 +4953,20 @@ export class AgentSession {
 		if (!command) return false;
 
 		// Get command context from extension runner (includes session control methods)
-		const ctx = this.#extensionRunner.createCommandContext();
+		const baseCtx = this.#extensionRunner.createCommandContext();
+		const ctx: ExtensionCommandContext = {
+			...baseCtx,
+			ui: {
+				...baseCtx.ui,
+				notify: (message: string, _type?: string) => {
+					if (onOutput) {
+						onOutput(message);
+					} else {
+						baseCtx.ui.notify(message, _type as any);
+					}
+				},
+			},
+		};
 
 		try {
 			await command.handler(args, ctx);
@@ -5082,21 +5096,42 @@ export class AgentSession {
 		if (!trimmed) return { ok: false, error: "Empty command." };
 		const commandText = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 
+		const outputs: string[] = [];
+
 		// Try extension command first
-		const extResult = await this.#tryExecuteExtensionCommand(commandText);
-		if (extResult) return { ok: true };
+		const extResult = await this.#tryExecuteExtensionCommand(commandText, msg => outputs.push(msg));
+		if (extResult) {
+			return { ok: true, output: outputs.length > 0 ? outputs.join("\n") : undefined };
+		}
 
 		// Try custom command / MCP prompt command
 		const customResult = await this.#tryExecuteCustomCommand(commandText);
-		if (customResult !== null) return { ok: true, output: customResult || undefined };
+		if (customResult !== null) {
+			const finalCustomOutput = [outputs.join("\n"), customResult].filter(Boolean).join("\n");
+			return { ok: true, output: finalCustomOutput || undefined };
+		}
 
-		// Try builtin slash command
-		const slashResult = await executeBuiltinSlashCommand(commandText, {
-			ctx: this.#createCommandContext() as any,
-			handleBackgroundCommand: () => {},
-		});
-		if (slashResult === true) return { ok: true };
-		if (typeof slashResult === "string") return { ok: true, output: slashResult };
+		// Try builtin slash command in text/headless mode (ACP mode)
+		const acpRuntime: SlashCommandRuntime = {
+			session: this,
+			sessionManager: this.sessionManager,
+			settings: this.settings,
+			cwd: this.sessionManager.getCwd(),
+			output: (msg: string) => {
+				outputs.push(msg);
+			},
+			refreshCommands: () => {},
+			reloadPlugins: async () => {
+				await this.reload();
+			},
+		};
+
+		const acpResult = await executeAcpBuiltinSlashCommand(commandText, acpRuntime);
+		if (acpResult !== false) {
+			const promptStr = typeof acpResult === "object" && "prompt" in acpResult ? acpResult.prompt : undefined;
+			const finalOutput = [outputs.join("\n"), promptStr].filter(Boolean).join("\n");
+			return { ok: true, output: finalOutput || undefined };
+		}
 
 		return { ok: false, error: `Command not found or non-executable: ${text}` };
 	}

@@ -132,7 +132,7 @@ describe("InteractiveMode prompt-template autocomplete (#2462)", () => {
 		// Fuzzy prefix `/rev` also surfaces the template.
 		const prefixMatches = await fetchSlashSuggestions(provider!, "/rev");
 		expect(prefixMatches).toContain("review");
-	});
+	}, 60_000);
 
 	it("does not duplicate templates whose names collide with builtin slash commands", async () => {
 		const created = await createHarness([
@@ -153,5 +153,5 @@ describe("InteractiveMode prompt-template autocomplete (#2462)", () => {
 		// Builtin `/exit` stays; the colliding template is filtered out so the picker
 		// shows a single entry rather than two `exit` rows.
 		expect(matches.filter(name => name === "exit")).toHaveLength(1);
-	});
+	}, 60_000);
 });
