@@ -1451,3 +1451,154 @@ export class GreenTool implements AgentTool<typeof greenSchema> {
 		return successResult("CI green iteration initiated.", { tool: "green", focus: params.focus });
 	}
 }
+
+// ── Missing tools for full slash-command coverage ─────────────────────────
+
+const browserSchema = confirmSchema.extend({
+	mode: z.enum(["headless", "visible", "toggle"]).describe("Browser display mode"),
+});
+export class BrowserModeTool implements AgentTool<typeof browserSchema> {
+	readonly approval = "read" as const;
+	readonly label = "Browser Mode";
+	readonly description = "Toggle browser headless vs visible mode.";
+	readonly parameters = browserSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Toggle browser mode (requires confirmation)";
+	static createIf(session: ToolSession): BrowserModeTool | null {
+		return new BrowserModeTool(session);
+	}
+	constructor(private readonly session: ToolSession) {}
+	async execute(_id: string, params: z.infer<typeof browserSchema>): Promise<AgentToolResult> {
+		if (!params.confirmed) return confirmNeeded(`Set browser to ${params.mode}?`);
+		if (!this.session.setBrowserMode) return successResult("Browser mode toggle is not available.");
+		const result = await this.session.setBrowserMode(params.mode);
+		return result.ok
+			? successResult(`Browser mode: ${result.mode ?? params.mode}.`)
+			: successResult(result.error ?? "Browser mode toggle failed.");
+	}
+}
+
+const changelogSchema = z.object({
+	full: z.boolean().optional().describe("Show complete changelog (default: latest 3 entries)"),
+});
+export class ChangelogTool implements AgentTool<typeof changelogSchema> {
+	readonly name = "ai_changelog";
+	readonly approval = "read" as const;
+	readonly label = "Changelog";
+	readonly description = "Show changelog entries.";
+	readonly parameters = changelogSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Show changelog (autonomous)";
+	static createIf(session: ToolSession): ChangelogTool | null {
+		return new ChangelogTool(session);
+	}
+	constructor(private readonly session: ToolSession) {}
+	async execute(_id: string, params: z.infer<typeof changelogSchema>): Promise<AgentToolResult> {
+		try {
+			const { getChangelogPath, parseChangelog } = await import("../utils/changelog");
+			const changelogPath = getChangelogPath();
+			if (!changelogPath) return successResult("No changelog file found.");
+			const allEntries = await parseChangelog(changelogPath);
+			const showFull = params.full ?? false;
+			const entriesToShow = showFull ? allEntries : allEntries.slice(0, 3);
+			if (entriesToShow.length === 0) return successResult("No changelog entries found.");
+			const text = [...entriesToShow]
+				.reverse()
+				.map(entry => entry.content)
+				.join("\n\n");
+			return successResult(text);
+		} catch (error) {
+			return successResult(`Changelog read failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+}
+
+const sshManageSchema = confirmSchema.extend({
+	action: z.enum(["add", "list", "remove", "help"]),
+	name: z.string().optional(),
+	host: z.string().optional(),
+	username: z.string().optional(),
+	port: z.number().int().optional(),
+	keyPath: z.string().optional(),
+	scope: z.enum(["project", "user"]).optional(),
+});
+export class SSHManageTool implements AgentTool<typeof sshManageSchema> {
+	readonly name = "ai_ssh";
+	readonly approval = "read" as const;
+	readonly label = "Manage SSH";
+	readonly description = "Manage SSH hosts (add, list, remove).";
+	readonly parameters = sshManageSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable";
+	readonly summary = "Manage SSH hosts (requires confirmation)";
+	static createIf(session: ToolSession): SSHManageTool | null {
+		return new SSHManageTool(session);
+	}
+	constructor(private readonly session: ToolSession) {}
+	async execute(_id: string, params: z.infer<typeof sshManageSchema>): Promise<AgentToolResult> {
+		if (!params.confirmed && params.action !== "list" && params.action !== "help") {
+			return confirmNeeded(`SSH: ${params.action}${params.name ? ` ${params.name}` : ""}?`);
+		}
+		try {
+			const { readSSHConfigFile, addSSHHost, removeSSHHost } = await import("../ssh/config-writer");
+			const { getSSHConfigPath } = await import("@aryee337/aery-utils");
+			const cwd = this.session.cwd ?? process.cwd();
+			switch (params.action) {
+				case "help":
+					return successResult(
+						"SSH Host Management\n\n" +
+							"  add <name> --host <host> [--user <user>] [--port <port>] [--key <keyPath>] [--scope project|user]\n" +
+							"  list             List all configured SSH hosts\n" +
+							"  remove <name> [--scope project|user]    Remove an SSH host",
+					);
+				case "list": {
+					const userPath = getSSHConfigPath("user", cwd);
+					const projectPath = getSSHConfigPath("project", cwd);
+					const [userConfig, projectConfig] = await Promise.all([
+						readSSHConfigFile(userPath),
+						readSSHConfigFile(projectPath),
+					]);
+					const entries = [];
+					for (const [name, config] of Object.entries(projectConfig.hosts ?? {})) {
+						entries.push({ name, host: config.host, user: config.username, port: config.port, scope: "project" });
+					}
+					for (const [name, config] of Object.entries(userConfig.hosts ?? {})) {
+						if (!entries.some(e => e.name === name)) {
+							entries.push({ name, host: config.host, user: config.username, port: config.port, scope: "user" });
+						}
+					}
+					if (entries.length === 0) return successResult("No SSH hosts configured.");
+					const lines = entries.map(
+						e =>
+							`- ${e.name} (${e.host}${e.port ? `:${e.port}` : ""}${e.user ? ` user=${e.user}` : ""}) [${e.scope}]`,
+					);
+					return successResult(`SSH hosts (${entries.length}):\n${lines.join("\n")}`);
+				}
+				case "add": {
+					if (!params.name || !params.host) {
+						return successResult("SSH add requires `name` and `host`.");
+					}
+					const filePath = getSSHConfigPath(params.scope ?? "project", cwd);
+					await addSSHHost(filePath, params.name, {
+						host: params.host,
+						username: params.username,
+						port: params.port,
+						keyPath: params.keyPath,
+					});
+					return successResult(`SSH host "${params.name}" added.`);
+				}
+				case "remove": {
+					if (!params.name) return successResult("SSH remove requires `name`.");
+					const filePath = getSSHConfigPath(params.scope ?? "project", cwd);
+					await removeSSHHost(filePath, params.name);
+					return successResult(`SSH host "${params.name}" removed.`);
+				}
+			}
+		} catch (error) {
+			return successResult(`SSH ${params.action} failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		return successResult("SSH command completed.");
+	}
+}

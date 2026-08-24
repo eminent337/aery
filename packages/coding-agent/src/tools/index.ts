@@ -93,6 +93,8 @@ import {
 	AutonomousModeTool,
 	AutoResearchTool,
 	BtwTool,
+	BrowserModeTool,
+	ChangelogTool,
 	ConnectTool,
 	CopyTool,
 	CronManageTool,
@@ -128,6 +130,7 @@ import {
 	ShowSessionTool,
 	ShowToolsTool,
 	ShowUsageTool,
+	SSHManageTool,
 	SwitchModelTool,
 	TanTool,
 	ToggleAdvisorTool,
@@ -501,11 +504,12 @@ export interface ToolSession {
 	runEphemeralTurn?: (prompt: string) => Promise<{ ok: boolean; reply?: string; error?: string }>;
 	/** Forge a TTSR rule from a complaint. Returns whether a rule was created and its name. */
 	forgeTtsrRule?: (complaint: string) => Promise<{ ok: boolean; ruleName?: string; error?: string }>;
+	/** Set browser display mode (headless/visible/toggle). */
+	setBrowserMode?: (mode: string) => Promise<{ ok: boolean; mode?: string; error?: string }>;
 	/** Get the absolute agent config directory (rule files live under <agentDir>/rules). */
 	getAgentDir?: () => string | undefined;
 	/** Trigger a scheduled run immediately. */
 	triggerSchedule?: (jobId: string) => Promise<{ ok: boolean; error?: string }>;
-	/** Run a harness refinement or rollback. Returns a human-readable outcome. */
 	runRefine?: (params: {
 		action: "run" | "rollback";
 		global?: boolean;
@@ -651,8 +655,9 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	ai_ferment: s => new FermentTool(s),
 	ai_export_dump: s => new ExportDumpTool(s),
 	ai_copy: s => new CopyTool(s),
-	ai_connect: s => new ConnectTool(s),
 	ai_schedule_manage: s => new ScheduleManageTool(s),
+	ai_browser: s => new BrowserModeTool(s),
+	ai_ssh: s => new SSHManageTool(s),
 };
 
 export const HIDDEN_TOOLS: Record<string, ToolFactory> = {

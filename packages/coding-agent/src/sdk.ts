@@ -1595,6 +1595,27 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				return { ok: false, error: error instanceof Error ? error.message : String(error) };
 			}
 		};
+		toolSession.setBrowserMode = async mode => {
+			if (!session) return { ok: false, error: "No active session." };
+			try {
+				const enabled = session.settings.get("browser.enabled" as any);
+				if (!enabled) return { ok: false, error: "Browser tool is disabled." };
+				const current = session.settings.get("browser.headless" as any) as boolean;
+				let next = current;
+				if (mode === "toggle") next = !current;
+				else if (mode === "headless") next = true;
+				else if (mode === "visible") next = false;
+				else return { ok: false, error: `Unknown mode: ${mode}. Use headless, visible, or toggle.` };
+				session.settings.set("browser.headless" as any, next as any);
+				const tool = session.getToolByName?.("browser");
+				if (tool && "restartForModeChange" in tool) {
+					await (tool as { restartForModeChange: () => Promise<void> }).restartForModeChange();
+				}
+				return { ok: true, mode: next ? "headless" : "visible" };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
 		toolSession.triggerSchedule = async jobId => {
 			if (!session) return { ok: false, error: "No active session." };
 			try {
