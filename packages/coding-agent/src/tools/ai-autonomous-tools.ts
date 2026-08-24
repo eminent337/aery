@@ -654,65 +654,7 @@ export class RenameSessionTool implements AgentTool<typeof renameSchema> {
 	}
 }
 
-export class ReloadPluginsTool implements AgentTool<typeof confirmSchema> {
-	readonly name = "ai_reload_plugins";
-	readonly approval = "read" as const;
-	readonly label = "Reload Plugins";
-	readonly description = "Reload all plugins (skills, commands, hooks, tools, agents, MCP).";
-	readonly parameters = confirmSchema;
-	readonly strict = true;
-	readonly loadMode = "discoverable";
-	readonly summary = "Reload plugins (requires confirmation)";
-	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): ReloadPluginsTool | null {
-		return new ReloadPluginsTool(session);
-	}
-	async execute(
-		_id: string,
-		params: z.infer<typeof confirmSchema>,
-		_signal?: AbortSignal,
-		_onUpdate?: unknown,
-		context?: AgentToolContext,
-	): Promise<AgentToolResult> {
-		if (!params.confirmed) {
-			const gate = await confirmGate(context, params, "Reload all plugins?");
-			if (gate) return gate;
-		}
-		if (!this.session.reloadPlugins) return successResult("Plugin reload is not available in this session.");
-		const result = await this.session.reloadPlugins();
-		return result.ok ? successResult("Plugins reloaded.") : successResult(result.error ?? "Plugin reload failed.");
-	}
-}
 
-export class NewSessionTool implements AgentTool<typeof confirmSchema> {
-	readonly name = "ai_new_session";
-	readonly approval = "read" as const;
-	readonly label = "New Session";
-	readonly description = "Start a new session.";
-	readonly parameters = confirmSchema;
-	readonly strict = true;
-	readonly loadMode = "discoverable";
-	readonly summary = "Start new session (requires confirmation)";
-	constructor(private readonly session: ToolSession) {}
-	static createIf(session: ToolSession): NewSessionTool | null {
-		return new NewSessionTool(session);
-	}
-	async execute(
-		_id: string,
-		params: z.infer<typeof confirmSchema>,
-		_signal?: AbortSignal,
-		_onUpdate?: unknown,
-		context?: AgentToolContext,
-	): Promise<AgentToolResult> {
-		if (!params.confirmed) {
-			const gate = await confirmGate(context, params, "Start a new session?");
-			if (gate) return gate;
-		}
-		if (!this.session.newSession) return successResult("New session is not available in this session.");
-		const done = await this.session.newSession();
-		return successResult(done ? "New session started." : "New session cancelled (hook).");
-	}
-}
 
 export class DropSessionTool implements AgentTool<typeof confirmSchema> {
 	readonly name = "ai_drop_session";
