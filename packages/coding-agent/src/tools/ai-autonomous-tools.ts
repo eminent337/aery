@@ -1458,8 +1458,8 @@ const browserSchema = confirmSchema.extend({
 	mode: z.enum(["headless", "visible", "toggle"]).describe("Browser display mode"),
 });
 export class BrowserModeTool implements AgentTool<typeof browserSchema> {
+	readonly name = "ai_browser";
 	readonly approval = "read" as const;
-	readonly label = "Browser Mode";
 	readonly description = "Toggle browser headless vs visible mode.";
 	readonly parameters = browserSchema;
 	readonly strict = true;
