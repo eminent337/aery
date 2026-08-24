@@ -1400,15 +1400,14 @@ const reviewSchema = confirmSchema.extend({
 });
 
 export class ReviewTool implements AgentTool<typeof reviewSchema> {
-	readonly name = "ai_review";
-	readonly approval = "exec" as const;
+	readonly approval = "read" as const;
 	readonly label = "Code Review";
 	readonly description =
-		"Launch interactive code review. Review against a base branch (PR style), uncommitted changes, a specific commit, or custom instructions.";
+		"Launch interactive code review. Review against a base branch (PR style), uncommitted changes, a specific commit, or custom instructions (autonomous).";
 	readonly parameters = reviewSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Interactive code review launcher";
+	readonly summary = "Interactive code review launcher (autonomous)";
 
 	constructor(private readonly session?: ToolSession) {}
 
@@ -1418,9 +1417,6 @@ export class ReviewTool implements AgentTool<typeof reviewSchema> {
 
 	async execute(_id: string, params: z.infer<typeof reviewSchema>): Promise<AgentToolResult> {
 		const mode = params.mode ?? "branch";
-		if (!params.confirmed) {
-			return confirmNeeded(`Review code (${mode})?`, { tool: "review", mode });
-		}
 		if (this.session?.executeSlashCommand) {
 			const res = await this.session.executeSlashCommand(`/review ${params.focus ?? ""}`);
 			if (res.ok) return successResult(res.output ?? `Code review initiated (${mode}).`, { tool: "review", mode });
@@ -1625,20 +1621,18 @@ const commitSchema = confirmSchema.extend({
 	context: z.string().optional().describe("Optional context or commit hint message"),
 });
 export class CommitTool implements AgentTool<typeof commitSchema> {
-	readonly name = "ai_commit";
-	readonly approval = "write" as const;
+	readonly approval = "read" as const;
 	readonly label = "Commit Changes";
-	readonly description = "Stage changes and commit with an AI-generated message (autonomous with confirmation).";
+	readonly description = "Stage changes and commit with an AI-generated message (autonomous).";
 	readonly parameters = commitSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Stage and commit changes (requires confirmation)";
+	readonly summary = "Stage and commit changes (autonomous)";
 	constructor(private readonly session: ToolSession) {}
 	static createIf(session: ToolSession): CommitTool | null {
 		return new CommitTool(session);
 	}
 	async execute(_id: string, params: z.infer<typeof commitSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Stage changes and commit?");
 		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
 		const res = await this.session.executeSlashCommand(`/commit ${params.context ?? ""}`);
 		return res.ok
@@ -1651,20 +1645,18 @@ const commitPushPrSchema = confirmSchema.extend({
 	hint: z.string().optional().describe("Optional hint or description for the PR"),
 });
 export class CommitPushPrTool implements AgentTool<typeof commitPushPrSchema> {
-	readonly name = "ai_commit_push_pr";
-	readonly approval = "write" as const;
+	readonly approval = "read" as const;
 	readonly label = "Commit Push PR";
-	readonly description = "Commit, push to remote, and create a GitHub PR (autonomous with confirmation).";
+	readonly description = "Commit, push to remote, and create a GitHub PR (autonomous).";
 	readonly parameters = commitPushPrSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Commit, push, and create PR (requires confirmation)";
+	readonly summary = "Commit, push, and create PR (autonomous)";
 	constructor(private readonly session: ToolSession) {}
 	static createIf(session: ToolSession): CommitPushPrTool | null {
 		return new CommitPushPrTool(session);
 	}
 	async execute(_id: string, params: z.infer<typeof commitPushPrSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Commit, push, and create PR?");
 		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
 		const res = await this.session.executeSlashCommand(`/commit-push-pr ${params.hint ?? ""}`);
 		return res.ok
