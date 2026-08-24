@@ -1425,4 +1425,27 @@ export class SelectorController {
 		this.ctx.ui.setFocus(selector);
 		this.ctx.ui.requestRender();
 	}
+
+	showPluginMarketplaceHub(initialTab: "marketplace" | "installed" | "updates" = "marketplace"): void {
+		let overlayHandle: OverlayHandle | undefined;
+
+		const done = () => {
+			overlayHandle?.hide();
+			this.ctx.ui.requestRender();
+		};
+
+		const { PluginMarketplaceHub } = require("../components/marketplace/plugin-marketplace-hub");
+		const hub = new PluginMarketplaceHub(this.ctx.sessionManager.getCwd(), initialTab);
+		hub.onClose = done;
+		hub.onRequestRender = () => this.ctx.ui.requestRender();
+
+		overlayHandle = this.ctx.ui.showOverlay(hub, {
+			anchor: "bottom-center",
+			width: "100%",
+			maxHeight: "100%",
+			margin: 0,
+		});
+		this.ctx.ui.setFocus(hub);
+		this.ctx.ui.requestRender();
+	}
 }

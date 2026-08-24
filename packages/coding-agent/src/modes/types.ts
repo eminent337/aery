@@ -263,6 +263,7 @@ export interface InteractiveModeContext {
 	showHookConfirm(title: string, message: string): Promise<boolean>;
 	showDebugSelector(): void;
 	showSessionObserver(): void;
+	showPluginMarketplaceHub(initialTab?: "marketplace" | "installed" | "updates"): void;
 	resetObserverRegistry(): void;
 
 	// Input handling
