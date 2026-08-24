@@ -1570,12 +1570,12 @@ export class MarketplaceTool implements AgentTool<typeof marketplaceSchema> {
 
 // ── Special Tools ───────────────────────────────────────────────────────────
 
+
 const autoResearchSchema = confirmSchema.extend({
 	topic: z.string().describe("The research topic or question to investigate"),
 	depth: z.enum(["quick", "standard", "deep"]).optional().describe("Research depth (default: standard)"),
 	sources: z.number().int().optional().describe("Number of sources to consult (default: 5)"),
 });
-
 export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
 	readonly name = "ai_auto_research";
 	readonly approval = "exec" as const;
@@ -1611,16 +1611,72 @@ export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
 			if (gate) return gate;
 		}
 
-		return successResult(
-			`Research initiated on "${params.topic}". The agent will:\n` +
-				`1. Break down the topic into sub-questions\n` +
-				`2. Search the web for relevant information\n` +
-				`3. Read and extract key findings from sources\n` +
-				`4. Compile a structured research report\n\n` +
-				`Depth: ${depth} | Sources: ~${sources}`,
-			{ tool: "auto_research", topic: params.topic, depth, sources },
-		);
+		// Lazy-import the self-contained search runner (auto-discovers auth storage).
+		const { runSearchQuery } = await import("../web/search");
+		const subQueries = buildSubQueries(params.topic, depth);
+		const findings: string[] = [];
+		const seenUrls = new Set<string>();
+		let totalSources = 0;
+
+		for (const query of subQueries) {
+			if (_signal?.aborted) break;
+			try {
+				const result = await runSearchQuery(
+					{ query, limit: sources, provider: "auto" },
+					{ signal: _signal },
+				);
+				const text = result.content[0]?.text ?? "";
+				if (text.startsWith("Error:")) {
+					findings.push(`Search for "${query}" failed: ${text}`);
+					continue;
+				}
+				// Deduplicate sources by URL.
+				const newSources = result.details.response.sources.filter(s => {
+					if (seenUrls.has(s.url)) return false;
+					seenUrls.add(s.url);
+					return true;
+				});
+				totalSources += newSources.length;
+				if (text.trim()) findings.push(`### Query: ${query}\n${text}`);
+			} catch (err) {
+				findings.push(`Search for "${query}" threw: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		}
+
+		if (findings.length === 0) {
+			return successResult(
+				`Research on "${params.topic}" returned no results. Try rephrasing or check search provider configuration.`,
+				{ tool: "auto_research", topic: params.topic, sources: 0 },
+			);
+		}
+
+		const report =
+			`# Research Report: ${params.topic}\n\n` +
+			`Depth: ${depth} | Sources consulted: ${totalSources}\n\n` +
+			findings.join("\n\n---\n\n");
+
+		return successResult(report, {
+			tool: "auto_research",
+			topic: params.topic,
+			depth,
+			sources: totalSources,
+		});
 	}
+}
+
+/** Build sub-queries for multi-angle research based on depth. */
+function buildSubQueries(topic: string, depth: string): string[] {
+	const base = topic.trim();
+	if (depth === "quick") return [base];
+	if (depth === "deep") return [
+		base,
+		`${base} overview`,
+		`${base} details`,
+		`${base} alternatives`,
+		`${base} pros cons`,
+	];
+	// standard
+	return [base, `${base} details`];
 }
 
 const reviewSchema = confirmSchema.extend({
