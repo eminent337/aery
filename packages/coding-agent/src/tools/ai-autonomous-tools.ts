@@ -1700,19 +1700,18 @@ const autoresearchCmdSchema = confirmSchema.extend({
 });
 export class AutoresearchCmdTool implements AgentTool<typeof autoresearchCmdSchema> {
 	readonly name = "ai_autoresearch_cmd";
-	readonly approval = "write" as const;
+	readonly approval = "read" as const;
 	readonly label = "Autoresearch Command";
-	readonly description = "Toggle or configure builtin autoresearch mode.";
+	readonly description = "Toggle or configure builtin autoresearch mode (autonomous).";
 	readonly parameters = autoresearchCmdSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Run autoresearch command (requires confirmation)";
+	readonly summary = "Run autoresearch command (autonomous)";
 	constructor(private readonly session: ToolSession) {}
 	static createIf(session: ToolSession): AutoresearchCmdTool | null {
 		return new AutoresearchCmdTool(session);
 	}
 	async execute(_id: string, params: z.infer<typeof autoresearchCmdSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Run autoresearch command?");
 		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
 		const res = await this.session.executeSlashCommand(`/autoresearch ${params.args ?? ""}`);
 		return res.ok
