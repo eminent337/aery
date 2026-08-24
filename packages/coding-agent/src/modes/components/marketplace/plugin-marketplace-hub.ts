@@ -119,11 +119,11 @@ export class PluginMarketplaceHub extends Container {
 		void this.#load();
 	}
 
-	/** Build the permanent chrome (borders, search header, tab bar footer). */
+	/** Build the permanent chrome (borders, title, tab bar at top, search header). */
 	#buildShell(): void {
 		this.clear();
 
-		// Top chrome
+		// Top chrome: border + title
 		this.addChild(new DynamicBorder());
 		this.addChild(
 			new Text(
@@ -132,9 +132,8 @@ export class PluginMarketplaceHub extends Container {
 				0,
 			),
 		);
-		this.addChild(this.#searchHeader);
 
-		// Build tab bar
+		// Tab bar — top-of-content row, same position as the original design
 		const tabs = this.#buildTabs();
 		this.#tabBar = new TabBar("", tabs, getTabBarTheme());
 		this.#tabBar.showHint = false;
@@ -146,16 +145,21 @@ export class PluginMarketplaceHub extends Container {
 			this.#refreshContent();
 			this.onRequestRender?.();
 		};
+		this.addChild(new Spacer(1));
+		this.addChild(this.#tabBar);
+		this.addChild(new Spacer(1));
 
-		// Footer (spacer + tab bar + bottom border)
+		// Permanent search banner (renders nothing when idle)
+		this.addChild(this.#searchHeader);
+
+		// Footer: hint line + bottom border
 		this.#footer = [
 			new Spacer(1),
 			new Text(
-				theme.fg("dim", "  ↑/↓ navigate · Enter: details · Tab: switch tab · Type to search · Esc: close"),
+				theme.fg("dim", "  ↑/↓ navigate · Enter: details · Tab/←/→: switch tab · Type to search · Esc: close"),
 				0,
 				0,
 			),
-			this.#tabBar,
 			new DynamicBorder(),
 		];
 		for (const child of this.#footer) {
