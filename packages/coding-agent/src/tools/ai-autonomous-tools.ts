@@ -1787,6 +1787,7 @@ export class ExecuteSlashTool implements AgentTool<typeof executeSlashSchema> {
 		return new ExecuteSlashTool(session);
 	}
 	async execute(_id: string, params: z.infer<typeof executeSlashSchema>): Promise<AgentToolResult> {
+		if (!params?.command) return confirmNeeded("Execute slash command (requires command name)");
 		const cmdName = params.command.startsWith("/") ? params.command : `/${params.command}`;
 		const fullCmd = `${cmdName}${params.args ? ` ${params.args}` : ""}`;
 		if (!params.confirmed) return confirmNeeded(`Execute slash command '${fullCmd}'?`);
