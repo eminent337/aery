@@ -13,7 +13,7 @@
  * - `ai_auto_research` — Multi-step autonomous research (search → read → compile)
  */
 
-import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
+import type { AgentTool, AgentToolContext, AgentToolResult } from "@aryee337/aery-core";
 import * as z from "zod/v4";
 import { getGlobalCronScheduler } from "../cron/scheduler";
 import { PluginManager } from "../extensibility/plugins/manager";
@@ -37,6 +37,24 @@ function successResult(message: string, details?: Record<string, unknown>): Agen
 		content: [{ type: "text", text: message }],
 		details: { success: true, ...details },
 	};
+}
+
+async function confirmGate(
+	context: AgentToolContext | undefined,
+	params: { confirmed?: boolean },
+	message: string,
+	details?: Record<string, unknown>,
+): Promise<AgentToolResult | null> {
+	if (params.confirmed) return null; // proceed
+	if (context?.hasUI && typeof context.ui?.confirm === "function") {
+		const approved = await context.ui.confirm("Confirmation needed", message);
+		if (approved) return null; // user said Yes — proceed
+		return {
+			content: [{ type: "text", text: `Cancelled: ${message}` }],
+			details: { cancelled: true, ...details },
+		};
+	}
+	return confirmNeeded(message, details); // headless fallback — no interactive UI
 }
 
 const emptySchema = z.object({});
@@ -409,8 +427,17 @@ export class SwitchModelTool implements AgentTool<typeof switchModelSchema> {
 	static createIf(session: ToolSession): SwitchModelTool | null {
 		return new SwitchModelTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof switchModelSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Switch model to ${params.model}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof switchModelSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Switch model to ${params.model}?`);
+			if (gate) return gate;
+		}
 		if (!this.session.setModel) return successResult("Model switching is not available in this session.");
 		try {
 			const result = await this.session.setModel({ model: params.model });
@@ -524,8 +551,17 @@ export class RetryTurnTool implements AgentTool<typeof retrySchema> {
 	static createIf(session: ToolSession): RetryTurnTool | null {
 		return new RetryTurnTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof retrySchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Retry the last failed turn?");
+	async execute(
+		_id: string,
+		params: z.infer<typeof retrySchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, "Retry the last failed turn?");
+			if (gate) return gate;
+		}
 		if (!this.session.retry) return successResult("Retry is not available in this session.");
 		const started = await this.session.retry();
 		return successResult(
@@ -570,8 +606,17 @@ export class ForkSessionTool implements AgentTool<typeof forkSchema> {
 	static createIf(session: ToolSession): ForkSessionTool | null {
 		return new ForkSessionTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof forkSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Create a fork from the previous message?");
+	async execute(
+		_id: string,
+		params: z.infer<typeof forkSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, "Create a fork from the previous message?");
+			if (gate) return gate;
+		}
 		if (!this.session.fork) return successResult("Forking is not available in this session.");
 		const done = await this.session.fork();
 		return successResult(done ? "Session forked into a new session file." : "Fork cancelled (hook or persistence).");
@@ -592,8 +637,17 @@ export class RenameSessionTool implements AgentTool<typeof renameSchema> {
 	static createIf(session: ToolSession): RenameSessionTool | null {
 		return new RenameSessionTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof renameSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Rename session to "${params.title}"?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof renameSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Rename session to "${params.title}"?`);
+			if (gate) return gate;
+		}
 		if (!this.session.setSessionName) return successResult("Session rename is not available here.");
 		const done = await this.session.setSessionName(params.title, "user");
 		return successResult(done ? `Session renamed to "${params.title}".` : "Session rename failed.");
@@ -613,8 +667,17 @@ export class ReloadPluginsTool implements AgentTool<typeof confirmSchema> {
 	static createIf(session: ToolSession): ReloadPluginsTool | null {
 		return new ReloadPluginsTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Reload all plugins?");
+	async execute(
+		_id: string,
+		params: z.infer<typeof confirmSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, "Reload all plugins?");
+			if (gate) return gate;
+		}
 		if (!this.session.reloadPlugins) return successResult("Plugin reload is not available in this session.");
 		const result = await this.session.reloadPlugins();
 		return result.ok ? successResult("Plugins reloaded.") : successResult(result.error ?? "Plugin reload failed.");
@@ -634,8 +697,17 @@ export class NewSessionTool implements AgentTool<typeof confirmSchema> {
 	static createIf(session: ToolSession): NewSessionTool | null {
 		return new NewSessionTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Start a new session?");
+	async execute(
+		_id: string,
+		params: z.infer<typeof confirmSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, "Start a new session?");
+			if (gate) return gate;
+		}
 		if (!this.session.newSession) return successResult("New session is not available in this session.");
 		const done = await this.session.newSession();
 		return successResult(done ? "New session started." : "New session cancelled (hook).");
@@ -655,8 +727,17 @@ export class DropSessionTool implements AgentTool<typeof confirmSchema> {
 	static createIf(session: ToolSession): DropSessionTool | null {
 		return new DropSessionTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Delete the current session?");
+	async execute(
+		_id: string,
+		params: z.infer<typeof confirmSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, "Delete the current session?");
+			if (gate) return gate;
+		}
 		if (!this.session.dropSession) return successResult("Drop session is not available here.");
 		const done = await this.session.dropSession();
 		return successResult(done ? "Session deleted and a new session started." : "Drop cancelled (hook).");
@@ -682,7 +763,13 @@ export class ResumeSessionTool implements AgentTool<typeof resumeSessionSchema> 
 	static createIf(session: ToolSession): ResumeSessionTool | null {
 		return new ResumeSessionTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof resumeSessionSchema>): Promise<AgentToolResult> {
+	async execute(
+		_id: string,
+		params: z.infer<typeof resumeSessionSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
 		// Listing is read-only and safe without confirmation.
 		if (!params.session) {
 			if (!this.session.listResumableSessions) {
@@ -693,7 +780,10 @@ export class ResumeSessionTool implements AgentTool<typeof resumeSessionSchema> 
 			const lines = sessions.map(s => `- ${s.id}${s.title ? ` "${s.title}"` : ""}${s.cwd ? ` (${s.cwd})` : ""}`);
 			return successResult(`Available sessions:\n${lines.join("\n")}`);
 		}
-		if (!params.confirmed) return confirmNeeded(`Resume session "${params.session}"?`);
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Resume session "${params.session}"?`);
+			if (gate) return gate;
+		}
 		if (!this.session.resumeSession) return successResult("Session resume is not available in this session.");
 		const result = await this.session.resumeSession(params.session);
 		if (result.ok) {
@@ -724,8 +814,17 @@ export class ToggleVimTool implements AgentTool<typeof vimSchema> {
 	static createIf(session: ToolSession): ToggleVimTool | null {
 		return new ToggleVimTool();
 	}
-	async execute(_id: string, params: z.infer<typeof vimSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Turn vim mode ${params.enabled}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof vimSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Turn vim mode ${params.enabled}?`);
+			if (gate) return gate;
+		}
 		return successResult(`Vim mode ${params.enabled}.`);
 	}
 }
@@ -771,9 +870,16 @@ export class AutonomousModeTool implements AgentTool<typeof autonomousSchema> {
 	static createIf(session: ToolSession): AutonomousModeTool | null {
 		return new AutonomousModeTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof autonomousSchema>): Promise<AgentToolResult> {
+	async execute(
+		_id: string,
+		params: z.infer<typeof autonomousSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
 		if (!params.confirmed) {
-			return confirmNeeded(`Autonomous: ${params.action}${params.objective ? ` "${params.objective}"` : ""}?`);
+			const gate = await confirmGate(context, params, `Autonomous: ${params.action}${params.objective ? ` "${params.objective}"` : ""}?`);
+			if (gate) return gate;
 		}
 		const runtime = this.session.getAutonomousRuntime?.();
 		if (!runtime) return successResult("Autonomous runtime not available in this session.");
@@ -823,8 +929,17 @@ export class LoopModeTool implements AgentTool<typeof loopSchema> {
 	static createIf(session: ToolSession): LoopModeTool | null {
 		return new LoopModeTool();
 	}
-	async execute(_id: string, params: z.infer<typeof loopSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Turn loop mode ${params.action}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof loopSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Turn loop mode ${params.action}?`);
+			if (gate) return gate;
+		}
 		return successResult(`Loop mode ${params.action}.`);
 	}
 }
@@ -848,8 +963,17 @@ export class CronManageTool implements AgentTool<typeof cronManageSchema> {
 		return new CronManageTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof cronManageSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Cron: ${params.action}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof cronManageSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Cron: ${params.action}?`);
+			if (gate) return gate;
+		}
 		try {
 			const store = getGlobalCronScheduler().store;
 			switch (params.action) {
@@ -900,8 +1024,17 @@ export class McpManageTool implements AgentTool<typeof mcpManageSchema> {
 	static createIf(session: ToolSession): McpManageTool | null {
 		return new McpManageTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof mcpManageSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`MCP: ${params.action}${params.name ? ` ${params.name}` : ""}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof mcpManageSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `MCP: ${params.action}${params.name ? ` ${params.name}` : ""}?`);
+			if (gate) return gate;
+		}
 		const manager = this.session.mcpManager;
 		if (!manager) return successResult("MCP manager not available in this session.");
 		if (!params.name) return successResult(`No server name given for MCP ${params.action}.`, { needsName: true });
@@ -944,8 +1077,17 @@ export class PluginManageTool implements AgentTool<typeof pluginManageSchema> {
 		return new PluginManageTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof pluginManageSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Plugin: ${params.action} ${params.pluginId}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof pluginManageSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Plugin: ${params.action} ${params.pluginId}?`);
+			if (gate) return gate;
+		}
 		try {
 			const cwd = this.session.cwd ?? process.cwd();
 			const manager = new PluginManager(cwd);
@@ -982,8 +1124,17 @@ export class RefineTool implements AgentTool<typeof refineSchema> {
 		return new RefineTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof refineSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Refine: ${params.action}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof refineSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Refine: ${params.action}?`);
+			if (gate) return gate;
+		}
 		if (!this.session.runRefine) return successResult("Refinement is not available in this session.");
 		const result = await this.session.runRefine({
 			action: params.action,
@@ -1014,8 +1165,17 @@ export class ForceToolTool implements AgentTool<typeof forceToolSchema> {
 	static createIf(session: ToolSession): ForceToolTool | null {
 		return new ForceToolTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof forceToolSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Force tool ${params.toolName}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof forceToolSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Force tool ${params.toolName}?`);
+			if (gate) return gate;
+		}
 		if (!this.session.setForcedToolChoice)
 			return successResult("Forced tool choice is not available in this session.");
 		try {
@@ -1045,8 +1205,17 @@ export class SessionManageTool implements AgentTool<typeof sessionManageSchema> 
 	static createIf(session: ToolSession): SessionManageTool | null {
 		return new SessionManageTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof sessionManageSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Session: ${params.action}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof sessionManageSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Session: ${params.action}?`);
+			if (gate) return gate;
+		}
 		switch (params.action) {
 			case "delete": {
 				if (!this.session.dropSession) return successResult("Session delete is not available in this session.");
@@ -1097,8 +1266,17 @@ export class TanTool implements AgentTool<typeof tanSchema> {
 		return new TanTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof tanSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Run tangential work: "${params.work}"?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof tanSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Run tangential work: "${params.work}"?`);
+			if (gate) return gate;
+		}
 		if (!this.session.startAutonomousWork) return successResult("Background work is not available in this session.");
 		const result = await this.session.startAutonomousWork(`Tangential work: ${params.work}`);
 		return result.ok
@@ -1124,8 +1302,17 @@ export class FermentTool implements AgentTool<typeof fermentSchema> {
 		return new FermentTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof fermentSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Start ferment: "${params.goal}"?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof fermentSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Start ferment: "${params.goal}"?`);
+			if (gate) return gate;
+		}
 		if (!this.session.startAutonomousWork)
 			return successResult("Ferment workflows are not available in this session.");
 		const result = await this.session.startAutonomousWork(`Ferment one-shot: ${params.goal}`);
@@ -1153,8 +1340,17 @@ export class ExportDumpTool implements AgentTool<typeof exportDumpSchema> {
 	static createIf(session: ToolSession): ExportDumpTool | null {
 		return new ExportDumpTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof exportDumpSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`${params.action} session?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof exportDumpSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `${params.action} session?`);
+			if (gate) return gate;
+		}
 		if (params.action !== "export") {
 			return successResult(`${params.action} is a clipboard/network action handled in the TUI.`);
 		}
@@ -1182,8 +1378,17 @@ export class ConnectTool implements AgentTool<typeof connectSchema> {
 		return new ConnectTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof connectSchema>): Promise<AgentToolResult> {
-		if (params?.confirmed === false) return confirmNeeded(`Connect to ${params.platform}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof connectSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (params?.confirmed === false) {
+			const gate = await confirmGate(context, params, `Connect to ${params.platform}?`);
+			if (gate) return gate;
+		}
 		if (params.platform === "slack" && !params.botToken) {
 			return successResult("Slack connection requires `botToken` (and optionally `appToken`).");
 		}
@@ -1233,8 +1438,17 @@ export class ScheduleManageTool implements AgentTool<typeof scheduleManageSchema
 		return new ScheduleManageTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof scheduleManageSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Schedule: ${params.action}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof scheduleManageSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Schedule: ${params.action}?`);
+			if (gate) return gate;
+		}
 		try {
 			switch (params.action) {
 				case "create": {
@@ -1296,8 +1510,17 @@ export class MarketplaceTool implements AgentTool<typeof marketplaceSchema> {
 		return new MarketplaceTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof marketplaceSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Marketplace: ${params.action}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof marketplaceSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Marketplace: ${params.action}?`);
+			if (gate) return gate;
+		}
 		try {
 			const { MarketplaceManager } = await import("../extensibility/plugins/marketplace/manager");
 			const {
@@ -1368,17 +1591,24 @@ export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
 		return new AutoResearchTool();
 	}
 
-	async execute(_id: string, params: z.infer<typeof autoResearchSchema>): Promise<AgentToolResult> {
+	async execute(
+		_id: string,
+		params: z.infer<typeof autoResearchSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
 		const depth = params.depth ?? "standard";
 		const sources = params.sources ?? 5;
 
 		if (!params.confirmed) {
-			return confirmNeeded(`Research "${params.topic}" (${depth} depth, ~${sources} sources)?`, {
+			const gate = await confirmGate(context, params, `Research "${params.topic}" (${depth} depth, ~${sources} sources)?`, {
 				tool: "auto_research",
 				topic: params.topic,
 				depth,
 				sources,
 			});
+			if (gate) return gate;
 		}
 
 		return successResult(
@@ -1445,12 +1675,19 @@ export class GreenTool implements AgentTool<typeof greenSchema> {
 		return new GreenTool(session);
 	}
 
-	async execute(_id: string, params: z.infer<typeof greenSchema>): Promise<AgentToolResult> {
+	async execute(
+		_id: string,
+		params: z.infer<typeof greenSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
 		if (!params.confirmed) {
-			return confirmNeeded(`Iterate on CI failures until green${params.focus ? ` (focus: ${params.focus})` : ""}?`, {
+			const gate = await confirmGate(context, params, `Iterate on CI failures until green${params.focus ? ` (focus: ${params.focus})` : ""}?`, {
 				tool: "green",
 				focus: params.focus,
 			});
+			if (gate) return gate;
 		}
 		if (this.session?.executeSlashCommand) {
 			const res = await this.session.executeSlashCommand(`/green ${params.focus ?? ""}`);
@@ -1479,8 +1716,17 @@ export class BrowserModeTool implements AgentTool<typeof browserSchema> {
 		return new BrowserModeTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof browserSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Set browser to ${params.mode}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof browserSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Set browser to ${params.mode}?`);
+			if (gate) return gate;
+		}
 		if (!this.session.setBrowserMode) return successResult("Browser mode toggle is not available.");
 		const result = await this.session.setBrowserMode(params.mode);
 		return result.ok
@@ -1547,9 +1793,16 @@ export class SSHManageTool implements AgentTool<typeof sshManageSchema> {
 		return new SSHManageTool(session);
 	}
 	constructor(private readonly session: ToolSession) {}
-	async execute(_id: string, params: z.infer<typeof sshManageSchema>): Promise<AgentToolResult> {
+	async execute(
+		_id: string,
+		params: z.infer<typeof sshManageSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
 		if (!params.confirmed && params.action !== "list" && params.action !== "help") {
-			return confirmNeeded(`SSH: ${params.action}${params.name ? ` ${params.name}` : ""}?`);
+			const gate = await confirmGate(context, params, `SSH: ${params.action}${params.name ? ` ${params.name}` : ""}?`);
+			if (gate) return gate;
 		}
 		try {
 			const { readSSHConfigFile, addSSHHost, removeSSHHost } = await import("../ssh/config-writer");
@@ -1730,8 +1983,17 @@ export class ThinkingStepsTool implements AgentTool<typeof thinkingStepsSchema> 
 	static createIf(session: ToolSession): ThinkingStepsTool | null {
 		return new ThinkingStepsTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof thinkingStepsSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Set thinking steps to ${params.mode ?? "toggle"}?`);
+	async execute(
+		_id: string,
+		params: z.infer<typeof thinkingStepsSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Set thinking steps to ${params.mode ?? "toggle"}?`);
+			if (gate) return gate;
+		}
 		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
 		const res = await this.session.executeSlashCommand(`/thinking-steps ${params.mode ?? ""}`);
 		return res.ok
@@ -1779,11 +2041,20 @@ export class ExecuteSlashTool implements AgentTool<typeof executeSlashSchema> {
 	static createIf(session: ToolSession): ExecuteSlashTool | null {
 		return new ExecuteSlashTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof executeSlashSchema>): Promise<AgentToolResult> {
+	async execute(
+		_id: string,
+		params: z.infer<typeof executeSlashSchema>,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		context?: AgentToolContext,
+	): Promise<AgentToolResult> {
 		if (!params?.command) return confirmNeeded("Execute slash command (requires command name)");
 		const cmdName = params.command.startsWith("/") ? params.command : `/${params.command}`;
 		const fullCmd = `${cmdName}${params.args ? ` ${params.args}` : ""}`;
-		if (!params.confirmed) return confirmNeeded(`Execute slash command '${fullCmd}'?`);
+		if (!params.confirmed) {
+			const gate = await confirmGate(context, params, `Execute slash command '${fullCmd}'?`);
+			if (gate) return gate;
+		}
 		if (!this.session.executeSlashCommand) return successResult("Slash command execution not available.");
 		const res = await this.session.executeSlashCommand(fullCmd);
 		return res.ok
