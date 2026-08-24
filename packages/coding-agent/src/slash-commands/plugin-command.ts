@@ -86,8 +86,8 @@ export const pluginCommand: SlashCommandSpec = {
 	handleTui: async (command: ParsedSlashCommand, runtime: TuiSlashCommandRuntime): Promise<SlashCommandResult> => {
 		const userArgs = command.args.trim().split(/\s+/).filter(Boolean);
 		if (userArgs.length === 0) {
-			runtime.ctx.showStatus(`Usage: /plugin <command> [options]`);
-			runtime.ctx.editor.setText("/plugin ");
+			runtime.ctx.showPluginMarketplaceHub("marketplace");
+			runtime.ctx.editor.setText("");
 			return;
 		}
 
