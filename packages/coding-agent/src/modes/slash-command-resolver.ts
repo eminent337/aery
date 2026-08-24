@@ -5,6 +5,61 @@ import { loadSlashCommands } from "../extensibility/slash-commands";
 import type { AgentSession } from "../session/agent-session";
 import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES, BUILTIN_SLASH_COMMANDS } from "../slash-commands/builtin-registry";
 
+/**
+ * Slash commands that are now driven autonomously by the AI agent through
+ * their ai_* tool counterpart. They are hidden from the TUI prompt/autocomplete
+ * so the user no longer has to type them — the agent invokes them itself
+ * (with confirmation where required). They still execute if explicitly typed
+ * and remain available to ACP clients via the shared registry.
+ *
+ * Kept visible (human-only): settings, hub, extensions, debug, hotkeys, tree,
+ * branch, exit, quit, login, logout, model. Also kept: `plugin` and `skill`
+ * (the Aery plugin CLI and skill launcher) since they have no ai_* wrapper.
+ */
+const TUI_HIDDEN_SLASH_COMMANDS: Record<string, true> = {
+	advisor: true,
+	artifact: true,
+	autonomous: true,
+	browser: true,
+	btw: true,
+	changelog: true,
+	connect: true,
+	copy: true,
+	cron: true,
+	drop: true,
+	dump: true,
+	export: true,
+	fast: true,
+	ferment: true,
+	force: true,
+	fork: true,
+	goal: true,
+	handoff: true,
+	loop: true,
+	marketplace: true,
+	mcp: true,
+	move: true,
+	new: true,
+	omfg: true,
+	plan: true,
+	plugins: true,
+	refine: true,
+	"reload-plugins": true,
+	rename: true,
+	resume: true,
+	retry: true,
+	schedule: true,
+	session: true,
+	shake: true,
+	share: true,
+	ssh: true,
+	switch: true,
+	tan: true,
+	tools: true,
+	usage: true,
+	vim: true,
+};
+
 export class SlashCommandResolver {
 	constructor(
 		private readonly session: AgentSession,
@@ -12,7 +67,13 @@ export class SlashCommandResolver {
 	) {}
 
 	resolveBuiltinCommands(): SlashCommand[] {
-		return BUILTIN_SLASH_COMMANDS.map(cmd => ({ ...cmd, category: "builtin" as const }));
+		// Commands integrated as autonomous ai_* tools are hidden from the TUI
+		// prompt/autocomplete — the AI agent invokes them instead, so the user
+		// no longer has to type them. Only human-only commands stay visible.
+		return BUILTIN_SLASH_COMMANDS.filter(cmd => !TUI_HIDDEN_SLASH_COMMANDS[cmd.name]).map(cmd => ({
+			...cmd,
+			category: "builtin" as const,
+		}));
 	}
 
 	async resolveFileCommands(cwd: string): Promise<SlashCommand[]> {
