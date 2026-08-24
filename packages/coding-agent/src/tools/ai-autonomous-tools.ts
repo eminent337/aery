@@ -543,14 +543,13 @@ export class ShakeContextTool implements AgentTool<typeof shakeSchema> {
 	readonly parameters = shakeSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Shake heavy content (requires confirmation)";
+	readonly summary = "Shake heavy content (autonomous)";
 	constructor(private readonly session: ToolSession) {}
 	static createIf(session: ToolSession): ShakeContextTool | null {
 		return new ShakeContextTool(session);
 	}
 	async execute(_id: string, params: z.infer<typeof shakeSchema>): Promise<AgentToolResult> {
 		const mode = params.mode ?? "elide";
-		if (!params.confirmed) return confirmNeeded(`Shake context (${mode})?`);
 		if (!this.session.shake) return successResult("Shake is not available in this session.");
 		await this.session.shake(mode);
 		return successResult(`Context shaken (${mode}).`);
@@ -1400,6 +1399,7 @@ const reviewSchema = confirmSchema.extend({
 });
 
 export class ReviewTool implements AgentTool<typeof reviewSchema> {
+	readonly name = "ai_review";
 	readonly approval = "read" as const;
 	readonly label = "Code Review";
 	readonly description =
@@ -1621,6 +1621,7 @@ const commitSchema = confirmSchema.extend({
 	context: z.string().optional().describe("Optional context or commit hint message"),
 });
 export class CommitTool implements AgentTool<typeof commitSchema> {
+	readonly name = "ai_commit";
 	readonly approval = "read" as const;
 	readonly label = "Commit Changes";
 	readonly description = "Stage changes and commit with an AI-generated message (autonomous).";
@@ -1645,6 +1646,7 @@ const commitPushPrSchema = confirmSchema.extend({
 	hint: z.string().optional().describe("Optional hint or description for the PR"),
 });
 export class CommitPushPrTool implements AgentTool<typeof commitPushPrSchema> {
+	readonly name = "ai_commit_push_pr";
 	readonly approval = "read" as const;
 	readonly label = "Commit Push PR";
 	readonly description = "Commit, push to remote, and create a GitHub PR (autonomous).";
