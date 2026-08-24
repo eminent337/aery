@@ -90,9 +90,9 @@ export * from "../exa";
 import { exaTools } from "../exa";
 import { CustomToolAdapter } from "../extensibility/custom-tools/wrapper";
 import {
-	AutoresearchCmdTool,
 	AutonomousModeTool,
 	AutoResearchTool,
+	AutoresearchCmdTool,
 	BrowserModeTool,
 	BtwTool,
 	ChangelogTool,
