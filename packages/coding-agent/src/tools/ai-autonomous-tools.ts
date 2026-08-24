@@ -1184,7 +1184,7 @@ export class ConnectTool implements AgentTool<typeof connectSchema> {
 	}
 	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof connectSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Connect to ${params.platform}?`);
+		if (params?.confirmed === false) return confirmNeeded(`Connect to ${params.platform}?`);
 		if (params.platform === "slack" && !params.botToken) {
 			return successResult("Slack connection requires `botToken` (and optionally `appToken`).");
 		}
