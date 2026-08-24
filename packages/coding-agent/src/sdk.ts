@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import {
 	type CredentialDisabledEvent,
 	isUsageLimitError,
@@ -36,7 +37,7 @@ import {
 import chalk from "chalk";
 import { type AsyncJob, AsyncJobManager } from "./async";
 import { createAutoresearchExtension } from "./autoresearch";
-import { loadCapability } from "./capability";
+import { loadCapability, reset as resetCapabilities } from "./capability";
 import { type Rule, ruleCapability, setActiveRules } from "./capability/rule";
 import { bucketRules } from "./capability/rule-buckets";
 import { getKnownRoleIds, ModelRegistry } from "./config/model-registry";
@@ -62,6 +63,7 @@ import "./discovery";
 import { ADVISOR_READONLY_TOOL_NAMES } from "./advisor";
 import { resolveConfigValue } from "./config/resolve-config-value";
 import { initializeWithSettings } from "./discovery";
+import { clearPluginRootsAndCaches, resolveActiveProjectRegistryPath } from "./discovery/helpers";
 import { disposeAllKernelSessions, disposeKernelSessionsByOwner } from "./eval/py/executor";
 import { defaultEvalSessionId } from "./eval/session-id";
 import { TtsrManager } from "./export/ttsr";
@@ -113,7 +115,7 @@ import { AgentSession } from "./session/agent-session";
 import { resolveAuthBrokerConfig } from "./session/auth-broker-config";
 import { AuthBrokerClient, AuthStorage, RemoteAuthCredentialStore } from "./session/auth-storage";
 import { type CustomMessage, convertToLlm } from "./session/messages";
-import { getRestorableSessionModels, SessionManager } from "./session/session-manager";
+import { getRestorableSessionModels, resolveResumableSession, SessionManager } from "./session/session-manager";
 import { loadAerySkills } from "./skills/loader";
 import { closeAllConnections } from "./ssh/connection-manager";
 import { unmountAll } from "./ssh/sshfs-mount";
@@ -173,6 +175,7 @@ import { wrapToolWithMetaNotice } from "./tools/output-meta";
 import { queueResolveHandler } from "./tools/resolve";
 import { ToolError } from "./tools/tool-errors";
 import { ttsTool } from "./tools/tts";
+import { copyToClipboard } from "./utils/clipboard";
 import { EventBus } from "./utils/event-bus";
 import { buildNamedToolChoice } from "./utils/tool-choice";
 import { buildWorkspaceTree, type WorkspaceTree } from "./workspace-tree";
@@ -1448,6 +1451,203 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		toolSession.dropSession = async () => (session ? await session.newSession({ drop: true }) : false);
 		toolSession.commitSession = async () => await sessionManager.flush();
 		toolSession.setForcedToolChoice = toolName => session?.setForcedToolChoice(toolName);
+		toolSession.getSessionName = () => session?.sessionName;
+		toolSession.listResumableSessions = async () => {
+			const local = await SessionManager.list(sessionManager.getCwd(), sessionManager.getSessionDir());
+			const all = await SessionManager.listAll();
+			const seen = new Set<string>();
+			const out: Array<{ id: string; title?: string; cwd?: string; modified?: string }> = [];
+			for (const s of [...local, ...all]) {
+				if (seen.has(s.id)) continue;
+				seen.add(s.id);
+				out.push({
+					id: s.id,
+					title: s.title,
+					cwd: s.cwd || undefined,
+					modified: s.modified.toISOString(),
+				});
+			}
+			return out.sort((a, b) => (b.modified ?? "").localeCompare(a.modified ?? ""));
+		};
+		toolSession.resumeSession = async sessionArg => {
+			const resolved = await resolveResumableSession(
+				sessionArg,
+				sessionManager.getCwd(),
+				sessionManager.getSessionDir(),
+			);
+			if (!resolved) {
+				// No exact/prefix match — surface candidates so the agent can pick.
+				const candidates = await toolSession.listResumableSessions!();
+				return {
+					ok: false,
+					error: `No session matched "${sessionArg}".`,
+					candidates: candidates.slice(0, 20),
+				};
+			}
+			const ok = await session?.switchSession(resolved.session.path);
+			if (!ok) return { ok: false, error: "Session switch cancelled." };
+			return {
+				ok: true,
+				sessionId: resolved.session.id,
+				title: resolved.session.title,
+				cwd: resolved.session.cwd || undefined,
+			};
+		};
+		toolSession.moveSession = async newCwd => {
+			if (!session) return { ok: false, error: "No active session." };
+			try {
+				await session.sessionManager.moveTo(newCwd);
+				return { ok: true };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
+		toolSession.reloadPlugins = async () => {
+			if (!session) return { ok: false, error: "No active session." };
+			try {
+				const cwd = session.sessionManager.getCwd();
+				const projectPath = await resolveActiveProjectRegistryPath(cwd);
+				clearPluginRootsAndCaches(projectPath ? [projectPath] : undefined);
+				resetCapabilities();
+				const fileCommands = await loadSlashCommandsInternal({ cwd });
+				session.setSlashCommands(fileCommands);
+				await session.refreshSshTool({ activateIfAvailable: true });
+				return { ok: true };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
+		toolSession.copyToClipboard = async mode => {
+			if (!session) return { ok: false, error: "No active session." };
+			let text: string | undefined;
+			switch (mode) {
+				case "last":
+					text = session.getLastAssistantText();
+					break;
+				case "all":
+					text = session.formatSessionAsText({ compact: true });
+					break;
+				case "code": {
+					const last = session.getLastAssistantText() ?? "";
+					const match = last.match(/```[\s\S]*?```/g);
+					text = match?.at(-1) ?? "";
+					break;
+				}
+				case "cmd": {
+					const last = session.getLastAssistantText() ?? "";
+					const match = last.match(/```(?:bash|sh|python|py|bun|zsh)?\s*\n([\s\S]*?)```/);
+					text = match?.[1]?.trim() ?? "";
+					break;
+				}
+			}
+			if (!text) return { ok: false, error: "Nothing to copy." };
+			try {
+				await copyToClipboard(text);
+				return { ok: true, text: text.slice(0, 200) };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
+		toolSession.runEphemeralTurn = async prompt => {
+			if (!session) return { ok: false, error: "No active session." };
+			try {
+				const { replyText } = await session.runEphemeralTurn({ promptText: prompt });
+				return { ok: true, reply: replyText };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
+		toolSession.getAgentDir = () => {
+			try {
+				return settings?.getAgentDir?.();
+			} catch {
+				return undefined;
+			}
+		};
+		toolSession.forgeTtsrRule = async complaint => {
+			if (!session) return { ok: false, error: "No active session." };
+			try {
+				// Derive a rule name + content from the complaint via the session model.
+				const { replyText } = await session.runEphemeralTurn({
+					promptText: `You are forging a TTSR rule to stop a recurring behavior. Given this complaint: "${complaint}"\n\nProduce a rule in exactly this format:\nNAME: <kebab-case rule name>\nCONTENT:\n<rule guidance text>\n(No other text.)`,
+				});
+				const nameMatch = replyText.match(/^NAME:\s*([A-Za-z0-9-_]+)\s*$/m);
+				const contentMatch = replyText.match(/^CONTENT:\s*\n([\s\S]+)$/m);
+				if (!nameMatch || !contentMatch) {
+					return { ok: false, error: "Model did not return a parseable rule." };
+				}
+				const ruleName = nameMatch[1];
+				const fileContent = contentMatch[1].trim();
+				const agentDir = settings?.getAgentDir?.();
+				if (!agentDir) return { ok: false, error: "No agent config directory available." };
+				const rulesDir = `${agentDir}/rules`;
+				await fs.promises.mkdir(rulesDir, { recursive: true });
+				const filePath = `${rulesDir}/${ruleName}.md`;
+				await Bun.write(filePath, `# ${ruleName}\n\n${fileContent}\n`);
+				session.ttsrManager?.addRule({
+					name: ruleName,
+					path: filePath,
+					content: fileContent,
+					_source: { type: "file", provider: "local", path: filePath } as never,
+				});
+				return { ok: true, ruleName };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
+		toolSession.triggerSchedule = async jobId => {
+			if (!session) return { ok: false, error: "No active session." };
+			try {
+				const { globalScheduler } = await import("./task/schedule/scheduler");
+				const ctx = {
+					session,
+					sessionManager: session.sessionManager,
+					settings,
+				};
+				const ok = await globalScheduler.triggerSchedule(jobId, ctx);
+				return ok ? { ok: true } : { ok: false, error: `Schedule ${jobId} not found.` };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
+		toolSession.runRefine = async params => {
+			if (!session) return { ok: false, error: "No active session." };
+			try {
+				const engine = session.getHarnessEngine();
+				const model = session.model;
+				if (!model) return { ok: false, error: "No active model on session." };
+				const apiKey = (await session.modelRegistry.getApiKey(model)) || "";
+				if (params.action === "rollback") {
+					if (!params.resultId) return { ok: false, error: "Rollback requires `resultId`." };
+					const result = await engine.rollback(params.resultId);
+					return result
+						? { ok: true, message: `Rolled back refinement ${params.resultId}.` }
+						: { ok: false, error: `Refinement ${params.resultId} not found.` };
+				}
+				const result = await engine.refine(model, apiKey, {
+					instructions: params.instructions,
+					global: params.global ?? false,
+				});
+				return result
+					? {
+							ok: true,
+							message: `Refinement applied (${result.id ?? "n/a"}). ${result.summary ?? ""}`.trim(),
+						}
+					: { ok: false, error: "Refinement produced no changes." };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
+		toolSession.startAutonomousWork = async objective => {
+			if (!session) return { ok: false, error: "No active session." };
+			try {
+				const runtime = session.getAutonomousRuntime();
+				const state = await runtime.start({ objective });
+				return { ok: true, stateId: state.id };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		};
 
 		// Create built-in tools (already wrapped with meta notice formatting)
 		const builtinTools = await logger.time("createAllTools", createTools, toolSession, options.toolNames);

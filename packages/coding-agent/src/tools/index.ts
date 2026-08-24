@@ -476,8 +476,48 @@ export interface ToolSession {
 	dropSession?: () => Promise<boolean>;
 	/** Commit the current session record for later resume. */
 	commitSession?: () => Promise<void>;
+	/** Resume a different session by id/file-prefix. Returns the target session id, or an error plus candidate session summaries when no match. */
+	resumeSession?: (sessionArg: string) => Promise<
+		| { ok: true; sessionId: string; title?: string; cwd?: string }
+		| {
+				ok: false;
+				error: string;
+				candidates?: Array<{ id: string; title?: string; cwd?: string; modified?: string }>;
+		  }
+	>;
+	/** List sessions available for resume (id, title, cwd, modified). */
+	listResumableSessions?: () => Promise<Array<{ id: string; title?: string; cwd?: string; modified?: string }>>;
+	/** Move the current session to a different working directory. */
+	moveSession?: (newCwd: string) => Promise<{ ok: boolean; error?: string }>;
+	/** Reload plugin/registry state (slash commands, hooks, tools, agents, MCP). Mirrors the ACP session reload. */
+	reloadPlugins?: () => Promise<{ ok: boolean; error?: string }>;
+	/** Get the current session display name, if any. */
+	getSessionName?: () => string | undefined;
 	/** Force the next turn to use the named tool (used by /force). */
 	setForcedToolChoice?: (toolName: string) => void;
+	/** Copy text to the system clipboard. Returns a description of what was copied, or undefined when unavailable. */
+	copyToClipboard?: (mode: "last" | "code" | "all" | "cmd") => Promise<{ ok: boolean; text?: string; error?: string }>;
+	/** Run an ephemeral side-channel model completion (used by /btw and /omfg). Returns the reply text. */
+	runEphemeralTurn?: (prompt: string) => Promise<{ ok: boolean; reply?: string; error?: string }>;
+	/** Forge a TTSR rule from a complaint. Returns whether a rule was created and its name. */
+	forgeTtsrRule?: (complaint: string) => Promise<{ ok: boolean; ruleName?: string; error?: string }>;
+	/** Get the absolute agent config directory (rule files live under <agentDir>/rules). */
+	getAgentDir?: () => string | undefined;
+	/** Trigger a scheduled run immediately. */
+	triggerSchedule?: (jobId: string) => Promise<{ ok: boolean; error?: string }>;
+	/** Run a harness refinement or rollback. Returns a human-readable outcome. */
+	runRefine?: (params: {
+		action: "run" | "rollback";
+		global?: boolean;
+		resultId?: string;
+		instructions?: string;
+	}) => Promise<{
+		ok: boolean;
+		message?: string;
+		error?: string;
+	}>;
+	/** Start autonomous work with an objective (backs /tan and /ferment). Returns the resulting state id. */
+	startAutonomousWork?: (objective: string) => Promise<{ ok: boolean; stateId?: string; error?: string }>;
 }
 
 export type ToolFactory = (session: ToolSession) => Tool | null | Promise<Tool | null>;
@@ -581,38 +621,38 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	ai_shake_context: s => new ShakeContextTool(s),
 	ai_fork_session: s => new ForkSessionTool(s),
 	ai_rename_session: s => new RenameSessionTool(s),
-	ai_reload_plugins: () => new ReloadPluginsTool(),
+	ai_reload_plugins: s => new ReloadPluginsTool(s),
 	ai_new_session: s => new NewSessionTool(s),
 	ai_drop_session: s => new DropSessionTool(s),
-	ai_resume_session: () => new ResumeSessionTool(),
+	ai_resume_session: s => new ResumeSessionTool(s),
 	ai_toggle_vim: () => new ToggleVimTool(),
-	ai_marketplace: () => new MarketplaceTool(),
-	ai_btw: () => new BtwTool(),
+	ai_marketplace: s => new MarketplaceTool(s),
+	ai_btw: s => new BtwTool(s),
 	ai_auto_research: () => new AutoResearchTool(),
 	// New AI-autonomous tools
 	ai_show_goal: s => new ShowGoalTool(s),
-	ai_list_cron: () => new ListCronTool(),
+	ai_list_cron: s => new ListCronTool(s),
 	ai_list_mcp: s => new ListMcpTool(s),
-	ai_list_plugins: () => new ListPluginsTool(),
-	ai_list_schedule: () => new ListScheduleTool(),
+	ai_list_plugins: s => new ListPluginsTool(s),
+	ai_list_schedule: s => new ListScheduleTool(s),
 	ai_goal: s => new GoalModeTool(s),
 	ai_autonomous: s => new AutonomousModeTool(s),
 	ai_loop: () => new LoopModeTool(),
-	ai_cron_manage: () => new CronManageTool(),
+	ai_cron_manage: s => new CronManageTool(s),
 	ai_mcp_manage: s => new McpManageTool(s),
-	ai_plugin_manage: () => new PluginManageTool(),
-	ai_refine: () => new RefineTool(),
+	ai_plugin_manage: s => new PluginManageTool(s),
+	ai_refine: s => new RefineTool(s),
 	ai_force_tool: s => new ForceToolTool(s),
 	ai_review: () => new ReviewTool(),
 	ai_green: () => new GreenTool(),
-	ai_session_manage: () => new SessionManageTool(),
-	ai_tan: () => new TanTool(),
-	ai_omfg: () => new OmfgTool(),
-	ai_ferment: () => new FermentTool(),
+	ai_session_manage: s => new SessionManageTool(s),
+	ai_tan: s => new TanTool(s),
+	ai_omfg: s => new OmfgTool(s),
+	ai_ferment: s => new FermentTool(s),
 	ai_export_dump: s => new ExportDumpTool(s),
-	ai_copy: () => new CopyTool(),
-	ai_connect: () => new ConnectTool(),
-	ai_schedule_manage: () => new ScheduleManageTool(),
+	ai_copy: s => new CopyTool(s),
+	ai_connect: s => new ConnectTool(s),
+	ai_schedule_manage: s => new ScheduleManageTool(s),
 };
 
 export const HIDDEN_TOOLS: Record<string, ToolFactory> = {

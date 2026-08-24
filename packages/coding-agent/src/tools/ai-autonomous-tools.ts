@@ -16,6 +16,9 @@
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import * as z from "zod/v4";
 import type { ToolSession } from "./index";
+import { getGlobalCronScheduler } from "../cron/scheduler";
+import { PluginManager } from "../extensibility/plugins/manager";
+import { globalScheduler } from "../task/schedule/scheduler";
 
 const confirmSchema = z.object({
 	confirmed: z.boolean().optional().describe("Set true to confirm and execute the action"),
@@ -43,20 +46,21 @@ const emptySchema = z.object({});
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Read-only tools
-export class ShowModelTool implements AgentTool<typeof emptySchema> {
+export class ShowModelTool implements AgentTool<typeof confirmSchema> {
 	readonly name = "ai_show_model";
 	readonly approval = "read" as const;
 	readonly label = "Show Model";
 	readonly description = "Show the currently selected model for this session.";
-	readonly parameters = emptySchema;
+	readonly parameters = confirmSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Show current model selection";
+	readonly summary = "Show current model selection (requires confirmation)";
 	constructor(private readonly session: ToolSession) {}
 	static createIf(session: ToolSession): ShowModelTool | null {
 		return new ShowModelTool(session);
 	}
-	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
+	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
+		if (!params.confirmed) return confirmNeeded("Show the current model?");
 		const modelState = this.session.getModelState?.();
 		if (!modelState) return successResult("Model state not available.");
 		return successResult(`Current model: ${modelState.currentModel ?? "none"}`);
@@ -184,12 +188,24 @@ export class ListCronTool implements AgentTool<typeof emptySchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "List cron jobs";
 	static createIf(session: ToolSession): ListCronTool | null {
-		return new ListCronTool();
+		return new ListCronTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
-		return successResult("Cron job listing is a TUI surface (see /cron); not available as an agent tool here.", {
-			unsupported: true,
-		});
+		try {
+			const store = getGlobalCronScheduler().store;
+			const jobs = await store.list();
+			if (jobs.length === 0) return successResult("No cron jobs scheduled.");
+			const lines = jobs.map(
+				j =>
+					`- [${j.id}] ${j.schedule}${j.description ? ` "${j.description}"` : ""} -> session ${j.sessionId} (${
+						j.enabled ? "enabled" : "disabled"
+					})${j.nextRunAt ? ` next: ${new Date(j.nextRunAt).toISOString()}` : ""}`,
+			);
+			return successResult(`Cron jobs (${jobs.length}):\n${lines.join("\n")}`);
+		} catch (error) {
+			return successResult(`Failed to list cron jobs: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 }
 
@@ -227,12 +243,20 @@ export class ListPluginsTool implements AgentTool<typeof emptySchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "List plugins";
 	static createIf(session: ToolSession): ListPluginsTool | null {
-		return new ListPluginsTool();
+		return new ListPluginsTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
-		return successResult("Plugin listing is a TUI surface (see /plugins); not available as an agent tool here.", {
-			unsupported: true,
-		});
+		try {
+			const cwd = this.session.cwd ?? process.cwd();
+			const manager = new PluginManager(cwd);
+			const plugins = await manager.list();
+			if (plugins.length === 0) return successResult("No plugins installed.");
+			const lines = plugins.map(p => `- ${p.name}@${p.version}${p.enabled ? "" : " (disabled)"}`);
+			return successResult(`Installed plugins (${plugins.length}):\n${lines.join("\n")}`);
+		} catch (error) {
+			return successResult(`Failed to list plugins: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 }
 
@@ -246,16 +270,25 @@ export class ListScheduleTool implements AgentTool<typeof emptySchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "List schedules";
 	static createIf(session: ToolSession): ListScheduleTool | null {
-		return new ListScheduleTool();
+		return new ListScheduleTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, _params: z.infer<typeof emptySchema>): Promise<AgentToolResult> {
-		return successResult(
-			"Scheduled-run listing is a TUI surface (see /schedule); not available as an agent tool here.",
-			{ unsupported: true },
-		);
+		try {
+			const runs = globalScheduler.getSchedules();
+			if (runs.length === 0) return successResult("No scheduled agent runs.");
+			const lines = runs.map(
+				r =>
+					`- [${r.id}] "${r.name}" ${r.cronPattern}${r.agent ? ` (agent ${r.agent})` : ""}${
+						r.enabled ? "" : " (paused)"
+					}${r.nextRunAt ? ` next: ${new Date(r.nextRunAt).toISOString()}` : ""}`,
+			);
+			return successResult(`Scheduled runs (${runs.length}):\n${lines.join("\n")}`);
+		} catch (error) {
+			return successResult(`Failed to list schedules: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 }
-
 // Non-harmful autonomous tools (no confirmation needed)
 const goalSchema = z.object({
 	action: z.enum(["set", "pause", "resume", "drop", "budget"]),
@@ -323,13 +356,15 @@ export class CopyTool implements AgentTool<typeof copySchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Copy to clipboard (autonomous)";
 	static createIf(session: ToolSession): CopyTool | null {
-		return new CopyTool();
+		return new CopyTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof copySchema>): Promise<AgentToolResult> {
-		return successResult(
-			`Clipboard copy (${params.what}) is a TUI action (see /copy); not available as an agent tool here.`,
-			{ unsupported: true },
-		);
+		if (!this.session.copyToClipboard) return successResult("Clipboard copy is not available in this session.");
+		const result = await this.session.copyToClipboard(params.what);
+		return result.ok
+			? successResult(`Copied ${params.what} to clipboard.`)
+			: successResult(result.error ?? `Nothing to copy (${params.what}).`);
 	}
 }
 
@@ -345,13 +380,15 @@ export class OmfgTool implements AgentTool<typeof omfgSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Create rule from complaint (autonomous)";
 	static createIf(session: ToolSession): OmfgTool | null {
-		return new OmfgTool();
+		return new OmfgTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof omfgSchema>): Promise<AgentToolResult> {
-		return successResult(
-			"TTSR rule forging is an interactive TUI flow (see /omfg); not available as an agent tool here.",
-			{ unsupported: true },
-		);
+		if (!this.session.forgeTtsrRule) return successResult("Rule forging is not available in this session.");
+		const result = await this.session.forgeTtsrRule(params.complaint);
+		return result.ok
+			? successResult(`TTSR rule "${result.ruleName}" forged and registered.`)
+			: successResult(`Rule forging failed: ${result.error ?? "unknown"}`);
 	}
 }
 
@@ -569,20 +606,20 @@ export class ReloadPluginsTool implements AgentTool<typeof confirmSchema> {
 	readonly name = "ai_reload_plugins";
 	readonly approval = "read" as const;
 	readonly label = "Reload Plugins";
-	readonly description = "Reload all plugins.";
+	readonly description = "Reload all plugins (skills, commands, hooks, tools, agents, MCP).";
 	readonly parameters = confirmSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Reload plugins (requires confirmation)";
+	constructor(private readonly session: ToolSession) {}
 	static createIf(session: ToolSession): ReloadPluginsTool | null {
-		return new ReloadPluginsTool();
+		return new ReloadPluginsTool(session);
 	}
 	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded("Reload all plugins?");
-		return successResult(
-			"Plugin reload is a TUI action (see /reload-plugins); not available as an agent tool here.",
-			{ unsupported: true },
-		);
+		if (!this.session.reloadPlugins) return successResult("Plugin reload is not available in this session.");
+		const result = await this.session.reloadPlugins();
+		return result.ok ? successResult("Plugins reloaded.") : successResult(result.error ?? "Plugin reload failed.");
 	}
 }
 
@@ -628,24 +665,51 @@ export class DropSessionTool implements AgentTool<typeof confirmSchema> {
 	}
 }
 
-export class ResumeSessionTool implements AgentTool<typeof confirmSchema> {
+const resumeSessionSchema = confirmSchema.extend({
+	session: z
+		.string()
+		.optional()
+		.describe("Session id, file name, or prefix to resume. Omit to list available sessions."),
+});
+export class ResumeSessionTool implements AgentTool<typeof resumeSessionSchema> {
 	readonly name = "ai_resume_session";
 	readonly approval = "read" as const;
 	readonly label = "Resume Session";
-	readonly description = "Resume a different session.";
-	readonly parameters = confirmSchema;
+	readonly description = "Resume a different session by id/file-prefix, or list sessions available for resume.";
+	readonly parameters = resumeSessionSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Resume session (requires confirmation)";
+	constructor(private readonly session: ToolSession) {}
 	static createIf(session: ToolSession): ResumeSessionTool | null {
-		return new ResumeSessionTool();
+		return new ResumeSessionTool(session);
 	}
-	async execute(_id: string, params: z.infer<typeof confirmSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded("Resume a different session?");
-		return successResult(
-			"Session resume is a TUI action (see /resume); not directly available as an agent tool here.",
-			{ unsupported: true },
-		);
+	async execute(_id: string, params: z.infer<typeof resumeSessionSchema>): Promise<AgentToolResult> {
+		// Listing is read-only and safe without confirmation.
+		if (!params.session) {
+			if (!this.session.listResumableSessions) {
+				return successResult("Session listing is not available in this session.");
+			}
+			const sessions = await this.session.listResumableSessions();
+			if (sessions.length === 0) return successResult("No sessions available for resume.");
+			const lines = sessions.map(s => `- ${s.id}${s.title ? ` "${s.title}"` : ""}${s.cwd ? ` (${s.cwd})` : ""}`);
+			return successResult(`Available sessions:\n${lines.join("\n")}`);
+		}
+		if (!params.confirmed) return confirmNeeded(`Resume session "${params.session}"?`);
+		if (!this.session.resumeSession) return successResult("Session resume is not available in this session.");
+		const result = await this.session.resumeSession(params.session);
+		if (result.ok) {
+			return successResult(`Resumed session ${result.sessionId}${result.title ? ` "${result.title}"` : ""}.`, {
+				sessionId: result.sessionId,
+			});
+		}
+		if (result.candidates && result.candidates.length > 0) {
+			const lines = result.candidates.map(
+				c => `- ${c.id}${c.title ? ` "${c.title}"` : ""}${c.cwd ? ` (${c.cwd})` : ""}`,
+			);
+			return successResult(`${result.error}\nCandidates:\n${lines.join("\n")}`);
+		}
+		return successResult(result.error);
 	}
 }
 
@@ -679,11 +743,15 @@ export class BtwTool implements AgentTool<typeof btwSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Ask side question (autonomous)";
 	static createIf(session: ToolSession): BtwTool | null {
-		return new BtwTool();
+		return new BtwTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof btwSchema>): Promise<AgentToolResult> {
-		if (!params.confirmed) return confirmNeeded(`Ask: "${params.question}"?`);
-		return successResult(`Side question noted (UI will surface): "${params.question}"`, { unsupported: true });
+		if (!this.session.runEphemeralTurn) return successResult("Side questions are not available in this session.");
+		const result = await this.session.runEphemeralTurn(`(Side question) ${params.question}`);
+		return result.ok
+			? successResult(result.reply ?? "No reply.")
+			: successResult(`Side question failed: ${result.error ?? "unknown"}`);
 	}
 }
 
@@ -779,14 +847,39 @@ export class CronManageTool implements AgentTool<typeof cronManageSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage cron jobs (requires confirmation)";
 	static createIf(session: ToolSession): CronManageTool | null {
-		return new CronManageTool();
+		return new CronManageTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof cronManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Cron: ${params.action}?`);
-		return successResult(
-			`Cron ${params.action} is a scheduler-surface action (see /cron); not available as an agent tool here.`,
-			{ unsupported: true },
-		);
+		try {
+			const store = getGlobalCronScheduler().store;
+			switch (params.action) {
+				case "add": {
+					if (!params.schedule || !params.sessionId) {
+						return successResult("Cron add requires `schedule` (cron expression) and `sessionId`.");
+					}
+					const job = await store.create({
+						schedule: params.schedule,
+						sessionId: params.sessionId,
+						deliveryMode: "follow_up",
+						enabled: true,
+					});
+					return successResult(
+						`Scheduled cron job ${job.id}: "${params.schedule}" -> session ${params.sessionId}`,
+					);
+				}
+				case "remove": {
+					if (!params.jobId) return successResult("Cron remove requires `jobId`.");
+					const removed = await store.delete(params.jobId);
+					return removed
+						? successResult(`Cron job ${params.jobId} removed.`)
+						: successResult(`Cron job ${params.jobId} not found.`);
+				}
+			}
+		} catch (error) {
+			return successResult(`Cron operation failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 }
 
@@ -850,14 +943,25 @@ export class PluginManageTool implements AgentTool<typeof pluginManageSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage plugins (requires confirmation)";
 	static createIf(session: ToolSession): PluginManageTool | null {
-		return new PluginManageTool();
+		return new PluginManageTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof pluginManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Plugin: ${params.action} ${params.pluginId}?`);
-		return successResult(
-			`Plugin ${params.action} is a TUI action (see /plugins); not available as an agent tool here.`,
-			{ unsupported: true },
-		);
+		try {
+			const cwd = this.session.cwd ?? process.cwd();
+			const manager = new PluginManager(cwd);
+			await manager.setEnabled(params.pluginId, params.action === "enable");
+			// Refresh plugin roots so the change takes effect.
+			if (this.session.reloadPlugins) {
+				await this.session.reloadPlugins();
+			}
+			return successResult(`Plugin ${params.pluginId} ${params.action === "enable" ? "enabled" : "disabled"}.`);
+		} catch (error) {
+			return successResult(
+				`Plugin ${params.action} failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 	}
 }
 
@@ -877,14 +981,21 @@ export class RefineTool implements AgentTool<typeof refineSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Refine prompts/memories (requires confirmation)";
 	static createIf(session: ToolSession): RefineTool | null {
-		return new RefineTool();
+		return new RefineTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof refineSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Refine: ${params.action}?`);
-		return successResult(
-			`Refine ${params.action} is a trajectory-review flow driven from the TUI; not directly available as an agent tool here.`,
-			{ unsupported: true },
-		);
+		if (!this.session.runRefine) return successResult("Refinement is not available in this session.");
+		const result = await this.session.runRefine({
+			action: params.action,
+			global: params.global,
+			resultId: params.resultId,
+			instructions: params.instructions,
+		});
+		return result.ok
+			? successResult(result.message ?? `Refine ${params.action} succeeded.`)
+			: successResult(result.error ?? `Refine ${params.action} failed.`);
 	}
 }
 
@@ -932,15 +1043,45 @@ export class SessionManageTool implements AgentTool<typeof sessionManageSchema> 
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage session (requires confirmation)";
+	constructor(private readonly session: ToolSession) {}
 	static createIf(session: ToolSession): SessionManageTool | null {
-		return new SessionManageTool();
+		return new SessionManageTool(session);
 	}
 	async execute(_id: string, params: z.infer<typeof sessionManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Session: ${params.action}?`);
-		return successResult(
-			`Session ${params.action} is a TUI action (see /session); not available as an agent tool here.`,
-			{ unsupported: true },
-		);
+		switch (params.action) {
+			case "delete": {
+				if (!this.session.dropSession) return successResult("Session delete is not available in this session.");
+				const done = await this.session.dropSession();
+				return successResult(done ? "Session deleted." : "Session delete cancelled (hook).");
+			}
+			case "move": {
+				if (!params.path)
+					return successResult("Session move requires a target `path` (working directory).", {
+						needsPath: true,
+					});
+				if (!this.session.moveSession) return successResult("Session move is not available in this session.");
+				const moved = await this.session.moveSession(params.path);
+				return moved.ok
+					? successResult(`Session moved to ${params.path}.`)
+					: successResult(moved.error ?? "Session move failed.");
+			}
+			case "handoff": {
+				if (!params.instructions) {
+					return successResult(
+						"Session handoff requires `instructions` describing what the next session should do.",
+						{ needsInstructions: true },
+					);
+				}
+				if (!this.session.handoff) return successResult("Session handoff is not available in this session.");
+				const result = await this.session.handoff(params.instructions);
+				return successResult(
+					result
+						? `Handoff generated. ${result.savedPath ? `Saved to ${result.savedPath}.` : ""}`
+						: "Handoff not generated (refused or already in progress).",
+				);
+			}
+		}
 	}
 }
 
@@ -955,13 +1096,16 @@ export class TanTool implements AgentTool<typeof tanSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Run tangential work (requires confirmation)";
 	static createIf(session: ToolSession): TanTool | null {
-		return new TanTool();
+		return new TanTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof tanSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Run tangential work: "${params.work}"?`);
-		return successResult("Tangential/background agent runs are not exposed here; use the /tan TUI flow.", {
-			unsupported: true,
-		});
+		if (!this.session.startAutonomousWork) return successResult("Background work is not available in this session.");
+		const result = await this.session.startAutonomousWork(`Tangential work: ${params.work}`);
+		return result.ok
+			? successResult(`Background work started (state ${result.stateId ?? "n/a"}).`, { stateId: result.stateId })
+			: successResult(`Failed to start background work: ${result.error ?? "unknown"}`);
 	}
 }
 
@@ -979,14 +1123,17 @@ export class FermentTool implements AgentTool<typeof fermentSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Start ferment workflow (requires confirmation)";
 	static createIf(session: ToolSession): FermentTool | null {
-		return new FermentTool();
+		return new FermentTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof fermentSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Start ferment: "${params.goal}"?`);
-		return successResult(
-			"Ferment workflow creation is a TUI/slash flow (see /ferment); not available as an agent tool here.",
-			{ unsupported: true },
-		);
+		if (!this.session.startAutonomousWork)
+			return successResult("Ferment workflows are not available in this session.");
+		const result = await this.session.startAutonomousWork(`Ferment one-shot: ${params.goal}`);
+		return result.ok
+			? successResult(`Ferment workflow started (state ${result.stateId ?? "n/a"}).`, { stateId: result.stateId })
+			: successResult(`Failed to start ferment: ${result.error ?? "unknown"}`);
 	}
 }
 
@@ -1034,14 +1181,36 @@ export class ConnectTool implements AgentTool<typeof connectSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Connect to platform (requires confirmation)";
 	static createIf(session: ToolSession): ConnectTool | null {
-		return new ConnectTool();
+		return new ConnectTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof connectSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Connect to ${params.platform}?`);
-		return successResult(
-			`Connecting to ${params.platform} is a user-driven action; not available as an agent tool here.`,
-			{ unsupported: true },
-		);
+		if (params.platform === "slack" && !params.botToken) {
+			return successResult("Slack connection requires `botToken` (and optionally `appToken`).");
+		}
+		if (params.platform === "telegram" && !params.botToken) {
+			return successResult("Telegram connection requires `botToken`.");
+		}
+		try {
+			const cwd = this.session.cwd ?? process.cwd();
+			const log = (msg: string) => {
+				// Connector logs are surfaced here rather than swallowed.
+				console.error(`[${params.platform}] ${msg}`);
+			};
+			if (params.platform === "slack") {
+				const { startSlackConnector } = await import("../connectors/slack");
+				void startSlackConnector({ botToken: params.botToken!, appToken: params.appToken, cwd }, log);
+			} else {
+				const { startTelegramConnector } = await import("../connectors/telegram");
+				void startTelegramConnector({ botToken: params.botToken!, cwd }, log);
+			}
+			return successResult(`Connection to ${params.platform} starting with the provided token.`);
+		} catch (error) {
+			return successResult(
+				`Connection to ${params.platform} failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 	}
 }
 
@@ -1063,14 +1232,53 @@ export class ScheduleManageTool implements AgentTool<typeof scheduleManageSchema
 	readonly loadMode = "discoverable";
 	readonly summary = "Manage schedules (requires confirmation)";
 	static createIf(session: ToolSession): ScheduleManageTool | null {
-		return new ScheduleManageTool();
+		return new ScheduleManageTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof scheduleManageSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Schedule: ${params.action}?`);
-		return successResult(
-			`Schedule ${params.action} is a scheduler-surface action (see /schedule); not available as an agent tool here.`,
-			{ unsupported: true },
-		);
+		try {
+			switch (params.action) {
+				case "create": {
+					if (!params.name || !params.cronPattern || !params.prompt) {
+						return successResult("Schedule create requires `name`, `cronPattern`, and `prompt`.");
+					}
+					const run = globalScheduler.createSchedule({
+						name: params.name,
+						cronPattern: params.cronPattern,
+						prompt: params.prompt,
+						agent: params.agent,
+					});
+					return successResult(`Created schedule ${run.id} "${run.name}" (${run.cronPattern}).`);
+				}
+				case "delete":
+					if (!params.jobId) return successResult("Schedule delete requires `jobId`.");
+					return globalScheduler.deleteSchedule(params.jobId)
+						? successResult(`Deleted schedule ${params.jobId}.`)
+						: successResult(`Schedule ${params.jobId} not found.`);
+				case "pause":
+					if (!params.jobId) return successResult("Schedule pause requires `jobId`.");
+					return globalScheduler.pauseSchedule(params.jobId)
+						? successResult(`Paused schedule ${params.jobId}.`)
+						: successResult(`Schedule ${params.jobId} not found.`);
+				case "resume":
+					if (!params.jobId) return successResult("Schedule resume requires `jobId`.");
+					return globalScheduler.resumeSchedule(params.jobId)
+						? successResult(`Resumed schedule ${params.jobId}.`)
+						: successResult(`Schedule ${params.jobId} not found.`);
+				case "trigger": {
+					if (!params.jobId) return successResult("Schedule trigger requires `jobId`.");
+					if (!this.session.triggerSchedule)
+						return successResult("Schedule trigger is not available in this session.");
+					const result = await this.session.triggerSchedule(params.jobId);
+					return result.ok
+						? successResult(`Triggered schedule ${params.jobId}.`)
+						: successResult(result.error ?? `Schedule ${params.jobId} not found.`);
+				}
+			}
+		} catch (error) {
+			return successResult(`Schedule operation failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 }
 
@@ -1087,14 +1295,55 @@ export class MarketplaceTool implements AgentTool<typeof marketplaceSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Browse marketplace (requires confirmation)";
 	static createIf(session: ToolSession): MarketplaceTool | null {
-		return new MarketplaceTool();
+		return new MarketplaceTool(session);
 	}
+	constructor(private readonly session: ToolSession) {}
 	async execute(_id: string, params: z.infer<typeof marketplaceSchema>): Promise<AgentToolResult> {
 		if (!params.confirmed) return confirmNeeded(`Marketplace: ${params.action}?`);
-		return successResult(
-			`Marketplace ${params.action} is a TUI action (see /marketplace); not available as an agent tool here.`,
-			{ unsupported: true },
-		);
+		try {
+			const { MarketplaceManager } = await import("../extensibility/plugins/marketplace/manager");
+			const {
+				getMarketplacesRegistryPath,
+				getInstalledPluginsRegistryPath,
+				getMarketplacesCacheDir,
+				getPluginsCacheDir,
+			} = await import("../extensibility/plugins/marketplace/registry");
+			const { resolveOrDefaultProjectRegistryPath, clearPluginRootsAndCaches } = await import(
+				"../discovery/helpers"
+			);
+			const cwd = this.session.cwd ?? process.cwd();
+			const mgr = new MarketplaceManager({
+				marketplacesRegistryPath: getMarketplacesRegistryPath(),
+				installedRegistryPath: getInstalledPluginsRegistryPath(),
+				projectInstalledRegistryPath: await resolveOrDefaultProjectRegistryPath(cwd),
+				marketplacesCacheDir: getMarketplacesCacheDir(),
+				pluginsCacheDir: getPluginsCacheDir(),
+				clearPluginRootsCache: clearPluginRootsAndCaches,
+			});
+			if (params.action === "discover") {
+				const plugins = await mgr.listAvailablePlugins();
+				if (plugins.length === 0) return successResult("No marketplace extensions available.");
+				const lines = plugins.map(
+					p => `- ${p.name}${p.version ? `@${p.version}` : ""}${p.description ? ` — ${p.description}` : ""}`,
+				);
+				return successResult(`Available marketplace extensions (${plugins.length}):\n${lines.join("\n")}`);
+			}
+			const installed = await mgr.listInstalledPlugins();
+			if (installed.length === 0) return successResult("No marketplace plugins installed.");
+			const lines: string[] = [];
+			for (const group of installed) {
+				for (const entry of group.entries) {
+					lines.push(
+						`- ${group.id}@${entry.version}${group.scope === "project" ? " (project)" : ""}${entry.enabled ? "" : " (disabled)"}`,
+					);
+				}
+			}
+			return successResult(`Installed marketplace plugins (${lines.length}):\n${lines.join("\n")}`);
+		} catch (error) {
+			return successResult(
+				`Marketplace ${params.action} failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 	}
 }
 
