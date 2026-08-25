@@ -939,6 +939,9 @@ export class SessionObserverOverlayComponent extends Container {
 		if (this.#activeTab === "studio") {
 			if (!this.#studioOverlay) {
 				this.#studioOverlay = new AeryStudioOverlay();
+				this.#studioOverlay.onClose = () => {
+					this.#activeTab = "sessions";
+				};
 			}
 			this.#studioOverlay.handleInput(keyData);
 			return;
@@ -1028,6 +1031,9 @@ export class SessionObserverOverlayComponent extends Container {
 		this.#activeTab = target;
 		if (target === "studio" && !this.#studioOverlay) {
 			this.#studioOverlay = new AeryStudioOverlay();
+			this.#studioOverlay.onClose = () => {
+				this.#activeTab = "sessions";
+			};
 		}
 		if (target === "agents" && !this.#agentsDashboard && !this.#agentsLoading) {
 			this.#loadAgentsDashboard();

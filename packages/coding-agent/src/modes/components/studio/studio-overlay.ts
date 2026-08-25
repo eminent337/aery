@@ -132,7 +132,7 @@ export class AeryStudioOverlay extends Container {
 	}
 
 	handleInput(data: string): void {
-		if (data === "\x1b" || data === "\x1b\x1b" || matchesKey(data, "q")) {
+		if (matchesKey(data, "escape") || data === "\x1b" || data === "\x1b\x1b" || matchesKey(data, "q")) {
 			this.onClose?.();
 			return;
 		}
