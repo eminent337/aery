@@ -35,7 +35,6 @@ import { AUTO_THINKING, type ConfiguredThinkingLevel } from "../../thinking";
 import { getTabBarTheme } from "../shared";
 import { DynamicBorder } from "./dynamic-border";
 import { ConnectHub } from "./connect/connect-hub";
-import { AeryStudioOverlay } from "./studio/studio-overlay";
 import { handleInputOrEscape, PluginSettingsComponent } from "./plugin-settings";
 import { getSettingDef, getSettingsForTab, type SettingDef } from "./settings-defs";
 import { getPreset } from "./status-line/presets";
@@ -180,7 +179,6 @@ function getSettingsTabs(): Tab[] {
 			const icon = theme.symbol(meta.icon as Parameters<typeof theme.symbol>[0]);
 			return { id, label: `${icon} ${meta.label}` };
 		}),
-		{ id: "studio", label: `✦ Studio` },
 		{ id: "connect", label: `⚡ Connect` },
 		{ id: "plugins", label: `${theme.icon.package} Plugins` },
 	];
@@ -288,11 +286,10 @@ export class SettingsSelectorComponent extends Container {
 	#searchList: SettingsList | null = null;
 	#pluginComponent: PluginSettingsComponent | null = null;
 	#connectComponent: ConnectHub | null = null;
-	#studioComponent: AeryStudioOverlay | null = null;
 	#statusPreviewContainer: Container | null = null;
 	#statusPreviewText: Text | null = null;
-	#currentTabId: SettingTab | "plugins" | "connect" | "studio" = "appearance";
-	#preSearchTabId: SettingTab | "plugins" | "connect" | "studio" = "appearance";
+	#currentTabId: SettingTab | "plugins" | "connect" = "appearance";
+	#preSearchTabId: SettingTab | "plugins" | "connect" = "appearance";
 	#searchQuery = "";
 	/** First matching item id per tab id, for Tab-key jumps while searching. */
 	#searchFirstMatch = new Map<string, string>();
@@ -316,7 +313,7 @@ export class SettingsSelectorComponent extends Container {
 		this.#tabBar = new TabBar("", getSettingsTabs(), getTabBarTheme());
 		this.#tabBar.showHint = false;
 		this.#tabBar.onTabChange = () => {
-			const tabId = this.#tabBar.getActiveTab().id as SettingTab | "plugins" | "connect" | "studio";
+			const tabId = this.#tabBar.getActiveTab().id as SettingTab | "plugins" | "connect";
 			if (this.#searchList) {
 				// While searching, tabs act as jump targets into the result list.
 				const firstId = this.#searchFirstMatch.get(tabId);
@@ -359,11 +356,6 @@ export class SettingsSelectorComponent extends Container {
 			this.removeChild(this.#connectComponent);
 			this.#connectComponent = null;
 		}
-		if (this.#studioComponent) {
-			this.#studioComponent.dispose();
-			this.removeChild(this.#studioComponent);
-			this.#studioComponent = null;
-		}
 		if (this.#statusPreviewContainer) {
 			this.removeChild(this.#statusPreviewContainer);
 			this.#statusPreviewContainer = null;
@@ -379,15 +371,13 @@ export class SettingsSelectorComponent extends Container {
 		}
 	}
 
-	#switchToTab(tabId: SettingTab | "plugins" | "connect" | "studio"): void {
+	#switchToTab(tabId: SettingTab | "plugins" | "connect"): void {
 		this.#currentTabId = tabId;
 		this.#setContent(() => {
 			if (tabId === "plugins") {
 				this.#showPluginsTab();
 			} else if (tabId === "connect") {
 				this.#showConnectTab();
-			} else if (tabId === "studio") {
-				this.#showStudioTab();
 			} else {
 				this.#showSettingsTab(tabId);
 			}
@@ -476,7 +466,7 @@ export class SettingsSelectorComponent extends Container {
 		if (!this.#searchList) return;
 		const selected = jumpToSelection ? this.#searchList.getSelectedItem() : undefined;
 		const selectedDef = selected ? getSettingDef(selected.id as SettingPath) : undefined;
-		const targetTab: SettingTab | "plugins" | "connect" | "studio" = selectedDef?.tab ?? this.#preSearchTabId;
+		const targetTab: SettingTab | "plugins" | "connect" = selectedDef?.tab ?? this.#preSearchTabId;
 
 		this.#searchQuery = "";
 		this.#searchFirstMatch.clear();
@@ -890,16 +880,9 @@ export class SettingsSelectorComponent extends Container {
 		this.addChild(this.#connectComponent);
 	}
 
-	#showStudioTab(): void {
-		this.#studioComponent = new AeryStudioOverlay();
-		this.#studioComponent.onClose = () => this.callbacks.onCancel();
-		this.#studioComponent.onRequestRender = () => this.callbacks.onStatusLinePreview?.({});
-		this.addChild(this.#studioComponent);
-	}
-
-	getFocusComponent(): SettingsList | PluginSettingsComponent | ConnectHub | AeryStudioOverlay {
+	getFocusComponent(): SettingsList | PluginSettingsComponent | ConnectHub {
 		// Return the current focusable component - one of these will always be set
-		return (this.#searchList || this.#currentList || this.#pluginComponent || this.#connectComponent || this.#studioComponent)!;
+		return (this.#searchList || this.#currentList || this.#pluginComponent || this.#connectComponent)!;
 	}
 
 	handleInput(data: string): void {
@@ -920,11 +903,6 @@ export class SettingsSelectorComponent extends Container {
 
 		if (this.#searchList) {
 			this.#handleSearchModeInput(data, this.#searchList);
-			return;
-		}
-
-		if (this.#studioComponent) {
-			this.#studioComponent.handleInput(data);
 			return;
 		}
 
@@ -949,8 +927,8 @@ export class SettingsSelectorComponent extends Container {
 		}
 
 		// Printable characters start a search across every settings tab. The
-		// plugins, connect, and studio tabs keep their own local handling instead.
-		if (this.#currentTabId !== "plugins" && this.#currentTabId !== "connect" && this.#currentTabId !== "studio") {
+		// plugins and connect tabs keep their own local handling instead.
+		if (this.#currentTabId !== "plugins" && this.#currentTabId !== "connect") {
 			const printable = extractPrintableText(data);
 			if (printable !== undefined && printable.trim().length > 0) {
 				this.#startSearch(printable);

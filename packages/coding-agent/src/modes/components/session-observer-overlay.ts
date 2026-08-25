@@ -42,6 +42,7 @@ import type { ObservableSession, SessionObserverRegistry } from "../session-obse
 import { getMarkdownTheme, theme } from "../theme/theme";
 import { matchesSelectDown, matchesSelectUp } from "../utils/keybinding-matchers";
 import type { AgentDashboard } from "./agent-dashboard";
+import { AeryStudioOverlay } from "./studio/studio-overlay.js";
 import { DynamicBorder } from "./dynamic-border";
 import { formatContextUsage } from "./status-line/context-thresholds";
 
@@ -94,8 +95,9 @@ export class SessionObserverOverlayComponent extends Container {
 	#selectedSessionId?: string;
 	#observeKeys: KeyId[];
 	#transcriptCache?: { path: string; bytesRead: number; entries: SessionMessageEntry[]; model?: string };
-	// Top-level tabs: Sessions (live monitoring) | Agents (Agent Control Center)
-	#activeTab: "sessions" | "agents" = "sessions";
+	// Top-level tabs: Sessions (live monitoring) | Studio (War-Room & Swarm) | Agents (Agent Control Center)
+	#activeTab: "sessions" | "studio" | "agents" = "sessions";
+	#studioOverlay: AeryStudioOverlay | null = null;
 	#agentsDashboard: AgentDashboard | null = null;
 	#agentsLoading = false;
 	#agentsFactory?: () => Promise<AgentDashboard>;
@@ -155,6 +157,15 @@ export class SessionObserverOverlayComponent extends Container {
 	override render(width: number): string[] {
 		const termHeight = process.stdout.rows || 40;
 		const tabBarLines = this.#renderTabBar(width);
+
+		// Studio tab: render the Aery Studio war-room overlay.
+		if (this.#activeTab === "studio") {
+			if (!this.#studioOverlay) {
+				this.#studioOverlay = new AeryStudioOverlay();
+			}
+			const contentLines = this.#studioOverlay.render(width);
+			return [...tabBarLines, ...contentLines];
+		}
 
 		// Agents tab: render the embedded Agent Control Center dashboard.
 		if (this.#activeTab === "agents") {
@@ -231,10 +242,11 @@ export class SessionObserverOverlayComponent extends Container {
 		return [...tabBarLines, ...lines];
 	}
 
-	/** Render the top-level tab bar ([Sessions] | [Agents]). */
+	/** Render the top-level tab bar ([Sessions] | [Studio] | [Agents]). */
 	#renderTabBar(width: number): string[] {
 		const tabs: Tab[] = [
 			{ id: "sessions", label: "Sessions" },
+			{ id: "studio", label: "Studio" },
 			{ id: "agents", label: "Agents" },
 		];
 		const themeForTabBar: TabBarTheme = {
@@ -243,7 +255,8 @@ export class SessionObserverOverlayComponent extends Container {
 			inactiveTab: text => theme.fg("dim", text),
 			hint: text => theme.fg("dim", text),
 		};
-		const tabBar = new TabBar("Hub", tabs, themeForTabBar, this.#activeTab === "agents" ? 1 : 0);
+		const activeIdx = this.#activeTab === "agents" ? 2 : this.#activeTab === "studio" ? 1 : 0;
+		const tabBar = new TabBar("Hub", tabs, themeForTabBar, activeIdx);
 		tabBar.showHint = false;
 		const rendered = tabBar.render(width)[0] ?? "";
 		return [padRight(rendered, width)];
@@ -626,6 +639,29 @@ export class SessionObserverOverlayComponent extends Container {
 					this.#viewerEntries.push({ lineStart: startLine, lineCount: lines.length - startLine, kind: "user" });
 					entryIndex++;
 				}
+			} else if (msg.role === "custom") {
+				const content = typeof msg.content === "string" ? msg.content : "";
+				if (content.trim()) {
+					const startLine = lines.length;
+					const isSelected = entryIndex === this.#selectedEntryIndex;
+					const isExpanded = this.#expandedEntries.has(entryIndex);
+					const cursor = isSelected ? theme.fg("accent", "▶") : " ";
+					lines.push("");
+					const isIrc = msg.customType === "irc:relay";
+					const tag = isIrc ? theme.fg("accent", "💬 [IRC]") : theme.fg("dim", `[${msg.customType || "Custom"}]`);
+					if (isExpanded) {
+						lines.push(`${cursor} ${tag}`);
+						const mdLines = this.#renderMarkdownToLines(content.trim());
+						for (const ml of mdLines) {
+							lines.push(ml);
+						}
+					} else {
+						const firstLine = content.trim().split("\n")[0];
+						lines.push(`${cursor} ${tag} ${theme.fg("muted", sanitizeLine(firstLine, TRUNCATE_LENGTHS.TITLE))}`);
+					}
+					this.#viewerEntries.push({ lineStart: startLine, lineCount: lines.length - startLine, kind: "text" });
+					entryIndex++;
+				}
 			}
 		}
 	}
@@ -889,9 +925,22 @@ export class SessionObserverOverlayComponent extends Container {
 			}
 		}
 
-		// Tab / Shift+Tab switches the top-level tab (Sessions <-> Agents)
+		// Tab / Shift+Tab switches the top-level tab (Sessions <-> Studio <-> Agents)
 		if (matchesKey(keyData, "tab") || matchesKey(keyData, "shift+tab")) {
-			this.#switchTab(matchesKey(keyData, "tab") ? "agents" : "sessions");
+			const order: Array<"sessions" | "studio" | "agents"> = ["sessions", "studio", "agents"];
+			const curIdx = order.indexOf(this.#activeTab);
+			const step = matchesKey(keyData, "shift+tab") ? -1 : 1;
+			const nextIdx = (curIdx + step + order.length) % order.length;
+			this.#switchTab(order[nextIdx]);
+			return;
+		}
+
+		// Studio tab: delegate to studio overlay
+		if (this.#activeTab === "studio") {
+			if (!this.#studioOverlay) {
+				this.#studioOverlay = new AeryStudioOverlay();
+			}
+			this.#studioOverlay.handleInput(keyData);
 			return;
 		}
 
@@ -973,10 +1022,13 @@ export class SessionObserverOverlayComponent extends Container {
 		}
 	}
 
-	/** Switch the top-level tab (Sessions <-> Agents), lazily loading the dashboard. */
-	#switchTab(target: "sessions" | "agents"): void {
+	/** Switch the top-level tab (Sessions <-> Studio <-> Agents), lazily loading components. */
+	#switchTab(target: "sessions" | "studio" | "agents"): void {
 		if (this.#activeTab === target) return;
 		this.#activeTab = target;
+		if (target === "studio" && !this.#studioOverlay) {
+			this.#studioOverlay = new AeryStudioOverlay();
+		}
 		if (target === "agents" && !this.#agentsDashboard && !this.#agentsLoading) {
 			this.#loadAgentsDashboard();
 		}
