@@ -26,7 +26,7 @@ export class AeryStudioOverlay extends Container {
 
 	constructor(stateManager?: StudioStateManager) {
 		super();
-		this.#stateManager = stateManager ?? new StudioStateManager();
+		this.#stateManager = stateManager ?? StudioStateManager.instance();
 
 		const state = this.#stateManager.getState();
 		this.#tabBar = new TabBar(
@@ -144,6 +144,7 @@ export class AeryStudioOverlay extends Container {
 			matchesKey(data, "right")
 		) {
 			this.#tabBar.handleInput(data);
+			this.onRequestRender?.();
 			return;
 		}
 

@@ -39,9 +39,6 @@ interface IrcWaiter {
 	cancel: () => void;
 }
 
-/** Mailbox cap per agent; oldest messages are dropped beyond it. */
-const MAILBOX_CAP = 100;
-
 export class IrcBus {
 	static #global: IrcBus | undefined;
 
@@ -61,12 +58,34 @@ export class IrcBus {
 	readonly #lifecycle: () => AgentLifecycleManager;
 	readonly #mailboxes = new Map<string, IrcMessage[]>();
 	readonly #waiters = new Map<string, IrcWaiter[]>();
+	readonly #messageListeners = new Set<(msg: IrcMessage) => void>();
 
 	constructor(registry: AgentRegistry = AgentRegistry.global(), lifecycle?: AgentLifecycleManager) {
 		this.#registry = registry;
 		// Lazy: the lifecycle global self-constructs against the global registry,
 		// so only touch it when a parked recipient actually needs reviving.
 		this.#lifecycle = () => lifecycle ?? AgentLifecycleManager.global();
+	}
+
+	/** Subscribe to all live IRC messages passing through the bus. */
+	onMessage(listener: (msg: IrcMessage) => void): () => void {
+		this.#messageListeners.add(listener);
+		return () => this.#messageListeners.delete(listener);
+	}
+
+	/** Return number of unread messages currently buffered in an agent's mailbox. */
+	unreadCount(agentId: string): number {
+		return this.#mailboxes.get(agentId)?.length ?? 0;
+	}
+
+	/** Read or drain messages from an agent's mailbox. */
+	inbox(agentId: string, options?: { peek?: boolean }): IrcMessage[] {
+		const mailbox = this.#mailboxes.get(agentId) ?? [];
+		if (options?.peek) {
+			return [...mailbox];
+		}
+		this.#mailboxes.delete(agentId);
+		return mailbox;
 	}
 
 	/**
@@ -77,6 +96,14 @@ export class IrcBus {
 	 */
 	async send(msg: Omit<IrcMessage, "id" | "ts">): Promise<IrcDeliveryReceipt> {
 		const message: IrcMessage = { ...msg, id: Snowflake.next(), ts: Date.now() };
+		
+		// Notify bus listeners (e.g. Aery Studio)
+		for (const listener of this.#messageListeners) {
+			try {
+				listener(message);
+			} catch (_e) {}
+		}
+
 		const ref = this.#registry.get(message.to);
 		if (!ref || ref.status === "aborted") {
 			return { to: message.to, outcome: "failed", error: `Unknown or terminated agent "${message.to}".` };
@@ -158,10 +185,11 @@ export class IrcBus {
 				cleanup();
 			},
 		};
-		const cleanup = (): void => {
+
+		const cleanup = () => {
+			if (timer) clearTimeout(timer);
+			if (onAbort && signal) signal.removeEventListener("abort", onAbort);
 			this.#removeWaiter(agentId, waiter);
-			clearTimeout(timer);
-			if (signal && onAbort) signal.removeEventListener("abort", onAbort);
 		};
 
 		if (signal) {
@@ -171,61 +199,35 @@ export class IrcBus {
 			};
 			signal.addEventListener("abort", onAbort, { once: true });
 		}
+
 		if (timeoutMs > 0) {
 			timer = setTimeout(() => {
 				cleanup();
 				resolve(null);
 			}, timeoutMs);
-			timer.unref?.();
 		}
 
-		let waiters = this.#waiters.get(agentId);
-		if (!waiters) {
-			waiters = [];
-			this.#waiters.set(agentId, waiters);
-		}
-		waiters.push(waiter);
+		const list = this.#waiters.get(agentId) ?? [];
+		list.push(waiter);
+		this.#waiters.set(agentId, list);
+
 		return promise;
 	}
 
-	/** Drain (or peek) pending messages for `agentId`. */
-	inbox(agentId: string, opts?: { peek?: boolean }): IrcMessage[] {
-		const mailbox = this.#mailboxes.get(agentId);
-		if (!mailbox || mailbox.length === 0) return [];
-		if (opts?.peek) return [...mailbox];
-		this.#mailboxes.delete(agentId);
-		return mailbox;
-	}
-
-	unreadCount(agentId: string): number {
-		return this.#mailboxes.get(agentId)?.length ?? 0;
-	}
-
 	#enqueue(message: IrcMessage): void {
-		let mailbox = this.#mailboxes.get(message.to);
-		if (!mailbox) {
-			mailbox = [];
-			this.#mailboxes.set(message.to, mailbox);
-		}
-		mailbox.push(message);
-		if (mailbox.length > MAILBOX_CAP) {
-			const dropped = mailbox.shift();
-			logger.debug("IrcBus: mailbox full, dropped oldest message", {
-				agentId: message.to,
-				droppedId: dropped?.id,
-				droppedFrom: dropped?.from,
-			});
-		}
+		const list = this.#mailboxes.get(message.to) ?? [];
+		list.push(message);
+		if (list.length > 100) list.shift();
+		this.#mailboxes.set(message.to, list);
 	}
 
-	/** Resolve the OLDEST waiter for `agentId` whose from-filter accepts `from`. */
-	#takeMatchingWaiter(agentId: string, from: string): IrcWaiter | undefined {
-		const waiters = this.#waiters.get(agentId);
-		if (!waiters) return undefined;
-		const index = waiters.findIndex(waiter => !waiter.from || waiter.from === from);
+	#takeMatchingWaiter(to: string, from: string): IrcWaiter | undefined {
+		const waiters = this.#waiters.get(to);
+		if (!waiters || waiters.length === 0) return undefined;
+		const index = waiters.findIndex(w => !w.from || w.from === from);
 		if (index === -1) return undefined;
 		const [waiter] = waiters.splice(index, 1);
-		if (waiters.length === 0) this.#waiters.delete(agentId);
+		if (waiters.length === 0) this.#waiters.delete(to);
 		return waiter;
 	}
 

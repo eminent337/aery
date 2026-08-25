@@ -8,6 +8,15 @@ import { IrcBus } from "../../../irc/bus.js";
 import type { StudioAgentNode, StudioChatMessage, StudioInspectorDiff, StudioState, StudioTab } from "./types.js";
 
 export class StudioStateManager {
+	static #instance?: StudioStateManager;
+
+	static instance(): StudioStateManager {
+		if (!StudioStateManager.#instance) {
+			StudioStateManager.#instance = new StudioStateManager();
+		}
+		return StudioStateManager.#instance;
+	}
+
 	#chatHistory: StudioChatMessage[] = [];
 	#diffs: StudioInspectorDiff[] = [];
 	#listeners: Set<() => void> = new Set();
@@ -15,6 +24,12 @@ export class StudioStateManager {
 	#activeAgentId?: string;
 
 	constructor() {
+		// Auto-hook IrcBus global traffic
+		const bus = IrcBus.global();
+		bus.onMessage((msg) => {
+			this.recordIrcMessage(msg);
+		});
+
 		// Periodically poll agents / live state
 		setInterval(() => {
 			this.#notify();
@@ -22,6 +37,9 @@ export class StudioStateManager {
 	}
 
 	recordIrcMessage(msg: { id: string; from: string; to: string; body: string; ts: number; replyTo?: string }): void {
+		// Avoid duplicates
+		if (this.#chatHistory.some(m => m.id === msg.id)) return;
+
 		this.#chatHistory.push({
 			id: msg.id,
 			from: msg.from,
