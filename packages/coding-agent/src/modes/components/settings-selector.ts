@@ -465,7 +465,7 @@ export class SettingsSelectorComponent extends Container {
 		if (!this.#searchList) return;
 		const selected = jumpToSelection ? this.#searchList.getSelectedItem() : undefined;
 		const selectedDef = selected ? getSettingDef(selected.id as SettingPath) : undefined;
-		const targetTab: SettingTab | "plugins" = selectedDef?.tab ?? this.#preSearchTabId;
+		const targetTab: SettingTab | "plugins" | "connect" = selectedDef?.tab ?? this.#preSearchTabId;
 
 		this.#searchQuery = "";
 		this.#searchFirstMatch.clear();
@@ -916,8 +916,8 @@ export class SettingsSelectorComponent extends Container {
 		}
 
 		// Printable characters start a search across every settings tab. The
-		// plugins tab keeps its own local filtering instead.
-		if (this.#currentTabId !== "plugins") {
+		// plugins and connect tabs keep their own local handling instead.
+		if (this.#currentTabId !== "plugins" && this.#currentTabId !== "connect") {
 			const printable = extractPrintableText(data);
 			if (printable !== undefined && printable.trim().length > 0) {
 				this.#startSearch(printable);
@@ -929,6 +929,8 @@ export class SettingsSelectorComponent extends Container {
 			this.#currentList.handleInput(data);
 		} else if (this.#pluginComponent) {
 			this.#pluginComponent.handleInput(data);
+		} else if (this.#connectComponent) {
+			this.#connectComponent.handleInput(data);
 		}
 	}
 
