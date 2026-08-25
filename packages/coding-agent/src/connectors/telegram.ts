@@ -1,6 +1,6 @@
 import type { AgentEvent } from "@aryee337/aery-core";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
-import { Chat, type StateAdapter } from "chat";
+import { Chat } from "chat";
 import * as os from "os";
 import * as path from "path";
 import { RpcClient } from "../modes/rpc/rpc-client";
@@ -26,10 +26,30 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 		botToken: options.botToken,
 	});
 
+	// Silent logger that routes operational logs cleanly without corrupting TUI output
+	const customLogger = {
+		debug: (_msg: string, _meta?: any) => {},
+		info: (msg: string, _meta?: any) => {
+			if (!msg.includes("initialized") && !msg.includes("webhook")) {
+				log(`[Telegram] ${msg}`);
+			}
+		},
+		warn: (msg: string, _meta?: any) => {
+			log(`[Telegram] Warning: ${msg}`);
+		},
+		error: (msg: string, _meta?: any) => {
+			log(`[Telegram] Error: ${msg}`);
+		},
+	};
+
+	const state = new SqliteStateAdapter();
+
 	const bot = new Chat({
 		userName: "aery",
 		adapters: { telegram },
-		state: new SqliteStateAdapter(),
+		state,
+		logger: customLogger as any,
+		onLockConflict: "force",
 	}).registerSingleton();
 
 	bot.onNewMention(async (thread, msg) => {
@@ -115,27 +135,41 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 						try {
 							currentTelegramMsg = await thread.post("...");
 						} catch (_e) {
-							log(`Failed to post message: ${_e}`);
+							// Ignore post errors
 						}
 					}
 				} else if (event.type === "message_update") {
-					if (isStreaming && currentTelegramMsg && event.assistantMessageEvent?.type === "text_delta") {
-						currentMessageText += event.assistantMessageEvent.delta;
-						if (!updateTimeout) {
-							updateTimeout = setTimeout(async () => {
-								updateTimeout = null;
-								try {
-									await currentTelegramMsg.edit(currentMessageText || "...");
-								} catch (_e) {
-									// Ignore edit errors
-								}
-							}, 500); // Telegram has stricter rate limits so batch updates
+					if (isStreaming && currentTelegramMsg && event.message.role === "assistant") {
+						if (event.message.content) {
+							const textContent = event.message.content
+								.filter((c: any) => c.type === "text")
+								.map((c: any) => c.text)
+								.join("");
+
+							currentMessageText = textContent;
+
+							// Debounce edit calls to avoid Telegram rate limits
+							if (!updateTimeout) {
+								updateTimeout = setTimeout(async () => {
+									updateTimeout = null;
+									if (currentTelegramMsg && currentMessageText) {
+										try {
+											await currentTelegramMsg.edit(currentMessageText);
+										} catch (_e) {
+											// Ignore edit errors
+										}
+									}
+								}, 800);
+							}
 						}
 					}
 				} else if (event.type === "message_end") {
 					if (isStreaming && currentTelegramMsg) {
 						isStreaming = false;
-						if (updateTimeout) clearTimeout(updateTimeout);
+						if (updateTimeout) {
+							clearTimeout(updateTimeout);
+							updateTimeout = null;
+						}
 						try {
 							await currentTelegramMsg.edit(currentMessageText || "...");
 						} catch (_e) {
