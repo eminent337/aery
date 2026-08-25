@@ -58,6 +58,7 @@ import { PluginMarketplaceHub } from "../components/marketplace/plugin-marketpla
 import { PluginSelectorComponent } from "../components/plugin-selector";
 import { SessionObserverOverlayComponent } from "../components/session-observer-overlay";
 import { SessionSelectorComponent } from "../components/session-selector";
+import { SkillsHub } from "../components/skills/skills-hub";
 import { SettingsSelectorComponent } from "../components/settings-selector";
 import { ToolExecutionComponent } from "../components/tool-execution";
 import { TreeSelectorComponent } from "../components/tree-selector";
@@ -1459,6 +1460,31 @@ export class SelectorController {
 		};
 
 		const hub = new ConnectHub(this.ctx.sessionManager.getCwd());
+		hub.onClose = done;
+		hub.onRequestRender = () => this.ctx.ui.requestRender();
+
+		overlayHandle = this.ctx.ui.showOverlay(hub, {
+			anchor: "bottom-center",
+			width: "100%",
+			maxHeight: "100%",
+			margin: 0,
+		});
+		this.ctx.ui.setFocus(hub);
+		this.ctx.ui.requestRender();
+	}
+
+	showSkillsHub(): void {
+		let overlayHandle: OverlayHandle | undefined;
+
+		const done = () => {
+			overlayHandle?.hide();
+			this.ctx.ui.requestRender();
+		};
+
+		const hub = new SkillsHub(
+			this.ctx.sessionManager.getCwd(),
+			this.ctx.session.skills,
+		);
 		hub.onClose = done;
 		hub.onRequestRender = () => this.ctx.ui.requestRender();
 
