@@ -124,13 +124,28 @@ export class ConnectStateManager {
 		return { ok: true, message: `${platformId} disconnected and cleared.` };
 	}
 
-	clearCredentials(platformId: PlatformId): void {
-		void this.disconnectPlatform(platformId);
+	clearCredentials(platformId: PlatformId, field?: "botToken" | "appToken" | "all"): void {
+		if (!field || field === "all") {
+			void this.disconnectPlatform(platformId);
+			if (platformId === "slack") {
+				settings.set("connectors.slack.botToken" as any, undefined as any);
+				settings.set("connectors.slack.appToken" as any, undefined as any);
+			} else if (platformId === "telegram") {
+				settings.set("connectors.telegram.botToken" as any, undefined as any);
+			}
+			return;
+		}
+
 		if (platformId === "slack") {
-			settings.set("connectors.slack.botToken" as any, undefined as any);
-			settings.set("connectors.slack.appToken" as any, undefined as any);
+			if (field === "botToken") {
+				settings.set("connectors.slack.botToken" as any, undefined as any);
+			} else if (field === "appToken") {
+				settings.set("connectors.slack.appToken" as any, undefined as any);
+			}
 		} else if (platformId === "telegram") {
-			settings.set("connectors.telegram.botToken" as any, undefined as any);
+			if (field === "botToken") {
+				settings.set("connectors.telegram.botToken" as any, undefined as any);
+			}
 		}
 	}
 }

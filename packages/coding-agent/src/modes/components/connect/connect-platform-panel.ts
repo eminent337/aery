@@ -218,9 +218,9 @@ export class ConnectPlatformPanel extends Container {
 
 		if (this.#botToken || this.#appToken) {
 			options.push({
-				value: "clear-tokens",
-				label: "🗑 Clear Saved Tokens",
-				description: "Wipe credentials and reset connection state",
+				value: "clear-tokens-menu",
+				label: "🗑 Manage / Delete Tokens",
+				description: "Select individual tokens to clear or delete all",
 			});
 		}
 
@@ -237,11 +237,8 @@ export class ConnectPlatformPanel extends Container {
 				return;
 			}
 
-			if (item.value === "clear-tokens") {
-				this.#botToken = "";
-				this.#appToken = "";
-				this.stateManager.clearCredentials(this.platform.id);
-				this.#buildMenu();
+			if (item.value === "clear-tokens-menu") {
+				this.#openClearTokensMenu();
 				return;
 			}
 
@@ -344,6 +341,87 @@ export class ConnectPlatformPanel extends Container {
 		this.addChild(this.#tokenInput);
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(theme.fg("dim", "  Enter: save · Esc: cancel"), 0, 0));
+		this.addChild(new DynamicBorder());
+		this.onRequestRender?.();
+	}
+
+	#openClearTokensMenu(): void {
+		this.clear();
+		this.#currentMode = "menu";
+		this.#tokenInput = null;
+
+		this.addChild(new DynamicBorder());
+		this.addChild(new Text(theme.bold(theme.fg("accent", `  Manage / Delete Saved Tokens`)), 0, 0));
+		this.addChild(new Text(theme.fg("dim", `  Select a specific token to delete, or wipe all credentials`), 0, 0));
+		this.addChild(new Spacer(1));
+
+		const options: SelectItem[] = [];
+
+		if (this.#botToken) {
+			const masked = `${this.#botToken.slice(0, 8)}...${this.#botToken.slice(-4)}`;
+			options.push({
+				value: "delete-bot-token",
+				label: `🗑 Clear Bot Token (${masked})`,
+				description: "Remove Bot Token only",
+			});
+		}
+
+		if (this.platform.id === "slack" && this.#appToken) {
+			const masked = `${this.#appToken.slice(0, 8)}...${this.#appToken.slice(-4)}`;
+			options.push({
+				value: "delete-app-token",
+				label: `🗑 Clear App Token (${masked})`,
+				description: "Remove App-Level Token only",
+			});
+		}
+
+		options.push({
+			value: "delete-all",
+			label: "⚠ Clear ALL Tokens",
+			description: "Wipe all credentials and reset connection",
+		});
+
+		options.push({
+			value: "back",
+			label: "← Back",
+			description: "Return to previous menu",
+		});
+
+		this.#selectList = new SelectList(options, Math.min(options.length, 6), getSelectListTheme());
+		this.#selectList.onSelect = async item => {
+			if (item.value === "back") {
+				this.#buildMenu();
+				return;
+			}
+
+			if (item.value === "delete-bot-token") {
+				this.#botToken = "";
+				this.stateManager.clearCredentials(this.platform.id, "botToken");
+				this.#buildMenu();
+				return;
+			}
+
+			if (item.value === "delete-app-token") {
+				this.#appToken = "";
+				this.stateManager.clearCredentials(this.platform.id, "appToken");
+				this.#buildMenu();
+				return;
+			}
+
+			if (item.value === "delete-all") {
+				this.#botToken = "";
+				this.#appToken = "";
+				this.stateManager.clearCredentials(this.platform.id, "all");
+				this.#buildMenu();
+				return;
+			}
+		};
+
+		this.#selectList.onCancel = () => this.#buildMenu();
+
+		this.addChild(this.#selectList);
+		this.addChild(new Spacer(1));
+		this.addChild(new Text(theme.fg("dim", "  Enter: select action · Esc: return"), 0, 0));
 		this.addChild(new DynamicBorder());
 		this.onRequestRender?.();
 	}
