@@ -242,6 +242,7 @@ export class ConnectHub extends Container {
 
 		if (this.#selectList) {
 			this.#selectList.handleInput(data);
+			this.onRequestRender?.();
 		}
 	}
 }

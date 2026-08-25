@@ -19,6 +19,7 @@ import type { PlatformConfig } from "./types.js";
 
 export class ConnectPlatformPanel extends Container {
 	#selectList: SelectList | null = null;
+	#activeList: SelectList | null = null;
 	#input: Input | null = null;
 	#inputPrompt: Text | null = null;
 	#activeSubmenu: Container | null = null;
@@ -37,6 +38,7 @@ export class ConnectPlatformPanel extends Container {
 	#buildMenu(): void {
 		this.clear();
 		this.#activeSubmenu = null;
+		this.#activeList = null;
 		this.#input = null;
 		this.#inputPrompt = null;
 
@@ -184,6 +186,7 @@ export class ConnectPlatformPanel extends Container {
 		items.push({ value: "back", label: "← Back", description: "Return to menu" });
 
 		const list = new SelectList(items, Math.min(items.length, 7), getSelectListTheme());
+		this.#activeList = list;
 		list.onSelect = async item => {
 			if (item.value === "back") {
 				this.#buildMenu();
@@ -223,6 +226,7 @@ export class ConnectPlatformPanel extends Container {
 		items.push({ value: "back", label: "← Back", description: "Return to menu" });
 
 		const list = new SelectList(items, Math.min(items.length, 7), getSelectListTheme());
+		this.#activeList = list;
 		list.onSelect = async item => {
 			if (item.value === "back") {
 				this.#buildMenu();
@@ -267,6 +271,7 @@ export class ConnectPlatformPanel extends Container {
 		];
 
 		const list = new SelectList(items, 3, getSelectListTheme());
+		this.#activeList = list;
 		list.onSelect = async item => {
 			if (item.value === "back") {
 				this.#openConnectedBotsMenu();
@@ -313,6 +318,7 @@ export class ConnectPlatformPanel extends Container {
 		items.push({ value: "back", label: "← Back", description: "Return to menu" });
 
 		const list = new SelectList(items, Math.min(items.length, 7), getSelectListTheme());
+		this.#activeList = list;
 		list.onSelect = item => {
 			if (item.value === "back") {
 				this.#buildMenu();
@@ -339,6 +345,7 @@ export class ConnectPlatformPanel extends Container {
 		];
 
 		const list = new SelectList(items, 2, getSelectListTheme());
+		this.#activeList = list;
 		list.onSelect = async item => {
 			if (item.value === "yes") {
 				this.stateManager.removeBotToken(this.platform.id, token);
@@ -391,6 +398,7 @@ export class ConnectPlatformPanel extends Container {
 	#promptInput(mode: "add-bot-token" | "app-token" | "passcode"): void {
 		this.clear();
 		this.#activeSubmenu = null;
+		this.#activeList = null;
 		this.addChild(new DynamicBorder());
 
 		const title =
@@ -410,6 +418,8 @@ export class ConnectPlatformPanel extends Container {
 			if (mode === "add-bot-token" && trimmed) {
 				this.stateManager.addBotToken(this.platform.id, trimmed);
 				this.#statusText = new Text(theme.fg("success", `  ✓ Added ${getBotDisplayName(trimmed)}.`), 0, 0);
+			} else if (mode === "app-token") {
+				// save app token
 			} else if (mode === "passcode") {
 				this.stateManager.setPasscode(trimmed || undefined);
 				this.#statusText = new Text(
@@ -435,12 +445,17 @@ export class ConnectPlatformPanel extends Container {
 				return;
 			}
 			this.#input.handleInput(data);
+			this.onRequestRender?.();
 			return;
 		}
-		if (this.#activeSubmenu && typeof (this.#activeSubmenu as any).handleInput === "function") {
-			(this.#activeSubmenu as any).handleInput(data);
+		if (this.#activeList) {
+			this.#activeList.handleInput(data);
+			this.onRequestRender?.();
 			return;
 		}
-		this.#selectList?.handleInput(data);
+		if (this.#selectList) {
+			this.#selectList.handleInput(data);
+			this.onRequestRender?.();
+		}
 	}
 }
