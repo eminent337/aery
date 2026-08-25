@@ -79,9 +79,27 @@ if (!globalThis.__aery_js_prelude_loaded__) {
 			return res && typeof res === "object" ? res.mailboxes : [];
 		},
 	};
+	const irc = {
+		send: async (to, message, opts = {}) => {
+			const o = toOptions(opts);
+			return await globalThis.__aery_call_tool__("irc", { op: "send", to, message, ...o });
+		},
+		wait: async (opts = {}) => {
+			const o = toOptions(opts);
+			return await globalThis.__aery_call_tool__("irc", { op: "wait", ...o });
+		},
+		inbox: async (opts = {}) => {
+			const o = toOptions(opts);
+			return await globalThis.__aery_call_tool__("irc", { op: "inbox", ...o });
+		},
+		list: async () => {
+			return await globalThis.__aery_call_tool__("irc", { op: "list" });
+		},
+	};
 	globalThis.rlm = rlm;
 	globalThis.rlm.list_subagents = rlmList;
 	globalThis.agent_message = agentMessage;
+	globalThis.irc = irc;
 
 	// Pool ceiling mirrors the task tool's `task.maxConcurrency` setting so an
 	// eval fan-out runs as wide as a `task` batch would. 0 (and any non-finite
@@ -194,4 +212,5 @@ if (!globalThis.__aery_js_prelude_loaded__) {
 	globalThis.diff = diff;
 	globalThis.tree = tree;
 	globalThis.env = env;
+	globalThis.irc = irc;
 }
