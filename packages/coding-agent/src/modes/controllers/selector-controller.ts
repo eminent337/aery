@@ -195,20 +195,32 @@ export class SelectorController {
 
 	/**
 	 * Show the Extension Control Center dashboard.
-	 * Replaces /status with a unified view of all providers and extensions.
+	 * Fullscreen interactive overlay with 2-column inventory, live inspector, and master switches.
 	 */
 	async showExtensionsDashboard(): Promise<void> {
-		const dashboard = await ExtensionDashboard.create(getProjectDir(), this.ctx.settings, this.ctx.ui.terminal.rows);
-		this.showSelector(done => {
-			dashboard.onClose = () => {
-				done();
-				this.ctx.ui.requestRender();
-			};
-			dashboard.onRequestRender = () => {
-				this.ctx.ui.requestRender();
-			};
-			return { component: dashboard, focus: dashboard };
+		let overlayHandle: OverlayHandle | undefined;
+
+		const done = () => {
+			overlayHandle?.hide();
+			this.ctx.ui.requestRender();
+		};
+
+		const dashboard = await ExtensionDashboard.create(
+			this.ctx.sessionManager.getCwd(),
+			this.ctx.settings,
+			this.ctx.ui.terminal.rows,
+		);
+		dashboard.onClose = done;
+		dashboard.onRequestRender = () => this.ctx.ui.requestRender();
+
+		overlayHandle = this.ctx.ui.showOverlay(dashboard, {
+			anchor: "bottom-center",
+			width: "100%",
+			maxHeight: "100%",
+			margin: 0,
 		});
+		this.ctx.ui.setFocus(dashboard);
+		this.ctx.ui.requestRender();
 	}
 
 	/**
