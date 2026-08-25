@@ -3448,6 +3448,10 @@ export const SETTINGS_SCHEMA = {
 		default: "unset" as const,
 	},
 
+	"connectors.slack.botToken": { type: "string", default: undefined },
+	"connectors.slack.appToken": { type: "string", default: undefined },
+	"connectors.telegram.botToken": { type: "string", default: undefined },
+
 	"thinkingBudgets.minimal": { type: "number", default: 1024 },
 
 	"thinkingBudgets.low": { type: "number", default: 2048 },

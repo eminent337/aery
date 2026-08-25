@@ -264,6 +264,7 @@ export interface InteractiveModeContext {
 	showDebugSelector(): void;
 	showSessionObserver(): void;
 	showPluginMarketplaceHub(initialTab?: "marketplace" | "installed" | "updates"): void;
+	showConnectHub(): void;
 	resetObserverRegistry(): void;
 
 	// Input handling

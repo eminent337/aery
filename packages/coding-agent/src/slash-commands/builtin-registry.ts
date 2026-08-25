@@ -121,11 +121,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			const args = command.args.trim().split(/\s+/);
 			const connectorName = args[0];
 			if (!connectorName) {
-				runtime.ctx.showStatus("Enter the connector name (slack or telegram):");
-				runtime.ctx.editor.setText("/connect ");
-				if (typeof runtime.ctx.editor.setCursorPosition === "function") {
-					runtime.ctx.editor.setCursorPosition(0, 9);
-				}
+				runtime.ctx.showConnectHub();
+				runtime.ctx.editor.setText("");
 				return;
 			}
 			const tokenArg = args.find(a => a.startsWith("--bot-token="));

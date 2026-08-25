@@ -2801,6 +2801,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#selectorController.showPluginMarketplaceHub(initialTab);
 	}
 
+	showConnectHub(): void {
+		this.#selectorController.showConnectHub();
+	}
+
 	resetObserverRegistry(): void {
 		this.#observerRegistry.resetSessions();
 		this.#observerRegistry.setMainSession(this.sessionManager.getSessionFile() ?? undefined);

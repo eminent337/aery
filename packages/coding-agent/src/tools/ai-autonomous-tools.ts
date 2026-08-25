@@ -21,6 +21,7 @@ import { globalScheduler } from "../task/schedule/scheduler";
 import type { ToolSession } from "./index";
 
 const confirmSchema = z.object({
+	confirmed: z.boolean().optional().describe("Set true to confirm and execute the action"),
 	context: z.string().optional().describe("Optional context or reason for this action"),
 });
 

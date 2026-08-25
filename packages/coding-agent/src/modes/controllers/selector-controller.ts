@@ -48,11 +48,13 @@ import { shortenPath } from "../../tools/render-utils";
 import { setSessionTerminalTitle } from "../../utils/title-generator";
 import { AgentDashboard } from "../components/agent-dashboard";
 import { AssistantMessageComponent } from "../components/assistant-message";
+import { ConnectHub } from "../components/connect/connect-hub";
 import { CustomOpenAICompatibleMenuComponent } from "../components/custom-openai-menu";
 import { ExtensionDashboard } from "../components/extensions";
 import { HistorySearchComponent } from "../components/history-search";
 import { ModelSelectorComponent } from "../components/model-selector";
 import { OAuthSelectorComponent } from "../components/oauth-selector";
+import { PluginMarketplaceHub } from "../components/marketplace/plugin-marketplace-hub";
 import { PluginSelectorComponent } from "../components/plugin-selector";
 import { SessionObserverOverlayComponent } from "../components/session-observer-overlay";
 import { SessionSelectorComponent } from "../components/session-selector";
@@ -1434,8 +1436,29 @@ export class SelectorController {
 			this.ctx.ui.requestRender();
 		};
 
-		const { PluginMarketplaceHub } = require("../components/marketplace/plugin-marketplace-hub");
 		const hub = new PluginMarketplaceHub(this.ctx.sessionManager.getCwd(), initialTab);
+		hub.onClose = done;
+		hub.onRequestRender = () => this.ctx.ui.requestRender();
+
+		overlayHandle = this.ctx.ui.showOverlay(hub, {
+			anchor: "bottom-center",
+			width: "100%",
+			maxHeight: "100%",
+			margin: 0,
+		});
+		this.ctx.ui.setFocus(hub);
+		this.ctx.ui.requestRender();
+	}
+
+	showConnectHub(): void {
+		let overlayHandle: OverlayHandle | undefined;
+
+		const done = () => {
+			overlayHandle?.hide();
+			this.ctx.ui.requestRender();
+		};
+
+		const hub = new ConnectHub(this.ctx.sessionManager.getCwd());
 		hub.onClose = done;
 		hub.onRequestRender = () => this.ctx.ui.requestRender();
 
