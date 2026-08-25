@@ -906,6 +906,16 @@ export class SettingsSelectorComponent extends Container {
 			return;
 		}
 
+		if (this.#connectComponent) {
+			this.#connectComponent.handleInput(data);
+			return;
+		}
+
+		if (this.#pluginComponent) {
+			this.#pluginComponent.handleInput(data);
+			return;
+		}
+
 		if (
 			matchesKey(data, "tab") ||
 			matchesKey(data, "shift+tab") ||
@@ -928,10 +938,6 @@ export class SettingsSelectorComponent extends Container {
 
 		if (this.#currentList) {
 			this.#currentList.handleInput(data);
-		} else if (this.#pluginComponent) {
-			this.#pluginComponent.handleInput(data);
-		} else if (this.#connectComponent) {
-			this.#connectComponent.handleInput(data);
 		}
 	}
 

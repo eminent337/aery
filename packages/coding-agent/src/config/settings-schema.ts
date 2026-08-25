@@ -111,7 +111,7 @@ export const TAB_METADATA: Record<SettingTab, { label: string; icon: `tab.${stri
 	interaction: { label: "Interaction", icon: "tab.interaction" },
 	context: { label: "Context", icon: "tab.context" },
 	memory: { label: "Memory", icon: "tab.memory" },
-	files: { label: "Files", icon: "tab.editing" },
+	files: { label: "Files", icon: "tab.files" },
 	shell: { label: "Shell", icon: "tab.tools" },
 	tools: { label: "Tools", icon: "tab.tools" },
 	tasks: { label: "Tasks", icon: "tab.tasks" },
