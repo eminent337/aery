@@ -231,6 +231,7 @@ export class ConnectHub extends Container {
 			matchesKey(data, "right")
 		) {
 			this.#tabBar.handleInput(data);
+			this.onRequestRender?.();
 			return;
 		}
 
