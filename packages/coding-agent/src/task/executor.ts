@@ -437,6 +437,20 @@ function extractToolArgsPreview(args: Record<string, unknown>): string {
 	// Priority order for preview
 	const previewKeys = ["command", "file_path", "path", "pattern", "query", "url", "task", "prompt"];
 
+	if (args.op && typeof args.op === "string") {
+		const op = args.op;
+		if (op === "send") {
+			const to = typeof args.to === "string" ? args.to : "?";
+			const msg = typeof args.message === "string" ? args.message : "";
+			return `to:${to} "${msg.slice(0, 35)}"`;
+		}
+		if (op === "wait") {
+			const from = typeof args.from === "string" ? args.from : "*";
+			return `from:${from}`;
+		}
+		return op;
+	}
+
 	for (const key of previewKeys) {
 		if (args[key] && typeof args[key] === "string") {
 			const value = args[key] as string;
@@ -1745,6 +1759,11 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 
 	// Use final output if available, otherwise accumulated output
 	let rawOutput = finalOutputChunks.length > 0 ? finalOutputChunks.join("") : outputChunks.join("");
+	if (!rawOutput && recentOutputTail) {
+		rawOutput = recentOutputTail;
+	} else if (!rawOutput && progress.recentOutput.length > 0) {
+		rawOutput = progress.recentOutput.join("\n");
+	}
 	const yieldItems = progress.extractedToolData?.yield as YieldItem[] | undefined;
 	const reportFindingDetails = progress.extractedToolData?.report_finding as ReportFindingDetails[] | undefined;
 	const reportFindings: ReviewFinding[] | undefined = reportFindingDetails?.map(toReviewFinding);

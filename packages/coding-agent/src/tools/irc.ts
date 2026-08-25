@@ -29,7 +29,7 @@ import {
 	type ToolUIColor,
 } from "./render-utils";
 
-const DEFAULT_IRC_TIMEOUT_MS = 120_000;
+const DEFAULT_IRC_TIMEOUT_MS = 15_000;
 const ircSchema = z.object({
 	op: z.enum(["send", "wait", "inbox", "list"]).describe("irc operation"),
 	to: z.string().optional().describe('send: recipient agent id or "all"'),
