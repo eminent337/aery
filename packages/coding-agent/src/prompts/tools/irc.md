@@ -27,6 +27,7 @@ These rules apply to both sending and replying.
 - **Plain prose only.** NEVER send structured JSON status payloads (e.g. `{"type":"task_completed",…}`). Write a normal sentence: "Done with the auth refactor — left a TODO in `src/server/auth.ts` for the rate limiter."
 - **NEVER quote the message you are replying to.** Lead with the answer; set `replyTo` instead.
 - **Use IRC, not terminal tools, to learn about peers.** NEVER `grep` artifacts, read other sessions' JSONL files, or shell-poke to figure out what another agent is doing. DM them, or `read` `history://<id>`.
+- **Act immediately when assigned a coordination or listen task.** If your instruction is to listen, wait, or exchange messages with a peer, call `irc` on your very first turn without exploring repo structure, listing directories, or doing unrelated setup.
 - **Send, then keep working.** `send` returns immediately — only `wait` (or `await: true`) when you genuinely cannot proceed without the answer. NEVER follow up with "did you get my message?"; a `failed` receipt means the peer is unreachable — move on or report the blocker; NEVER retry in a loop.
 - **Answer when a response is expected.** When an incoming message asks something, reply with `irc send` to the sender (you may finish your current step first).
 - **Stay terse.** A DM is a chat message, not a memo. One question per send. Share file paths and artifacts via `local://` / `memory://` / `artifact://` URLs instead of pasting blobs.
