@@ -78,8 +78,12 @@ const contextShape = {
 	context: z.string().describe("shared background prepended to each assignment"),
 };
 
-export const taskItemSchema = z.object(taskItemShape);
-const taskItemSchemaIsolated = z.object({ ...taskItemShape, ...isolatedShape });
+const modeShape = {
+	mode: z.enum(["isolated", "team"]).optional().describe("execution mode: 'isolated' (fast dispatch) or 'team' (collaborative swarm with active peer discussion)"),
+};
+
+export const taskItemSchema = z.object({ ...taskItemShape, ...modeShape });
+const taskItemSchemaIsolated = z.object({ ...taskItemShape, ...isolatedShape, ...modeShape });
 
 /** Single task item. Fields are optional defensively: args stream in token by token. */
 export interface TaskItem {
@@ -93,18 +97,22 @@ export interface TaskItem {
 	assignment?: string;
 	/** Run this spawn in an isolated worktree (batch form; flat form carries it top-level). */
 	isolated?: boolean;
+	/** Execution mode: 'isolated' (fast dispatch) or 'team' (collaborative swarm). */
+	mode?: "isolated" | "team";
 }
 
-export const taskSchema = z.object({ ...agentShape, ...taskItemShape, ...isolatedShape });
-const taskSchemaNoIsolation = z.object({ ...agentShape, ...taskItemShape });
+export const taskSchema = z.object({ ...agentShape, ...taskItemShape, ...isolatedShape, ...modeShape });
+const taskSchemaNoIsolation = z.object({ ...agentShape, ...taskItemShape, ...modeShape });
 const taskSchemaBatch = z.object({
 	...agentShape,
 	...contextShape,
+	...modeShape,
 	tasks: z.array(taskItemSchemaIsolated, undefined).describe("tasks to spawn; one subagent per item"),
 });
 const taskSchemaBatchNoIsolation = z.object({
 	...agentShape,
 	...contextShape,
+	...modeShape,
 	tasks: z.array(taskItemSchema, undefined).describe("tasks to spawn; one subagent per item"),
 });
 const ALL_TASK_SCHEMAS = [taskSchema, taskSchemaNoIsolation, taskSchemaBatch, taskSchemaBatchNoIsolation] as const;

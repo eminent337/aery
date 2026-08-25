@@ -27,6 +27,7 @@ Subagents have no conversation history. Every fact, file path, and direction the
 {{#if contextEnabled}}- `context`: shared background prepended to every assignment; session-specific only{{/if}}
 {{#if customSchemaEnabled}}- `schema`: JTD schema for expected structured output (do not put format rules in assignments){{/if}}
 {{#if isolationEnabled}}- `isolated`: run in isolated env; use when tasks edit overlapping files{{/if}}
+- `mode`: `"isolated"` (default fast one-shot dispatch) or `"team"` (collaborative swarm where subagents actively discuss interfaces, debate designs, and align over `irc`)
 </parameters>
 
 <rules>

@@ -205,6 +205,10 @@ export interface ExecutorOptions {
 	/** Skills to autoload via sendCustomMessage before the first prompt */
 	autoloadSkills?: Skill[];
 	/**
+	 * Subagent execution mode: 'isolated' (fast dispatch) or 'team' (collaborative swarm).
+	 */
+	mode?: "isolated" | "team";
+	/**
 	 * When true, run a `tsc --noEmit` / `cargo check` compile gate in the
 	 * subagent's workspace after a successful run. Opt-in (default off) because
 	 * a whole-repo type error or a missing toolchain would otherwise fail
@@ -1346,6 +1350,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 							ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
 							ircSelfId: ircEnabled ? id : "",
 							toolGuidance: toolNames ? buildToolGuidance(toolNames) : "",
+							teamMode: options.mode === "team",
 						});
 						const result = [...defaultPrompt];
 						result.splice(Math.max(0, result.length - 1), 0, subagentPrompt);
@@ -1413,6 +1418,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 								contextFile: contextFileForPrompt,
 								ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
 								ircSelfId: ircEnabled ? id : "",
+								teamMode: options.mode === "team",
 							});
 							const result = [...defaultPrompt];
 							result.splice(Math.max(0, result.length - 1), 0, subagentPrompt);
