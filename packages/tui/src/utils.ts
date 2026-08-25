@@ -69,7 +69,8 @@ export function getIndentationNoescape(file?: string): number {
 /*
  * Replace tabs with configured spacing for consistent rendering.
  */
-export function replaceTabs(text: string, file?: string): string {
+export function replaceTabs(text?: string | null, file?: string): string {
+	if (typeof text !== "string") return "";
 	return text.replaceAll("\t", " ".repeat(getIndentation(file)));
 }
 
