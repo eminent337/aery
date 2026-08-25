@@ -1403,10 +1403,14 @@ export class ConnectTool implements AgentTool<typeof connectSchema> {
 			};
 			if (params.platform === "slack") {
 				const { startSlackConnector } = await import("../connectors/slack");
-				void startSlackConnector({ botToken: params.botToken!, appToken: params.appToken, cwd }, log);
+				startSlackConnector({ botToken: params.botToken!, appToken: params.appToken, cwd }, log).catch(err => {
+					log(`Connection failed: ${err instanceof Error ? err.message : String(err)}`);
+				});
 			} else {
 				const { startTelegramConnector } = await import("../connectors/telegram");
-				void startTelegramConnector({ botToken: params.botToken!, cwd }, log);
+				startTelegramConnector({ botToken: params.botToken!, cwd }, log).catch(err => {
+					log(`Connection failed: ${err instanceof Error ? err.message : String(err)}`);
+				});
 			}
 			return successResult(`Connection to ${params.platform} starting with the provided token.`);
 		} catch (error) {

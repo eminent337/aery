@@ -106,7 +106,19 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 		}
 	});
 
-	await bot.initialize();
-	log(`Slack connector started in ${mode} mode`);
+	if (mode === "socket" && !options.appToken) {
+		const err = "Slack socket mode requires an appToken (xapp-...) with connections:write scope in addition to botToken (xoxb-...).";
+		log(`Error: ${err}`);
+		throw new Error(err);
+	}
+
+	try {
+		await bot.initialize();
+		log(`Slack connector started in ${mode} mode`);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		log(`Failed to initialize Slack connector: ${msg}`);
+		throw err;
+	}
 	return bot;
 }
