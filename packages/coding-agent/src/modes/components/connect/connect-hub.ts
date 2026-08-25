@@ -116,6 +116,7 @@ export class ConnectHub extends Container {
 		this.#state.isLoading = false;
 		this.#refreshTabCounts();
 		this.#refreshContent();
+		this.onRequestRender?.();
 	}
 
 	#setContent(build: () => void): void {
