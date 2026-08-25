@@ -3449,8 +3449,10 @@ export const SETTINGS_SCHEMA = {
 	},
 
 	"connectors.slack.botToken": { type: "string", default: undefined },
+	"connectors.slack.botTokens": { type: "string", default: undefined },
 	"connectors.slack.appToken": { type: "string", default: undefined },
 	"connectors.telegram.botToken": { type: "string", default: undefined },
+	"connectors.telegram.botTokens": { type: "string", default: undefined },
 	"connectors.passcode": { type: "string", default: undefined },
 	"connectors.idleTimeoutMinutes": { type: "number", default: 10 },
 

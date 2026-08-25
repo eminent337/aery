@@ -1,18 +1,28 @@
-import { Container, Input, type SelectItem, SelectList, Spacer, Text } from "@aryee337/aery-tui";
-import { getSelectListTheme, theme } from "../../../modes/theme/theme";
-import { DynamicBorder } from "../dynamic-border";
-import type { ConnectStateManager } from "./state";
-import type { PlatformConfig } from "./types";
-
 /**
- * Configuration & Action Panel for a single chat connector platform (Slack / Telegram).
+ * Detailed Platform Configuration & Multi-Bot Management Panel.
+ * Supports adding tokens, connecting individual/all bots, switching active bots,
+ * reloading/disconnecting specific bots, and removing tokens with confirmation.
  */
+
+import {
+	Container,
+	type SelectItem,
+	SelectList,
+	Spacer,
+	Text,
+	Input,
+} from "@aryee337/aery-tui";
+import { getSelectListTheme, theme } from "../../../modes/theme/theme.js";
+import { DynamicBorder } from "../dynamic-border.js";
+import { ConnectStateManager, getBotDisplayName } from "./state.js";
+import type { PlatformConfig } from "./types.js";
+
 export class ConnectPlatformPanel extends Container {
-	#currentMode: "menu" | "input-bot-token" | "input-app-token" = "menu";
 	#selectList: SelectList | null = null;
-	#tokenInput: Input | null = null;
-	#botToken: string;
-	#appToken: string;
+	#input: Input | null = null;
+	#inputPrompt: Text | null = null;
+	#activeSubmenu: Container | null = null;
+	#statusText: Text | null = null;
 
 	constructor(
 		private readonly platform: PlatformConfig,
@@ -21,191 +31,82 @@ export class ConnectPlatformPanel extends Container {
 		private readonly onRequestRender?: () => void,
 	) {
 		super();
-		this.#botToken = platform.botToken ?? "";
-		this.#appToken = platform.appToken ?? "";
 		this.#buildMenu();
 	}
 
 	#buildMenu(): void {
 		this.clear();
-		this.#currentMode = "menu";
-		this.#tokenInput = null;
+		this.#activeSubmenu = null;
+		this.#input = null;
+		this.#inputPrompt = null;
 
-		// Top border
 		this.addChild(new DynamicBorder());
 
-		// Platform title & status
-		const statusBadge =
-			this.platform.status === "connected"
-				? theme.fg("success", "● Connected")
-				: this.platform.status === "error"
-					? theme.fg("error", "✕ Error")
-					: theme.fg("muted", "○ Disconnected");
+		// Header
+		const connectedCount = this.platform.bots.filter(b => b.status === "connected").length;
+		const totalTokens = this.platform.botTokens.length;
+		const statusIcon =
+			connectedCount > 0
+				? theme.fg("success", `● ${connectedCount} Active Bot${connectedCount === 1 ? "" : "s"}`)
+				: theme.fg("muted", "○ Disconnected");
 
 		this.addChild(
 			new Text(
-				theme.bold(theme.fg("accent", `  ${this.platform.icon} ${this.platform.name} Connector`)) +
-					`  [${statusBadge}]`,
+				`${this.platform.icon} ${theme.bold(this.platform.name)}  ${theme.fg("dim", `[${this.platform.mode}]`)}  ${statusIcon}`,
 				0,
 				0,
 			),
 		);
-
-		this.addChild(
-			new Text(theme.fg("dim", `  Mode: ${this.platform.mode} · ${this.platform.description}`), 0, 0),
-		);
-
-		if (this.platform.errorMessage) {
-			this.addChild(new Spacer(1));
-			this.addChild(new Text(theme.fg("error", `  Error: ${this.platform.errorMessage}`), 0, 0));
-		}
-
-		// Token status lines
-		this.addChild(new Spacer(1));
-		const maskedBot = this.#botToken
-			? `••••••••${this.#botToken.slice(-6)}`
-			: theme.fg("warning", "(not configured)");
-		this.addChild(new Text(`  Bot Token:  ${theme.bold(maskedBot)}`, 0, 0));
-
-		if (this.platform.id === "slack") {
-			const maskedApp = this.#appToken
-				? `••••••••${this.#appToken.slice(-6)}`
-				: theme.fg("warning", "(not configured - required for Socket Mode)");
-			this.addChild(new Text(`  App Token:  ${theme.bold(maskedApp)}`, 0, 0));
-
-			// Slack Setup Guide Box
-			this.addChild(new Spacer(1));
-			this.addChild(new Text(theme.bold(theme.fg("accent", "  📖 Slack Setup Guide:")), 0, 0));
-			this.addChild(
-				new Text(
-					theme.fg(
-						"dim",
-						"  1. Go to https://api.slack.com/apps → Create New App (From scratch)",
-					),
-					0,
-					0,
-				),
-			);
-			this.addChild(
-				new Text(
-					theme.fg(
-						"dim",
-						"  2. Settings → Socket Mode → Enable Socket Mode → Create App Token (xapp-...) with `connections:write`",
-					),
-					0,
-					0,
-				),
-			);
-			this.addChild(
-				new Text(
-					theme.fg(
-						"dim",
-						"  3. Features → OAuth & Permissions → Scopes: add `app_mentions:read`, `chat:write`, `channels:history`",
-					),
-					0,
-					0,
-				),
-			);
-			this.addChild(
-				new Text(
-					theme.fg(
-						"dim",
-						"  4. Features → Event Subscriptions → Enable Events → Subscribe to bot event: `app_mention`",
-					),
-					0,
-					0,
-				),
-			);
-			this.addChild(
-				new Text(
-					theme.fg(
-						"dim",
-						"  5. Install to Workspace → Copy Bot User OAuth Token (xoxb-...) & App Token (xapp-...)",
-					),
-					0,
-					0,
-				),
-			);
-		} else if (this.platform.id === "telegram") {
-			// Telegram Setup Guide Box
-			this.addChild(new Spacer(1));
-			this.addChild(new Text(theme.bold(theme.fg("accent", "  📖 Telegram Setup Guide:")), 0, 0));
-			this.addChild(
-				new Text(
-					theme.fg(
-						"dim",
-						"  1. Open Telegram and search for @BotFather (verified bot creator)",
-					),
-					0,
-					0,
-				),
-			);
-			this.addChild(
-				new Text(
-					theme.fg(
-						"dim",
-						"  2. Send `/newbot` and follow prompts to pick a name and username ending in `bot`",
-					),
-					0,
-					0,
-				),
-			);
-			this.addChild(
-				new Text(
-					theme.fg(
-						"dim",
-						"  3. BotFather will provide an HTTP API token (e.g. `123456789:ABCdefGhIJKlmNo...`)",
-					),
-					0,
-					0,
-				),
-			);
-			this.addChild(
-				new Text(
-					theme.fg(
-						"dim",
-						"  4. Copy that token and set it in 'Set Bot Token' below, then hit Connect!",
-					),
-					0,
-					0,
-				),
-			);
-		}
-
 		this.addChild(new Spacer(1));
 
-		// Action options
-		const options: SelectItem[] = [];
-
-		if (this.platform.status === "connected") {
-			options.push({
-				value: "disconnect",
-				label: "■ Disconnect Platform",
-				description: "Immediately shut down active connector and stop polling",
-			});
-			options.push({
-				value: "reconnect",
-				label: "↺ Reconnect Platform",
-				description: "Restart active connection",
-			});
-		} else {
-			options.push({
-				value: "connect",
-				label: "▶ Connect Platform",
-				description: "Establish live connection with configured tokens",
-			});
+		if (this.#statusText) {
+			this.addChild(this.#statusText);
+			this.addChild(new Spacer(1));
 		}
 
-		options.push({
-			value: "edit-bot-token",
-			label: "✎ Set Bot Token",
-			description: this.platform.id === "slack" ? "Slack Bot User OAuth Token (xoxb-...)" : "Telegram Bot Token",
-		});
+		// Options
+		const options: SelectItem[] = [
+			{
+				value: "add-bot-token",
+				label: "➕ Add Bot Token",
+				description: "Append a new bot token to your bot pool",
+			},
+		];
+
+		if (totalTokens > 0) {
+			options.push({
+				value: "connect-bot-menu",
+				label: "▶ Connect Bot...",
+				description: "Select which bot token to connect",
+			});
+
+			if (totalTokens > 1) {
+				options.push({
+					value: "connect-all-bots",
+					label: "▶▶ Connect All Active Tokens",
+					description: `Connect all ${totalTokens} configured bots at once`,
+				});
+			}
+
+			if (connectedCount > 0) {
+				options.push({
+					value: "connected-bots-menu",
+					label: `● Connected Bots (${connectedCount} active)`,
+					description: "Switch to a connected bot to reload or disconnect",
+				});
+			}
+
+			options.push({
+				value: "delete-bot-menu",
+				label: "🗑 Delete Bot Token...",
+				description: "Select a bot token to completely remove from storage",
+			});
+		}
 
 		if (this.platform.id === "slack") {
 			options.push({
 				value: "edit-app-token",
-				label: "✎ Set App Token",
+				label: "✎ Set Slack App Token",
 				description: "Slack App-Level Token (xapp-...) with connections:write scope",
 			});
 		}
@@ -216,229 +117,330 @@ export class ConnectPlatformPanel extends Container {
 			description: "Require password on chat start and after 10m inactivity",
 		});
 
-		if (this.#botToken || this.#appToken) {
-			options.push({
-				value: "clear-tokens-menu",
-				label: "🗑 Manage / Delete Tokens",
-				description: "Select individual tokens to clear or delete all",
-			});
-		}
-
 		options.push({
 			value: "back",
 			label: "← Back to Connect Hub",
 			description: "Return to platform list",
 		});
 
-		this.#selectList = new SelectList(options, Math.min(options.length, 7), getSelectListTheme());
+		this.#selectList = new SelectList(options, Math.min(options.length, 8), getSelectListTheme());
 		this.#selectList.onSelect = async item => {
 			if (item.value === "back") {
 				this.onDone();
 				return;
 			}
-
-			if (item.value === "clear-tokens-menu") {
-				this.#openClearTokensMenu();
+			if (item.value === "add-bot-token") {
+				this.#promptInput("add-bot-token");
 				return;
 			}
-
-			if (item.value === "edit-bot-token") {
-				this.#promptInput("bot-token");
+			if (item.value === "connect-bot-menu") {
+				this.#openConnectBotMenu();
 				return;
 			}
-
+			if (item.value === "connect-all-bots") {
+				await this.#handleConnectAll();
+				return;
+			}
+			if (item.value === "connected-bots-menu") {
+				this.#openConnectedBotsMenu();
+				return;
+			}
+			if (item.value === "delete-bot-menu") {
+				this.#openDeleteBotMenu();
+				return;
+			}
 			if (item.value === "edit-app-token") {
 				this.#promptInput("app-token");
 				return;
 			}
-
 			if (item.value === "edit-passcode") {
 				this.#promptInput("passcode");
-				return;
-			}
-
-			if (item.value === "disconnect") {
-				const res = await this.stateManager.disconnectPlatform(this.platform.id);
-				this.onDone(res.message);
-				return;
-			}
-
-			if (item.value === "connect" || item.value === "reconnect") {
-				if (!this.#botToken) {
-					this.#promptInput("bot-token");
-					return;
-				}
-				if (this.platform.id === "slack" && !this.#appToken) {
-					this.#promptInput("app-token");
-					return;
-				}
-
-				this.clear();
-				this.addChild(new DynamicBorder());
-				this.addChild(new Text(theme.fg("accent", `  Connecting to ${this.platform.name}...`), 0, 0));
-				this.addChild(new DynamicBorder());
-				this.onRequestRender?.();
-
-				const res = await this.stateManager.connectPlatform(
-					this.platform.id,
-					{ botToken: this.#botToken, appToken: this.#appToken },
-					msg => {},
-				);
-				this.onDone(res.message);
 				return;
 			}
 		};
 
 		this.#selectList.onCancel = () => this.onDone();
-
 		this.addChild(this.#selectList);
 		this.addChild(new Spacer(1));
-		this.addChild(new Text(theme.fg("dim", "  Enter: select action · Esc: return"), 0, 0));
 		this.addChild(new DynamicBorder());
 		this.onRequestRender?.();
 	}
 
-	#promptInput(type: "bot-token" | "app-token" | "passcode"): void {
-		this.clear();
-		this.#currentMode = type === "bot-token" ? "input-bot-token" : type === "app-token" ? "input-app-token" : "input-passcode" as any;
-		this.#selectList = null;
+	#openConnectBotMenu(): void {
+		const submenu = new Container();
+		submenu.addChild(new Text(theme.bold("  Select Bot Token to Connect:"), 0, 0));
+		submenu.addChild(new Spacer(1));
 
-		this.addChild(new DynamicBorder());
-		const label =
-			type === "bot-token"
-				? this.platform.id === "slack"
-					? "Enter Slack Bot Token (xoxb-...)"
-					: "Enter Telegram Bot Token"
-				: type === "app-token"
-					? "Enter Slack App-Level Token (xapp-...)"
-					: "Enter Security Passcode (leave empty to disable)";
-
-		this.addChild(new Text(theme.bold(theme.fg("accent", `  ${label}`)), 0, 0));
-		this.addChild(new Spacer(1));
-
-		this.#tokenInput = new Input();
-		const currentPasscode = (this.stateManager as any).getPasscode?.() ?? "";
-		const currentVal = type === "bot-token" ? this.#botToken : type === "app-token" ? this.#appToken : currentPasscode;
-		if (currentVal) {
-			this.#tokenInput.setValue(currentVal);
-			this.#tokenInput.handleInput("\x05"); // move to end
-		}
-
-		this.#tokenInput.onSubmit = val => {
-			const clean = val.trim();
-			if (type === "bot-token") {
-				this.#botToken = clean;
-				this.stateManager.saveCredentials(this.platform.id, { botToken: clean });
-			} else if (type === "app-token") {
-				this.#appToken = clean;
-				this.stateManager.saveCredentials(this.platform.id, { appToken: clean });
-			} else if (type === "passcode") {
-				(this.stateManager as any).setPasscode?.(clean || undefined);
-			}
-			this.#buildMenu();
-		};
-
-		this.addChild(this.#tokenInput);
-		this.addChild(new Spacer(1));
-		this.addChild(new Text(theme.fg("dim", "  Enter: save · Esc: cancel"), 0, 0));
-		this.addChild(new DynamicBorder());
-		this.onRequestRender?.();
-	}
-
-	#openClearTokensMenu(): void {
-		this.clear();
-		this.#currentMode = "menu";
-		this.#tokenInput = null;
-
-		this.addChild(new DynamicBorder());
-		this.addChild(new Text(theme.bold(theme.fg("accent", `  Manage / Delete Saved Tokens`)), 0, 0));
-		this.addChild(new Text(theme.fg("dim", `  Select a specific token to delete, or wipe all credentials`), 0, 0));
-		this.addChild(new Spacer(1));
-
-		const options: SelectItem[] = [];
-
-		if (this.#botToken) {
-			const masked = `${this.#botToken.slice(0, 8)}...${this.#botToken.slice(-4)}`;
-			options.push({
-				value: "delete-bot-token",
-				label: `🗑 Clear Bot Token (${masked})`,
-				description: "Remove Bot Token only",
-			});
-		}
-
-		if (this.platform.id === "slack" && this.#appToken) {
-			const masked = `${this.#appToken.slice(0, 8)}...${this.#appToken.slice(-4)}`;
-			options.push({
-				value: "delete-app-token",
-				label: `🗑 Clear App Token (${masked})`,
-				description: "Remove App-Level Token only",
-			});
-		}
-
-		options.push({
-			value: "delete-all",
-			label: "⚠ Clear ALL Tokens",
-			description: "Wipe all credentials and reset connection",
+		const items: SelectItem[] = this.platform.bots.map(bot => {
+			const isConn = bot.status === "connected";
+			const statusLabel = isConn ? theme.fg("success", "● Active") : theme.fg("muted", "○ Disconnected");
+			return {
+				value: bot.token,
+				label: `  ${bot.name}  ${statusLabel}`,
+				description: isConn ? "Already running" : "Click to establish live connection",
+			};
 		});
 
-		options.push({
-			value: "back",
-			label: "← Back",
-			description: "Return to previous menu",
-		});
+		items.push({ value: "back", label: "← Back", description: "Return to menu" });
 
-		this.#selectList = new SelectList(options, Math.min(options.length, 6), getSelectListTheme());
-		this.#selectList.onSelect = async item => {
+		const list = new SelectList(items, Math.min(items.length, 7), getSelectListTheme());
+		list.onSelect = async item => {
 			if (item.value === "back") {
 				this.#buildMenu();
 				return;
 			}
+			this.#statusText = new Text(theme.fg("accent", `  Connecting ${getBotDisplayName(item.value)}...`), 0, 0);
+			this.#buildMenu();
+			const res = await this.stateManager.connectBot(this.platform.id, item.value, msg => {
+				this.#statusText = new Text(theme.fg("dim", `  ${msg}`), 0, 0);
+				this.onRequestRender?.();
+			});
+			this.#statusText = new Text(
+				res.ok ? theme.fg("success", `  ✓ ${res.message}`) : theme.fg("error", `  ✕ ${res.message}`),
+				0,
+				0,
+			);
+			await this.#reloadState();
+		};
+		list.onCancel = () => this.#buildMenu();
 
-			if (item.value === "delete-bot-token") {
-				this.#botToken = "";
-				this.stateManager.clearCredentials(this.platform.id, "botToken");
+		submenu.addChild(list);
+		this.#swapContent(submenu);
+	}
+
+	#openConnectedBotsMenu(): void {
+		const connectedBots = this.platform.bots.filter(b => b.status === "connected");
+		const submenu = new Container();
+		submenu.addChild(new Text(theme.bold(`  Connected Bots (${connectedBots.length} Active):`), 0, 0));
+		submenu.addChild(new Spacer(1));
+
+		const items: SelectItem[] = connectedBots.map(bot => ({
+			value: bot.token,
+			label: `  ● ${theme.bold(bot.name || "Bot")}`,
+			description: "Select to reload or disconnect this bot",
+		}));
+		items.push({ value: "disconnect-all", label: "■ Disconnect All Active Bots", description: "Shut down all connections" });
+		items.push({ value: "back", label: "← Back", description: "Return to menu" });
+
+		const list = new SelectList(items, Math.min(items.length, 7), getSelectListTheme());
+		list.onSelect = async item => {
+			if (item.value === "back") {
 				this.#buildMenu();
 				return;
 			}
-
-			if (item.value === "delete-app-token") {
-				this.#appToken = "";
-				this.stateManager.clearCredentials(this.platform.id, "appToken");
-				this.#buildMenu();
+			if (item.value === "disconnect-all") {
+				await this.stateManager.disconnectAll(this.platform.id);
+				this.#statusText = new Text(theme.fg("success", "  ✓ All bots disconnected."), 0, 0);
+				await this.#reloadState();
 				return;
 			}
+			this.#openBotActionMenu(item.value);
+		};
+		list.onCancel = () => this.#buildMenu();
 
-			if (item.value === "delete-all") {
-				this.#botToken = "";
-				this.#appToken = "";
-				this.stateManager.clearCredentials(this.platform.id, "all");
+		submenu.addChild(list);
+		this.#swapContent(submenu);
+	}
+
+	#openBotActionMenu(token: string): void {
+		const botName = getBotDisplayName(token);
+		const submenu = new Container();
+		submenu.addChild(new Text(theme.bold(`  Manage Bot: ${botName}`), 0, 0));
+		submenu.addChild(new Spacer(1));
+
+		const items: SelectItem[] = [
+			{
+				value: "reload",
+				label: "↻ Reload Bot",
+				description: "Restart this bot connector process",
+			},
+			{
+				value: "disconnect",
+				label: "■ Disconnect Bot",
+				description: "Stop polling and disconnect this bot",
+			},
+			{
+				value: "back",
+				label: "← Back to Connected Bots",
+				description: "Return to connected bot list",
+			},
+		];
+
+		const list = new SelectList(items, 3, getSelectListTheme());
+		list.onSelect = async item => {
+			if (item.value === "back") {
+				this.#openConnectedBotsMenu();
+				return;
+			}
+			if (item.value === "reload") {
+				this.#statusText = new Text(theme.fg("accent", `  Reloading ${botName}...`), 0, 0);
 				this.#buildMenu();
+				const res = await this.stateManager.reloadBot(this.platform.id, token, msg => {
+					this.#statusText = new Text(theme.fg("dim", `  ${msg}`), 0, 0);
+					this.onRequestRender?.();
+				});
+				this.#statusText = new Text(
+					res.ok ? theme.fg("success", `  ✓ ${res.message}`) : theme.fg("error", `  ✕ ${res.message}`),
+					0,
+					0,
+				);
+				await this.#reloadState();
+				return;
+			}
+			if (item.value === "disconnect") {
+				await this.stateManager.disconnectBot(this.platform.id, token);
+				this.#statusText = new Text(theme.fg("success", `  ✓ ${botName} disconnected.`), 0, 0);
+				await this.#reloadState();
 				return;
 			}
 		};
+		list.onCancel = () => this.#openConnectedBotsMenu();
 
-		this.#selectList.onCancel = () => this.#buildMenu();
+		submenu.addChild(list);
+		this.#swapContent(submenu);
+	}
 
-		this.addChild(this.#selectList);
+	#openDeleteBotMenu(): void {
+		const submenu = new Container();
+		submenu.addChild(new Text(theme.bold(theme.fg("error", "  Select Bot Token to Delete:")), 0, 0));
+		submenu.addChild(new Spacer(1));
+
+		const items: SelectItem[] = this.platform.botTokens.map(token => ({
+			value: token,
+			label: `  🗑 ${getBotDisplayName(token)}`,
+			description: "Click to confirm removal",
+		}));
+		items.push({ value: "back", label: "← Back", description: "Return to menu" });
+
+		const list = new SelectList(items, Math.min(items.length, 7), getSelectListTheme());
+		list.onSelect = item => {
+			if (item.value === "back") {
+				this.#buildMenu();
+				return;
+			}
+			this.#confirmDelete(item.value);
+		};
+		list.onCancel = () => this.#buildMenu();
+
+		submenu.addChild(list);
+		this.#swapContent(submenu);
+	}
+
+	#confirmDelete(token: string): void {
+		const botName = getBotDisplayName(token);
+		const submenu = new Container();
+		submenu.addChild(new Text(theme.bold(theme.fg("error", `  Confirm Delete: Remove ${botName}?`)), 0, 0));
+		submenu.addChild(new Text(theme.fg("muted", "  This will disconnect the bot and delete its token from settings."), 0, 0));
+		submenu.addChild(new Spacer(1));
+
+		const items: SelectItem[] = [
+			{ value: "yes", label: "✓ Yes, Delete Token", description: "Permanently delete this token" },
+			{ value: "no", label: "✕ No, Cancel", description: "Keep token and return" },
+		];
+
+		const list = new SelectList(items, 2, getSelectListTheme());
+		list.onSelect = async item => {
+			if (item.value === "yes") {
+				this.stateManager.removeBotToken(this.platform.id, token);
+				this.#statusText = new Text(theme.fg("success", `  ✓ ${botName} removed.`), 0, 0);
+				await this.#reloadState();
+			} else {
+				this.#openDeleteBotMenu();
+			}
+		};
+		list.onCancel = () => this.#openDeleteBotMenu();
+
+		submenu.addChild(list);
+		this.#swapContent(submenu);
+	}
+
+	async #handleConnectAll(): Promise<void> {
+		this.#statusText = new Text(theme.fg("accent", "  Connecting all bots..."), 0, 0);
+		this.#buildMenu();
+		const res = await this.stateManager.connectAll(this.platform.id, msg => {
+			this.#statusText = new Text(theme.fg("dim", `  ${msg}`), 0, 0);
+			this.onRequestRender?.();
+		});
+		this.#statusText = new Text(
+			res.ok ? theme.fg("success", `  ✓ ${res.message}`) : theme.fg("error", `  ✕ ${res.message}`),
+			0,
+			0,
+		);
+		await this.#reloadState();
+	}
+
+	async #reloadState(): Promise<void> {
+		const updated = await this.stateManager.loadPlatforms();
+		const found = updated.find(p => p.id === this.platform.id);
+		if (found) {
+			Object.assign(this.platform, found);
+		}
+		this.#buildMenu();
+	}
+
+	#swapContent(child: Container): void {
+		this.clear();
+		this.#activeSubmenu = child;
+		this.addChild(new DynamicBorder());
+		this.addChild(child);
 		this.addChild(new Spacer(1));
-		this.addChild(new Text(theme.fg("dim", "  Enter: select action · Esc: return"), 0, 0));
+		this.addChild(new DynamicBorder());
+		this.onRequestRender?.();
+	}
+
+	#promptInput(mode: "add-bot-token" | "app-token" | "passcode"): void {
+		this.clear();
+		this.#activeSubmenu = null;
+		this.addChild(new DynamicBorder());
+
+		const title =
+			mode === "add-bot-token"
+				? "Add New Bot Token"
+				: mode === "app-token"
+					? "Set Slack App Token"
+					: "Set Security Passcode";
+
+		this.#inputPrompt = new Text(theme.bold(`  ${title}:`), 0, 0);
+		this.addChild(this.#inputPrompt);
+		this.addChild(new Spacer(1));
+
+		this.#input = new Input();
+		this.#input.onSubmit = async val => {
+			const trimmed = val.trim();
+			if (mode === "add-bot-token" && trimmed) {
+				this.stateManager.addBotToken(this.platform.id, trimmed);
+				this.#statusText = new Text(theme.fg("success", `  ✓ Added ${getBotDisplayName(trimmed)}.`), 0, 0);
+			} else if (mode === "passcode") {
+				this.stateManager.setPasscode(trimmed || undefined);
+				this.#statusText = new Text(
+					trimmed ? theme.fg("success", "  ✓ Security Passcode updated.") : theme.fg("muted", "  ○ Passcode cleared."),
+					0,
+					0,
+				);
+			}
+			await this.#reloadState();
+		};
+
+		this.addChild(this.#input);
+		this.addChild(new Spacer(1));
+		this.addChild(new Text(theme.fg("dim", "  Enter to submit · Esc to cancel"), 0, 0));
 		this.addChild(new DynamicBorder());
 		this.onRequestRender?.();
 	}
 
 	handleInput(data: string): void {
-		if (this.#currentMode === "menu" && this.#selectList) {
-			this.#selectList.handleInput(data);
-			return;
-		}
-
-		if (this.#tokenInput) {
+		if (this.#input) {
 			if (data === "\x1b" || data === "\x1b\x1b") {
 				this.#buildMenu();
 				return;
 			}
-			this.#tokenInput.handleInput(data);
-			this.onRequestRender?.();
+			this.#input.handleInput(data);
+			return;
 		}
+		if (this.#activeSubmenu && typeof (this.#activeSubmenu as any).handleInput === "function") {
+			(this.#activeSubmenu as any).handleInput(data);
+			return;
+		}
+		this.#selectList?.handleInput(data);
 	}
 }
