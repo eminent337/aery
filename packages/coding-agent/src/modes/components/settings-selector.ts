@@ -33,6 +33,7 @@ import { getCurrentThemeName, getSelectListTheme, getSettingsListTheme, theme } 
 import { AUTO_THINKING, type ConfiguredThinkingLevel } from "../../thinking";
 import { getTabBarTheme } from "../shared";
 import { DynamicBorder } from "./dynamic-border";
+import { ConnectHub } from "./connect/connect-hub";
 import { handleInputOrEscape, PluginSettingsComponent } from "./plugin-settings";
 import { getSettingDef, getSettingsForTab, type SettingDef } from "./settings-defs";
 import { getPreset } from "./status-line/presets";
@@ -177,6 +178,7 @@ function getSettingsTabs(): Tab[] {
 			const icon = theme.symbol(meta.icon as Parameters<typeof theme.symbol>[0]);
 			return { id, label: `${icon} ${meta.label}` };
 		}),
+		{ id: "connect", label: `⚡ Connect` },
 		{ id: "plugins", label: `${theme.icon.package} Plugins` },
 	];
 }
@@ -282,10 +284,11 @@ export class SettingsSelectorComponent extends Container {
 	#currentList: SettingsList | null = null;
 	#searchList: SettingsList | null = null;
 	#pluginComponent: PluginSettingsComponent | null = null;
+	#connectComponent: ConnectHub | null = null;
 	#statusPreviewContainer: Container | null = null;
 	#statusPreviewText: Text | null = null;
-	#currentTabId: SettingTab | "plugins" = "appearance";
-	#preSearchTabId: SettingTab | "plugins" = "appearance";
+	#currentTabId: SettingTab | "plugins" | "connect" = "appearance";
+	#preSearchTabId: SettingTab | "plugins" | "connect" = "appearance";
 	#searchQuery = "";
 	/** First matching item id per tab id, for Tab-key jumps while searching. */
 	#searchFirstMatch = new Map<string, string>();
@@ -309,7 +312,7 @@ export class SettingsSelectorComponent extends Container {
 		this.#tabBar = new TabBar("", getSettingsTabs(), getTabBarTheme());
 		this.#tabBar.showHint = false;
 		this.#tabBar.onTabChange = () => {
-			const tabId = this.#tabBar.getActiveTab().id as SettingTab | "plugins";
+			const tabId = this.#tabBar.getActiveTab().id as SettingTab | "plugins" | "connect";
 			if (this.#searchList) {
 				// While searching, tabs act as jump targets into the result list.
 				const firstId = this.#searchFirstMatch.get(tabId);
@@ -348,6 +351,10 @@ export class SettingsSelectorComponent extends Container {
 			this.removeChild(this.#pluginComponent);
 			this.#pluginComponent = null;
 		}
+		if (this.#connectComponent) {
+			this.removeChild(this.#connectComponent);
+			this.#connectComponent = null;
+		}
 		if (this.#statusPreviewContainer) {
 			this.removeChild(this.#statusPreviewContainer);
 			this.#statusPreviewContainer = null;
@@ -363,11 +370,13 @@ export class SettingsSelectorComponent extends Container {
 		}
 	}
 
-	#switchToTab(tabId: SettingTab | "plugins"): void {
+	#switchToTab(tabId: SettingTab | "plugins" | "connect"): void {
 		this.#currentTabId = tabId;
 		this.#setContent(() => {
 			if (tabId === "plugins") {
 				this.#showPluginsTab();
+			} else if (tabId === "connect") {
+				this.#showConnectTab();
 			} else {
 				this.#showSettingsTab(tabId);
 			}
@@ -864,9 +873,15 @@ export class SettingsSelectorComponent extends Container {
 		this.addChild(this.#pluginComponent);
 	}
 
-	getFocusComponent(): SettingsList | PluginSettingsComponent {
+	#showConnectTab(): void {
+		this.#connectComponent = new ConnectHub(this.context.cwd);
+		this.#connectComponent.onClose = () => this.callbacks.onCancel();
+		this.addChild(this.#connectComponent);
+	}
+
+	getFocusComponent(): SettingsList | PluginSettingsComponent | ConnectHub {
 		// Return the current focusable component - one of these will always be set
-		return (this.#searchList || this.#currentList || this.#pluginComponent)!;
+		return (this.#searchList || this.#currentList || this.#pluginComponent || this.#connectComponent)!;
 	}
 
 	handleInput(data: string): void {

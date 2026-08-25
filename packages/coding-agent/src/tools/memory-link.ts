@@ -9,7 +9,6 @@
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import * as z from "zod/v4";
 import { loadMemoryGraph, saveMemoryGraph } from "../memory/graph-store";
-import { getMnemopiSessionState } from "../mnemopi/state";
 import type { ToolSession } from "./index";
 
 const memoryLinkSchema = z.object({
@@ -40,7 +39,7 @@ export class MemoryLinkTool implements AgentTool<typeof memoryLinkSchema> {
 	}
 
 	async execute(_id: string, params: MemoryLinkParams): Promise<AgentToolResult> {
-		const state = getMnemopiSessionState(this.session as never);
+		const state = this.session.getMnemopiSessionState?.();
 		if (!state) {
 			return {
 				content: [{ type: "text", text: "Mnemopi memory backend is not initialised." }],
