@@ -103,20 +103,26 @@ export class ConnectStateManager {
 
 	async disconnectPlatform(platformId: PlatformId): Promise<{ ok: boolean; message: string }> {
 		const bot = activeBots.get(platformId);
-		if (!bot) {
-			return { ok: true, message: `${platformId} is not active.` };
+		if (bot) {
+			try {
+				if (typeof bot.shutdown === "function") {
+					await bot.shutdown();
+				}
+			} catch (_e) {}
+			activeBots.delete(platformId);
 		}
 
-		try {
-			if (typeof bot.shutdown === "function") {
-				await bot.shutdown();
-			}
-			activeBots.delete(platformId);
-			platformErrors.delete(platformId);
-			return { ok: true, message: `${platformId} disconnected.` };
-		} catch (err: any) {
-			activeBots.delete(platformId);
-			return { ok: false, message: `Error disconnecting ${platformId}: ${err.message}` };
+		platformErrors.delete(platformId);
+		return { ok: true, message: `${platformId} disconnected and cleared.` };
+	}
+
+	clearCredentials(platformId: PlatformId): void {
+		void this.disconnectPlatform(platformId);
+		if (platformId === "slack") {
+			settings.set("connectors.slack.botToken" as any, undefined as any);
+			settings.set("connectors.slack.appToken" as any, undefined as any);
+		} else if (platformId === "telegram") {
+			settings.set("connectors.telegram.botToken" as any, undefined as any);
 		}
 	}
 }

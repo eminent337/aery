@@ -210,16 +210,32 @@ export class ConnectPlatformPanel extends Container {
 			});
 		}
 
+		if (this.#botToken || this.#appToken) {
+			options.push({
+				value: "clear-tokens",
+				label: "🗑 Clear Saved Tokens",
+				description: "Wipe credentials and reset connection state",
+			});
+		}
+
 		options.push({
 			value: "back",
 			label: "← Back to Connect Hub",
 			description: "Return to platform list",
 		});
 
-		this.#selectList = new SelectList(options, Math.min(options.length, 6), getSelectListTheme());
+		this.#selectList = new SelectList(options, Math.min(options.length, 7), getSelectListTheme());
 		this.#selectList.onSelect = async item => {
 			if (item.value === "back") {
 				this.onDone();
+				return;
+			}
+
+			if (item.value === "clear-tokens") {
+				this.#botToken = "";
+				this.#appToken = "";
+				this.stateManager.clearCredentials(this.platform.id);
+				this.#buildMenu();
 				return;
 			}
 
