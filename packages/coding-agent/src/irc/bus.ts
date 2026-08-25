@@ -108,15 +108,18 @@ export class IrcBus {
 		if (!ref || ref.status === "aborted") {
 			return { to: message.to, outcome: "failed", error: `Unknown or terminated agent "${message.to}".` };
 		}
+		// Canonicalize recipient id to actual registered id (e.g. "Bar" -> "Bar-2")
+		const canonicalTo = ref.id;
+		message.to = canonicalTo;
 
 		let revived = false;
 		if (ref.status === "parked") {
 			try {
-				await this.#lifecycle().ensureLive(message.to);
+				await this.#lifecycle().ensureLive(canonicalTo);
 				revived = true;
 			} catch (error) {
 				return {
-					to: message.to,
+					to: canonicalTo,
 					outcome: "failed",
 					error: error instanceof Error ? error.message : String(error),
 				};
@@ -126,26 +129,26 @@ export class IrcBus {
 		// A pending `wait` from the recipient consumes the message directly —
 		// it is returned from their irc tool call and never hits the inbox or
 		// the session injection path.
-		const waiter = this.#takeMatchingWaiter(message.to, message.from);
+		const waiter = this.#takeMatchingWaiter(canonicalTo, message.from);
 		if (waiter) {
 			waiter.resolve(message);
 			this.#relayToMainUi(message);
-			return { to: message.to, outcome: revived ? "revived" : "injected" };
+			return { to: canonicalTo, outcome: revived ? "revived" : "injected" };
 		}
 
-		const session = this.#registry.get(message.to)?.session;
+		const session = ref.session;
 		if (!session) {
-			return { to: message.to, outcome: "failed", error: `Agent "${message.to}" has no live session.` };
+			return { to: canonicalTo, outcome: "failed", error: `Agent "${canonicalTo}" has no live session.` };
 		}
 
 		this.#enqueue(message);
 		try {
 			const delivery = await session.deliverIrcMessage(message);
 			this.#relayToMainUi(message);
-			return { to: message.to, outcome: revived ? "revived" : delivery };
+			return { to: canonicalTo, outcome: revived ? "revived" : delivery };
 		} catch (error) {
 			return {
-				to: message.to,
+				to: canonicalTo,
 				outcome: "failed",
 				error: error instanceof Error ? error.message : String(error),
 			};
@@ -221,10 +224,24 @@ export class IrcBus {
 		this.#mailboxes.set(message.to, list);
 	}
 
+	#matchesSenderFilter(actualSender: string, filterSender?: string): boolean {
+		if (!filterSender) return true;
+		if (actualSender === filterSender) return true;
+		const filterLower = filterSender.toLowerCase();
+		const actualLower = actualSender.toLowerCase();
+		if (actualLower === filterLower) return true;
+		// e.g. filter "Foo" matches actual sender "Foo-2"
+		if (actualLower.startsWith(`${filterLower}-`)) return true;
+		// Check against registered peer canonical id or displayName
+		const ref = this.#registry.get(filterSender);
+		if (ref && (ref.id === actualSender || ref.id.toLowerCase() === actualLower)) return true;
+		return false;
+	}
+
 	#takeMatchingWaiter(to: string, from: string): IrcWaiter | undefined {
 		const waiters = this.#waiters.get(to);
 		if (!waiters || waiters.length === 0) return undefined;
-		const index = waiters.findIndex(w => !w.from || w.from === from);
+		const index = waiters.findIndex(w => this.#matchesSenderFilter(from, w.from));
 		if (index === -1) return undefined;
 		const [waiter] = waiters.splice(index, 1);
 		if (waiters.length === 0) this.#waiters.delete(to);
@@ -242,7 +259,7 @@ export class IrcBus {
 	#takeFromMailbox(agentId: string, from?: string): IrcMessage | undefined {
 		const mailbox = this.#mailboxes.get(agentId);
 		if (!mailbox) return undefined;
-		const index = from ? mailbox.findIndex(msg => msg.from === from) : 0;
+		const index = from ? mailbox.findIndex(msg => this.#matchesSenderFilter(msg.from, from)) : 0;
 		if (index === -1 || mailbox.length === 0) return undefined;
 		const [message] = mailbox.splice(index, 1);
 		if (mailbox.length === 0) this.#mailboxes.delete(agentId);
