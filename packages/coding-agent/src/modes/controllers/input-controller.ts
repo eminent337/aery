@@ -244,6 +244,9 @@ export class InputController {
 		for (const key of this.ctx.keybindings.getKeys("app.session.observe")) {
 			this.ctx.editor.setCustomKeyHandler(key, () => this.ctx.showSessionObserver());
 		}
+		for (const key of this.ctx.keybindings.getKeys("app.studio.toggle")) {
+			this.ctx.editor.setCustomKeyHandler(key, () => this.ctx.showStudio());
+		}
 
 		this.ctx.editor.onChange = (text: string) => {
 			const wasBashMode = this.ctx.isBashMode;

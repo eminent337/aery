@@ -52,6 +52,7 @@ interface AppKeybindings {
 	"app.history.search": true;
 	"app.stt.toggle": true;
 	"app.task.background": true;
+	"app.studio.toggle": true;
 }
 
 export type AppKeybinding = keyof AppKeybindings;
@@ -207,6 +208,10 @@ export const KEYBINDINGS = {
 	"app.task.background": {
 		defaultKeys: "ctrl+b",
 		description: "Background task or run tangential work (/tan)",
+	},
+	"app.studio.toggle": {
+		defaultKeys: ["f2", "ctrl+w"],
+		description: "Toggle Aery Studio visual multi-agent war-room overlay",
 	},
 	"app.stt.toggle": {
 		defaultKeys: "alt+h",

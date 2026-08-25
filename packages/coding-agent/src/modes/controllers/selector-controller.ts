@@ -49,6 +49,7 @@ import { setSessionTerminalTitle } from "../../utils/title-generator";
 import { AgentDashboard } from "../components/agent-dashboard";
 import { AssistantMessageComponent } from "../components/assistant-message";
 import { ConnectHub } from "../components/connect/connect-hub";
+import { AeryStudioOverlay } from "../components/studio/studio-overlay";
 import { CustomOpenAICompatibleMenuComponent } from "../components/custom-openai-menu";
 import { ExtensionDashboard } from "../components/extensions";
 import { HistorySearchComponent } from "../components/history-search";
@@ -1495,6 +1496,28 @@ export class SelectorController {
 			margin: 0,
 		});
 		this.ctx.ui.setFocus(hub);
+		this.ctx.ui.requestRender();
+	}
+
+	showStudio(): void {
+		let overlayHandle: OverlayHandle | undefined;
+
+		const done = () => {
+			overlayHandle?.hide();
+			this.ctx.ui.requestRender();
+		};
+
+		const studio = new AeryStudioOverlay();
+		studio.onClose = done;
+		studio.onRequestRender = () => this.ctx.ui.requestRender();
+
+		overlayHandle = this.ctx.ui.showOverlay(studio, {
+			anchor: "bottom-center",
+			width: "100%",
+			maxHeight: "100%",
+			margin: 0,
+		});
+		this.ctx.ui.setFocus(studio);
 		this.ctx.ui.requestRender();
 	}
 }

@@ -172,6 +172,14 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "studio",
+		description: "Open Aery Studio multi-agent visual war-room overlay",
+		handleTui: (_command, runtime) => {
+			runtime.ctx.showStudio();
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
 		name: "settings",
 		description: "Open settings menu",
 		handleTui: (_command, runtime) => {
