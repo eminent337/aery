@@ -1418,6 +1418,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 								contextFile: contextFileForPrompt,
 								ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
 								ircSelfId: ircEnabled ? id : "",
+								toolGuidance: toolNames ? buildToolGuidance(toolNames) : "",
 								teamMode: options.mode === "team",
 							});
 							const result = [...defaultPrompt];

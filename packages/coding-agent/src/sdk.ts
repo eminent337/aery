@@ -1408,6 +1408,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			settings,
 			authStorage,
 			modelRegistry,
+			agentRegistry,
 			getTelemetry: () => agent?.telemetry,
 		};
 
@@ -2103,6 +2104,15 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			!explicitlyRequestedToolNames.includes("yield")
 		) {
 			explicitlyRequestedToolNames.push("yield");
+		}
+		// When IRC is enabled and an agent specifies an explicit tool list, ensure `irc` is retained
+		// so team mode swarm communication and inter-agent collaboration works seamlessly.
+		if (
+			explicitlyRequestedToolNames &&
+			toolRegistry.has("irc") &&
+			!explicitlyRequestedToolNames.includes("irc")
+		) {
+			explicitlyRequestedToolNames.push("irc");
 		}
 		const requestedToolNames = explicitlyRequestedToolNames ?? toolNamesFromRegistry;
 		const normalizedRequested = requestedToolNames.filter(name => toolRegistry.has(name));
