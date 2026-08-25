@@ -75,6 +75,22 @@ export class AeryStudioOverlay extends Container {
 	}
 
 	#buildLayout(): void {
+		const state = this.#stateManager.getState();
+		this.#tabBar.setTabs([
+			{ id: "swarm", label: "✦ Swarm Hierarchy" },
+			{ id: "chat", label: `💬 Inter-Agent IRC (${state.chatMessages.length})` },
+			{ id: "inspector", label: "🔍 Diff & Consensus Inspector" },
+		]);
+		this.#hierarchyPanel.updateAgents(state.agents);
+		this.#chatPanel.updateMessages(state.chatMessages);
+		const selectedAgent = state.agents.find(a => a.id === state.activeAgentId);
+		this.#inspectorPanel.update(
+			selectedAgent,
+			state.diffs,
+			state.consensusAgreedCount,
+			state.consensusTotalCount,
+		);
+
 		this.clear();
 		this.addChild(new DynamicBorder());
 
@@ -89,7 +105,6 @@ export class AeryStudioOverlay extends Container {
 
 		// Active Content
 		this.#contentContainer.clear();
-		const state = this.#stateManager.getState();
 		if (state.activeTab === "swarm") {
 			this.#contentContainer.addChild(this.#hierarchyPanel);
 		} else if (state.activeTab === "chat") {
@@ -110,24 +125,6 @@ export class AeryStudioOverlay extends Container {
 	}
 
 	#syncState(): void {
-		const state = this.#stateManager.getState();
-		this.#tabBar.setTabs([
-			{ id: "swarm", label: "✦ Swarm Hierarchy" },
-			{ id: "chat", label: `💬 Inter-Agent IRC (${state.chatMessages.length})` },
-			{ id: "inspector", label: "🔍 Diff & Consensus Inspector" },
-		]);
-
-		this.#hierarchyPanel.updateAgents(state.agents);
-		this.#chatPanel.updateMessages(state.chatMessages);
-
-		const selectedAgent = state.agents.find(a => a.id === state.activeAgentId);
-		this.#inspectorPanel.update(
-			selectedAgent,
-			state.diffs,
-			state.consensusAgreedCount,
-			state.consensusTotalCount,
-		);
-
 		this.#buildLayout();
 	}
 
