@@ -26,7 +26,7 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 	const bot = new Chat({
 		userName: "aery",
 		adapters: { telegram },
-		state: new SqliteStateAdapter() as unknown as StateAdapter,
+		state: new SqliteStateAdapter(),
 	}).registerSingleton();
 
 	bot.onNewMention(async (thread, msg) => {

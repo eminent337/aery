@@ -30,7 +30,7 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 	const bot = new Chat({
 		userName: "aery",
 		adapters: { slack },
-		state: new SqliteStateAdapter() as unknown as StateAdapter,
+		state: new SqliteStateAdapter(),
 	}).registerSingleton();
 
 	bot.onNewMention(async (thread, msg) => {
