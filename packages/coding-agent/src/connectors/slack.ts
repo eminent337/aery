@@ -38,7 +38,9 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 		let client = threadClients.get(threadId);
 
 		if (!client) {
+			const cliPath = path.resolve(import.meta.dir, "../cli.ts");
 			client = new RpcClient({
+				cliPath,
 				cwd: options.cwd || process.cwd(),
 				sessionDir: path.join(os.homedir(), ".aery", "sessions", `slack-${threadId.replace(/[^a-zA-Z0-9]/g, "-")}`),
 			});

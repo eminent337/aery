@@ -34,7 +34,9 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 		let client = threadClients.get(threadId);
 
 		if (!client) {
+			const cliPath = path.resolve(import.meta.dir, "../cli.ts");
 			client = new RpcClient({
+				cliPath,
 				cwd: options.cwd || process.cwd(),
 				sessionDir: path.join(
 					os.homedir(),
