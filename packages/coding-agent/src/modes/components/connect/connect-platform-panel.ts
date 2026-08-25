@@ -72,6 +72,104 @@ export class ConnectPlatformPanel extends Container {
 				? `••••••••${this.#appToken.slice(-6)}`
 				: theme.fg("warning", "(not configured - required for Socket Mode)");
 			this.addChild(new Text(`  App Token:  ${theme.bold(maskedApp)}`, 0, 0));
+
+			// Slack Setup Guide Box
+			this.addChild(new Spacer(1));
+			this.addChild(new Text(theme.bold(theme.fg("accent", "  📖 Slack Setup Guide:")), 0, 0));
+			this.addChild(
+				new Text(
+					theme.fg(
+						"dim",
+						"  1. Go to https://api.slack.com/apps → Create New App (From scratch)",
+					),
+					0,
+					0,
+				),
+			);
+			this.addChild(
+				new Text(
+					theme.fg(
+						"dim",
+						"  2. Settings → Socket Mode → Enable Socket Mode → Create App Token (xapp-...) with `connections:write`",
+					),
+					0,
+					0,
+				),
+			);
+			this.addChild(
+				new Text(
+					theme.fg(
+						"dim",
+						"  3. Features → OAuth & Permissions → Scopes: add `app_mentions:read`, `chat:write`, `channels:history`",
+					),
+					0,
+					0,
+				),
+			);
+			this.addChild(
+				new Text(
+					theme.fg(
+						"dim",
+						"  4. Features → Event Subscriptions → Enable Events → Subscribe to bot event: `app_mention`",
+					),
+					0,
+					0,
+				),
+			);
+			this.addChild(
+				new Text(
+					theme.fg(
+						"dim",
+						"  5. Install to Workspace → Copy Bot User OAuth Token (xoxb-...) & App Token (xapp-...)",
+					),
+					0,
+					0,
+				),
+			);
+		} else if (this.platform.id === "telegram") {
+			// Telegram Setup Guide Box
+			this.addChild(new Spacer(1));
+			this.addChild(new Text(theme.bold(theme.fg("accent", "  📖 Telegram Setup Guide:")), 0, 0));
+			this.addChild(
+				new Text(
+					theme.fg(
+						"dim",
+						"  1. Open Telegram and search for @BotFather (verified bot creator)",
+					),
+					0,
+					0,
+				),
+			);
+			this.addChild(
+				new Text(
+					theme.fg(
+						"dim",
+						"  2. Send `/newbot` and follow prompts to pick a name and username ending in `bot`",
+					),
+					0,
+					0,
+				),
+			);
+			this.addChild(
+				new Text(
+					theme.fg(
+						"dim",
+						"  3. BotFather will provide an HTTP API token (e.g. `123456789:ABCdefGhIJKlmNo...`)",
+					),
+					0,
+					0,
+				),
+			);
+			this.addChild(
+				new Text(
+					theme.fg(
+						"dim",
+						"  4. Copy that token and set it in 'Set Bot Token' below, then hit Connect!",
+					),
+					0,
+					0,
+				),
+			);
 		}
 
 		this.addChild(new Spacer(1));
