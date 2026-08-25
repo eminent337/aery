@@ -177,22 +177,22 @@ export class ConnectPlatformPanel extends Container {
 		// Action options
 		const options: SelectItem[] = [];
 
-		if (this.platform.status !== "connected") {
+		if (this.platform.status === "connected") {
 			options.push({
-				value: "connect",
-				label: "▶ Connect Platform",
-				description: "Establish live connection with configured tokens",
+				value: "disconnect",
+				label: "■ Disconnect Platform",
+				description: "Immediately shut down active connector and stop polling",
 			});
-		} else {
 			options.push({
 				value: "reconnect",
 				label: "↺ Reconnect Platform",
 				description: "Restart active connection",
 			});
+		} else {
 			options.push({
-				value: "disconnect",
-				label: "■ Disconnect",
-				description: "Shut down active connection",
+				value: "connect",
+				label: "▶ Connect Platform",
+				description: "Establish live connection with configured tokens",
 			});
 		}
 
