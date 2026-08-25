@@ -109,5 +109,19 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 
 	await bot.initialize();
 	log(`Telegram connector started in ${mode} mode`);
+
+	(bot as any).shutdown = async () => {
+		try {
+			if (typeof (telegram as any).stopPolling === "function") {
+				await (telegram as any).stopPolling();
+			}
+		} catch (_e) {}
+		try {
+			if (typeof (bot as any).destroy === "function") {
+				await (bot as any).destroy();
+			}
+		} catch (_e) {}
+	};
+
 	return bot;
 }
