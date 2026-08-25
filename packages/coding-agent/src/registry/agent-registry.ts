@@ -119,7 +119,29 @@ export class AgentRegistry {
 	}
 
 	get(id: string): AgentRef | undefined {
-		return this.#refs.get(id);
+		if (this.#refs.has(id)) return this.#refs.get(id);
+		const lower = id.toLowerCase();
+		// 1. Exact case-insensitive match
+		for (const [key, ref] of this.#refs) {
+			if (key.toLowerCase() === lower) return ref;
+		}
+		// 2. Base name match without disambiguation suffix (e.g., "Beta" matches "Beta-2")
+		// Prefer running/idle agents first, then most recently active
+		const prefixMatches = [...this.#refs.values()]
+			.filter(ref => {
+				const refLower = ref.id.toLowerCase();
+				return refLower === lower || refLower.startsWith(`${lower}-`);
+			})
+			.sort((a, b) => {
+				const aLive = a.status === "running" || a.status === "idle" ? 1 : 0;
+				const bLive = b.status === "running" || b.status === "idle" ? 1 : 0;
+				if (aLive !== bLive) return bLive - aLive;
+				return b.lastActivity - a.lastActivity;
+			});
+		if (prefixMatches.length > 0) {
+			return prefixMatches[0];
+		}
+		return undefined;
 	}
 
 	list(): AgentRef[] {
