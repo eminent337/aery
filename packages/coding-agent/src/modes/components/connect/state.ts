@@ -56,6 +56,14 @@ export class ConnectStateManager {
 		}
 	}
 
+	getPasscode(): string {
+		return (settings.get("connectors.passcode" as any) as string | undefined) ?? "";
+	}
+
+	setPasscode(passcode?: string): void {
+		settings.set("connectors.passcode" as any, passcode as any);
+	}
+
 	async connectPlatform(
 		platformId: PlatformId,
 		credentials: { botToken: string; appToken?: string },

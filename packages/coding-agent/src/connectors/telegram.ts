@@ -5,9 +5,12 @@ import * as os from "os";
 import * as path from "path";
 import { RpcClient } from "../modes/rpc/rpc-client";
 
+import { settings } from "../config/settings.js";
 import { SqliteStateAdapter } from "./sqlite-state-adapter.js";
 
 const threadClients = new Map<string, RpcClient>();
+const threadLastActive = new Map<string, number>();
+const threadUnlocked = new Map<string, boolean>();
 
 export interface ConnectTelegramOptions {
 	botToken: string;
@@ -31,6 +34,49 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 
 	bot.onNewMention(async (thread, msg) => {
 		const threadId = thread.id;
+		const text = msg.text?.trim() ?? "";
+
+		// Security: Passcode & Inactivity Auto-Lock
+		const requiredPasscode = settings.get("connectors.passcode" as any) as string | undefined;
+		const timeoutMinutes = (settings.get("connectors.idleTimeoutMinutes" as any) as number | undefined) ?? 10;
+		const timeoutMs = timeoutMinutes * 60 * 1000;
+
+		if (requiredPasscode && requiredPasscode.trim().length > 0) {
+			const lastActive = threadLastActive.get(threadId) ?? 0;
+			const isUnlocked = threadUnlocked.get(threadId) ?? false;
+			const isExpired = Date.now() - lastActive > timeoutMs;
+
+			if (!isUnlocked || isExpired) {
+				// Check if user is submitting the unlock passcode
+				if (text === requiredPasscode.trim() || text === `/unlock ${requiredPasscode.trim()}`) {
+					threadUnlocked.set(threadId, true);
+					threadLastActive.set(threadId, Date.now());
+
+					// Try to delete the user's message containing the password for privacy
+					try {
+						if (typeof (thread as any).deleteMessage === "function" && (msg as any).id) {
+							await (thread as any).deleteMessage((msg as any).id);
+						}
+					} catch (_e) {}
+
+					await thread.post(
+						`🔓 *Session Unlocked!*\nAuthenticated for the next ${timeoutMinutes} minutes. How can I help you?`,
+					);
+					return;
+				}
+
+				// If wrong or unauthenticated, challenge for passcode
+				threadUnlocked.set(threadId, false);
+				await thread.post(
+					`🔒 *Session Locked*\nPlease send your passcode to unlock and continue chatting with Aery:`,
+				);
+				return;
+			}
+		}
+
+		// Update activity timestamp for authenticated message
+		threadLastActive.set(threadId, Date.now());
+
 		let client = threadClients.get(threadId);
 
 		if (!client) {

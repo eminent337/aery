@@ -5,9 +5,12 @@ import * as os from "os";
 import * as path from "path";
 import { RpcClient } from "../modes/rpc/rpc-client";
 
+import { settings } from "../config/settings.js";
 import { SqliteStateAdapter } from "./sqlite-state-adapter.js";
 
 const threadClients = new Map<string, RpcClient>();
+const threadLastActive = new Map<string, number>();
+const threadUnlocked = new Map<string, boolean>();
 
 export interface ConnectSlackOptions {
 	botToken: string;
@@ -35,6 +38,39 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 
 	bot.onNewMention(async (thread, msg) => {
 		const threadId = thread.id;
+		const text = msg.text?.trim() ?? "";
+
+		// Security: Passcode & Inactivity Auto-Lock
+		const requiredPasscode = settings.get("connectors.passcode" as any) as string | undefined;
+		const timeoutMinutes = (settings.get("connectors.idleTimeoutMinutes" as any) as number | undefined) ?? 10;
+		const timeoutMs = timeoutMinutes * 60 * 1000;
+
+		if (requiredPasscode && requiredPasscode.trim().length > 0) {
+			const lastActive = threadLastActive.get(threadId) ?? 0;
+			const isUnlocked = threadUnlocked.get(threadId) ?? false;
+			const isExpired = Date.now() - lastActive > timeoutMs;
+
+			if (!isUnlocked || isExpired) {
+				if (text === requiredPasscode.trim() || text === `/unlock ${requiredPasscode.trim()}`) {
+					threadUnlocked.set(threadId, true);
+					threadLastActive.set(threadId, Date.now());
+
+					await thread.post(
+						`🔓 *Session Unlocked!*\nAuthenticated for the next ${timeoutMinutes} minutes. How can I help you?`,
+					);
+					return;
+				}
+
+				threadUnlocked.set(threadId, false);
+				await thread.post(
+					`🔒 *Session Locked*\nPlease send your passcode to unlock and continue chatting with Aery:`,
+				);
+				return;
+			}
+		}
+
+		threadLastActive.set(threadId, Date.now());
+
 		let client = threadClients.get(threadId);
 
 		if (!client) {

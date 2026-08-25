@@ -210,6 +210,12 @@ export class ConnectPlatformPanel extends Container {
 			});
 		}
 
+		options.push({
+			value: "edit-passcode",
+			label: "🔐 Set Security Passcode",
+			description: "Require password on chat start and after 10m inactivity",
+		});
+
 		if (this.#botToken || this.#appToken) {
 			options.push({
 				value: "clear-tokens",
@@ -246,6 +252,11 @@ export class ConnectPlatformPanel extends Container {
 
 			if (item.value === "edit-app-token") {
 				this.#promptInput("app-token");
+				return;
+			}
+
+			if (item.value === "edit-passcode") {
+				this.#promptInput("passcode");
 				return;
 			}
 
@@ -290,9 +301,9 @@ export class ConnectPlatformPanel extends Container {
 		this.onRequestRender?.();
 	}
 
-	#promptInput(type: "bot-token" | "app-token"): void {
+	#promptInput(type: "bot-token" | "app-token" | "passcode"): void {
 		this.clear();
-		this.#currentMode = type === "bot-token" ? "input-bot-token" : "input-app-token";
+		this.#currentMode = type === "bot-token" ? "input-bot-token" : type === "app-token" ? "input-app-token" : "input-passcode" as any;
 		this.#selectList = null;
 
 		this.addChild(new DynamicBorder());
@@ -301,13 +312,16 @@ export class ConnectPlatformPanel extends Container {
 				? this.platform.id === "slack"
 					? "Enter Slack Bot Token (xoxb-...)"
 					: "Enter Telegram Bot Token"
-				: "Enter Slack App-Level Token (xapp-...)";
+				: type === "app-token"
+					? "Enter Slack App-Level Token (xapp-...)"
+					: "Enter Security Passcode (leave empty to disable)";
 
 		this.addChild(new Text(theme.bold(theme.fg("accent", `  ${label}`)), 0, 0));
 		this.addChild(new Spacer(1));
 
 		this.#tokenInput = new Input();
-		const currentVal = type === "bot-token" ? this.#botToken : this.#appToken;
+		const currentPasscode = (this.stateManager as any).getPasscode?.() ?? "";
+		const currentVal = type === "bot-token" ? this.#botToken : type === "app-token" ? this.#appToken : currentPasscode;
 		if (currentVal) {
 			this.#tokenInput.setValue(currentVal);
 			this.#tokenInput.handleInput("\x05"); // move to end
@@ -318,16 +332,18 @@ export class ConnectPlatformPanel extends Container {
 			if (type === "bot-token") {
 				this.#botToken = clean;
 				this.stateManager.saveCredentials(this.platform.id, { botToken: clean });
-			} else {
+			} else if (type === "app-token") {
 				this.#appToken = clean;
 				this.stateManager.saveCredentials(this.platform.id, { appToken: clean });
+			} else if (type === "passcode") {
+				(this.stateManager as any).setPasscode?.(clean || undefined);
 			}
 			this.#buildMenu();
 		};
 
 		this.addChild(this.#tokenInput);
 		this.addChild(new Spacer(1));
-		this.addChild(new Text(theme.fg("dim", "  Enter: save token · Esc: cancel"), 0, 0));
+		this.addChild(new Text(theme.fg("dim", "  Enter: save · Esc: cancel"), 0, 0));
 		this.addChild(new DynamicBorder());
 		this.onRequestRender?.();
 	}
