@@ -150,8 +150,8 @@ export const skillCommand: SlashCommandSpec = {
 	handleTui: async (command: ParsedSlashCommand, runtime: TuiSlashCommandRuntime): Promise<SlashCommandResult> => {
 		const userArgs = command.args.trim().split(/\s+/).filter(Boolean);
 		if (userArgs.length === 0) {
-			runtime.ctx.showStatus(`Usage: /skill <install|uninstall|list> [options]`);
-			runtime.ctx.editor.setText("/skill ");
+			runtime.ctx.showSkillsHub();
+			runtime.ctx.editor.setText("");
 			return;
 		}
 

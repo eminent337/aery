@@ -2805,6 +2805,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#selectorController.showConnectHub();
 	}
 
+	showSkillsHub(): void {
+		this.#selectorController.showSkillsHub();
+	}
+
 	resetObserverRegistry(): void {
 		this.#observerRegistry.resetSessions();
 		this.#observerRegistry.setMainSession(this.sessionManager.getSessionFile() ?? undefined);
