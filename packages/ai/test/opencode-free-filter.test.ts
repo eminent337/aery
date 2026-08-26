@@ -16,7 +16,6 @@ const GO_PAYLOAD = {
 const ZEN_PAYLOAD = {
 	data: [
 		{ id: "big-pickle", object: "model", owned_by: "opencode" },
-		{ id: "deepseek-v4-flash-free", object: "model", owned_by: "opencode" },
 		{ id: "mimo-v2.5-free", object: "model", owned_by: "opencode" },
 		{ id: "gpt-5.4", object: "model", owned_by: "opencode" },
 		{ id: "ox-alpha-free", object: "model", owned_by: "opencode" },
@@ -61,7 +60,6 @@ describe("opencode model discovery free-filter", () => {
 		const models = await options.fetchDynamicModels?.();
 		const ids = models?.map(m => m.id) ?? [];
 		expect(ids).toContain("big-pickle");
-		expect(ids).toContain("deepseek-v4-flash-free");
 		expect(ids).toContain("mimo-v2.5-free");
 		expect(ids).not.toContain("gpt-5.4");
 	});
