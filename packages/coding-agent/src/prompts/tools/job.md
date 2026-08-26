@@ -1,15 +1,15 @@
 Inspects, waits, or cancels async jobs.
 
-Background job results are delivered automatically when complete. Reach for this tool only when you need to intervene.
+Background job results are delivered automatically when complete via reactive wakeups — you do NOT need to poll in a loop. Reach for this tool only when you need to explicitly intervene.
 
 # Operations
 
 ## `list: true`
-Use to inspect what's running.
+Use to inspect currently running or recently completed jobs.
 
 ## `poll: [id, …]`
-Block until the specified jobs finish or the wait window elapses.
-- Use when you are genuinely blocked on a result and have no other work to do.
+Explicitly block until specified jobs finish or the wait window elapses.
+- Only use when you have an explicit reason to block synchronously and cannot end the turn.
 - Returns the current snapshot when the timer elapses; running jobs remain running.
 - Completed jobs include their final output in the returned snapshot.
 
