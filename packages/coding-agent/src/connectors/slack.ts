@@ -210,6 +210,52 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 			});
 		}
 
+		// Handle Slack Slash Commands
+		const trimmedText = text.trim();
+		if (trimmedText.startsWith("/model")) {
+			const parts = trimmedText.split(/\s+/);
+			if (parts.length === 1) {
+				try {
+					const state = await client.getState();
+					const available = await client.getAvailableModels();
+					const modelList = available
+						.slice(0, 10)
+						.map(m => `• \`${m.provider}/${m.id}\``)
+						.join("\n");
+					await thread.post(
+						`🤖 *Current Model:* \`${state.model?.provider}/${state.model?.id}\`\n\n*Available Models:*\n${modelList}\n\n_To switch: \`/model <provider>/<model_id>\`_`,
+					);
+				} catch (err) {
+					await thread.post(`Error fetching models: ${err}`);
+				}
+				return;
+			}
+			const target = parts[1];
+			const [provider, ...idParts] = target.includes("/") ? target.split("/") : ["", target];
+			const modelId = idParts.join("/");
+			try {
+				if (provider && modelId) {
+					await client.setModel(provider, modelId);
+					await thread.post(`✅ *Switched Model to:* \`${provider}/${modelId}\``);
+				} else {
+					await thread.post(`⚠️ *Usage:* \`/model <provider>/<model-id>\``);
+				}
+			} catch (err) {
+				await thread.post(`❌ *Failed to switch model:* ${err}`);
+			}
+			return;
+		}
+
+		if (trimmedText === "/new" || trimmedText === "/clear") {
+			try {
+				await client.newSession();
+				await thread.post(`✨ *New Session Started!* Context cleared.`);
+			} catch (err) {
+				await thread.post(`Error starting new session: ${err}`);
+			}
+			return;
+		}
+
 		try {
 			await client.prompt(msg.text);
 		} catch (err) {
