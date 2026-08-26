@@ -269,6 +269,51 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 			return;
 		}
 
+		if (trimmedText.startsWith("/resume") || trimmedText === "/sessions") {
+			const parts = trimmedText.split(/\s+/);
+			const sessionDir = path.join(os.homedir(), ".aery", "sessions");
+			if (parts.length === 1 || trimmedText === "/sessions") {
+				try {
+					const { SessionManager } = await import("../session/session-manager.js");
+					const all = await SessionManager.listAll();
+					const recent = all.slice(0, 8);
+					if (recent.length === 0) {
+						await thread.post(`📂 *No prior sessions found.*`);
+						return;
+					}
+					const list = recent
+						.map(s => `• \`${s.id.slice(0, 8)}\` — *${s.title || "Untitled"}* (${new Date(s.modified).toLocaleTimeString()})`)
+						.join("\n");
+					await thread.post(
+						`📂 *Recent Sessions:*\n${list}\n\n_To resume: \`/resume <session-id-or-path>\`_`,
+					);
+				} catch (err) {
+					await thread.post(`Error listing sessions: ${err}`);
+				}
+				return;
+			}
+
+			const targetId = parts[1].trim();
+			try {
+				const { SessionManager } = await import("../session/session-manager.js");
+				const all = await SessionManager.listAll();
+				const match = all.find(s => s.id === targetId || s.id.startsWith(targetId) || s.path === targetId);
+				if (!match) {
+					await thread.post(`❌ *Session not found:* \`${targetId}\`\nUse \`/resume\` or \`/sessions\` to view available sessions.`);
+					return;
+				}
+				const result = await client.switchSession(match.path);
+				if (result.cancelled) {
+					await thread.post(`⚠️ *Switch cancelled by extension.*`);
+				} else {
+					await thread.post(`🔄 *Resumed session:* \`${match.id.slice(0, 8)}\` — *${match.title || "Untitled"}*`);
+				}
+			} catch (err) {
+				await thread.post(`❌ *Error switching session:* ${err}`);
+			}
+			return;
+		}
+
 		try {
 			await client.prompt(msg.text);
 		} catch (err) {
