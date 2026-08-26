@@ -32,9 +32,12 @@ export class ConnectHub extends Container {
 	onClose?: () => void;
 	onRequestRender?: () => void;
 
-	constructor(private readonly cwd: string) {
+	constructor(
+		private readonly cwd: string,
+		sessionFile?: string,
+	) {
 		super();
-		this.#stateManager = new ConnectStateManager(cwd);
+		this.#stateManager = new ConnectStateManager(cwd, sessionFile);
 		this.#state = {
 			activeTab: "platforms",
 			platforms: [],

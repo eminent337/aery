@@ -40,7 +40,10 @@ export function getBotDisplayName(token: string): string {
 }
 
 export class ConnectStateManager {
-	constructor(private readonly cwd: string) {}
+	constructor(
+		private readonly cwd: string,
+		private readonly sessionFile?: string,
+	) {}
 
 	getBotTokens(platformId: PlatformId): string[] {
 		const settingKey = `connectors.${platformId}.botTokens` as any;
@@ -161,6 +164,7 @@ export class ConnectStateManager {
 						botToken: trimmed,
 						appToken: slackAppToken,
 						cwd: this.cwd,
+						sessionFile: this.sessionFile,
 					},
 					log,
 				);
@@ -175,6 +179,7 @@ export class ConnectStateManager {
 					{
 						botToken: trimmed,
 						cwd: this.cwd,
+						sessionFile: this.sessionFile,
 					},
 					log,
 				);

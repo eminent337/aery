@@ -1472,7 +1472,10 @@ export class SelectorController {
 			this.ctx.ui.requestRender();
 		};
 
-		const hub = new ConnectHub(this.ctx.sessionManager.getCwd());
+		const hub = new ConnectHub(
+			this.ctx.sessionManager.getCwd(),
+			this.ctx.sessionManager.getSessionFile() ?? undefined,
+		);
 		hub.onClose = done;
 		hub.onRequestRender = () => this.ctx.ui.requestRender();
 

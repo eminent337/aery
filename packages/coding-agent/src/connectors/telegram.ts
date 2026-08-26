@@ -17,6 +17,7 @@ export interface ConnectTelegramOptions {
 	mode?: "polling" | "webhook";
 	port?: number;
 	cwd?: string;
+	sessionFile?: string;
 }
 
 export async function startTelegramConnector(options: ConnectTelegramOptions, log: (msg: string) => void) {
@@ -101,6 +102,10 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 
 		if (!client) {
 			const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+			const args: string[] = [];
+			if (options.sessionFile) {
+				args.push("--resume", options.sessionFile);
+			}
 			client = new RpcClient({
 				cliPath,
 				cwd: options.cwd || process.cwd(),
@@ -110,6 +115,7 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 					"sessions",
 					`telegram-${threadId.replace(/[^a-zA-Z0-9]/g, "-")}`,
 				),
+				args: args.length > 0 ? args : undefined,
 			});
 
 			try {

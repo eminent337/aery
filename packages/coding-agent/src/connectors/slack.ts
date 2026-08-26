@@ -19,6 +19,7 @@ export interface ConnectSlackOptions {
 	mode?: "socket" | "webhook";
 	port?: number;
 	cwd?: string;
+	sessionFile?: string;
 }
 
 export async function startSlackConnector(options: ConnectSlackOptions, log: (msg: string) => void) {
@@ -95,6 +96,10 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 
 		if (!client) {
 			const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+			const args: string[] = [];
+			if (options.sessionFile) {
+				args.push("--resume", options.sessionFile);
+			}
 			client = new RpcClient({
 				cliPath,
 				cwd: options.cwd || process.cwd(),
@@ -104,6 +109,7 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 					"sessions",
 					`slack-${threadId.replace(/[^a-zA-Z0-9]/g, "-")}`,
 				),
+				args: args.length > 0 ? args : undefined,
 			});
 
 			try {

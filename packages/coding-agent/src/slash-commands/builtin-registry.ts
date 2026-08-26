@@ -155,13 +155,16 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			const { startTelegramConnector } = await import("../connectors/telegram.js");
 
 			try {
+				const sessionFile = runtime.ctx.sessionManager.getSessionFile() ?? undefined;
 				if (connectorName === "slack") {
-					await startSlackConnector({ botToken, appToken, cwd: runtime.ctx.sessionManager.getCwd() }, msg =>
-						runtime.ctx.showStatus(msg),
+					await startSlackConnector(
+						{ botToken, appToken, cwd: runtime.ctx.sessionManager.getCwd(), sessionFile },
+						msg => runtime.ctx.showStatus(msg),
 					);
 				} else if (connectorName === "telegram") {
-					await startTelegramConnector({ botToken, cwd: runtime.ctx.sessionManager.getCwd() }, msg =>
-						runtime.ctx.showStatus(msg),
+					await startTelegramConnector(
+						{ botToken, cwd: runtime.ctx.sessionManager.getCwd(), sessionFile },
+						msg => runtime.ctx.showStatus(msg),
 					);
 				} else {
 					runtime.ctx.showStatus(`Unknown connector: ${connectorName}`);
