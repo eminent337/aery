@@ -1958,6 +1958,11 @@ export async function runSubprocessWithQa(
 		}
 
 		const workspacePath = options.worktree ?? options.cwd;
+		const qaReviewEnabled = options.settings?.get("task.autoReview" as any) === true;
+		if (!qaReviewEnabled) {
+			return result;
+		}
+
 		const hasChanges = await git.diff.has(workspacePath).catch(() => false);
 		if (!hasChanges) {
 			return result;
