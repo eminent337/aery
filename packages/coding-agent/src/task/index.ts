@@ -572,14 +572,14 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			})
 			.join("\n");
 		const coordinationHint = ircEnabled
-			? ` DM these ids via \`irc\` to coordinate while they run; reach for \`job\` only to inspect (\`list\`), wait (\`poll\`), or cancel a stuck task.`
-			: ` Use \`job\` to inspect (\`list\`), wait (\`poll\`), or cancel a stuck task by id.`;
+			? ` DM these ids via \`irc\` to coordinate while they run. You do NOT need to poll: results will wake you automatically when finished. Proceed with other work or end your turn.`
+			: ` Results will wake you automatically when finished. You do NOT need to poll. Proceed with other work or end your turn.`;
 
 		return {
 			content: [
 				{
 					type: "text",
-					text: `Started ${startedJobs.length} background task job${startedJobs.length === 1 ? "" : "s"} using ${params.agent}.${scheduleFailureSummary} Results will be delivered when complete.\n${startedListing}\n${coordinationHint}`,
+					text: `Started ${startedJobs.length} background task job${startedJobs.length === 1 ? "" : "s"} using ${params.agent}.${scheduleFailureSummary}\n${startedListing}\n\n${coordinationHint}`,
 				},
 			],
 			details: {
