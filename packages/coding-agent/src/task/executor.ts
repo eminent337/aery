@@ -1765,31 +1765,40 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		rawOutput = progress.recentOutput.join("\n");
 	}
 
-	// Subagent Observability: When cancelled/aborted with empty output, surface
-	// recent tools and execution context instead of returning complete silence.
-	if (!rawOutput && (done.aborted || signal?.aborted || exitCode !== 0)) {
+	// Subagent Observability: Always emit a diagnostic trace when a subagent is
+	// cancelled or aborted. We append to stderr (not rawOutput) so it shows up
+	// regardless of whether the agent produced partial text output, and we always
+	// include at least a "no tool calls" message so the user sees something even
+	// if the agent hung during LLM generation before making its first tool call.
+	if (done.aborted || signal?.aborted) {
 		const diagnosticLines: string[] = [];
+		if (progress.currentTool) {
+			const elapsed = progress.currentToolStartMs
+				? formatDuration(Math.max(0, Date.now() - progress.currentToolStartMs))
+				: "unknown";
+			diagnosticLines.push(
+				`Blocked In-Flight Tool: ${progress.currentTool}(${progress.currentToolArgs || ""}) [running for ${elapsed}]`,
+			);
+		}
 		if (progress.recentTools.length > 0) {
 			diagnosticLines.push(
-				"Recent Tool Calls:\n" +
+				"Recent Completed Tool Calls:\n" +
 					progress.recentTools
-						.map(t => `  - ${t.tool}(${t.args || ""}) [${formatDuration(Math.max(0, Date.now() - t.endMs))} ago]`)
+						.map(t => `  - ${t.tool}(${t.args || ""}) [finished ${formatDuration(Math.max(0, Date.now() - t.endMs))} ago]`)
 						.join("\n"),
 			);
 		}
-		if (progress.currentTool) {
-			const elapsed = progress.currentToolStartMs ? formatDuration(Math.max(0, Date.now() - progress.currentToolStartMs)) : "in-flight";
-			diagnosticLines.push(`Blocked In-Flight Tool: ${progress.currentTool}(${progress.currentToolArgs || ""}) [${elapsed}]`);
-		}
 		if (progress.lastIntent) {
-			diagnosticLines.push(`Last Intent: ${progress.lastIntent}`);
+			diagnosticLines.push(`Last Agent Intent: ${progress.lastIntent}`);
 		}
-		if (progress.toolCount > 0) {
-			diagnosticLines.push(`Total Tools Executed: ${progress.toolCount}`);
+		diagnosticLines.push(`Total Tools Executed Before Cancel: ${progress.toolCount}`);
+		if (progress.toolCount === 0 && !progress.currentTool) {
+			diagnosticLines.push(
+				"Agent made no tool calls — it likely hung during LLM generation or was cancelled before its first action.",
+			);
 		}
-		if (diagnosticLines.length > 0) {
-			rawOutput = `[Subagent Diagnostic Trace - Cancelled/Aborted]\n${diagnosticLines.join("\n")}`;
-		}
+		const diagnosticTrace = `\n\n[Subagent Diagnostic Trace]\n${diagnosticLines.join("\n")}`;
+		stderr = stderr ? `${stderr}${diagnosticTrace}` : diagnosticTrace.trim();
 	}
 	const yieldItems = progress.extractedToolData?.yield as YieldItem[] | undefined;
 	const reportFindingDetails = progress.extractedToolData?.report_finding as ReportFindingDetails[] | undefined;
