@@ -8,7 +8,7 @@ import * as fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentEvent, AgentIdentity, AgentTelemetryConfig, ThinkingLevel } from "@aryee337/aery-core";
 import { recordHandoff, resolveTelemetry } from "@aryee337/aery-core";
-import { logger, prompt, untilAborted } from "@aryee337/aery-utils";
+import { formatDuration, logger, prompt, untilAborted } from "@aryee337/aery-utils";
 import { ModelRegistry } from "../config/model-registry";
 import { resolveModelOverrideWithAuthFallback } from "../config/model-resolver";
 import type { PromptTemplate } from "../config/prompt-templates";
@@ -1763,6 +1763,33 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		rawOutput = recentOutputTail;
 	} else if (!rawOutput && progress.recentOutput.length > 0) {
 		rawOutput = progress.recentOutput.join("\n");
+	}
+
+	// Subagent Observability: When cancelled/aborted with empty output, surface
+	// recent tools and execution context instead of returning complete silence.
+	if (!rawOutput && (done.aborted || signal?.aborted || exitCode !== 0)) {
+		const diagnosticLines: string[] = [];
+		if (progress.recentTools.length > 0) {
+			diagnosticLines.push(
+				"Recent Tool Calls:\n" +
+					progress.recentTools
+						.map(t => `  - ${t.tool}(${t.args || ""}) [${formatDuration(Math.max(0, Date.now() - t.endMs))} ago]`)
+						.join("\n"),
+			);
+		}
+		if (progress.currentTool) {
+			const elapsed = progress.currentToolStartMs ? formatDuration(Math.max(0, Date.now() - progress.currentToolStartMs)) : "in-flight";
+			diagnosticLines.push(`Blocked In-Flight Tool: ${progress.currentTool}(${progress.currentToolArgs || ""}) [${elapsed}]`);
+		}
+		if (progress.lastIntent) {
+			diagnosticLines.push(`Last Intent: ${progress.lastIntent}`);
+		}
+		if (progress.toolCount > 0) {
+			diagnosticLines.push(`Total Tools Executed: ${progress.toolCount}`);
+		}
+		if (diagnosticLines.length > 0) {
+			rawOutput = `[Subagent Diagnostic Trace - Cancelled/Aborted]\n${diagnosticLines.join("\n")}`;
+		}
 	}
 	const yieldItems = progress.extractedToolData?.yield as YieldItem[] | undefined;
 	const reportFindingDetails = progress.extractedToolData?.report_finding as ReportFindingDetails[] | undefined;
