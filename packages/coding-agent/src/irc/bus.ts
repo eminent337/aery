@@ -75,16 +75,18 @@ export class IrcBus {
 
 	/** Return number of unread messages currently buffered in an agent's mailbox. */
 	unreadCount(agentId: string): number {
-		return this.#mailboxes.get(agentId)?.length ?? 0;
+		const canonicalId = this.#registry.get(agentId)?.id ?? agentId;
+		return this.#mailboxes.get(canonicalId)?.length ?? 0;
 	}
 
 	/** Read or drain messages from an agent's mailbox. */
 	inbox(agentId: string, options?: { peek?: boolean }): IrcMessage[] {
-		const mailbox = this.#mailboxes.get(agentId) ?? [];
+		const canonicalId = this.#registry.get(agentId)?.id ?? agentId;
+		const mailbox = this.#mailboxes.get(canonicalId) ?? [];
 		if (options?.peek) {
 			return [...mailbox];
 		}
-		this.#mailboxes.delete(agentId);
+		this.#mailboxes.delete(canonicalId);
 		return mailbox;
 	}
 
@@ -170,8 +172,10 @@ export class IrcBus {
 			throw signal.reason instanceof Error ? signal.reason : new Error("IRC wait aborted");
 		}
 
+		const canonicalId = this.#registry.get(agentId)?.id ?? agentId;
+
 		// Already-pending mail satisfies the wait without parking a waiter.
-		const pending = this.#takeFromMailbox(agentId, filter.from);
+		const pending = this.#takeFromMailbox(canonicalId, filter.from);
 		if (pending) return pending;
 
 		const { promise, resolve, reject } = Promise.withResolvers<IrcMessage | null>();
@@ -192,7 +196,7 @@ export class IrcBus {
 		const cleanup = () => {
 			if (timer) clearTimeout(timer);
 			if (onAbort && signal) signal.removeEventListener("abort", onAbort);
-			this.#removeWaiter(agentId, waiter);
+			this.#removeWaiter(canonicalId, waiter);
 		};
 
 		if (signal) {
@@ -210,9 +214,9 @@ export class IrcBus {
 			}, timeoutMs);
 		}
 
-		const list = this.#waiters.get(agentId) ?? [];
+		const list = this.#waiters.get(canonicalId) ?? [];
 		list.push(waiter);
-		this.#waiters.set(agentId, list);
+		this.#waiters.set(canonicalId, list);
 
 		return promise;
 	}
