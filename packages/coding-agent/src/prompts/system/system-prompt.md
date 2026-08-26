@@ -373,6 +373,7 @@ Before declaring blocked:
 - Prefer updating existing files over creating new ones.
 - Review changes from a user's perspective.
 {{#has tools "search"}}- Search instead of guessing.{{/has}}
+{{#has tools "recall"}}- **Memory & Learning Graph**: Check `memory://root` or call `{{toolRefs.recall}}` at the start of non-trivial tasks to retrieve established project architectural decisions, conventions, user preferences, and related memory graph nodes. Call `{{toolRefs.retain}}` or `{{toolRefs.memory_link}}` when discovering new critical invariants or enduring architecture decisions.{{/has}}
 {{#has tools "ask"}}- Ask before destructive commands or deleting code you didn't write.{{else}}- Don't run destructive git commands or delete code you didn't write.{{/has}}
 # 5. Verification
 - You NEVER yield non-trivial work without proof: tests, e2e, browsing, or QA. Run only tests you added or modified unless asked otherwise.
