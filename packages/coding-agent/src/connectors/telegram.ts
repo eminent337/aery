@@ -135,7 +135,7 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 
 			client.onEvent(async (event: AgentEvent) => {
 				if (event.type === "message_start") {
-					if (event.message.role === "assistant") {
+					if (event.message?.role === "assistant") {
 						currentMessageText = "";
 						isStreaming = true;
 						try {
@@ -145,43 +145,69 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 						}
 					}
 				} else if (event.type === "message_update") {
-					if (isStreaming && currentTelegramMsg && event.message.role === "assistant") {
-						if (event.message.content) {
+					if (event.message?.role === "assistant") {
+						// 1. Check direct text delta on assistantMessageEvent
+						const ame = (event as any).assistantMessageEvent;
+						if (ame?.type === "text_delta" && typeof ame.delta === "string") {
+							currentMessageText += ame.delta;
+						} else if (event.message.content && Array.isArray(event.message.content)) {
+							// 2. Or extract from content array
 							const textContent = event.message.content
-								.filter((c: any) => c.type === "text")
+								.filter((c: any) => c.type === "text" && c.text)
 								.map((c: any) => c.text)
 								.join("");
-
-							currentMessageText = textContent;
-
-							// Debounce edit calls to avoid Telegram rate limits
-							if (!updateTimeout) {
-								updateTimeout = setTimeout(async () => {
-									updateTimeout = null;
-									if (currentTelegramMsg && currentMessageText) {
-										try {
-											await currentTelegramMsg.edit(currentMessageText);
-										} catch (_e) {
-											// Ignore edit errors
-										}
-									}
-								}, 800);
+							if (textContent) {
+								currentMessageText = textContent;
 							}
+						}
+
+						// Debounce edit calls to avoid Telegram rate limits
+						if (currentTelegramMsg && currentMessageText && !updateTimeout) {
+							updateTimeout = setTimeout(async () => {
+								updateTimeout = null;
+								if (currentTelegramMsg && currentMessageText) {
+									try {
+										await currentTelegramMsg.edit(currentMessageText);
+									} catch (_e) {
+										// Ignore edit errors
+									}
+								}
+							}, 800);
 						}
 					}
 				} else if (event.type === "message_end") {
-					if (isStreaming && currentTelegramMsg) {
-						isStreaming = false;
+					if (event.message?.role === "assistant") {
 						if (updateTimeout) {
 							clearTimeout(updateTimeout);
 							updateTimeout = null;
 						}
-						try {
-							await currentTelegramMsg.edit(currentMessageText || "...");
-						} catch (_e) {
-							// Ignore edit errors
+						// Final text extraction from message_end payload if available
+						if (event.message.content && Array.isArray(event.message.content)) {
+							const textContent = event.message.content
+								.filter((c: any) => c.type === "text" && c.text)
+								.map((c: any) => c.text)
+								.join("");
+							if (textContent) {
+								currentMessageText = textContent;
+							}
 						}
-						currentTelegramMsg = null;
+						const finalText = currentMessageText || "(empty response)";
+						if (currentTelegramMsg) {
+							try {
+								await currentTelegramMsg.edit(finalText);
+							} catch (_e) {
+								// If edit fails (e.g. timeout or message expired), post as a fresh reply
+								try {
+									await thread.post(finalText);
+								} catch (_err) {}
+							}
+							currentTelegramMsg = null;
+						} else {
+							try {
+								await thread.post(finalText);
+							} catch (_err) {}
+						}
+						isStreaming = false;
 					}
 				}
 			});

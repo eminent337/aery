@@ -129,7 +129,7 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 
 			client.onEvent(async (event: AgentEvent) => {
 				if (event.type === "message_start") {
-					if (event.message.role === "assistant") {
+					if (event.message?.role === "assistant") {
 						currentMessageText = "";
 						isStreaming = true;
 						try {
@@ -139,42 +139,64 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 						}
 					}
 				} else if (event.type === "message_update") {
-					if (isStreaming && currentSlackMsg && event.message.role === "assistant") {
-						if (event.message.content) {
+					if (event.message?.role === "assistant") {
+						const ame = (event as any).assistantMessageEvent;
+						if (ame?.type === "text_delta" && typeof ame.delta === "string") {
+							currentMessageText += ame.delta;
+						} else if (event.message.content && Array.isArray(event.message.content)) {
 							const textContent = event.message.content
-								.filter((c: any) => c.type === "text")
+								.filter((c: any) => c.type === "text" && c.text)
 								.map((c: any) => c.text)
 								.join("");
-
-							currentMessageText = textContent;
-
-							if (!updateTimeout) {
-								updateTimeout = setTimeout(async () => {
-									updateTimeout = null;
-									if (currentSlackMsg && currentMessageText) {
-										try {
-											await currentSlackMsg.edit(currentMessageText);
-										} catch (_e) {
-											// Ignore edit errors
-										}
-									}
-								}, 800);
+							if (textContent) {
+								currentMessageText = textContent;
 							}
+						}
+
+						if (currentSlackMsg && currentMessageText && !updateTimeout) {
+							updateTimeout = setTimeout(async () => {
+								updateTimeout = null;
+								if (currentSlackMsg && currentMessageText) {
+									try {
+										await currentSlackMsg.edit(currentMessageText);
+									} catch (_e) {
+										// Ignore edit errors
+									}
+								}
+							}, 800);
 						}
 					}
 				} else if (event.type === "message_end") {
-					if (isStreaming && currentSlackMsg) {
-						isStreaming = false;
+					if (event.message?.role === "assistant") {
 						if (updateTimeout) {
 							clearTimeout(updateTimeout);
 							updateTimeout = null;
 						}
-						try {
-							await currentSlackMsg.edit(currentMessageText || "...");
-						} catch (_e) {
-							// Ignore edit errors
+						if (event.message.content && Array.isArray(event.message.content)) {
+							const textContent = event.message.content
+								.filter((c: any) => c.type === "text" && c.text)
+								.map((c: any) => c.text)
+								.join("");
+							if (textContent) {
+								currentMessageText = textContent;
+							}
 						}
-						currentSlackMsg = null;
+						const finalText = currentMessageText || "(empty response)";
+						if (currentSlackMsg) {
+							try {
+								await currentSlackMsg.edit(finalText);
+							} catch (_e) {
+								try {
+									await thread.post(finalText);
+								} catch (_err) {}
+							}
+							currentSlackMsg = null;
+						} else {
+							try {
+								await thread.post(finalText);
+							} catch (_err) {}
+						}
+						isStreaming = false;
 					}
 				}
 			});
