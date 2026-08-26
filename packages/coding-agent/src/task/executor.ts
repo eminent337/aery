@@ -1766,10 +1766,8 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 	}
 
 	// Subagent Observability: Always emit a diagnostic trace when a subagent is
-	// cancelled or aborted. We append to stderr (not rawOutput) so it shows up
-	// regardless of whether the agent produced partial text output, and we always
-	// include at least a "no tool calls" message so the user sees something even
-	// if the agent hung during LLM generation before making its first tool call.
+	// cancelled or aborted. We populate rawOutput (if empty) AND append to stderr
+	// so the trace is guaranteed to display in both the TUI renderer and task summary.
 	if (done.aborted || signal?.aborted) {
 		const diagnosticLines: string[] = [];
 		if (progress.currentTool) {
@@ -1797,8 +1795,11 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				"Agent made no tool calls — it likely hung during LLM generation or was cancelled before its first action.",
 			);
 		}
-		const diagnosticTrace = `\n\n[Subagent Diagnostic Trace]\n${diagnosticLines.join("\n")}`;
-		stderr = stderr ? `${stderr}${diagnosticTrace}` : diagnosticTrace.trim();
+		const diagnosticTrace = `[Subagent Diagnostic Trace]\n${diagnosticLines.join("\n")}`;
+		if (!rawOutput) {
+			rawOutput = diagnosticTrace;
+		}
+		stderr = stderr ? `${stderr}\n\n${diagnosticTrace}` : diagnosticTrace;
 	}
 	const yieldItems = progress.extractedToolData?.yield as YieldItem[] | undefined;
 	const reportFindingDetails = progress.extractedToolData?.report_finding as ReportFindingDetails[] | undefined;
