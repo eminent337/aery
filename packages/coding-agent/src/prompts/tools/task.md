@@ -1,13 +1,15 @@
 Launches subagents to parallelize workflows.
 
 {{#if asyncEnabled}}
-- Results are delivered automatically when complete via reactive wakeup events — do NOT poll in a loop.
+- Results are delivered automatically when complete via reactive wakeup events.
 - The tool result lists the assigned task ids (e.g. `AuthLoader`) — those are the live agent ids.
+- **Dynamic Progress Check-Ins**:
+  - Do NOT poll immediately after dispatching tasks — yield the turn or continue with other work.
+  - If a task is substantial and you want to follow up after a delay, schedule a reminder timer (e.g. with `schedule`) to check in.
+  - If a task feels like it is taking long, inspect state with `job list` or message the agent with `irc` to check its progress, then continue or decide next steps.
 {{#if ircEnabled}}
 - Coordinate with running tasks via `irc` using those ids. `job cancel` terminates a task and **cannot carry a message** — only use it for stalled/abandoned work.
-- After launching background tasks, proceed with other concurrent work or simply end your turn to let them run. Avoid calling `job poll` immediately.
 {{else}}
-- After launching background tasks, proceed with other concurrent work or simply end your turn to let them run. Avoid calling `job poll` immediately.
 - Use `job list` to snapshot manager state; `cancel: [id]` only to actually stop a stuck task.
 {{/if}}
 {{/if}}

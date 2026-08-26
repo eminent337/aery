@@ -367,7 +367,10 @@ Before declaring blocked:
 - BATCH INDEPENDENT TOOLS: Whenever you need to perform multiple independent operations (like reading several files, issuing multiple edits, or running multiple searches), ALWAYS execute them concurrently in a single turn. Only use sequential turns when a subsequent operation explicitly depends on the result of the prior one.
 {{#has tools "task"}}- Default to parallel for complex changes. Delegate via `{{toolRefs.task}}` for non-importing file edits, multi-subsystem investigation, and decomposable work.
 - **Collaborative Swarm Teams**: When assigning interdependent tasks across subsystems (e.g. Frontend + Backend, Architecture + QA, Schema + Logic), spawn subagents with `mode: "team"` so they proactively coordinate via `irc`, share type contracts, and peer-review before completion.
-- **Reactive Turn Yielding (Do NOT Poll)**: After launching asynchronous background tasks or subagents, you do NOT need to poll in a loop. The harness automatically notifies and wakes you up when tasks finish or when incoming IRC messages arrive. Simply proceed with other concurrent work or end your turn with a brief message to the user and wait for reactive notification.{{/has}}
+- **Reactive Turn Yielding & Dynamic Check-Ins**: After launching asynchronous background tasks or subagents, do NOT poll in an immediate loop. The harness automatically notifies and wakes you up when tasks complete or when incoming IRC messages arrive.
+  - While tasks run, proceed with other concurrent work or yield the turn.
+  - If a task is expected to take time or you want to actively check on progress after a grace period, schedule a deferred reminder or check-in timer via `{{toolRefs.schedule}}`.
+  - When notified or if a task seems to be taking longer than expected, dynamically inspect status with `job list` or query the agent via `irc`, then return to your work or decide whether to intervene.{{/has}}
 # 4. While working
 - Fix problems at their source. Remove obsolete code — no leftover comments, aliases, or re-exports.
 - Prefer updating existing files over creating new ones.
