@@ -2,6 +2,7 @@
  * GitHub Copilot OAuth flow (opencode OAuth app)
  */
 import { scheduler } from "node:timers/promises";
+import packageJson from "../../../package.json" with { type: "json" };
 import { getBundledModels } from "../../models";
 import type { OAuthCredentials } from "./types";
 
@@ -12,6 +13,32 @@ export const COPILOT_USER_AGENT = "opencode/1.3.15" as const;
 export const OPENCODE_HEADERS = {
 	"User-Agent": COPILOT_USER_AGENT,
 } as const;
+
+/**
+ * Attribution headers for chat requests to opencode-hosted gateways (zen,
+ * zen/go).  The zen gateway rate-limits free-tier chat/completions requests
+ * by IP and only grants the full per-model daily quota to requests whose
+ * `User-Agent` identifies an opencode client; unattributed requests fall
+ * into a much smaller fallback bucket and quickly return 429
+ * FreeUsageLimitError (verified 2026-08-31: identical requests alternate
+ * 200/429 solely on the UA string).  Mirror the opencode CLI's attribution
+ * headers (`x-opencode-client`/`-session`/`-request`) and append aery's own
+ * identity to the UA so both the gateway and upstream logs can attribute
+ * the traffic.  Only chat/completions enforces this today (/v1/responses
+ * and /v1/models do not), but sending it everywhere is harmless.
+ */
+export function createOpenCodeChatHeaders(identifiers?: {
+	sessionId?: string;
+	requestId?: string;
+}): Record<string, string> {
+	const headers: Record<string, string> = {
+		"User-Agent": `${COPILOT_USER_AGENT} Aery/${packageJson.version}`,
+		"x-opencode-client": "opencode",
+	};
+	if (identifiers?.sessionId) headers["x-opencode-session"] = identifiers.sessionId;
+	if (identifiers?.requestId) headers["x-opencode-request"] = identifiers.requestId;
+	return headers;
+}
 
 const INITIAL_POLL_INTERVAL_MULTIPLIER = 1.2;
 const SLOW_DOWN_POLL_INTERVAL_MULTIPLIER = 1.4;

@@ -53,7 +53,7 @@ import {
 import { parseStreamingJson, parseStreamingJsonThrottled } from "../utils/json-parse";
 import { getClineCommonHeaders } from "../utils/oauth/cline";
 import { createFreebuffFetch, getFreebuffCommonHeaders } from "../utils/oauth/freebuff";
-import { parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
+import { createOpenCodeChatHeaders, parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
 import { getKimiCommonHeaders } from "../utils/oauth/kimi";
 import { notifyProviderResponse } from "../utils/provider-response";
 import { callWithCopilotModelRetry } from "../utils/retry";
@@ -1015,6 +1015,13 @@ async function createClient(
 	}
 	if (model.provider === "freebuff") {
 		headers = { ...getFreebuffCommonHeaders(), ...headers };
+	}
+	if (model.provider === "opencode-zen" || model.provider === "opencode-go") {
+		// The zen gateway only grants free-tier chat/completions requests the
+		// full per-model daily quota when the User-Agent identifies an opencode
+		// client; unattributed requests land in a small fallback bucket and
+		// 429 with FreeUsageLimitError (see createOpenCodeChatHeaders).
+		headers = { ...createOpenCodeChatHeaders(), ...headers };
 	}
 	let copilotPremiumRequests: number | undefined;
 

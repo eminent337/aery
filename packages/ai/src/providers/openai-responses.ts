@@ -37,7 +37,7 @@ import {
 	getOpenAIStreamIdleTimeoutMs,
 	iterateWithIdleTimeout,
 } from "../utils/idle-iterator";
-import { parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
+import { createOpenCodeChatHeaders, parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
 import { notifyProviderResponse } from "../utils/provider-response";
 import { callWithCopilotModelRetry } from "../utils/retry";
 import { adaptSchemaForStrict, NO_STRICT, normalizeSchemaForOpenAI, toolWireSchema } from "../utils/schema";
@@ -358,6 +358,13 @@ function createClient(
 	const rawApiKey = apiKey;
 
 	const headers = { ...(model.headers ?? {}), ...(extraHeaders ?? {}) };
+	if (model.provider === "opencode-zen" || model.provider === "opencode-go") {
+		// Mirror the opencode CLI's attribution headers. Only chat/completions
+		// enforces the UA gate today, but keep responses traffic attributed the
+		// same way in case the gateway extends the check (see
+		// createOpenCodeChatHeaders).
+		Object.assign(headers, createOpenCodeChatHeaders());
+	}
 	let copilotPremiumRequests: number | undefined;
 
 	let baseUrl = model.baseUrl;
