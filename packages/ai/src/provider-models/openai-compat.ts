@@ -1218,6 +1218,28 @@ export interface OpenCodeModelManagerConfig {
 	baseUrl?: string;
 }
 
+/**
+ * OpenCode zen "free" models that carry a `-free` suffix but are NOT
+ * anonymously accessible on the zen gateway.  Verified against live probes
+ * (2026-08-30): POST /zen/v1/chat/completions with `Authorization: Bearer
+ * public` returns HTTP 400 "Model is unavailable" for these ids, whereas the
+ * genuine free models return HTTP 200 (stream start) or HTTP 429
+ * (FreeUsageLimitError -> daily IP quota reached).  Even though models.dev
+ * lists cost.input = 0, the server-side model config marks these as
+ * unavailable for anonymous/free access, so including them in the free list
+ * would surface models that 400 on every request.
+ */
+const OPENCODE_ZEN_FREE_EXCLUSIONS = new Set<string>(["deepseek-v4-flash-free"]);
+
+/** Whether a zen model id is genuinely free-tier anonymous accessible. */
+function isOpencodeZenFreeModelId(modelId: string): boolean {
+	const lowerId = modelId.toLowerCase();
+	if (OPENCODE_ZEN_FREE_EXCLUSIONS.has(lowerId)) {
+		return false;
+	}
+	return lowerId.endsWith("-free") || lowerId === "big-pickle";
+}
+
 function normalizeOpenCodeBasePath(baseUrl: string | undefined, fallbackBasePath: string): string {
 	const value = normalizeAnthropicBaseUrl(baseUrl, fallbackBasePath);
 	return value.endsWith("/v1") ? value.slice(0, -3) : value;
@@ -1232,28 +1254,48 @@ function openCodeModelManagerOptions(
 	defaultBasePath: string,
 	config?: OpenCodeModelManagerConfig,
 ): ModelManagerOptions<Api> {
-	const apiKey = config?.apiKey;
+	// Match opencode CLI behavior: default to "public" API key when no key is
+	// configured.  The zen gateway treats "public" as anonymous (IP-based rate
+	// limiting with the standard free-tier daily quota).  This ensures dynamic
+	// model discovery always runs and free models are available out-of-the-box.
+	const apiKey = config?.apiKey ?? "public";
 	const basePath = normalizeOpenCodeBasePath(config?.baseUrl, defaultBasePath);
 	const discoveryBaseUrl = openCodeBaseUrlForApi("openai-completions", basePath);
 	const references = createBundledReferenceMap<Api>(providerId);
 	return {
 		providerId,
 		dynamicModelsAuthoritative: true,
-		...(apiKey && {
-			fetchDynamicModels: () =>
+		fetchDynamicModels: async () => {
+			// The live /v1/models catalog does not expose per-model API shape,
+			// so discovery hardcodes the openai-completions client.  models.dev
+			// marks a handful of models with a different SDK via
+			// `provider.npm` (muse-spark-1.2-contributor-free → "@ai-sdk/openai"
+			// = OpenAI Responses API); posting chat-completions payloads to
+			// those returns 500 "Internal server error" from the gateway even
+			// though opencode CLI (which reads models.dev) reaches the same
+			// model fine.  Re-resolve each discovered model against upstream
+			// metadata, fetched concurrently with discovery.  On models.dev
+			// failure the raw map is empty and every model keeps the default
+			// openai-completions resolution.
+			const modelsDevKey = providerId === "opencode-zen" ? "opencode" : "opencode-go";
+			const [discovered, modelsDevRaw] = await Promise.all([
 				fetchOpenAICompatibleModels<Api>({
 					api: "openai-completions",
 					provider: providerId,
 					baseUrl: discoveryBaseUrl,
 					apiKey,
-					filterModel: (entry, model) => {
-						const lowerId = model.id.toLowerCase();
-						// Free models are those whose id carries a "-free" suffix.
-						// OpenCode Go additionally exposes ox-alpha-free; big-pickle is a
-						// Zen-specific free alias. Anything else requires a paid
-						// subscription/credits, so it must not surface in the free list.
-						return lowerId.endsWith("-free") || (providerId === "opencode-zen" && lowerId === "big-pickle");
-					},
+					// Align with opencode CLI's free tier: only genuinely free
+					// models are surfaced, regardless of whether a real API key is
+					// configured.  The key is still sent for auth (so requests to
+					// free models work), but the catalog is restricted to the free
+					// set so users aren't tempted by paid models that will 401/400
+					// without a paid subscription.
+					//
+					// A "-free" suffix is a hint, not a guarantee — some suffixed
+					// ids (e.g. deepseek-v4-flash-free) are blocked for anonymous
+					// access, so they are excluded explicitly via
+					// OPENCODE_ZEN_FREE_EXCLUSIONS.
+					filterModel: (entry, model) => isOpencodeZenFreeModelId(model.id),
 					mapModel: (entry, defaults) => {
 						const reference = references.get(defaults.id);
 						const name = toModelName(entry.name, reference?.name ?? defaults.name);
@@ -1273,7 +1315,31 @@ function openCodeModelManagerOptions(
 						};
 					},
 				}),
-		}),
+				loadOpenCodeModelsDevRaw(modelsDevKey),
+			]);
+			if (!discovered) {
+				return null;
+			}
+			const resolution = createOpenCodeApiResolution(
+				basePath,
+				providerId === "opencode-go" ? OPENCODE_GO_API_ID_OVERRIDES : undefined,
+			);
+			return discovered.map(model => {
+				const raw = modelsDevRaw[model.id];
+				if (!raw) {
+					return model;
+				}
+				const resolved = resolveApiByRules(model.id, raw, resolution.rules, resolution.defaultResolution);
+				if (resolved.api === model.api && resolved.baseUrl === model.baseUrl) {
+					return model;
+				}
+				return {
+					...model,
+					api: resolved.api,
+					baseUrl: resolved.baseUrl,
+				};
+			});
+		},
 	};
 }
 
@@ -2716,6 +2782,40 @@ function resolveApiByRules(
 	return fallback;
 }
 
+/**
+ * Loads the raw models.dev entries for an OpenCode provider ("opencode-zen"
+ * → key "opencode", "opencode-go" → key "opencode-go").  Used by runtime
+ * discovery (openCodeModelManagerOptions) to re-resolve each model's API
+ * shape from upstream metadata (`provider.npm`), which the live /v1/models
+ * catalog does not expose (e.g. muse-spark-1.2-contributor-free is served via
+ * the OpenAI Responses API, not chat/completions).
+ *
+ * Graceful degradation: any failure (network, non-2xx, unexpected payload
+ * shape) returns an empty record so discovery falls back to today's
+ * openai-completions default instead of failing model listing.
+ */
+async function loadOpenCodeModelsDevRaw(
+	modelsDevKey: "opencode" | "opencode-go",
+): Promise<Record<string, ModelsDevModel>> {
+	try {
+		const payload = await fetchModelsDevPayload();
+		const providerPayload = isRecord(payload) ? payload[modelsDevKey] : undefined;
+		const modelsPayload = isRecord(providerPayload) ? providerPayload.models : undefined;
+		if (!isRecord(modelsPayload)) {
+			return {};
+		}
+		const raw: Record<string, ModelsDevModel> = {};
+		for (const [modelId, rawModel] of Object.entries(modelsPayload)) {
+			if (isRecord(rawModel)) {
+				raw[modelId] = rawModel as ModelsDevModel;
+			}
+		}
+		return raw;
+	} catch {
+		return {};
+	}
+}
+
 function createOpenCodeApiResolution(
 	basePath: string,
 	idOverrides: Readonly<Record<string, Api>> = {},
@@ -2765,11 +2865,17 @@ const OPENCODE_ZEN_API_RESOLUTION = createOpenCodeApiResolution("https://opencod
 // would POST anthropic-style requests to /v1/messages and the gateway would
 // return its `Page Not Found` HTML (issue #887). Override the resolver so
 // regenerating models.json keeps the correct routing.
-const OPENCODE_GO_API_RESOLUTION = createOpenCodeApiResolution("https://opencode.ai/zen/go", {
+// The same overrides are shared with runtime discovery in
+// openCodeModelManagerOptions so both paths agree on routing.
+const OPENCODE_GO_API_ID_OVERRIDES: Readonly<Record<string, Api>> = {
 	"minimax-m2.7": "openai-completions",
 	"qwen3.5-plus": "openai-completions",
 	"qwen3.6-plus": "openai-completions",
-});
+};
+const OPENCODE_GO_API_RESOLUTION = createOpenCodeApiResolution(
+	"https://opencode.ai/zen/go",
+	OPENCODE_GO_API_ID_OVERRIDES,
+);
 
 const COPILOT_BASE_URL = "https://api.githubcopilot.com";
 

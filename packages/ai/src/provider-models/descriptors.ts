@@ -215,11 +215,13 @@ export const PROVIDER_DESCRIPTORS: readonly ProviderDescriptor[] = [
 		config => nanoGptModelManagerOptions(config),
 		catalog("NanoGPT", ["NANO_GPT_API_KEY"]),
 	),
-	descriptor("opencode-zen", "claude-sonnet-4-6", config => opencodeZenModelManagerOptions(config), {
+	descriptor("opencode-zen", "big-pickle", config => opencodeZenModelManagerOptions(config), {
 		dynamicModelsAuthoritative: true,
+		allowUnauthenticated: true,
 	}),
 	descriptor("opencode-go", "kimi-k2.5", config => opencodeGoModelManagerOptions(config), {
 		dynamicModelsAuthoritative: true,
+		allowUnauthenticated: true,
 	}),
 	catalogDescriptor(
 		"openrouter",

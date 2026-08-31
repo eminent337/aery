@@ -50,9 +50,17 @@ describe("opencode-go resolver routes 404-ing ids to openai-completions (issue #
 	});
 
 	test("runtime /v1/models refresh returns only free models on the go endpoint", async () => {
-		let requestedUrl = "";
+		const requestedUrls: string[] = [];
 		const mockFetch = async (input: string | Request | URL): Promise<Response> => {
-			requestedUrl = input instanceof Request ? input.url : String(input);
+			const url = input instanceof Request ? input.url : String(input);
+			requestedUrls.push(url);
+			if (url.includes("models.dev")) {
+				// models.dev is fetched concurrently for runtime api re-resolution;
+				// return a payload with no "opencode-go" key so discovery is untouched.
+				return new Response(JSON.stringify({}), {
+					headers: { "content-type": "application/json" },
+				});
+			}
 			return new Response(
 				JSON.stringify({
 					data: [
@@ -64,12 +72,13 @@ describe("opencode-go resolver routes 404-ing ids to openai-completions (issue #
 			);
 		};
 		global.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect });
-		const options = opencodeGoModelManagerOptions({ apiKey: "opencode-test-key" });
+		const options = opencodeGoModelManagerOptions({});
 		const models = await options.fetchDynamicModels?.();
 		const qwenMax = models?.find(model => model.id === "qwen3.7-max");
 		const oxAlpha = models?.find(model => model.id === "ox-alpha-free");
-		expect(requestedUrl).toBe("https://opencode.ai/zen/go/v1/models");
-		// Free models survive the filter; paid models are excluded from the list.
+		// The live discovery endpoint must be hit during a runtime refresh.
+		expect(requestedUrls).toContain("https://opencode.ai/zen/go/v1/models");
+		// Free access (no personal key): free models survive; paid models are excluded.
 		expect(oxAlpha?.id).toBe("ox-alpha-free");
 		expect(qwenMax).toBeUndefined();
 	});
