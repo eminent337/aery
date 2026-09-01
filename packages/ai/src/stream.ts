@@ -10,6 +10,9 @@ import {
 	modelOmitsReasoningEffort,
 	requireSupportedEffort,
 } from "./model-thinking";
+import { appendPrivacyAudit } from "./privacy/audit-log";
+import { PrivacyFirewallError } from "./privacy/firewall-error";
+import { evaluateFirewall } from "./privacy/guard";
 import { streamAeryNative } from "./providers/aery-native-client";
 import type { BedrockOptions } from "./providers/amazon-bedrock";
 import type { AnthropicOptions } from "./providers/anthropic";
@@ -305,6 +308,43 @@ export function stream<TApi extends Api>(
 	const requestOptions = withRequestDebugFetch(options as StreamOptions | undefined) as
 		| OptionsForApi<TApi>
 		| undefined;
+
+	// Privacy firewall chokepoint: guard data-collecting models against
+	// transmitting credentials / sensitive files. Fast for every other model
+	// (single tier lookup), and near-free for clean turns on data-collecting
+	// models thanks to the hint prefilter in scanContextForFirewall.
+	const firewall = evaluateFirewall(model.id, context);
+	if (firewall.finding) {
+		if (firewall.mode === "block") {
+			appendPrivacyAudit({
+				ts: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				categories: firewall.finding.categories,
+				sensitiveKinds: firewall.finding.sensitiveKinds,
+				action: "block",
+			});
+			throw new PrivacyFirewallError({
+				modelId: model.id,
+				categories: firewall.finding.categories,
+				sensitiveKinds: firewall.finding.sensitiveKinds,
+			});
+		}
+		// warn mode: audit, log and proceed (never block in warn)
+		appendPrivacyAudit({
+			ts: Date.now(),
+			provider: model.provider,
+			model: model.id,
+			categories: firewall.finding.categories,
+			sensitiveKinds: firewall.finding.sensitiveKinds,
+			action: "warn",
+		});
+		console.warn(
+			`[privacy] warn: ${model.id} request contains ` +
+				`${firewall.finding.categories.join(", ") || firewall.finding.sensitiveKinds.join(", ")} ` +
+				`— proceeding (warn mode).`,
+		);
+	}
 
 	// Check custom API registry first (extension-provided APIs like "vertex-claude-api")
 	const customApiProvider = getCustomApi(model.api);
