@@ -1928,7 +1928,9 @@ export class ModelRegistry {
 				);
 			}
 		} else {
-			const payload = (await response.json()) as { data?: Array<{ id: string }> };
+			const payload = (await response.json()) as {
+				data?: Array<{ id?: string; supported_endpoint_types?: string[] }>;
+			};
 			const models = payload.data ?? [];
 			const bynaraFree = new Set([
 				"mimo-v2.5",
@@ -1944,6 +1946,23 @@ export class ModelRegistry {
 				if (providerConfig.provider === "bynara" && !bynaraFree.has(id)) {
 					continue;
 				}
+				// Models with no chat-capable endpoint (empty list, or only
+				// image/video/audio endpoints) cannot serve /chat/completions —
+				// e.g. Agnes's agnes-image-2.5-flash advertises [] and its
+				// gateway 400s with "Use /v1/images/generations". Register them
+				// with `imageOnly: true` so they stay reachable for image
+				// generation tooling but are hidden from chat model selection.
+				// A missing field keeps the provider-level api (older proxies
+				// don't send the field at all).
+				const chatEndpoints = item.supported_endpoint_types;
+				const noChatEndpoint =
+					chatEndpoints !== undefined && !chatEndpoints.some(e => e === "openai" || e === "anthropic");
+				// Some proxies (e.g. Agnes) advertise `["openai"]` even for
+				// image/video-only models whose chat endpoint 400s. Treat a
+				// model id that marks itself image/video as non-chat too.
+				const lowerId = id.toLowerCase();
+				const idMarksNonChat = /(^|[_-])(image|img|video|t2i|i2v|sdxl|dall-e|dalle|flux)/.test(lowerId);
+				const imageOnly = noChatEndpoint || idMarksNonChat;
 				discovered.push(
 					enrichModelThinking({
 						id,
@@ -1952,7 +1971,7 @@ export class ModelRegistry {
 						provider: providerConfig.provider,
 						baseUrl,
 						reasoning: false,
-						input: ["text"],
+						...(imageOnly ? { imageOnly: true, input: ["image" as const] } : { input: ["text" as const] }),
 						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 						contextWindow: 128000,
 						maxTokens: discoveryDefaultMaxTokens(providerConfig.api),
@@ -2010,6 +2029,24 @@ export class ModelRegistry {
 			const id = item.id;
 			if (!id) continue;
 			const endpoints = item.supported_endpoint_types ?? [];
+			// A model that advertises no chat-capable endpoint (empty list, or
+			// only image/video/audio endpoints) is not usable over
+			// /chat/completions or /v1/messages — e.g. Agnes's
+			// agnes-image-2.5-flash advertises [] and 400s with "Use
+			// /v1/images/generations". Registering it as a chat model only
+			// produces guaranteed failures, so skip it. A missing field still
+			// falls back to the provider-level api (older proxies don't send
+			// the field at all).
+			const hasChatEndpoint =
+				endpoints.length === 0 ? false : endpoints.some(e => e === "openai" || e === "anthropic");
+			const noChatEndpoint = item.supported_endpoint_types !== undefined && !hasChatEndpoint;
+			// Some proxies (e.g. Agnes) advertise `["openai"]` even for
+			// image/video-only models whose chat endpoint 400s ("is an image
+			// model. Use /v1/images/generations"). Treat a model id that marks
+			// itself image/video as non-chat regardless of the metadata.
+			const lowerId = id.toLowerCase();
+			const idMarksNonChat = /(^|[_-])(image|img|video|t2i|i2v|sdxl|dall-e|dalle|flux)/.test(lowerId);
+			const imageOnly = noChatEndpoint || idMarksNonChat;
 			const api: Api | undefined = endpoints.includes("anthropic")
 				? "anthropic-messages"
 				: endpoints.includes("openai")
@@ -2033,8 +2070,9 @@ export class ModelRegistry {
 					baseUrl,
 					reasoning: reference?.reasoning ?? false,
 					thinking: reference?.thinking,
-					input: reference?.input ?? ["text"],
-					// Proxy pricing is provider-specific and usually does not match
+					...(imageOnly
+						? { imageOnly: true, input: ["image" as const] }
+						: { input: reference?.input ?? ["text" as const] }),
 					// upstream bundled catalogs, so keep costs local-unknown even when
 					// we successfully recover the upstream model identity.
 					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -2373,7 +2411,11 @@ export class ModelRegistry {
 	 * This is a fast check that doesn't refresh OAuth tokens.
 	 */
 	getAvailable(): Model<Api>[] {
-		return this.#models.filter(model => this.#isModelAvailable(model));
+		// Image-only models (video/image generation endpoints; see
+		// Model.imageOnly) cannot serve chat, so chat model selection —
+		// the picker, role resolution, session restore — never sees them.
+		// They stay registered for image-generation tooling.
+		return this.#models.filter(model => !model.imageOnly && this.#isModelAvailable(model));
 	}
 
 	/**

@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { getModelDbPath } from "@aryee337/aery-utils";
 import type { Api, Model } from "./types";
 
-const CACHE_SCHEMA_VERSION = 3;
+const CACHE_SCHEMA_VERSION = 4;
 
 interface CacheRow {
 	provider_id: string;

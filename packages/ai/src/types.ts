@@ -951,9 +951,16 @@ export interface Model<TApi extends Api = any> {
 	 * `options.isOAuth = true` for the underlying provider call.
 	 */
 	isOAuth?: boolean;
+	/**
+	 * Model cannot serve chat completions / messages — it is only reachable
+	 * through generation endpoints (images, video). Discovered proxies (e.g.
+	 * Agnes) advertise such models with no chat-capable endpoint, or with a
+	 * gateway that 400s chat requests regardless of the advertised endpoints.
+	 * They are hidden from chat model selection but kept registered so image
+	 * generation tooling can target them.
+	 */
+	imageOnly?: boolean;
 }
-
-// The stream interface - what generate() returns
 export interface GenerateStream extends AsyncIterable<AssistantMessageEvent> {
 	// Get the final message (waits for streaming to complete)
 	finalMessage(): Promise<AssistantMessage>;
