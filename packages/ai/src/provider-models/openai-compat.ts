@@ -1232,7 +1232,7 @@ export interface OpenCodeModelManagerConfig {
 const OPENCODE_ZEN_FREE_EXCLUSIONS = new Set<string>(["deepseek-v4-flash-free"]);
 
 /** Whether a zen model id is genuinely free-tier anonymous accessible. */
-function isOpencodeZenFreeModelId(modelId: string): boolean {
+export function isOpencodeZenFreeModelId(modelId: string): boolean {
 	const lowerId = modelId.toLowerCase();
 	if (OPENCODE_ZEN_FREE_EXCLUSIONS.has(lowerId)) {
 		return false;
