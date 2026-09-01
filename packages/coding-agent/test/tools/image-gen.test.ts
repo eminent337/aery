@@ -193,6 +193,90 @@ describe("imageGenTool", () => {
 		expect(await Bun.file(savedPath).bytes()).toEqual(Buffer.from("fake-xai-image"));
 	});
 
+	it("routes antigravity image generation to the daily endpoint with the real image model", async () => {
+		setPreferredImageProvider("antigravity");
+		let requestUrl: string | undefined;
+		let requestBody: Record<string, unknown> | undefined;
+
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			requestUrl = input.toString();
+			requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			const chunk = {
+				response: {
+					candidates: [
+						{
+							content: {
+								role: "model",
+								parts: [
+									{
+										inlineData: {
+											mimeType: "image/jpeg",
+											data: Buffer.from("fake-ag-image").toString("base64"),
+										},
+									},
+								],
+							},
+						},
+					],
+				},
+			};
+			const sse = `data: ${JSON.stringify(chunk)}\r\n\r\n`;
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode(sse));
+					controller.close();
+				},
+			});
+			return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const ctx: CustomToolContext = {
+			sessionManager: {
+				getCwd: () => "/tmp",
+				getSessionId: () => "test-session",
+			} as unknown as ReadonlySessionManager,
+			modelRegistry: {
+				getApiKey: async () => "unused",
+				getApiKeyForProvider: async (provider: string) =>
+					provider === "google-antigravity"
+						? JSON.stringify({ token: "test-ag-token", projectId: "test-project" })
+						: undefined,
+				getProviderBaseUrl: () => undefined,
+				getAll: () => [],
+				authStorage: {
+					hasNonEnvCredential: (provider: string) => provider === "google-antigravity",
+				},
+			} as unknown as ModelRegistry,
+			model: undefined,
+			isIdle: () => true,
+			hasQueuedMessages: () => false,
+			abort: () => {},
+		};
+
+		const result = await imageGenTool.execute("call-ag", { subject: "a cat", aspect_ratio: "1:1" }, undefined, ctx);
+		generatedImagePaths.push(...(result.details?.imagePaths ?? []));
+
+		expect(requestUrl).toBe(
+			"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+		);
+		expect(requestBody?.model).toBe("gemini-3.1-flash-image");
+		expect(requestBody?.project).toBe("test-project");
+		const genConfig = (requestBody?.request as Record<string, unknown> | undefined)?.generationConfig as
+			| { imageConfig?: { aspectRatio?: string; imageSize?: string } }
+			| undefined;
+		expect(genConfig?.imageConfig?.aspectRatio).toBe("1:1");
+		expect(genConfig?.imageConfig?.imageSize).toBeUndefined();
+		expect(result.details?.provider).toBe("antigravity");
+		expect(result.details?.model).toBe("gemini-3.1-flash-image");
+		expect(result.details?.imageCount).toBe(1);
+		expect(result.details?.images[0]?.mimeType).toBe("image/jpeg");
+		const savedPath = result.details?.imagePaths[0];
+		if (!savedPath) throw new Error("Expected generated image path");
+		expect(await Bun.file(savedPath).bytes()).toEqual(Buffer.from("fake-ag-image"));
+	}, 60_000);
+
 	it("routes custom-provider (Agnes) image generation to /images/generations", async () => {
 		let requestUrl: string | undefined;
 		let requestBody: Record<string, unknown> | undefined;

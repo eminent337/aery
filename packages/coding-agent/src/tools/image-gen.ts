@@ -28,7 +28,7 @@ import { resolveReadPath } from "./path-utils";
 
 const DEFAULT_MODEL = "gemini-3-pro-image-preview";
 const DEFAULT_OPENROUTER_MODEL = "google/gemini-3-pro-image-preview";
-const DEFAULT_ANTIGRAVITY_MODEL = "gemini-3-pro-image";
+const DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.1-flash-image";
 const DEFAULT_XAI_IMAGE_MODEL = "grok-imagine-image";
 const IMAGE_TIMEOUT = 3 * 60 * 1000; // 3 minutes
 const CUSTOM_IMAGE_TIMEOUT = 5 * 60 * 1000; // per attempt; bun fetch aborts at ~300s anyway
@@ -1034,6 +1034,16 @@ function combineParts(response: GeminiGenerateContentResponse): GeminiPart[] {
 	return parts;
 }
 
+// Map the OpenAI-style pixel-size enum (image_size) to the tiers the
+// Antigravity image backend accepts ("Unsupported image_size '1024x1024'.
+// Supported values are: 1K, 2K, 4K, 512, 512P, 512PX."). The square default
+// and absent size are omitted (aspect ratio drives the shape — verified
+// live); the wider/taller enum values map to "2K", the closest tier.
+function resolveAntigravityImageSize(imageSize: string | undefined): string | undefined {
+	if (!imageSize || imageSize === "1024x1024") return undefined;
+	return "2K";
+}
+
 function buildAntigravityRequest(
 	prompt: string,
 	model: string,
@@ -1048,7 +1058,13 @@ function buildAntigravityRequest(
 	}
 	parts.push({ text: prompt });
 
-	const imageConfig = aspectRatio || imageSize ? { aspectRatio: aspectRatio, imageSize: imageSize } : undefined;
+	// The backend rejects OpenAI-style pixel sizes ("1024x1024"); it only
+	// accepts 512/1K/2K/4K-style tiers. Aspect ratio already drives the shape,
+	// so map the pixel enum onto the closest tier and omit the size when the
+	// caller left it at the 1:1 square default.
+	const antigravityImageSize = resolveAntigravityImageSize(imageSize);
+	const imageConfig =
+		aspectRatio || antigravityImageSize ? { aspectRatio: aspectRatio, imageSize: antigravityImageSize } : undefined;
 
 	return {
 		project: projectId,
