@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import * as ai from "@aryee337/aery-ai";
-import { type Api, getBundledModel, type Model } from "@aryee337/aery-ai";
+import { type Api, getBundledModel, type Model, PrivacyFirewallError } from "@aryee337/aery-ai";
 import { generateSessionTitle } from "../src/utils/title-generator";
 
 function getModelOrThrow(id: string): Model<Api> {
@@ -125,5 +125,20 @@ describe("title generator", () => {
 		const userContent = sentMessages?.[0]?.content ?? "";
 		expect(userContent).not.toContain("Claude Code v2.1.158");
 		expect(userContent).toContain("pick provider then theme");
+	});
+
+	it("returns null (skips title) when the privacy firewall blocks the request", async () => {
+		const model = getModelOrThrow("claude-sonnet-4-5");
+		vi.spyOn(ai, "completeSimple").mockRejectedValue(
+			new PrivacyFirewallError({ modelId: model.id, categories: ["openai-key"], sensitiveKinds: [] }),
+		);
+
+		const title = await generateSessionTitle(
+			"summarize this session which contains a key",
+			createRegistry(model),
+			createSettings(model),
+		);
+
+		expect(title).toBeNull();
 	});
 });
