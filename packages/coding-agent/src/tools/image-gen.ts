@@ -31,6 +31,9 @@ const DEFAULT_OPENROUTER_MODEL = "google/gemini-3-pro-image-preview";
 const DEFAULT_ANTIGRAVITY_MODEL = "gemini-3-pro-image";
 const DEFAULT_XAI_IMAGE_MODEL = "grok-imagine-image";
 const IMAGE_TIMEOUT = 3 * 60 * 1000; // 3 minutes
+const CUSTOM_IMAGE_TIMEOUT = 5 * 60 * 1000; // per attempt; bun fetch aborts at ~300s anyway
+const CUSTOM_IMAGE_ATTEMPTS = 3;
+const CUSTOM_IMAGE_BACKOFF_MS = 2500;
 const MAX_IMAGE_SIZE = 35 * 1024 * 1024;
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const OPENAI_IMAGE_OUTPUT_FORMAT = "webp";
@@ -1144,7 +1147,7 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 	approval: "write",
 	description: prompt.render(imageGenDescription),
 	parameters: imageGenSchema,
-	async execute(_toolCallId, params, _onUpdate, ctx, signal) {
+	async execute(_toolCallId, params, onUpdate, ctx, signal) {
 		return untilAborted(signal, async () => {
 			const sessionId = ctx.sessionManager.getSessionId();
 			let apiKey = await findImageApiKey(ctx.modelRegistry, ctx.model, sessionId);
@@ -1218,13 +1221,16 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 					response_format: "b64_json",
 				};
 
-				// Custom gateways (e.g. Agnes) can reject with 429/503 when
-				// their image queue is full, or hold the connection for a long
-				// time while the queued job runs. Retry transient queue-full
-				// responses a couple of times with a short backoff, and surface
-				// a clear message on timeout instead of a bare DOMException.
+				// Custom gateways (e.g. Agnes) can reject with 429/503 when their
+				// image queue is full, or hold the connection for minutes while the
+				// queued job runs. Each attempt gets a fresh per-attempt deadline so
+				// retries are not eaten by an already-aborted shared signal, the
+				// response body is read inside the try (a stalled body abort
+				// otherwise surfaces as a raw DOMException), and user cancellation
+				// is rethrown untouched instead of being masked as a queue timeout.
 				let customRawText = "";
-				for (let attempt = 1; ; attempt++) {
+				for (let attempt = 1; attempt <= CUSTOM_IMAGE_ATTEMPTS; attempt++) {
+					const attemptSignal = ptree.combineSignals(signal, CUSTOM_IMAGE_TIMEOUT);
 					let customResponse: Response;
 					try {
 						customResponse = await fetch(`${apiKey.baseUrl.replace(/\/+$/, "")}/images/generations`, {
@@ -1234,33 +1240,51 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 								"Content-Type": "application/json",
 							},
 							body: JSON.stringify(body),
-							signal: requestSignal,
+							signal: attemptSignal,
 						});
+						customRawText = await customResponse.text();
 					} catch (error) {
-						const aborted =
-							requestSignal?.aborted || (error instanceof DOMException && error.name === "AbortError");
-						if (aborted) {
+						// User cancellation propagates untouched — the outer
+						// untilAborted converts it into a proper AbortError.
+						if (signal?.aborted) throw error;
+						const timedOut =
+							(attemptSignal?.aborted && attemptSignal.reason?.name !== "AbortError") ||
+							(error instanceof Error && error.name === "TimeoutError");
+						if (timedOut && attempt >= CUSTOM_IMAGE_ATTEMPTS) {
 							throw new Error(
-								`Custom image request timed out — the image queue is busy or slow (${apiKey.baseUrl}). Check the provider's status and try again shortly.`,
+								`Custom image generation timed out after ${attempt} attempt(s) — the image queue at ${apiKey.baseUrl} is busy or slow. Try again in a few minutes or choose a different image model.`,
 							);
 						}
-						if (attempt >= 3) throw error;
+						if (!timedOut && attempt >= CUSTOM_IMAGE_ATTEMPTS) throw error;
+						if (timedOut) {
+							onUpdate?.({
+								content: [
+									{
+										type: "text",
+										text: `Image request timed out (attempt ${attempt}/${CUSTOM_IMAGE_ATTEMPTS}); retrying…`,
+									},
+								],
+								details: { provider, model, imageCount: 0, imagePaths: [], images: [] },
+							});
+						}
 						try {
-							await untilAborted(requestSignal, new Promise(resolve => setTimeout(resolve, 2500)));
+							await untilAborted(signal, new Promise(resolve => setTimeout(resolve, CUSTOM_IMAGE_BACKOFF_MS)));
 						} catch {
 							// Aborted during backoff — next iteration reports it.
 						}
 						continue;
 					}
-					customRawText = await customResponse.text();
 					if (!customResponse.ok) {
 						const transient =
 							(customResponse.status === 429 || customResponse.status === 503) &&
-							attempt < 3 &&
-							!requestSignal?.aborted;
+							attempt < CUSTOM_IMAGE_ATTEMPTS &&
+							!signal?.aborted;
 						if (transient) {
 							try {
-								await untilAborted(requestSignal, new Promise(resolve => setTimeout(resolve, 2500)));
+								await untilAborted(
+									signal,
+									new Promise(resolve => setTimeout(resolve, CUSTOM_IMAGE_BACKOFF_MS)),
+								);
 							} catch {
 								// Aborted during backoff — next iteration reports it.
 							}
@@ -1288,7 +1312,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 						const mimeType = parseImageMetadata(bytes)?.mimeType ?? "image/png";
 						customInlineImages.push({ data: entry.b64_json, mimeType });
 					} else if (entry.url) {
-						customInlineImages.push(await loadImageFromUrl(entry.url, requestSignal));
+						// Fresh deadline: a signal created before a multi-minute
+						// generation may already be aborted by download time.
+						const downloadSignal = ptree.combineSignals(signal, IMAGE_TIMEOUT);
+						customInlineImages.push(await loadImageFromUrl(entry.url, downloadSignal));
 					}
 				}
 

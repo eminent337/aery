@@ -21,6 +21,43 @@ afterEach(async () => {
 	setPreferredImageProvider("auto");
 });
 
+function makeCustomAgnesContext(): CustomToolContext {
+	const textModel = {
+		api: "openai-completions",
+		provider: "custom-api-apihub-agnes-ai-com-v1",
+		id: "agnes-2.5-pro",
+		name: "Agnes 2.5 Pro",
+		baseUrl: "https://apihub.agnes-ai.com/v1",
+	} as Model;
+	const imageOnlyModel = {
+		api: "openai-completions",
+		provider: "custom-api-apihub-agnes-ai-com-v1",
+		id: "agnes-image-2.5-flash",
+		name: "Agnes Image 2.5 Flash",
+		baseUrl: "https://apihub.agnes-ai.com/v1",
+		imageOnly: true,
+	} as unknown as Model;
+	return {
+		sessionManager: {
+			getCwd: () => "/tmp",
+			getSessionId: () => "test-session",
+		} as unknown as ReadonlySessionManager,
+		modelRegistry: {
+			getApiKey: async () => "test-agnes-key",
+			getApiKeyForProvider: async () => undefined,
+			getProviderBaseUrl: () => undefined,
+			getAll: () => [textModel, imageOnlyModel],
+			authStorage: {
+				hasNonEnvCredential: () => false,
+			},
+		} as unknown as ModelRegistry,
+		model: textModel,
+		isIdle: () => true,
+		hasQueuedMessages: () => false,
+		abort: () => {},
+	} as unknown as CustomToolContext;
+}
+
 describe("imageGenTool", () => {
 	it("e2e writes OpenAI Responses image_generation WebP output to a temp file", async () => {
 		let requestUrl: string | undefined;
@@ -286,4 +323,104 @@ describe("imageGenTool", () => {
 		expect(result.details?.model).toBe("agnes-image-2.5-flash");
 		expect(result.details?.imageCount).toBe(1);
 	});
+	it("retries transient 503 queue-full responses on the custom provider", async () => {
+		let callCount = 0;
+		const fetchMock: typeof fetch = (async (_input: string | URL | Request, _init?: RequestInit) => {
+			callCount++;
+			if (callCount <= 2) {
+				return new Response(
+					JSON.stringify({ error: { message: "text image queue is full, please retry later" } }),
+					{
+						status: 503,
+						headers: { "content-type": "application/json" },
+					},
+				);
+			}
+			return new Response(
+				JSON.stringify({ data: [{ b64_json: Buffer.from("retried-image").toString("base64") }] }),
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+				},
+			);
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const ctx = makeCustomAgnesContext();
+		const result = await imageGenTool.execute("call-retry-503", { subject: "a dog" }, undefined, ctx);
+		generatedImagePaths.push(...(result.details?.imagePaths ?? []));
+
+		expect(callCount).toBe(3);
+		expect(result.details?.provider).toBe("custom");
+		expect(result.details?.imageCount).toBe(1);
+	}, 60_000);
+
+	it("retries per-attempt timeouts and throws a friendly error after exhausting attempts", async () => {
+		let callCount = 0;
+		const fetchMock: typeof fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+			callCount++;
+			const sig = init?.signal;
+			const reason = sig?.reason ?? new DOMException("The operation was aborted.", "AbortError");
+			return await new Promise<Response>((_, reject) => {
+				if (sig?.aborted) {
+					reject(reason);
+				} else {
+					sig?.addEventListener("abort", () => reject(reason), { once: true });
+				}
+			});
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const originalSignalTimeout = AbortSignal.timeout;
+		(AbortSignal as unknown as { timeout: typeof AbortSignal.timeout }).timeout = (ms: number) => {
+			void ms;
+			const controller = new AbortController();
+			controller.abort(new DOMException("The operation timed out.", "TimeoutError"));
+			return controller.signal;
+		};
+		try {
+			const ctx = makeCustomAgnesContext();
+			await expect(imageGenTool.execute("call-timeout", { subject: "a cat" }, undefined, ctx)).rejects.toThrow(
+				"timed out after 3 attempt(s)",
+			);
+		} finally {
+			(AbortSignal as unknown as { timeout: typeof AbortSignal.timeout }).timeout = originalSignalTimeout;
+		}
+		expect(callCount).toBe(3);
+	}, 60_000);
+
+	it("propagates user cancellation without retrying the custom provider request", async () => {
+		let callCount = 0;
+		const fetchMock: typeof fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+			callCount++;
+			const sig = init?.signal;
+			return await new Promise<Response>((_, reject) => {
+				const rejectNow = () => reject(sig?.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+				if (sig?.aborted) {
+					rejectNow();
+				} else {
+					sig?.addEventListener("abort", rejectNow, { once: true });
+				}
+			});
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const ctx = makeCustomAgnesContext();
+		const controller = new AbortController();
+		const executePromise = imageGenTool.execute(
+			"call-cancel",
+			{ subject: "a cat" },
+			undefined,
+			ctx,
+			controller.signal,
+		);
+		for (let i = 0; i < 100 && callCount === 0; i++) await Bun.sleep(10);
+		expect(callCount).toBe(1);
+		controller.abort();
+		await expect(executePromise).rejects.toThrow("Aborted");
+		expect(callCount).toBe(1);
+	}, 60_000);
 });
