@@ -58,7 +58,7 @@ export type SettingTab =
  */
 export const TAB_GROUPS: Record<SettingTab, readonly string[]> = {
 	appearance: ["Theme", "Status Line", "Display", "Images"],
-	model: ["Thinking", "Sampling", "Prompt", "Retry & Fallback"],
+	model: ["Thinking", "Sampling", "Prompt", "Retry & Fallback", "Privacy"],
 	interaction: [
 		"Input",
 		"Approvals",
@@ -377,6 +377,58 @@ export const SETTINGS_SCHEMA = {
 			group: "Advisor",
 			label: "Advisor for Subagents",
 			description: "Also enable the advisor on spawned task/eval subagents.",
+		},
+	},
+	// ── Privacy firewall ────────────────────────────────────────────────────
+	// Guards data-collecting models (free opencode-zen tier) against
+	// transmitting credentials / sensitive files. Off for every other model.
+	"privacy.firewall.enabled": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "model",
+			group: "Privacy",
+			label: "Privacy Firewall",
+			description:
+				"Block requests that contain API keys, tokens, private keys or .env-style secrets from being sent to data-collecting (free-tier) models. No effect on paid/local models.",
+		},
+	},
+	"privacy.firewall.mode": {
+		type: "enum",
+		values: ["block", "warn", "off"] as const,
+		default: "block",
+		ui: {
+			tab: "model",
+			group: "Privacy",
+			label: "Firewall Mode",
+			description:
+				"block: refuse the request before it leaves (recommended). warn: log and send anyway. off: no scanning.",
+			options: [
+				{ value: "block", label: "Block", description: "Refuse requests containing secrets (recommended)" },
+				{ value: "warn", label: "Warn", description: "Log a warning but send the request" },
+				{ value: "off", label: "Off", description: "Disable scanning entirely" },
+			],
+		},
+	},
+	"privacy.firewall.extraDataCollecting": {
+		type: "array",
+		default: EMPTY_STRING_ARRAY,
+		ui: {
+			tab: "model",
+			group: "Privacy",
+			label: "Extra Data-Collecting Models",
+			description:
+				"Additional model ids to treat as data-collecting (e.g. 'my-provider/my-model'). The opencode-zen free tier is always covered.",
+		},
+	},
+	"privacy.firewall.allowlist": {
+		type: "array",
+		default: EMPTY_STRING_ARRAY,
+		ui: {
+			tab: "model",
+			group: "Privacy",
+			label: "Data-Collecting Allowlist",
+			description: "Model ids exempted from the firewall even if data-collecting (use with care).",
 		},
 	},
 	shellPath: { type: "string", default: undefined },
@@ -3124,7 +3176,7 @@ export const SETTINGS_SCHEMA = {
 	},
 	"providers.image": {
 		type: "enum",
-		values: ["auto", "openai", "antigravity", "xai", "gemini", "openrouter"] as const,
+		values: ["auto", "custom", "openai", "antigravity", "xai", "gemini", "openrouter"] as const,
 		default: "auto",
 		ui: {
 			tab: "providers",
@@ -3135,7 +3187,13 @@ export const SETTINGS_SCHEMA = {
 				{
 					value: "auto",
 					label: "Auto",
-					description: "Priority: GPT model image tool > Antigravity > xAI > OpenRouter > Gemini",
+					description:
+						"Priority: GPT model image tool > custom image models (e.g. Agnes) > Antigravity > xAI > OpenRouter > Gemini",
+				},
+				{
+					value: "custom",
+					label: "Custom provider",
+					description: "Uses imageOnly models from a custom provider (models.yml), e.g. Agnes /images/generations",
 				},
 				{ value: "openai", label: "OpenAI", description: "Uses the active GPT Responses/Codex model" },
 				{

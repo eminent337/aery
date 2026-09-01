@@ -120,6 +120,11 @@ function pathToSettingDef(path: SettingPath): SettingDef | null {
 	if (schemaType === "boolean") {
 		return { ...base, type: "boolean" };
 	}
+	if (schemaType === "array") {
+		// Array settings render as comma-separated text inputs; the selector
+		// layer splits the input back into a string[] on save.
+		return { ...base, type: "text" };
+	}
 
 	const options = resolveOptions(ui);
 

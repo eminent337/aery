@@ -155,4 +155,135 @@ describe("imageGenTool", () => {
 		if (!savedPath) throw new Error("Expected generated image path");
 		expect(await Bun.file(savedPath).bytes()).toEqual(Buffer.from("fake-xai-image"));
 	});
+
+	it("routes custom-provider (Agnes) image generation to /images/generations", async () => {
+		let requestUrl: string | undefined;
+		let requestBody: Record<string, unknown> | undefined;
+		const captured: { authorization: string | null } = { authorization: null };
+
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			requestUrl = input.toString();
+			requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			captured.authorization = new Headers(init?.headers).get("authorization");
+			return new Response(
+				JSON.stringify({
+					data: [{ b64_json: Buffer.from("fake-agnes-image").toString("base64") }],
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const model = {
+			api: "openai-completions",
+			provider: "custom-api-apihub-agnes-ai-com-v1",
+			id: "agnes-image-2.5-flash",
+			name: "Agnes Image 2.5 Flash",
+			baseUrl: "https://apihub.agnes-ai.com/v1",
+		} as Model;
+		const ctx: CustomToolContext = {
+			sessionManager: {
+				getCwd: () => "/tmp",
+				getSessionId: () => "test-session",
+			} as unknown as ReadonlySessionManager,
+			modelRegistry: {
+				getApiKey: async () => "test-agnes-key",
+				getApiKeyForProvider: async () => undefined,
+				getProviderBaseUrl: () => undefined,
+				getAll: () => [],
+				authStorage: {
+					hasNonEnvCredential: () => false,
+				},
+			} as unknown as ModelRegistry,
+			model,
+			isIdle: () => true,
+			hasQueuedMessages: () => false,
+			abort: () => {},
+		};
+
+		const result = await imageGenTool.execute("call-agnes", { subject: "a panda" }, undefined, ctx);
+		generatedImagePaths.push(...(result.details?.imagePaths ?? []));
+
+		expect(requestUrl).toBe("https://apihub.agnes-ai.com/v1/images/generations");
+		expect(captured.authorization).toBe("Bearer test-agnes-key");
+		expect(requestBody).toMatchObject({
+			model: "agnes-image-2.5-flash",
+			prompt: "a panda.",
+			n: 1,
+			size: "1024x1024",
+			response_format: "b64_json",
+		});
+		expect(result.details?.provider).toBe("custom");
+		expect(result.details?.model).toBe("agnes-image-2.5-flash");
+		expect(result.details?.imageCount).toBe(1);
+		const savedPath = result.details?.imagePaths[0];
+		if (!savedPath) throw new Error("Expected generated image path");
+		expect(await Bun.file(savedPath).bytes()).toEqual(Buffer.from("fake-agnes-image"));
+	});
+
+	it("falls back to a registered imageOnly custom model when the active model is text-only", async () => {
+		let requestUrl: string | undefined;
+		let requestBody: Record<string, unknown> | undefined;
+		const captured: { authorization: string | null } = { authorization: null };
+
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			requestUrl = input.toString();
+			requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			captured.authorization = new Headers(init?.headers).get("authorization");
+			return new Response(
+				JSON.stringify({ data: [{ b64_json: Buffer.from("fallback-image").toString("base64") }] }),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		// Active model is a plain text model on the Agnes custom provider.
+		const textModel = {
+			api: "openai-completions",
+			provider: "custom-api-apihub-agnes-ai-com-v1",
+			id: "agnes-2.5-pro",
+			name: "Agnes 2.5 Pro",
+			baseUrl: "https://apihub.agnes-ai.com/v1",
+		} as Model;
+		// The image-only model is registered but hidden from chat selection.
+		const imageOnlyModel = {
+			api: "openai-completions",
+			provider: "custom-api-apihub-agnes-ai-com-v1",
+			id: "agnes-image-2.5-flash",
+			name: "Agnes Image 2.5 Flash",
+			baseUrl: "https://apihub.agnes-ai.com/v1",
+			imageOnly: true,
+		} as unknown as Model;
+		const ctx: CustomToolContext = {
+			sessionManager: {
+				getCwd: () => "/tmp",
+				getSessionId: () => "test-session",
+			} as unknown as ReadonlySessionManager,
+			modelRegistry: {
+				getApiKey: async () => "test-agnes-key",
+				getApiKeyForProvider: async () => undefined,
+				getProviderBaseUrl: () => undefined,
+				getAll: () => [textModel, imageOnlyModel],
+				authStorage: {
+					hasNonEnvCredential: () => false,
+				},
+			} as unknown as ModelRegistry,
+			model: textModel,
+			isIdle: () => true,
+			hasQueuedMessages: () => false,
+			abort: () => {},
+		};
+
+		const result = await imageGenTool.execute("call-fallback", { subject: "a panda" }, undefined, ctx);
+		generatedImagePaths.push(...(result.details?.imagePaths ?? []));
+
+		expect(requestUrl).toBe("https://apihub.agnes-ai.com/v1/images/generations");
+		expect(captured.authorization).toBe("Bearer test-agnes-key");
+		expect(requestBody?.model).toBe("agnes-image-2.5-flash");
+		expect(result.details?.provider).toBe("custom");
+		expect(result.details?.model).toBe("agnes-image-2.5-flash");
+		expect(result.details?.imageCount).toBe(1);
+	});
 });

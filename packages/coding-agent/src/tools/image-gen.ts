@@ -40,7 +40,7 @@ const ANTIGRAVITY_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 const IMAGE_SYSTEM_INSTRUCTION =
 	"You are an AI image generator. Generate images based on user descriptions. Focus on creating high-quality, visually appealing images that match the user's request.";
 
-export type ImageProvider = "antigravity" | "gemini" | "openai" | "openai-codex" | "openrouter" | "xai";
+export type ImageProvider = "antigravity" | "gemini" | "openai" | "openai-codex" | "openrouter" | "xai" | "custom";
 export type ImageProviderPreference = Exclude<ImageProvider, "openai-codex"> | "auto";
 
 interface ImageApiKey {
@@ -48,12 +48,25 @@ interface ImageApiKey {
 	apiKey: string;
 	projectId?: string;
 	model?: Model;
+	/**
+	 * Custom-provider baseUrl (e.g. Agnes's https://apihub.agnes-ai.com/v1).
+	 * Only set when `provider === "custom"`; the OpenAI-compatible image
+	 * generation request is sent to `${baseUrl}/images/generations`.
+	 */
+	baseUrl?: string;
 }
-
 const COMMON_IMAGE_ASPECT_RATIOS = ["1:1", "3:4", "4:3", "9:16", "16:9"] as const;
 const XAI_IMAGE_ASPECT_RATIOS = [...COMMON_IMAGE_ASPECT_RATIOS, "3:2", "2:3"] as const;
 const COMMON_IMAGE_ASPECT_RATIO_SET = new Set<string>(COMMON_IMAGE_ASPECT_RATIOS);
-const IMAGE_PROVIDER_PREFERENCES = new Set<string>(["auto", "antigravity", "gemini", "openai", "openrouter", "xai"]);
+const IMAGE_PROVIDER_PREFERENCES = new Set<string>([
+	"auto",
+	"custom",
+	"antigravity",
+	"gemini",
+	"openai",
+	"openrouter",
+	"xai",
+]);
 
 const responseModalitySchema = z.enum(["IMAGE", "TEXT"] as const);
 const aspectRatioSchema = z.enum(XAI_IMAGE_ASPECT_RATIOS).describe("aspect ratio");
@@ -80,6 +93,18 @@ const baseImageSchema = z
 		aspect_ratio: aspectRatioSchema.optional(),
 		image_size: imageSizeSchema.optional(),
 		input: z.array(inputImageSchema).describe("input images").optional(),
+		provider: z
+			.enum(["auto", "custom", "antigravity", "gemini", "openai", "openrouter", "xai"])
+			.describe(
+				"image provider to use. Optional: set this after the user picks a model via the ask tool. 'auto' or omitted uses the automatically detected provider.",
+			)
+			.optional(),
+		model: z
+			.string()
+			.describe(
+				"provider-specific model id to use (e.g. 'agnes-image-2.5-flash', 'gpt-image-1'). Only meaningful when provider is set.",
+			)
+			.optional(),
 	})
 	.strict();
 
@@ -442,7 +467,7 @@ export function setPreferredImageProvider(provider: ImageProviderPreference): vo
 	preferredImageProvider = provider;
 }
 function assertImageAspectRatioSupported(provider: ImageProvider, aspectRatio: ImageGenParams["aspect_ratio"]): void {
-	if (!aspectRatio || provider === "xai" || COMMON_IMAGE_ASPECT_RATIO_SET.has(aspectRatio)) {
+	if (!aspectRatio || provider === "xai" || provider === "custom" || COMMON_IMAGE_ASPECT_RATIO_SET.has(aspectRatio)) {
 		return;
 	}
 	throw new Error(
@@ -507,13 +532,70 @@ async function findOpenAIHostedImageCredentials(
 	};
 }
 
+/**
+ * Detects an image-capable custom provider (e.g. Agnes) from the active model.
+ *
+ * A custom provider qualifies when the active model uses a non-built-in API
+ * format with a baseUrl (i.e. it is not one of the hardcoded image hosts) and
+ * the model id looks like an image model. We deliberately do NOT require the
+ * model to be selectable as a chat model — image models may be excluded from
+ * chat discovery yet still be valid image-generation targets.
+ */
+function isCustomImageModel(activeModel: Model | undefined): activeModel is Model {
+	if (!activeModel) return false;
+	if (activeModel.provider === "openai" || activeModel.provider === "openai-codex") return false;
+	if (activeModel.provider === "google-antigravity") return false;
+	if (activeModel.provider === "google-gemini-cli") return false;
+	if (!activeModel.baseUrl || activeModel.baseUrl.includes("api.openai.com")) return false;
+	const id = activeModel.id.toLowerCase();
+	return /(^|[_-])(image|img|img2|dall-e|dalle|flux|sdxl|stable-diffusion|imagen)/.test(id);
+}
+
+async function findCustomImageCredentials(
+	modelRegistry: ModelRegistry | undefined,
+	activeModel: Model | undefined,
+	sessionId?: string,
+): Promise<ImageApiKey | null> {
+	if (!modelRegistry) return null;
+
+	// Active model itself is an image-capable custom model — use it directly.
+	if (isCustomImageModel(activeModel)) {
+		const apiKey = await modelRegistry.getApiKey(activeModel, sessionId);
+		if (isAuthenticated(apiKey)) {
+			return { provider: "custom", apiKey, model: activeModel, baseUrl: activeModel.baseUrl };
+		}
+	}
+
+	// Registry fallback: the session may be on a text model (or an
+	// image-only model hidden from chat selection) while a custom provider
+	// exposes imageOnly models (e.g. Agnes agnes-image-*). Prefer a provider
+	// we already have auth for; the active provider wins ties.
+	const candidates = modelRegistry.getAll().filter(model => model.imageOnly && model.baseUrl);
+	if (candidates.length === 0) return null;
+	const ordered = activeModel
+		? [...candidates].sort(
+				(a, b) => (a.provider === activeModel.provider ? -1 : 0) - (b.provider === activeModel.provider ? -1 : 0),
+			)
+		: candidates;
+	for (const model of ordered) {
+		const apiKey = await modelRegistry.getApiKey(model, sessionId);
+		if (!isAuthenticated(apiKey)) continue;
+		return { provider: "custom", apiKey, model, baseUrl: model.baseUrl };
+	}
+	return null;
+}
+
 async function findImageApiKey(
 	modelRegistry?: ModelRegistry,
 	activeModel?: Model,
 	sessionId?: string,
 ): Promise<ImageApiKey | null> {
 	// If a specific provider is preferred, try it first.
-	if (preferredImageProvider === "openai") {
+	if (preferredImageProvider === "custom") {
+		const custom = await findCustomImageCredentials(modelRegistry, activeModel, sessionId);
+		if (custom) return custom;
+		// Fall through to auto-detect if preferred provider key not found.
+	} else if (preferredImageProvider === "openai") {
 		const openAI = await findOpenAIHostedImageCredentials(modelRegistry, activeModel, sessionId);
 		if (openAI) return openAI;
 		// Fall through to auto-detect if preferred provider key not found.
@@ -537,10 +619,13 @@ async function findImageApiKey(
 		// Fall through to auto-detect if preferred provider key not found.
 	}
 
-	// Auto-detect: GPT hosted image generation, then Antigravity, xAI, OpenRouter, Gemini.
+	// Auto-detect: GPT hosted image generation, then custom image providers
+	// (e.g. Agnes), then Antigravity, xAI, OpenRouter, Gemini.
 	const openAI = await findOpenAIHostedImageCredentials(modelRegistry, activeModel, sessionId);
 	if (openAI) return openAI;
 
+	const custom = await findCustomImageCredentials(modelRegistry, activeModel, sessionId);
+	if (custom) return custom;
 	if (modelRegistry) {
 		const antigravity = await findAntigravityCredentials(modelRegistry);
 		if (antigravity) return antigravity;
@@ -559,6 +644,66 @@ async function findImageApiKey(
 	if (googleKey) return { provider: "gemini", apiKey: googleKey };
 
 	return null;
+}
+
+interface ImageCandidate {
+	/** Human-readable label shown in the interactive `ask` picker. */
+	label: string;
+	provider: ImageProvider;
+	/** Provider-specific model id used for generation (custom/openai only). */
+	modelId?: string;
+	/** The resolved apiKey so execute() can reuse it without re-detection. */
+	apiKey: ImageApiKey;
+}
+
+/**
+ * Enumerate all currently available image-generation options (provider +
+ * model) by reusing the same credential finders as auto-detection. Returns
+ * them in the same priority order as `findImageApiKey` so the first entry is
+ * the default. Used to build the interactive `ask` picker options and the
+ * "Available image models" list in the tool description.
+ */
+async function enumerateImageCandidates(
+	modelRegistry: ModelRegistry | undefined,
+	activeModel: Model | undefined,
+	sessionId?: string,
+): Promise<ImageCandidate[]> {
+	const candidates: ImageCandidate[] = [];
+	const push = (apiKey: ImageApiKey | null | undefined): void => {
+		if (!apiKey) return;
+		const provider = apiKey.provider;
+		const modelId =
+			provider === "openai" || provider === "openai-codex"
+				? (apiKey.model?.id ?? "gpt")
+				: provider === "custom"
+					? (apiKey.model?.id ?? "agnes-image")
+					: provider === "antigravity"
+						? DEFAULT_ANTIGRAVITY_MODEL
+						: provider === "openrouter"
+							? DEFAULT_OPENROUTER_MODEL
+							: provider === "xai"
+								? DEFAULT_XAI_IMAGE_MODEL
+								: DEFAULT_MODEL;
+		const label = `${provider}${modelId ? ` — ${modelId}` : ""}`;
+		// De-duplicate by provider+model id.
+		if (candidates.some(c => c.provider === provider && c.modelId === modelId)) return;
+		candidates.push({ label, provider, modelId, apiKey });
+	};
+
+	push(await findOpenAIHostedImageCredentials(modelRegistry, activeModel, sessionId));
+	push(await findCustomImageCredentials(modelRegistry, activeModel, sessionId));
+	if (modelRegistry) push(await findAntigravityCredentials(modelRegistry));
+	push(await findXAIImageCredentials(modelRegistry));
+	const openRouterKey = getEnvApiKey("openrouter");
+	if (openRouterKey) push({ provider: "openrouter", apiKey: openRouterKey });
+	const geminiKey = getEnvApiKey("google");
+	if (geminiKey) push({ provider: "gemini", apiKey: geminiKey });
+	else {
+		const googleKey = $env.GOOGLE_API_KEY;
+		if (googleKey) push({ provider: "gemini", apiKey: googleKey });
+	}
+
+	return candidates;
 }
 
 async function loadImageFromPath(imagePath: string, cwd: string): Promise<InlineImageData> {
@@ -1002,7 +1147,27 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 	async execute(_toolCallId, params, _onUpdate, ctx, signal) {
 		return untilAborted(signal, async () => {
 			const sessionId = ctx.sessionManager.getSessionId();
-			const apiKey = await findImageApiKey(ctx.modelRegistry, ctx.model, sessionId);
+			let apiKey = await findImageApiKey(ctx.modelRegistry, ctx.model, sessionId);
+			// Optional explicit provider/model override from the interactive
+			// `ask` picker: resolve the matching candidate instead of the
+			// auto-detected default.
+			if (params.provider && params.provider !== "auto") {
+				const candidates = await enumerateImageCandidates(ctx.modelRegistry, ctx.model, sessionId);
+				const match =
+					candidates.find(c => c.provider === params.provider) ??
+					candidates.find(c => c.provider === params.provider && c.modelId === params.model);
+				if (match) {
+					apiKey = match.apiKey;
+				} else if (params.model) {
+					// Provider known but exact candidate missing: build a
+					// custom/openai key with the requested model id directly.
+					if (params.provider === "custom" && apiKey?.provider === "custom" && apiKey.baseUrl) {
+						apiKey = { ...apiKey, model: { ...apiKey.model, id: params.model } as Model };
+					}
+				}
+			} else if (params.model && apiKey?.model) {
+				apiKey = { ...apiKey, model: { ...apiKey.model, id: params.model } as Model };
+			}
 			if (!apiKey) {
 				throw new Error(
 					"No image API credentials found. Use a GPT Responses/Codex model with OpenAI credentials, login with google-antigravity or xAI Grok OAuth, or set XAI_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
@@ -1013,13 +1178,15 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 			const model =
 				provider === "openai" || provider === "openai-codex"
 					? (apiKey.model?.id ?? "gpt")
-					: provider === "antigravity"
-						? DEFAULT_ANTIGRAVITY_MODEL
-						: provider === "openrouter"
-							? DEFAULT_OPENROUTER_MODEL
-							: provider === "xai"
-								? DEFAULT_XAI_IMAGE_MODEL
-								: DEFAULT_MODEL;
+					: provider === "custom"
+						? (apiKey.model?.id ?? "")
+						: provider === "antigravity"
+							? DEFAULT_ANTIGRAVITY_MODEL
+							: provider === "openrouter"
+								? DEFAULT_OPENROUTER_MODEL
+								: provider === "xai"
+									? DEFAULT_XAI_IMAGE_MODEL
+									: DEFAULT_MODEL;
 			const resolvedModel = provider === "openrouter" ? resolveOpenRouterModel(model) : model;
 			assertImageAspectRatioSupported(provider, params.aspect_ratio);
 			const cwd = ctx.sessionManager.getCwd();
@@ -1033,6 +1200,124 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 
 			const requestSignal = ptree.combineSignals(signal, IMAGE_TIMEOUT);
 
+			if (provider === "custom") {
+				if (!apiKey.baseUrl) {
+					throw new Error("Missing baseUrl for custom image provider");
+				}
+				if (!model) {
+					throw new Error("Missing model id for custom image generation");
+				}
+
+				const prompt = assemblePrompt(params);
+				const size = params.image_size ?? "1024x1024";
+				const body: Record<string, unknown> = {
+					model,
+					prompt,
+					n: 1,
+					size,
+					response_format: "b64_json",
+				};
+
+				// Custom gateways (e.g. Agnes) can reject with 429/503 when
+				// their image queue is full, or hold the connection for a long
+				// time while the queued job runs. Retry transient queue-full
+				// responses a couple of times with a short backoff, and surface
+				// a clear message on timeout instead of a bare DOMException.
+				let customRawText = "";
+				for (let attempt = 1; ; attempt++) {
+					let customResponse: Response;
+					try {
+						customResponse = await fetch(`${apiKey.baseUrl.replace(/\/+$/, "")}/images/generations`, {
+							method: "POST",
+							headers: {
+								Authorization: `Bearer ${apiKey.apiKey}`,
+								"Content-Type": "application/json",
+							},
+							body: JSON.stringify(body),
+							signal: requestSignal,
+						});
+					} catch (error) {
+						const aborted =
+							requestSignal?.aborted || (error instanceof DOMException && error.name === "AbortError");
+						if (aborted) {
+							throw new Error(
+								`Custom image request timed out — the image queue is busy or slow (${apiKey.baseUrl}). Check the provider's status and try again shortly.`,
+							);
+						}
+						if (attempt >= 3) throw error;
+						try {
+							await untilAborted(requestSignal, new Promise(resolve => setTimeout(resolve, 2500)));
+						} catch {
+							// Aborted during backoff — next iteration reports it.
+						}
+						continue;
+					}
+					customRawText = await customResponse.text();
+					if (!customResponse.ok) {
+						const transient =
+							(customResponse.status === 429 || customResponse.status === 503) &&
+							attempt < 3 &&
+							!requestSignal?.aborted;
+						if (transient) {
+							try {
+								await untilAborted(requestSignal, new Promise(resolve => setTimeout(resolve, 2500)));
+							} catch {
+								// Aborted during backoff — next iteration reports it.
+							}
+							continue;
+						}
+						let message = customRawText;
+						try {
+							const parsedErr = JSON.parse(customRawText) as { error?: { message?: string } };
+							message = parsedErr.error?.message ?? message;
+						} catch {
+							// Keep raw text.
+						}
+						throw new Error(`Custom image request failed (${customResponse.status}): ${message}`);
+					}
+					break;
+				}
+
+				const customData = JSON.parse(customRawText) as {
+					data?: Array<{ b64_json?: string; url?: string }>;
+				};
+				const customInlineImages: InlineImageData[] = [];
+				for (const entry of customData.data ?? []) {
+					if (entry.b64_json) {
+						const bytes = Buffer.from(entry.b64_json, "base64");
+						const mimeType = parseImageMetadata(bytes)?.mimeType ?? "image/png";
+						customInlineImages.push({ data: entry.b64_json, mimeType });
+					} else if (entry.url) {
+						customInlineImages.push(await loadImageFromUrl(entry.url, requestSignal));
+					}
+				}
+
+				if (customInlineImages.length === 0) {
+					return {
+						content: [{ type: "text", text: "No image data returned." }],
+						details: {
+							provider,
+							model,
+							imageCount: 0,
+							imagePaths: [],
+							images: [],
+						},
+					};
+				}
+
+				const customImagePaths = await saveImagesToTemp(customInlineImages);
+
+				return {
+					content: [{ type: "text", text: buildResponseSummary(provider, model, customImagePaths, undefined) }],
+					details: {
+						provider,
+						model,
+						imageCount: customInlineImages.length,
+						imagePaths: customImagePaths,
+						images: customInlineImages,
+					},
+				};
+			}
 			if (provider === "openai" || provider === "openai-codex") {
 				if (!apiKey.model) {
 					throw new Error("Missing active GPT model for OpenAI image generation");
@@ -1429,20 +1714,40 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 	},
 };
 
+/**
+ * Build the per-session image tool. Enumerates currently available image
+ * models and appends them to the tool description so the model can present
+ * them as options in an interactive `ask` picker before generating.
+ */
+async function buildImageGenToolWithCandidates(
+	modelRegistry?: ModelRegistry,
+	activeModel?: Model,
+	sessionId?: string,
+): Promise<Array<CustomTool<typeof imageGenSchema, ImageGenToolDetails>>> {
+	const apiKey = await findImageApiKey(modelRegistry, activeModel, sessionId);
+	if (!apiKey) return [];
+
+	const candidates = await enumerateImageCandidates(modelRegistry, activeModel, sessionId);
+	const baseDescription = prompt.render(imageGenDescription);
+	let description = baseDescription;
+	if (candidates.length > 0) {
+		const list = candidates.map(c => `- ${c.label}`).join("\n");
+		description = `${baseDescription}\n\n<available-models>\nAvailable image models:\n${list}\n</available-models>`;
+	}
+
+	return [{ ...imageGenTool, description }];
+}
+
 export async function getImageGenTools(
 	modelRegistry?: ModelRegistry,
 	activeModel?: Model,
 ): Promise<Array<CustomTool<typeof imageGenSchema, ImageGenToolDetails>>> {
-	const apiKey = await findImageApiKey(modelRegistry, activeModel);
-	if (!apiKey) return [];
-	return [imageGenTool];
+	return buildImageGenToolWithCandidates(modelRegistry, activeModel);
 }
 
 export async function getImageGenToolsWithRegistry(
 	modelRegistry: ModelRegistry,
 	activeModel?: Model,
 ): Promise<Array<CustomTool<typeof imageGenSchema, ImageGenToolDetails>>> {
-	const apiKey = await findImageApiKey(modelRegistry, activeModel);
-	if (!apiKey) return [];
-	return [imageGenTool];
+	return buildImageGenToolWithCandidates(modelRegistry, activeModel);
 }

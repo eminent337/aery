@@ -30,11 +30,13 @@ import type {
 } from "../../config/settings-schema";
 import { SETTING_TABS, TAB_METADATA } from "../../config/settings-schema";
 import { getCurrentThemeName, getSelectListTheme, getSettingsListTheme, theme } from "../../modes/theme/theme";
+
 export { getSelectListTheme, getSettingsListTheme };
+
 import { AUTO_THINKING, type ConfiguredThinkingLevel } from "../../thinking";
 import { getTabBarTheme } from "../shared";
-import { DynamicBorder } from "./dynamic-border";
 import { ConnectHub } from "./connect/connect-hub";
+import { DynamicBorder } from "./dynamic-border";
 import { handleInputOrEscape, PluginSettingsComponent } from "./plugin-settings";
 import { getSettingDef, getSettingsForTab, type SettingDef } from "./settings-defs";
 import { getPreset } from "./status-line/presets";
@@ -567,15 +569,20 @@ export class SettingsSelectorComponent extends Container {
 					changed,
 				};
 
-			case "text":
+			case "text": {
+				// Array-typed settings display as a comma-separated list.
+				const display = Array.isArray(currentValue)
+					? (currentValue as string[]).join(", ")
+					: ((currentValue as string) ?? "");
 				return {
 					id: def.path,
 					label: def.label,
 					description: def.description,
-					currentValue: (currentValue as string) ?? "",
+					currentValue: display,
 					submenu: (cv, done) => this.#createTextInput(def, cv, done),
 					changed,
 				};
+			}
 		}
 	}
 
@@ -732,6 +739,13 @@ export class SettingsSelectorComponent extends Container {
 			settings.set(path, -1 as never);
 		} else if (path === "compaction.thresholdTokens" && value === "default") {
 			settings.set(path, -1 as never);
+		} else if (Array.isArray(currentValue)) {
+			// Array settings round-trip through comma-separated text inputs.
+			const items = value
+				.split(",")
+				.map(item => item.trim())
+				.filter(Boolean);
+			settings.set(path, items as never);
 		} else if (typeof currentValue === "number") {
 			settings.set(path, Number(value) as never);
 		} else if (typeof currentValue === "boolean") {
@@ -747,7 +761,6 @@ export class SettingsSelectorComponent extends Container {
 	#showSettingsTab(tabId: SettingTab): void {
 		const defs = getSettingsForTab(tabId);
 
-		// Add status line preview for appearance tab
 		if (tabId === "appearance") {
 			this.#statusPreviewContainer = new Container();
 			this.#statusPreviewContainer.addChild(new Spacer(1));

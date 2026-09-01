@@ -942,6 +942,18 @@ const SETTING_HOOKS: Partial<Record<SettingPath, SettingHook<any>>> = {
 			for (const cb of appendOnlyModeCallbacks) cb(value);
 		}
 	},
+	"privacy.firewall.enabled": () => {
+		for (const cb of privacyPolicyChangedCallbacks) cb();
+	},
+	"privacy.firewall.mode": () => {
+		for (const cb of privacyPolicyChangedCallbacks) cb();
+	},
+	"privacy.firewall.extraDataCollecting": () => {
+		for (const cb of privacyPolicyChangedCallbacks) cb();
+	},
+	"privacy.firewall.allowlist": () => {
+		for (const cb of privacyPolicyChangedCallbacks) cb();
+	},
 };
 /** Callbacks invoked when `provider.appendOnlyContext` changes at runtime. */
 const appendOnlyModeCallbacks = new Set<(value: string) => void>();
@@ -955,6 +967,20 @@ export function onAppendOnlyModeChanged(cb: (value: string) => void): () => void
 	appendOnlyModeCallbacks.add(cb);
 	return () => {
 		appendOnlyModeCallbacks.delete(cb);
+	};
+}
+
+/** Callbacks invoked when any privacy.firewall.* setting changes at runtime. */
+const privacyPolicyChangedCallbacks = new Set<() => void>();
+
+/**
+ * Subscribe to privacy firewall setting changes (enabled/mode/extras/allowlist).
+ * Returns an unsubscribe function; multiple sessions can register independently.
+ */
+export function onPrivacyPolicyChanged(cb: () => void): () => void {
+	privacyPolicyChangedCallbacks.add(cb);
+	return () => {
+		privacyPolicyChangedCallbacks.delete(cb);
 	};
 }
 

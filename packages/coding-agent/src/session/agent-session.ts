@@ -45,6 +45,7 @@ import {
 	modelsAreEqual,
 	parseRateLimitReason,
 	resolveServiceTier,
+	setPrivacyPolicy,
 	streamSimple,
 } from "@aryee337/aery-ai";
 import {
@@ -124,7 +125,7 @@ import {
 } from "../config/model-resolver";
 import { expandPromptTemplate, type PromptTemplate } from "../config/prompt-templates";
 import type { Settings, SkillsSettings } from "../config/settings";
-import { onAppendOnlyModeChanged } from "../config/settings";
+import { onAppendOnlyModeChanged, onPrivacyPolicyChanged } from "../config/settings";
 import {
 	buildHarnessRecallBlock,
 	type ContinualHarnessEngine,
@@ -255,6 +256,7 @@ import {
 	SILENT_ABORT_MARKER,
 	stripImagesFromMessage,
 } from "./messages";
+import { buildPrivacyPolicy } from "./privacy-policy-builder";
 import { formatSessionDumpText } from "./session-dump-format";
 import { formatSessionHistoryMarkdown } from "./session-history-format";
 import type {
@@ -893,6 +895,7 @@ export class AgentSession {
 	// Event subscription state
 	#unsubscribeAgent?: () => void;
 	#unsubscribeAppendOnly?: () => void;
+	#unsubscribePrivacyPolicy?: () => void;
 	/** Last (enable, providerId) tuple resolved by `#syncAppendOnlyContext` — used to skip no-op invalidations. */
 	#lastAppendOnlyResolution?: { enable: boolean; providerId: string | undefined };
 	#eventListeners: AgentSessionEventListener[] = [];
@@ -1318,12 +1321,21 @@ export class AgentSession {
 
 		if (this.settings.get("advisor.enabled")) this.#buildAdvisorRuntime();
 
+		// Privacy firewall: inject the settings-driven policy into the ai
+		// package's stream() chokepoint. Runs once per session; the ai layer
+		// reads it on every request. Disabled ⇒ reset to library default (off
+		// everywhere) so a stale custom policy can never linger.
+		this.#syncPrivacyPolicy();
+
 		// Always subscribe to agent events for internal handling
 		// (session persistence, hooks, auto-compaction, retry logic)
 		this.#unsubscribeAgent = this.agent.subscribe(this.#handleAgentEvent);
 		this.agent.subscribe(this.#logEventToStore);
 		// Re-evaluate append-only context mode when the setting changes at runtime.
 		this.#unsubscribeAppendOnly = onAppendOnlyModeChanged(_value => this.#syncAppendOnlyContext(this.model));
+		// Re-push the privacy policy when any privacy.firewall.* setting
+		// changes at runtime (settings UI toggle takes effect immediately).
+		this.#unsubscribePrivacyPolicy = onPrivacyPolicyChanged(() => this.#syncPrivacyPolicy());
 
 		this.#persistSessionState("running");
 		void this.#initializeEventStore();
@@ -1412,6 +1424,21 @@ export class AgentSession {
 		}
 	};
 
+	// -------------------------------------------------------------------------
+	// Privacy firewall wiring
+	// -------------------------------------------------------------------------
+	/**
+	 * Push the settings-driven privacy policy into the ai package's
+	 * stream() chokepoint. Called from the constructor; also callable after
+	 * runtime settings changes.
+	 */
+	#syncPrivacyPolicy(): void {
+		const enabled = this.settings.get("privacy.firewall.enabled") !== false;
+		const mode = this.settings.get<"privacy.firewall.mode">("privacy.firewall.mode") ?? "block";
+		const extras = (this.settings.get("privacy.firewall.extraDataCollecting") ?? []) as readonly string[];
+		const allowlist = (this.settings.get("privacy.firewall.allowlist") ?? []) as readonly string[];
+		setPrivacyPolicy(buildPrivacyPolicy(enabled, mode, extras, allowlist));
+	}
 	// -------------------------------------------------------------------------
 	// Advisor runtime lifecycle
 	// -------------------------------------------------------------------------
@@ -3313,6 +3340,10 @@ export class AgentSession {
 		if (this.#unsubscribeAppendOnly) {
 			this.#unsubscribeAppendOnly();
 			this.#unsubscribeAppendOnly = undefined;
+		}
+		if (this.#unsubscribePrivacyPolicy) {
+			this.#unsubscribePrivacyPolicy();
+			this.#unsubscribePrivacyPolicy = undefined;
 		}
 		this.#eventListeners = [];
 	}

@@ -1,4 +1,4 @@
-import { getSupportedEfforts, type Model, modelsAreEqual } from "@aryee337/aery-ai";
+import { getSupportedEfforts, isDataCollectingModel, type Model, modelsAreEqual } from "@aryee337/aery-ai";
 import { ThinkingLevel } from "@aryee337/aery-core";
 import {
 	Container,
@@ -806,6 +806,11 @@ export class ModelSelectorComponent extends Container {
 				const badge = makeInvertedBadge(badgeLabel, roleInfo.color ?? "muted");
 				const thinkingLabel = getConfiguredThinkingLevelMetadata(assigned.thinkingLevel).label;
 				roleBadgeTokens.push(`${badge} ${theme.fg("dim", `(${thinkingLabel})`)}`);
+			}
+			// Privacy badge: mark models whose provider may retain/train on
+			// transmitted data (free zen tier). Warn-colored inverted badge.
+			if (isDataCollectingModel(item.model.id)) {
+				roleBadgeTokens.push(makeInvertedBadge("data-collecting", "warning"));
 			}
 			const badgeText = roleBadgeTokens.length > 0 ? ` ${roleBadgeTokens.join(" ")}` : "";
 
