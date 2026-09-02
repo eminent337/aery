@@ -304,10 +304,15 @@ export class StudioMediaPanel extends Container {
 		if (data === "\r" || data === "\n") {
 			const prompt = this.#promptInput.getValue().trim();
 			if (prompt.length === 0) {
-				// Empty prompt + selected video → open in the player.
+				// Empty prompt + selection: remix (re-run) gallery images,
+				// open the player for gallery videos.
 				const selected = this.#snapshot.gallery[this.#snapshot.selectedIndex];
 				if (selected && selected.kind === "video") {
 					this.#callbacks.onOpenInPlayer(selected.path);
+					return true;
+				}
+				if (selected && selected.kind === "image") {
+					this.#callbacks.onGenerate("image", selected.prompt);
 					return true;
 				}
 				return true;
