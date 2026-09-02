@@ -1229,12 +1229,17 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 
 				const prompt = assemblePrompt(params);
 				const size = params.image_size ?? "1024x1024";
+				// Request URL output: Agnes's image workers stall indefinitely when
+				// asked for base64 output (top-level response_format "b64_json" and
+				// return_base64/extra_body variants all hang; live-verified), while
+				// URL responses return in seconds. The parser below still prefers a
+				// non-empty b64_json when a gateway returns one, so nothing is lost.
 				const body: Record<string, unknown> = {
 					model,
 					prompt,
 					n: 1,
 					size,
-					response_format: "b64_json",
+					response_format: "url",
 				};
 
 				// Custom gateways (e.g. Agnes) can reject with 429/503 when their

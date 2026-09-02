@@ -280,18 +280,26 @@ describe("imageGenTool", () => {
 	it("routes custom-provider (Agnes) image generation to /images/generations", async () => {
 		let requestUrl: string | undefined;
 		let requestBody: Record<string, unknown> | undefined;
+		let downloadedUrl: string | undefined;
 		const captured: { authorization: string | null } = { authorization: null };
 
 		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-			requestUrl = input.toString();
-			requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-			captured.authorization = new Headers(init?.headers).get("authorization");
-			return new Response(
-				JSON.stringify({
-					data: [{ b64_json: Buffer.from("fake-agnes-image").toString("base64") }],
-				}),
-				{ status: 200, headers: { "content-type": "application/json" } },
-			);
+			if (typeof init?.body === "string") {
+				requestUrl = input.toString();
+				requestBody = JSON.parse(init.body) as Record<string, unknown>;
+				captured.authorization = new Headers(init?.headers).get("authorization");
+				return new Response(
+					JSON.stringify({
+						data: [{ url: "https://mock-cdn.example/out.png", b64_json: "" }],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			}
+			downloadedUrl = input.toString();
+			return new Response(Buffer.from("fake-agnes-image"), {
+				status: 200,
+				headers: { "content-type": "image/png" },
+			});
 		}) as unknown as typeof fetch;
 		fetchMock.preconnect = originalFetch.preconnect;
 		global.fetch = fetchMock;
@@ -333,8 +341,9 @@ describe("imageGenTool", () => {
 			prompt: "a panda.",
 			n: 1,
 			size: "1024x1024",
-			response_format: "b64_json",
+			response_format: "url",
 		});
+		expect(downloadedUrl).toBe("https://mock-cdn.example/out.png");
 		expect(result.details?.provider).toBe("custom");
 		expect(result.details?.model).toBe("agnes-image-2.5-flash");
 		expect(result.details?.imageCount).toBe(1);
