@@ -110,6 +110,7 @@ describe("MediaStateManager", () => {
 		manager.setContext({
 			modelRegistry: makeRegistry(agnesVideoModel, "test-agnes-key"),
 			sessionId: "studio-session",
+			cwd: "/tmp",
 		});
 		manager.enqueue({ kind: "video", subject: "a hummingbird", duration: 5 });
 
@@ -155,6 +156,7 @@ describe("MediaStateManager", () => {
 		manager.setContext({
 			modelRegistry: makeRegistry(agnesVideoModel, "test-agnes-key"),
 			sessionId: "studio-session",
+			cwd: "/tmp",
 		});
 		manager.enqueue({ kind: "video", subject: "waves" });
 
@@ -195,6 +197,7 @@ describe("MediaStateManager", () => {
 		manager.setContext({
 			modelRegistry: makeRegistry(agnesVideoModel, "test-agnes-key"),
 			sessionId: "studio-session",
+			cwd: "/tmp",
 		});
 		manager.enqueue({ kind: "video", subject: "job one" });
 		manager.enqueue({ kind: "video", subject: "job two" });
@@ -254,6 +257,7 @@ describe("MediaStateManager", () => {
 		manager.setContext({
 			modelRegistry: makeRegistry(agnesVideoModel, "test-agnes-key"),
 			sessionId: "studio-session",
+			cwd: "/tmp",
 		});
 		manager.enqueue({ kind: "video", subject: "persistence check" });
 

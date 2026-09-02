@@ -36,6 +36,8 @@ export interface MediaContextSpec {
 	/** Model registry from the live session (ctx.modelRegistry). */
 	modelRegistry: CustomToolContext["modelRegistry"];
 	sessionId: string;
+	/** Working directory used to resolve input images (imageGenTool needs it). */
+	cwd: string;
 }
 
 export class MediaStateManager {
@@ -174,10 +176,10 @@ export class MediaStateManager {
 				this.#notify();
 			}
 		};
-
 		const ctx = {
 			sessionManager: {
 				getSessionId: () => spec.sessionId,
+				getCwd: () => spec.cwd,
 			},
 			modelRegistry: spec.modelRegistry,
 			isIdle: () => true,

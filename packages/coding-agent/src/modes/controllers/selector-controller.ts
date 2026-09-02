@@ -1544,10 +1544,11 @@ export class SelectorController {
 		};
 
 		// The media studio runs the real generate_image / generate_video tools,
-		// so it needs the live session's model registry wired into the queue.
+		// so it needs the live session's model registry + cwd wired in.
 		MediaStateManager.instance().setContext({
 			modelRegistry: this.ctx.session.modelRegistry,
 			sessionId: this.ctx.session.sessionId,
+			cwd: this.ctx.sessionManager.getCwd(),
 		});
 
 		const studio = new AeryMediaStudioOverlay();
