@@ -49,18 +49,20 @@ import { setSessionTerminalTitle } from "../../utils/title-generator";
 import { AgentDashboard } from "../components/agent-dashboard";
 import { AssistantMessageComponent } from "../components/assistant-message";
 import { ConnectHub } from "../components/connect/connect-hub";
-import { AeryStudioOverlay } from "../components/studio/studio-overlay";
 import { CustomOpenAICompatibleMenuComponent } from "../components/custom-openai-menu";
 import { ExtensionDashboard } from "../components/extensions";
 import { HistorySearchComponent } from "../components/history-search";
+import { PluginMarketplaceHub } from "../components/marketplace/plugin-marketplace-hub";
 import { ModelSelectorComponent } from "../components/model-selector";
 import { OAuthSelectorComponent } from "../components/oauth-selector";
-import { PluginMarketplaceHub } from "../components/marketplace/plugin-marketplace-hub";
 import { PluginSelectorComponent } from "../components/plugin-selector";
 import { SessionObserverOverlayComponent } from "../components/session-observer-overlay";
 import { SessionSelectorComponent } from "../components/session-selector";
-import { SkillsHub } from "../components/skills/skills-hub";
 import { SettingsSelectorComponent } from "../components/settings-selector";
+import { SkillsHub } from "../components/skills/skills-hub";
+import { MediaStateManager } from "../components/studio/media-state";
+import { AeryMediaStudioOverlay } from "../components/studio/media-studio-overlay";
+import { AeryStudioOverlay } from "../components/studio/studio-overlay";
 import { ToolExecutionComponent } from "../components/tool-execution";
 import { TreeSelectorComponent } from "../components/tree-selector";
 import { UserMessageSelectorComponent } from "../components/user-message-selector";
@@ -1497,10 +1499,7 @@ export class SelectorController {
 			this.ctx.ui.requestRender();
 		};
 
-		const hub = new SkillsHub(
-			this.ctx.sessionManager.getCwd(),
-			this.ctx.session.skills,
-		);
+		const hub = new SkillsHub(this.ctx.sessionManager.getCwd(), this.ctx.session.skills);
 		hub.onClose = done;
 		hub.onRequestRender = () => this.ctx.ui.requestRender();
 
@@ -1523,6 +1522,35 @@ export class SelectorController {
 		};
 
 		const studio = new AeryStudioOverlay();
+		studio.onClose = done;
+		studio.onRequestRender = () => this.ctx.ui.requestRender();
+
+		overlayHandle = this.ctx.ui.showOverlay(studio, {
+			anchor: "bottom-center",
+			width: "100%",
+			maxHeight: "100%",
+			margin: 0,
+		});
+		this.ctx.ui.setFocus(studio);
+		this.ctx.ui.requestRender();
+	}
+
+	showMediaStudio(): void {
+		let overlayHandle: OverlayHandle | undefined;
+
+		const done = () => {
+			overlayHandle?.hide();
+			this.ctx.ui.requestRender();
+		};
+
+		// The media studio runs the real generate_image / generate_video tools,
+		// so it needs the live session's model registry wired into the queue.
+		MediaStateManager.instance().setContext({
+			modelRegistry: this.ctx.session.modelRegistry,
+			sessionId: this.ctx.session.sessionId,
+		});
+
+		const studio = new AeryMediaStudioOverlay();
 		studio.onClose = done;
 		studio.onRequestRender = () => this.ctx.ui.requestRender();
 

@@ -267,6 +267,7 @@ export interface InteractiveModeContext {
 	showConnectHub(): void;
 	showSkillsHub(): void;
 	showStudio(): void;
+	showMediaStudio(): void;
 	resetObserverRegistry(): void;
 
 	// Input handling

@@ -2817,6 +2817,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#selectorController.showStudio();
 	}
 
+	showMediaStudio(): void {
+		this.#selectorController.showMediaStudio();
+	}
+
 	resetObserverRegistry(): void {
 		this.#observerRegistry.resetSessions();
 		this.#observerRegistry.setMainSession(this.sessionManager.getSessionFile() ?? undefined);

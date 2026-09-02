@@ -162,9 +162,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 						msg => runtime.ctx.showStatus(msg),
 					);
 				} else if (connectorName === "telegram") {
-					await startTelegramConnector(
-						{ botToken, cwd: runtime.ctx.sessionManager.getCwd(), sessionFile },
-						msg => runtime.ctx.showStatus(msg),
+					await startTelegramConnector({ botToken, cwd: runtime.ctx.sessionManager.getCwd(), sessionFile }, msg =>
+						runtime.ctx.showStatus(msg),
 					);
 				} else {
 					runtime.ctx.showStatus(`Unknown connector: ${connectorName}`);
@@ -2050,6 +2049,14 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			}
 
 			runtime.ctx.showStatus("Usage: /schedule [create|list|delete|pause|resume|trigger]");
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
+		name: "studio",
+		description: "Open the Aery media studio (image & video generation)",
+		handleTui: (_command, runtime) => {
+			runtime.ctx.showMediaStudio();
 			runtime.ctx.editor.setText("");
 		},
 	},
