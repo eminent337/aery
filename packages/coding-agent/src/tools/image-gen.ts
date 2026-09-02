@@ -30,6 +30,8 @@ const DEFAULT_MODEL = "gemini-3-pro-image-preview";
 const DEFAULT_OPENROUTER_MODEL = "google/gemini-3-pro-image-preview";
 const DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.1-flash-image";
 const DEFAULT_XAI_IMAGE_MODEL = "grok-imagine-image";
+const DEFAULT_POLLINATIONS_MODEL = "flux";
+const POLLINATIONS_IMAGE_BASE_URL = "https://image.pollinations.ai";
 const IMAGE_TIMEOUT = 3 * 60 * 1000; // 3 minutes
 const CUSTOM_IMAGE_TIMEOUT = 5 * 60 * 1000; // per attempt; bun fetch aborts at ~300s anyway
 const CUSTOM_IMAGE_ATTEMPTS = 3;
@@ -43,7 +45,15 @@ const ANTIGRAVITY_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 const IMAGE_SYSTEM_INSTRUCTION =
 	"You are an AI image generator. Generate images based on user descriptions. Focus on creating high-quality, visually appealing images that match the user's request.";
 
-export type ImageProvider = "antigravity" | "gemini" | "openai" | "openai-codex" | "openrouter" | "xai" | "custom";
+export type ImageProvider =
+	| "antigravity"
+	| "gemini"
+	| "openai"
+	| "openai-codex"
+	| "openrouter"
+	| "xai"
+	| "custom"
+	| "pollinations";
 export type ImageProviderPreference = Exclude<ImageProvider, "openai-codex"> | "auto";
 
 interface ImageApiKey {
@@ -69,6 +79,7 @@ const IMAGE_PROVIDER_PREFERENCES = new Set<string>([
 	"openai",
 	"openrouter",
 	"xai",
+	"pollinations",
 ]);
 
 const responseModalitySchema = z.enum(["IMAGE", "TEXT"] as const);
@@ -97,9 +108,9 @@ const baseImageSchema = z
 		image_size: imageSizeSchema.optional(),
 		input: z.array(inputImageSchema).describe("input images").optional(),
 		provider: z
-			.enum(["auto", "custom", "antigravity", "gemini", "openai", "openrouter", "xai"])
+			.enum(["auto", "custom", "antigravity", "gemini", "openai", "openrouter", "xai", "pollinations"])
 			.describe(
-				"image provider to use. Optional: set this after the user picks a model via the ask tool. 'auto' or omitted uses the automatically detected provider.",
+				"image provider to use. Optional: set this after the user picks a model via the ask tool. 'auto' or omitted uses the automatically detected provider. 'pollinations' is free and needs no API key.",
 			)
 			.optional(),
 		model: z
@@ -470,7 +481,13 @@ export function setPreferredImageProvider(provider: ImageProviderPreference): vo
 	preferredImageProvider = provider;
 }
 function assertImageAspectRatioSupported(provider: ImageProvider, aspectRatio: ImageGenParams["aspect_ratio"]): void {
-	if (!aspectRatio || provider === "xai" || provider === "custom" || COMMON_IMAGE_ASPECT_RATIO_SET.has(aspectRatio)) {
+	if (
+		!aspectRatio ||
+		provider === "xai" ||
+		provider === "custom" ||
+		provider === "pollinations" ||
+		COMMON_IMAGE_ASPECT_RATIO_SET.has(aspectRatio)
+	) {
 		return;
 	}
 	throw new Error(
@@ -636,6 +653,9 @@ async function findImageApiKey(
 		const xai = await findXAIImageCredentials(modelRegistry);
 		if (xai) return xai;
 		// Fall through to auto-detect if preferred provider key not found.
+	} else if (preferredImageProvider === "pollinations") {
+		return { provider: "pollinations", apiKey: "public" };
+		// No credential needed — fall through to auto-detect is unnecessary.
 	}
 
 	// Auto-detect: GPT hosted image generation, then custom image providers
@@ -656,13 +676,9 @@ async function findImageApiKey(
 	const openRouterKey = getEnvApiKey("openrouter");
 	if (openRouterKey) return { provider: "openrouter", apiKey: openRouterKey };
 
-	const geminiKey = getEnvApiKey("google");
-	if (geminiKey) return { provider: "gemini", apiKey: geminiKey };
-
-	const googleKey = $env.GOOGLE_API_KEY;
-	if (googleKey) return { provider: "gemini", apiKey: googleKey };
-
-	return null;
+	// Zero-credential fallback: Pollinations serves free best-effort image
+	// generation with no API key, so it is always available as a last resort.
+	return { provider: "pollinations", apiKey: "public" };
 }
 
 interface ImageCandidate {
@@ -702,7 +718,9 @@ export async function enumerateImageCandidates(
 							? DEFAULT_OPENROUTER_MODEL
 							: provider === "xai"
 								? DEFAULT_XAI_IMAGE_MODEL
-								: DEFAULT_MODEL;
+								: provider === "pollinations"
+									? DEFAULT_POLLINATIONS_MODEL
+									: DEFAULT_MODEL;
 		const label = `${provider}${modelId ? ` — ${modelId}` : ""}`;
 		// De-duplicate by provider+model id.
 		if (candidates.some(c => c.provider === provider && c.modelId === modelId)) return;
@@ -727,6 +745,8 @@ export async function enumerateImageCandidates(
 		if (googleKey) push({ provider: "gemini", apiKey: googleKey });
 	}
 
+	// Zero-credential option — always present, listed last as the fallback.
+	push({ provider: "pollinations", apiKey: "public" });
 	return candidates;
 }
 
@@ -1237,7 +1257,9 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 								? DEFAULT_OPENROUTER_MODEL
 								: provider === "xai"
 									? DEFAULT_XAI_IMAGE_MODEL
-									: DEFAULT_MODEL;
+									: provider === "pollinations"
+										? (params.model as string | undefined) || DEFAULT_POLLINATIONS_MODEL
+										: DEFAULT_MODEL;
 			const resolvedModel = provider === "openrouter" ? resolveOpenRouterModel(model) : model;
 			assertImageAspectRatioSupported(provider, params.aspect_ratio);
 			const cwd = ctx.sessionManager.getCwd();
@@ -1395,6 +1417,95 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 						imageCount: customInlineImages.length,
 						imagePaths: customImagePaths,
 						images: customInlineImages,
+					},
+				};
+			}
+			if (provider === "pollinations") {
+				// Free, no-API-key generation via Pollinations' GET endpoint:
+				// https://image.pollinations.ai/prompt/{prompt}?width&height&model&seed
+				// Returns the raw image bytes directly. Width/height derive from
+				// aspect ratio anchored to the long edge (1:1 → 1024x1024,
+				// 16:9 → 1024x576, 9:16 → 576x1024), clamped to 256..2048 and
+				// snapped to multiples of 8.
+				// a fresh deadline so retries aren't eaten by an aborted shared
+				// signal; transient 429/503 are retried, and a final timeout gets a
+				// friendly message like the custom branch.
+				const prompt = assemblePrompt(params);
+				const aspect = params.aspect_ratio ?? "1:1";
+				const [wRaw, hRaw] = aspect.split(":").map(Number);
+				const scale = 1024 / Math.max(wRaw || 1, hRaw || 1);
+				const width = Math.max(256, Math.min(2048, Math.round((wRaw * scale) / 8) * 8));
+				const height = Math.max(256, Math.min(2048, Math.round((hRaw * scale) / 8) * 8));
+				const seed = Math.floor(Math.random() * 2_147_483_647);
+				const pollinationsModel = model || DEFAULT_POLLINATIONS_MODEL;
+				const url = `${POLLINATIONS_IMAGE_BASE_URL}/prompt/${encodeURIComponent(prompt)}?width=${width}&height=${height}&model=${encodeURIComponent(pollinationsModel)}&seed=${seed}`;
+
+				let pollinationsBuffer: Uint8Array | undefined;
+				for (let attempt = 1; attempt <= 2; attempt++) {
+					const attemptSignal = ptree.combineSignals(signal, IMAGE_TIMEOUT);
+					try {
+						const response = await fetch(url, {
+							headers:
+								apiKey.apiKey && apiKey.apiKey !== "public"
+									? { Authorization: `Bearer ${apiKey.apiKey}` }
+									: undefined,
+							signal: attemptSignal,
+						});
+						if (!response.ok) {
+							if ((response.status === 429 || response.status === 503) && attempt < 2) {
+								await untilAborted(
+									signal,
+									new Promise(resolve => setTimeout(resolve, CUSTOM_IMAGE_BACKOFF_MS)),
+								);
+								continue;
+							}
+							throw new Error(`Pollinations image request failed (${response.status})`);
+						}
+						pollinationsBuffer = new Uint8Array(await response.arrayBuffer());
+						break;
+					} catch (error) {
+						if (signal?.aborted) throw error;
+						const timedOut =
+							(attemptSignal?.aborted && attemptSignal.reason?.name !== "AbortError") ||
+							(error instanceof Error && error.name === "TimeoutError");
+						if (attempt >= 2) {
+							throw new Error(
+								timedOut
+									? "Pollinations image generation timed out after 2 attempt(s) — the free tier is busy. Try again shortly or pick a different provider."
+									: error instanceof Error
+										? error.message
+										: String(error),
+							);
+						}
+					}
+				}
+				if (!pollinationsBuffer?.length) {
+					return {
+						content: [{ type: "text", text: "No image data returned." }],
+						details: { provider, model: pollinationsModel, imageCount: 0, imagePaths: [], images: [] },
+					};
+				}
+
+				const pollinationsImages: InlineImageData[] = [
+					{
+						data: Buffer.from(pollinationsBuffer).toString("base64"),
+						mimeType: "image/jpeg",
+					},
+				];
+				const pollinationsPaths = await saveImagesToTemp(pollinationsImages);
+				return {
+					content: [
+						{
+							type: "text",
+							text: buildResponseSummary(provider, pollinationsModel, pollinationsPaths, undefined),
+						},
+					],
+					details: {
+						provider,
+						model: pollinationsModel,
+						imageCount: pollinationsImages.length,
+						imagePaths: pollinationsPaths,
+						images: pollinationsImages,
 					},
 				};
 			}

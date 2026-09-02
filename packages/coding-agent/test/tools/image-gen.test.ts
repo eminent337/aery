@@ -573,6 +573,71 @@ describe("imageGenTool", () => {
 	}, 60_000);
 });
 
+describe("pollinations provider", () => {
+	it("generates via the GET endpoint with no credentials and saves the image", async () => {
+		let requestUrl: string | undefined;
+		const fetchMock: typeof fetch = (async (input: string | URL | Request) => {
+			requestUrl = input.toString();
+			return new Response(Buffer.from("fake-pollinations-jpeg"), {
+				status: 200,
+				headers: { "content-type": "image/jpeg" },
+			});
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const ctx: CustomToolContext = {
+			sessionManager: {
+				getCwd: () => "/tmp",
+				getSessionId: () => "test-session",
+			} as unknown as ReadonlySessionManager,
+			modelRegistry: {
+				getApiKey: async () => undefined,
+				getApiKeyForProvider: async () => undefined,
+				getProviderBaseUrl: () => undefined,
+				getAll: () => [],
+				authStorage: { hasNonEnvCredential: () => false },
+			} as unknown as ModelRegistry,
+			model: undefined,
+			isIdle: () => true,
+			hasQueuedMessages: () => false,
+			abort: () => {},
+		};
+
+		const result = await imageGenTool.execute(
+			"call-pollinations",
+			{ subject: "a panda", aspect_ratio: "16:9", provider: "pollinations" },
+			undefined,
+			ctx,
+		);
+		generatedImagePaths.push(...(result.details?.imagePaths ?? []));
+
+		expect(requestUrl).toContain("https://image.pollinations.ai/prompt/");
+		expect(requestUrl).toContain("width=1024");
+		expect(requestUrl).toContain("height=576");
+		expect(requestUrl).toContain("model=flux");
+		expect(result.details?.provider).toBe("pollinations");
+		expect(result.details?.model).toBe("flux");
+		expect(result.details?.imageCount).toBe(1);
+		const savedPath = result.details?.imagePaths[0];
+		if (!savedPath) throw new Error("Expected generated image path");
+		expect(await Bun.file(savedPath).bytes()).toEqual(Buffer.from("fake-pollinations-jpeg"));
+	}, 60_000);
+
+	it("is offered as a candidate even with no credentials at all", async () => {
+		const registry = {
+			getApiKey: async () => undefined,
+			getApiKeyForProvider: async () => undefined,
+			getProviderBaseUrl: () => undefined,
+			getAll: () => [],
+			authStorage: { hasNonEnvCredential: () => false },
+		} as unknown as ModelRegistry;
+
+		const candidates = await enumerateImageCandidates(registry, undefined);
+		expect(candidates.some(c => c.provider === "pollinations")).toBe(true);
+	}, 60_000);
+});
+
 describe("enumerateImageCandidates", () => {
 	it("lists every authenticated image-only custom model, not just the first", async () => {
 		const mk = (id: string) =>
