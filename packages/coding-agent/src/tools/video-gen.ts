@@ -2,34 +2,43 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { $env, ptree, Snowflake, untilAborted } from "@aryee337/aery-utils";
 import * as z from "zod/v4";
+import { isAuthenticated, type ModelRegistry } from "../config/model-registry";
 import type { CustomTool } from "../extensibility/custom-tools/types";
 
 /**
  * Video generation tool. Mirrors `image-gen.ts` but targets async queue
- * providers: submit a job, poll status until rendered, fetch the result, and
- * download the MP4. Providers are pluggable; fal.ai is implemented first —
- * its queue API is plain REST and hosts many models including open-weights
- * ones (Wan, LTX-Video). Contract mirrors fal's own JS client
- * (libs/client/src/queue.ts): POST https://queue.fal.run/{model-id}, then GET
- * status_url until `status: "OK"`, then GET response_url for the output.
+ * providers: submit a render job, poll status until finished, download the
+ * MP4. Two providers:
+ *
+ * - agnes (default when available): the Agnes gateway exposes free video
+ *   models (agnes-video-2.5-flash etc.) behind a Sora-style jobs API,
+ *   live-verified: POST {baseUrl}/videos {model, prompt, mode: "text",
+ *   seconds?} -> {id}; GET {baseUrl}/videos/{id} -> status in_progress|
+ *   completed with progress and metadata.url. Uses the same API key as the
+ *   chat/image custom provider, so no extra setup is needed.
+ * - fal: POST https://queue.fal.run/{model} with "Key <FAL_KEY>" auth, GET
+ *   status_url until status OK, GET response_url, download the video URL.
  */
 
 const VIDEO_SUBMIT_TIMEOUT_MS = 60_000;
-const VIDEO_POLL_INTERVAL_MS = 3_000;
-const VIDEO_MAX_WAIT_MS = 10 * 60 * 1000;
+const VIDEO_POLL_INTERVAL_MS = 10_000;
+const VIDEO_MAX_WAIT_MS = 15 * 60 * 1000;
 const VIDEO_MAX_TRANSIENT_STATUS_ERRORS = 5;
 const VIDEO_DOWNLOAD_TIMEOUT_MS = 3 * 60_000;
 
 const FAL_QUEUE_BASE_URL = "https://queue.fal.run";
 const DEFAULT_FAL_VIDEO_MODEL = "fal-ai/wan-t2v";
+const DEFAULT_AGNES_VIDEO_MODEL = "agnes-video-2.5-flash";
+const AGNES_BASE_URL_MARKER = "agnes-ai.com";
 
 const FAL_TERMINAL_STATUSES: Record<string, true> = { OK: true, COMPLETED: true, SUCCESS: true };
+const AGNES_TERMINAL_STATUSES: Record<string, true> = { completed: true, succeeded: true };
+const AGNES_FAILED_STATUSES: Record<string, true> = { failed: true, error: true, cancelled: true };
 
-const VIDEO_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 const VIDEO_DURATION_MIN = 3;
 const VIDEO_DURATION_MAX = 15;
 
-export type VideoProvider = "fal";
+export type VideoProvider = "agnes" | "fal";
 
 const videoGenSchema = z
 	.object({
@@ -44,16 +53,17 @@ const videoGenSchema = z
 			.max(VIDEO_DURATION_MAX)
 			.describe(`video length in seconds (${VIDEO_DURATION_MIN}-${VIDEO_DURATION_MAX})`)
 			.optional(),
-		aspect_ratio: z.enum(VIDEO_ASPECT_RATIOS).describe("aspect ratio of the video").optional(),
 		model: z
 			.string()
 			.describe(
-				"provider-specific model id (e.g. 'fal-ai/wan-t2v', 'fal-ai/ltx-video'). Optional; uses the provider default when omitted.",
+				"provider-specific model id (e.g. 'agnes-video-2.5-flash', 'fal-ai/wan-t2v'). Optional; uses the provider default when omitted.",
 			)
 			.optional(),
 		provider: z
-			.enum(["auto", "fal"])
-			.describe("video provider to use. 'auto' or omitted uses the automatically detected provider.")
+			.enum(["auto", "agnes", "fal"])
+			.describe(
+				"video provider to use. 'auto' or omitted prefers Agnes (free with the configured Agnes key), then fal (FAL_KEY).",
+			)
 			.optional(),
 	})
 	.strict();
@@ -81,12 +91,173 @@ function findFalKey(): string | undefined {
 	return Bun.env.FAL_KEY ?? $env.FAL_KEY ?? undefined;
 }
 
+interface VideoCredentials {
+	provider: VideoProvider;
+	apiKey: string;
+	model: string;
+	baseUrl?: string;
+}
+
+/**
+ * Resolve video credentials: Agnes first (free, uses the already-configured
+ * custom provider key), then fal via FAL_KEY. Returns null when neither is
+ * available so the tool is simply not registered.
+ */
+async function findVideoCredentials(
+	modelRegistry: ModelRegistry | undefined,
+	preferred: VideoGenParams["provider"],
+	sessionId?: string,
+): Promise<VideoCredentials | null> {
+	const wantAgnes = preferred === "auto" || preferred === "agnes" || preferred === undefined;
+	const wantFal = preferred === "auto" || preferred === "fal" || preferred === undefined;
+
+	if (wantAgnes && modelRegistry) {
+		const agnesModel = modelRegistry
+			.getAll()
+			.find(m => typeof m.baseUrl === "string" && m.baseUrl.includes(AGNES_BASE_URL_MARKER));
+		if (agnesModel) {
+			const apiKey = await modelRegistry.getApiKey(agnesModel, sessionId);
+			if (isAuthenticated(apiKey) && typeof apiKey === "string") {
+				return {
+					provider: "agnes",
+					apiKey,
+					model: DEFAULT_AGNES_VIDEO_MODEL,
+					baseUrl: agnesModel.baseUrl,
+				};
+			}
+		}
+	}
+
+	if (wantFal) {
+		const falKey = findFalKey();
+		if (falKey) {
+			return { provider: "fal", apiKey: falKey, model: DEFAULT_FAL_VIDEO_MODEL };
+		}
+	}
+
+	return null;
+}
+
+function sleep(ms: number): Promise<void> {
+	const { promise, resolve } = Promise.withResolvers<void>();
+	setTimeout(resolve, ms);
+	return promise;
+}
+
+// --- Agnes (Sora-style jobs API) ---
+
+interface AgnesVideoSubmitResponse {
+	id?: string;
+	task_id?: string;
+	video_id?: string;
+	status?: string;
+	error?: { message?: string };
+	message?: string;
+}
+
+interface AgnesVideoStatusResponse {
+	id?: string;
+	status?: string;
+	progress?: number;
+	metadata?: { url?: string };
+	error?: { message?: string };
+	message?: string;
+}
+
+async function submitAgnesJob(
+	credentials: VideoCredentials,
+	params: VideoGenParams,
+	signal?: AbortSignal,
+): Promise<string> {
+	const baseUrl = credentials.baseUrl?.replace(/\/+$/, "") ?? "";
+	const body: Record<string, unknown> = {
+		model: params.model ?? credentials.model,
+		prompt: assembleVideoPrompt(params),
+		mode: "text",
+	};
+	if (params.duration !== undefined) {
+		body.seconds = String(params.duration);
+	}
+	const response = await fetch(`${baseUrl}/videos`, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${credentials.apiKey}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(body),
+		signal: ptree.combineSignals(signal, VIDEO_SUBMIT_TIMEOUT_MS),
+	});
+	const rawText = await response.text();
+	let parsed: AgnesVideoSubmitResponse = {};
+	try {
+		parsed = JSON.parse(rawText) as AgnesVideoSubmitResponse;
+	} catch {
+		// Non-JSON error body — handled by the status check below.
+	}
+	if (!response.ok) {
+		const detail = parsed.error?.message ?? parsed.message ?? rawText.slice(0, 300);
+		throw new Error(`Video job submission failed (${response.status}): ${detail}`);
+	}
+	const jobId = parsed.id ?? parsed.task_id ?? parsed.video_id;
+	if (!jobId) {
+		throw new Error("Video job submission response missing a task id.");
+	}
+	return jobId;
+}
+
+async function pollAgnesStatus(
+	credentials: VideoCredentials,
+	jobId: string,
+	signal?: AbortSignal,
+): Promise<{ done: boolean; videoUrl?: string; error?: string; note?: string }> {
+	const baseUrl = credentials.baseUrl?.replace(/\/+$/, "") ?? "";
+	let response: Response;
+	try {
+		response = await fetch(`${baseUrl}/videos/${jobId}`, {
+			headers: { Authorization: `Bearer ${credentials.apiKey}` },
+			signal,
+		});
+	} catch (error) {
+		if (signal?.aborted) throw error;
+		return { done: false, error: error instanceof Error ? error.message : "status check failed" };
+	}
+	const rawText = await response.text();
+	let parsed: AgnesVideoStatusResponse = {};
+	try {
+		parsed = JSON.parse(rawText) as AgnesVideoStatusResponse;
+	} catch {
+		parsed = {};
+	}
+	if (!response.ok) {
+		const detail = parsed.error?.message ?? parsed.message ?? `status ${response.status}`;
+		// 404 on a fresh job can be an eventual-consistency blip; treat as transient.
+		if (response.status === 404) {
+			return { done: false, note: "waiting for job registration" };
+		}
+		return { done: false, error: detail };
+	}
+	const status = (parsed.status ?? "").toLowerCase();
+	if (AGNES_TERMINAL_STATUSES[status]) {
+		const videoUrl = parsed.metadata?.url;
+		if (!videoUrl) {
+			return { done: true, error: "job completed but no video URL was returned" };
+		}
+		return { done: true, videoUrl };
+	}
+	if (AGNES_FAILED_STATUSES[status]) {
+		const detail = parsed.error?.message ?? parsed.message ?? "render failed";
+		return { done: true, error: detail };
+	}
+	const progress = typeof parsed.progress === "number" ? ` ${parsed.progress}%` : "";
+	return { done: false, note: `${status || "in progress"}${progress}` };
+}
+
+// --- fal (queue API, mirrors fal-js client/queue.ts) ---
+
 interface FalQueueSubmitResponse {
 	request_id?: string;
 	status_url?: string;
 	response_url?: string;
-	status?: string;
-	error?: unknown;
 	detail?: unknown;
 }
 
@@ -94,7 +265,6 @@ interface FalQueueStatusResponse {
 	status?: string;
 	queue_position?: number;
 	response_url?: string;
-	error?: unknown;
 	detail?: unknown;
 }
 
@@ -104,26 +274,20 @@ interface FalVideoResult {
 	url?: string;
 }
 
-function sleep(ms: number): Promise<void> {
-	const { promise, resolve } = Promise.withResolvers<void>();
-	setTimeout(resolve, ms);
-	return promise;
-}
-
 async function submitFalJob(
-	apiKey: string,
-	model: string,
+	credentials: VideoCredentials,
 	params: VideoGenParams,
 	signal?: AbortSignal,
-): Promise<FalQueueSubmitResponse> {
+): Promise<{ statusUrl: string; responseUrl: string }> {
+	const model = params.model ?? credentials.model;
 	const body: Record<string, unknown> = { prompt: assembleVideoPrompt(params) };
-	if (params.duration) body.duration = params.duration;
-	if (params.aspect_ratio) body.aspect_ratio = params.aspect_ratio;
-
+	if (params.duration !== undefined) {
+		body.duration = params.duration;
+	}
 	const response = await fetch(`${FAL_QUEUE_BASE_URL}/${model}`, {
 		method: "POST",
 		headers: {
-			Authorization: `Key ${apiKey}`,
+			Authorization: `Key ${credentials.apiKey}`,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify(body),
@@ -134,7 +298,7 @@ async function submitFalJob(
 	try {
 		parsed = JSON.parse(rawText) as FalQueueSubmitResponse;
 	} catch {
-		// Non-JSON error body — fall through to the status check below.
+		// Non-JSON error body — handled by the status check below.
 	}
 	if (!response.ok) {
 		const detail = typeof parsed.detail === "string" ? parsed.detail : rawText.slice(0, 300);
@@ -143,10 +307,9 @@ async function submitFalJob(
 	if (!parsed.status_url || !parsed.response_url) {
 		throw new Error("Video job submission response missing status_url/response_url.");
 	}
-	return parsed;
+	return { statusUrl: parsed.status_url, responseUrl: parsed.response_url };
 }
 
-/** Best-effort job cancellation when the user aborts mid-render. */
 function cancelFalJob(apiKey: string, statusUrl: string): void {
 	const requestUrl = statusUrl.replace(/\/status$/, "");
 	void fetch(requestUrl, {
@@ -170,7 +333,6 @@ async function pollFalStatus(
 		});
 	} catch (error) {
 		if (signal?.aborted) throw error;
-		// Transient network blip while polling — report and keep waiting.
 		return { done: false, error: error instanceof Error ? error.message : "status check failed" };
 	}
 	const rawText = await response.text();
@@ -192,18 +354,10 @@ async function pollFalStatus(
 		return { done: true, error: detail };
 	}
 	const queued = parsed.queue_position !== undefined ? ` (queue position ${parsed.queue_position})` : "";
-	return { done: false, note: status === "IN_PROGRESS" ? "rendering" : `in queue${queued}` };
+	return { done: false, note: status === "IN_PROGRESS" ? `rendering${queued}` : `in queue${queued}` };
 }
 
-function extractVideoUrl(result: FalVideoResult): string | undefined {
-	return result.video?.url ?? result.videos?.find(v => v.url)?.url ?? result.url;
-}
-
-async function fetchFalResult(
-	apiKey: string,
-	responseUrl: string,
-	signal?: AbortSignal,
-): Promise<{ videoUrl: string }> {
+async function fetchFalVideoUrl(apiKey: string, responseUrl: string, signal?: AbortSignal): Promise<string> {
 	const response = await fetch(responseUrl, {
 		headers: { Authorization: `Key ${apiKey}` },
 		signal,
@@ -218,12 +372,14 @@ async function fetchFalResult(
 	} catch {
 		throw new Error("Video result was not valid JSON.");
 	}
-	const videoUrl = extractVideoUrl(parsed);
+	const videoUrl = parsed.video?.url ?? parsed.videos?.find(v => v.url)?.url ?? parsed.url;
 	if (!videoUrl) {
 		throw new Error("Video result did not contain a video URL.");
 	}
-	return { videoUrl };
+	return videoUrl;
 }
+
+// --- shared tail ---
 
 async function downloadVideo(url: string, signal?: AbortSignal): Promise<Uint8Array> {
 	const response = await fetch(url, { signal: ptree.combineSignals(signal, VIDEO_DOWNLOAD_TIMEOUT_MS) });
@@ -254,7 +410,6 @@ function buildVideoSummary(
 	elapsedSeconds: number,
 ): string {
 	return [
-		`Provider: ${provider}`,
 		`Model: ${model}`,
 		`Rendered ${videoPaths.length} video(s) in ~${Math.round(elapsedSeconds)}s:`,
 		...videoPaths.map(p => `  ${p}`),
@@ -270,34 +425,94 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 		"Generate a short video from a text description.",
 		"",
 		"Uses async queue providers: submits a render job, polls until it finishes",
-		"(typically 1-5 minutes; progress updates are emitted while waiting), then",
+		"(typically 1-3 minutes; progress updates are emitted while waiting), then",
 		"saves the MP4 and returns its path.",
 		"",
 		"Available video models:",
-		"- fal — fal-ai/wan-t2v (default), fal-ai/ltx-video, and other fal-ai/* video models",
+		"- agnes — agnes-video-2.5-flash (default), agnes-video-2.5, agnes-video-v2.0",
+		"  (free, uses the configured Agnes key)",
+		"- fal — fal-ai/wan-t2v and other fal-ai/* video models",
 		"  (requires FAL_KEY; fal.ai account → API keys)",
 	].join("\n"),
 	parameters: videoGenSchema,
 	async execute(_toolCallId, params, onUpdate, ctx, signal) {
-		void ctx;
 		return untilAborted(signal, async () => {
-			const apiKey = findFalKey();
-			if (!apiKey) {
+			const credentials = await findVideoCredentials(
+				ctx.modelRegistry,
+				params.provider,
+				ctx.sessionManager.getSessionId(),
+			);
+			if (!credentials) {
 				throw new Error(
-					"No video generation credentials found. Set FAL_KEY (fal.ai account → API keys) to enable video generation.",
+					"No video generation credentials found. Add an Agnes provider with video models, or set FAL_KEY (fal.ai account → API keys).",
 				);
 			}
-			const provider: VideoProvider = "fal";
-			const model = params.model ?? DEFAULT_FAL_VIDEO_MODEL;
+			const model = params.model ?? credentials.model;
 			const startedAt = Date.now();
 
-			const submitted = await submitFalJob(apiKey, model, params, signal);
-			const statusUrl = submitted.status_url;
-			const responseUrl = submitted.response_url;
-			if (!statusUrl || !responseUrl) {
-				throw new Error("Video job did not return queue URLs.");
+			let jobNote: string | undefined;
+			if (credentials.provider === "agnes") {
+				if (!credentials.baseUrl) {
+					throw new Error("Missing Agnes baseUrl for video generation.");
+				}
+				const jobId = await submitAgnesJob(credentials, { ...params, model }, signal);
+				let transientErrors = 0;
+				for (;;) {
+					if (Date.now() - startedAt > VIDEO_MAX_WAIT_MS) {
+						throw new Error(
+							`Video render exceeded ${Math.round(VIDEO_MAX_WAIT_MS / 60_000)} minutes — the queue may be congested. Try again or pick a different model.`,
+						);
+					}
+					await untilAborted(signal, sleep(VIDEO_POLL_INTERVAL_MS));
+					const status = await pollAgnesStatus(credentials, jobId, signal);
+					if (status.done) {
+						if (status.error) {
+							throw new Error(`Video generation failed: ${status.error}`);
+						}
+						const bytes = await downloadVideo(status.videoUrl as string, signal);
+						const videoPath = await saveVideoToTemp(bytes);
+						const elapsedSeconds = (Date.now() - startedAt) / 1000;
+						return {
+							content: [
+								{
+									type: "text",
+									text: buildVideoSummary(credentials.provider, model, [videoPath], elapsedSeconds),
+								},
+							],
+							details: {
+								provider: credentials.provider,
+								model,
+								videoCount: 1,
+								videoPaths: [videoPath],
+								videoUrls: [status.videoUrl as string],
+							},
+						};
+					}
+					if (status.error) {
+						transientErrors += 1;
+						if (transientErrors >= VIDEO_MAX_TRANSIENT_STATUS_ERRORS) {
+							throw new Error(`Video status check kept failing (${status.error}) — giving up.`);
+						}
+					} else {
+						transientErrors = 0;
+					}
+					if (status.note !== jobNote) {
+						jobNote = status.note;
+						onUpdate?.({
+							content: [
+								{
+									type: "text",
+									text: `Video rendering… ${Math.round((Date.now() - startedAt) / 1000)}s elapsed — ${status.note ?? status.error ?? "waiting"}`,
+								},
+							],
+							details: { provider: credentials.provider, model, videoCount: 0, videoPaths: [], videoUrls: [] },
+						});
+					}
+				}
 			}
 
+			// fal branch
+			const { statusUrl, responseUrl } = await submitFalJob(credentials, { ...params, model }, signal);
 			try {
 				let transientErrors = 0;
 				for (;;) {
@@ -307,7 +522,7 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 						);
 					}
 					await untilAborted(signal, sleep(VIDEO_POLL_INTERVAL_MS));
-					const status = await pollFalStatus(apiKey, statusUrl, signal);
+					const status = await pollFalStatus(credentials.apiKey, statusUrl, signal);
 					if (status.done) {
 						if (status.error) {
 							throw new Error(`Video generation failed: ${status.error}`);
@@ -324,26 +539,29 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 					} else {
 						transientErrors = 0;
 					}
-					onUpdate?.({
-						content: [
-							{
-								type: "text",
-								text: `Video rendering… ${Math.round((Date.now() - startedAt) / 1000)}s elapsed — ${status.note ?? status.error ?? "waiting"}`,
-							},
-						],
-						details: { provider, model, videoCount: 0, videoPaths: [], videoUrls: [] },
-					});
+					if (status.note !== jobNote) {
+						jobNote = status.note;
+						onUpdate?.({
+							content: [
+								{
+									type: "text",
+									text: `Video rendering… ${Math.round((Date.now() - startedAt) / 1000)}s elapsed — ${status.note ?? status.error ?? "waiting"}`,
+								},
+							],
+							details: { provider: credentials.provider, model, videoCount: 0, videoPaths: [], videoUrls: [] },
+						});
+					}
 				}
-
-				const { videoUrl } = await fetchFalResult(apiKey, responseUrl, signal);
+				const videoUrl = await fetchFalVideoUrl(credentials.apiKey, responseUrl, signal);
 				const bytes = await downloadVideo(videoUrl, signal);
 				const videoPath = await saveVideoToTemp(bytes);
 				const elapsedSeconds = (Date.now() - startedAt) / 1000;
-
 				return {
-					content: [{ type: "text", text: buildVideoSummary(provider, model, [videoPath], elapsedSeconds) }],
+					content: [
+						{ type: "text", text: buildVideoSummary(credentials.provider, model, [videoPath], elapsedSeconds) },
+					],
 					details: {
-						provider,
+						provider: credentials.provider,
 						model,
 						videoCount: 1,
 						videoPaths: [videoPath],
@@ -352,7 +570,7 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 				};
 			} catch (error) {
 				if (signal?.aborted) {
-					cancelFalJob(apiKey, statusUrl);
+					cancelFalJob(credentials.apiKey, statusUrl);
 				}
 				throw error;
 			}
@@ -361,10 +579,15 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 };
 
 /**
- * Build the video generation tool list. Returns an empty array when no video
- * provider credentials are configured so the tool simply is not offered.
+ * Build the video generation tool list. Returns an empty array when neither
+ * the Agnes custom provider (free video models) nor FAL_KEY is available so
+ * the tool simply is not offered.
  */
-export async function getVideoGenTools(): Promise<Array<CustomTool<typeof videoGenSchema, VideoGenToolDetails>>> {
-	if (!findFalKey()) return [];
+export async function getVideoGenTools(
+	modelRegistry?: ModelRegistry,
+	sessionId?: string,
+): Promise<Array<CustomTool<typeof videoGenSchema, VideoGenToolDetails>>> {
+	const credentials = await findVideoCredentials(modelRegistry, "auto", sessionId);
+	if (!credentials) return [];
 	return [videoGenTool];
 }

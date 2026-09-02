@@ -1736,8 +1736,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			customTools.push(...(imageGenTools as unknown as CustomTool[]));
 		}
 
-		// Add video generation when video credentials are configured (FAL_KEY).
-		const videoGenTools = await getVideoGenTools();
+		// Add video generation when video credentials are configured (Agnes free
+		// video models via the custom provider, or FAL_KEY).
+		const videoGenTools = await getVideoGenTools(modelRegistry);
 		if (videoGenTools.length > 0) {
 			customTools.push(...(videoGenTools as unknown as CustomTool[]));
 		}

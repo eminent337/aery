@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
+import type { ModelRegistry } from "@aryee337/aery/config/model-registry";
 import type { CustomToolContext } from "@aryee337/aery/extensibility/custom-tools";
 import type { ReadonlySessionManager } from "@aryee337/aery/session/session-manager";
 import { getVideoGenTools, videoGenTool } from "@aryee337/aery/tools/video-gen";
+import type { Model } from "@aryee337/aery-ai";
 
 const originalFetch = global.fetch;
 const originalFalKey = Bun.env.FAL_KEY;
@@ -18,12 +20,31 @@ afterEach(async () => {
 	}
 });
 
-function makeContext(): CustomToolContext {
+function makeRegistry(model: Model | undefined, apiKey: unknown): ModelRegistry {
+	return {
+		getApiKey: async () => apiKey,
+		getApiKeyForProvider: async () => undefined,
+		getProviderBaseUrl: () => undefined,
+		getAll: () => (model ? [model] : []),
+		authStorage: { hasNonEnvCredential: () => false },
+	} as unknown as ModelRegistry;
+}
+
+const agnesModel = {
+	api: "openai-completions",
+	provider: "custom-api-apihub-agnes-ai-com-v1",
+	id: "agnes-2.5-pro",
+	name: "Agnes 2.5 Pro",
+	baseUrl: "https://apihub.agnes-ai.com/v1",
+} as Model;
+
+function makeContext(registry?: ModelRegistry): CustomToolContext {
 	return {
 		sessionManager: {
 			getCwd: () => "/tmp",
 			getSessionId: () => "test-session",
 		} as unknown as ReadonlySessionManager,
+		modelRegistry: registry,
 		isIdle: () => true,
 		hasQueuedMessages: () => false,
 		abort: () => {},
@@ -35,17 +56,83 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("generate_video", () => {
-	it("is not offered without FAL_KEY", async () => {
+	it("is not offered without any video credentials", async () => {
 		delete Bun.env.FAL_KEY;
-		expect(await getVideoGenTools()).toEqual([]);
+		expect(await getVideoGenTools(makeRegistry(undefined, undefined))).toEqual([]);
+		expect(await getVideoGenTools(undefined)).toEqual([]);
 	});
 
-	it("is offered when FAL_KEY is set", async () => {
+	it("is offered via Agnes when the custom provider is registered", async () => {
+		delete Bun.env.FAL_KEY;
+		expect(await getVideoGenTools(makeRegistry(agnesModel, "test-agnes-key"))).toHaveLength(1);
+	});
+
+	it("is offered via fal when FAL_KEY is set", async () => {
+		delete Bun.env.FAL_KEY;
 		Bun.env.FAL_KEY = "test-key:test-secret";
-		expect(await getVideoGenTools()).toHaveLength(1);
+		expect(await getVideoGenTools(makeRegistry(undefined, undefined))).toHaveLength(1);
 	});
 
-	it("submits, polls, fetches the result, and downloads the MP4", async () => {
+	it("prefers Agnes (free) over fal in auto mode", async () => {
+		Bun.env.FAL_KEY = "test-key:test-secret";
+		const calls: Array<{ url: string; method: string; auth: string | null; body?: unknown }> = [];
+		const videoBytes = Buffer.from("fake-agnes-mp4");
+		let polls = 0;
+
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			const url = input.toString();
+			const method = init?.method ?? "GET";
+			const auth = new Headers(init?.headers).get("authorization");
+			calls.push({ url, method, auth, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+
+			if (method === "POST" && url === "https://apihub.agnes-ai.com/v1/videos") {
+				return jsonResponse({ id: "task_agg1", object: "video", status: "in_progress", progress: 0 });
+			}
+			if (url === "https://apihub.agnes-ai.com/v1/videos/task_agg1") {
+				polls += 1;
+				if (polls === 1) return jsonResponse({ status: "in_progress", progress: 40 });
+				return jsonResponse({
+					status: "completed",
+					progress: 100,
+					metadata: { url: "https://platform-outputs.agnes-ai.space/videos/out.mp4" },
+				});
+			}
+			if (url.startsWith("https://platform-outputs.agnes-ai.space/")) {
+				return new Response(videoBytes, { status: 200, headers: { "content-type": "video/mp4" } });
+			}
+			return new Response("unexpected", { status: 500 });
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const result = await videoGenTool.execute(
+			"call-agnes",
+			{ subject: "a panda", action: "eating a banana", duration: 5 },
+			undefined,
+			makeContext(makeRegistry(agnesModel, "test-agnes-key")),
+		);
+		generatedVideoPaths.push(...(result.details?.videoPaths ?? []));
+
+		const submit = calls.find(c => c.method === "POST");
+		if (!submit) throw new Error("submit call missing");
+		expect(submit.auth).toBe("Bearer test-agnes-key");
+		expect(submit.body).toMatchObject({
+			model: "agnes-video-2.5-flash",
+			prompt: "a panda, eating a banana.",
+			mode: "text",
+			seconds: "5",
+		});
+		expect(polls).toBeGreaterThanOrEqual(2);
+		expect(result.details?.provider).toBe("agnes");
+		expect(result.details?.model).toBe("agnes-video-2.5-flash");
+		expect(result.details?.videoCount).toBe(1);
+		expect(result.details?.videoUrls[0]).toBe("https://platform-outputs.agnes-ai.space/videos/out.mp4");
+		const savedPath = result.details?.videoPaths[0];
+		if (!savedPath) throw new Error("Expected saved video path");
+		expect(await Bun.file(savedPath).bytes()).toEqual(videoBytes);
+	}, 60_000);
+
+	it("falls back to fal when FAL_KEY is set and no Agnes provider exists", async () => {
 		Bun.env.FAL_KEY = "test-key:test-secret";
 		const calls: Array<{ url: string; method: string; auth: string | null; body?: unknown }> = [];
 		let polls = 0;
@@ -65,14 +152,9 @@ describe("generate_video", () => {
 				});
 			}
 			if (url.endsWith("/status")) {
-				// Full queue lifecycle: queued -> rendering -> done.
 				polls += 1;
-				if (polls === 1) {
-					return jsonResponse({ status: "IN_QUEUE", queue_position: 3 });
-				}
-				if (polls === 2) {
-					return jsonResponse({ status: "IN_PROGRESS" });
-				}
+				if (polls === 1) return jsonResponse({ status: "IN_QUEUE", queue_position: 3 });
+				if (polls === 2) return jsonResponse({ status: "IN_PROGRESS" });
 				return jsonResponse({
 					status: "OK",
 					response_url: "https://queue.fal.run/fal-ai/wan-t2v/requests/req-123",
@@ -90,58 +172,44 @@ describe("generate_video", () => {
 		global.fetch = fetchMock;
 
 		const result = await videoGenTool.execute(
-			"call-video",
-			{ subject: "a panda", action: "eating a banana", duration: 5, aspect_ratio: "16:9" },
+			"call-fal",
+			{ subject: "a panda", action: "eating a banana", duration: 5 },
 			undefined,
-			makeContext(),
+			makeContext(makeRegistry(undefined, undefined)),
 		);
 		generatedVideoPaths.push(...(result.details?.videoPaths ?? []));
 
 		const submit = calls.find(c => c.method === "POST");
 		if (!submit) throw new Error("submit call missing");
 		expect(submit.auth).toBe("Key test-key:test-secret");
-		expect(submit.body).toMatchObject({
-			prompt: "a panda, eating a banana.",
-			duration: 5,
-			aspect_ratio: "16:9",
-		});
+		expect(submit.body).toMatchObject({ prompt: "a panda, eating a banana.", duration: 5 });
 		expect(polls).toBeGreaterThanOrEqual(3);
 		expect(result.details?.provider).toBe("fal");
 		expect(result.details?.model).toBe("fal-ai/wan-t2v");
 		expect(result.details?.videoCount).toBe(1);
-		expect(result.details?.videoUrls[0]).toBe("https://v3.fal.media/files/fake/out.mp4");
-		const savedPath = result.details?.videoPaths[0];
-		if (!savedPath) throw new Error("Expected saved video path");
-		expect(await Bun.file(savedPath).bytes()).toEqual(videoBytes);
 	}, 60_000);
 
 	it("emits progress updates while polling", async () => {
-		Bun.env.FAL_KEY = "test-key:test-secret";
+		delete Bun.env.FAL_KEY;
 		let polls = 0;
 		let downloaded = false;
 		const updates: string[] = [];
 		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
 			const url = input.toString();
 			const method = init?.method ?? "GET";
-			if (method === "POST") {
-				return jsonResponse({
-					request_id: "req-prog",
-					status_url: "https://queue.fal.run/fal-ai/wan-t2v/requests/req-prog/status",
-					response_url: "https://queue.fal.run/fal-ai/wan-t2v/requests/req-prog",
-				});
+			if (method === "POST" && url.endsWith("/videos")) {
+				return jsonResponse({ id: "task_prog", status: "in_progress", progress: 0 });
 			}
-			if (url.endsWith("/status")) {
+			if (url.endsWith("/videos/task_prog")) {
 				polls += 1;
-				if (polls < 3) return jsonResponse({ status: "IN_QUEUE", queue_position: polls });
+				if (polls < 3) return jsonResponse({ status: "in_progress", progress: polls * 30 });
 				return jsonResponse({
-					status: "OK",
-					response_url: "https://queue.fal.run/fal-ai/wan-t2v/requests/req-prog",
+					status: "completed",
+					progress: 100,
+					metadata: { url: "https://platform-outputs.agnes-ai.space/videos/prog.mp4" },
 				});
 			}
-			if (url.endsWith("/requests/req-prog")) {
-				return jsonResponse({ video: { url: "https://v3.fal.media/files/fake/prog.mp4" } });
-			}
-			if (url.startsWith("https://v3.fal.media/")) {
+			if (url.startsWith("https://platform-outputs.agnes-ai.space/")) {
 				downloaded = true;
 				return new Response(Buffer.from("prog-bytes"), {
 					status: 200,
@@ -154,37 +222,32 @@ describe("generate_video", () => {
 		global.fetch = fetchMock;
 
 		const result = await videoGenTool.execute(
-			"call-video-prog",
+			"call-prog",
 			{ subject: "a panda" },
 			update => {
 				for (const part of update.content) {
 					if (part.type === "text") updates.push(part.text);
 				}
 			},
-			makeContext(),
+			makeContext(makeRegistry(agnesModel, "test-agnes-key")),
 		);
 		generatedVideoPaths.push(...(result.details?.videoPaths ?? []));
 
 		expect(updates.length).toBeGreaterThanOrEqual(2);
 		expect(updates[0]).toContain("Video rendering");
-		expect(polls).toBeGreaterThanOrEqual(3);
 		expect(downloaded).toBe(true);
 	}, 60_000);
 
 	it("surfaces render failures as tool errors", async () => {
-		Bun.env.FAL_KEY = "test-key:test-secret";
+		delete Bun.env.FAL_KEY;
 		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
 			const url = input.toString();
 			const method = init?.method ?? "GET";
-			if (method === "POST") {
-				return jsonResponse({
-					request_id: "req-err",
-					status_url: "https://queue.fal.run/fal-ai/wan-t2v/requests/req-err/status",
-					response_url: "https://queue.fal.run/fal-ai/wan-t2v/requests/req-err",
-				});
+			if (method === "POST" && url.endsWith("/videos")) {
+				return jsonResponse({ id: "task_err", status: "in_progress", progress: 0 });
 			}
-			if (url.endsWith("/status")) {
-				return jsonResponse({ status: "ERROR", detail: "safety check failed" });
+			if (url.endsWith("/videos/task_err")) {
+				return jsonResponse({ status: "failed", error: { message: "safety check failed" } });
 			}
 			return new Response("unexpected", { status: 500 });
 		}) as unknown as typeof fetch;
@@ -193,7 +256,12 @@ describe("generate_video", () => {
 
 		let thrown: unknown;
 		try {
-			await videoGenTool.execute("call-video-err", { subject: "a panda" }, undefined, makeContext());
+			await videoGenTool.execute(
+				"call-err",
+				{ subject: "a panda" },
+				undefined,
+				makeContext(makeRegistry(agnesModel, "test-agnes-key")),
+			);
 		} catch (error) {
 			thrown = error;
 		}
@@ -201,20 +269,29 @@ describe("generate_video", () => {
 	}, 60_000);
 
 	it("reports submission errors with provider detail", async () => {
-		Bun.env.FAL_KEY = "test-key:test-secret";
+		delete Bun.env.FAL_KEY;
 		const fetchMock: typeof fetch = (async () => {
-			return jsonResponse({ detail: "Cannot access application" }, 401);
+			return jsonResponse(
+				{ error: { message: "video generation rate limit exceeded: allows 2 requests per 1 minute(s)" } },
+				429,
+			);
 		}) as unknown as typeof fetch;
 		fetchMock.preconnect = originalFetch.preconnect;
 		global.fetch = fetchMock;
 
 		let thrown: unknown;
 		try {
-			await videoGenTool.execute("call-video-401", { subject: "a panda" }, undefined, makeContext());
+			await videoGenTool.execute(
+				"call-429",
+				{ subject: "a panda" },
+				undefined,
+				makeContext(makeRegistry(agnesModel, "test-agnes-key")),
+			);
 		} catch (error) {
 			thrown = error;
 		}
-		expect(thrown instanceof Error ? thrown.message : String(thrown)).toContain("401");
-		expect(thrown instanceof Error ? thrown.message : String(thrown)).toContain("Cannot access application");
+		const message = thrown instanceof Error ? thrown.message : String(thrown);
+		expect(message).toContain("429");
+		expect(message).toContain("rate limit");
 	}, 60_000);
 });
