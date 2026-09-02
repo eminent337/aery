@@ -286,6 +286,7 @@ export class MediaStateManager {
 			});
 		}
 		if (this.#gallery.length > 50) this.#gallery.length = 50;
+		this.#selectedIndex = 0;
 		this.#notify();
 	}
 }

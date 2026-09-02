@@ -11,21 +11,34 @@
  * is the media Hub the user asked for ("like settings / hub").
  */
 
-import { Container, matchesKey } from "@aryee337/aery-tui";
+import * as fs from "node:fs";
+import { Container, Image, matchesKey } from "@aryee337/aery-tui";
 import { theme } from "../../theme/theme.js";
 import { VideoPlayer, type VideoPlayerTheme } from "../video-player.js";
 import { MediaStateManager } from "./media-state.js";
+import type { MediaGalleryItem } from "./media-types.js";
 import { StudioMediaPanel } from "./studio-media-panel.js";
 
-/** Top chrome lines: top border, header, blank. */
-const TOP_CHROME = 3;
 /** Bottom chrome lines: blank, footer, bottom border. */
 const BOTTOM_CHROME = 3;
+
+/** Mime type from file extension (Record per house rules). */
+const EXT_MIME: Record<string, string> = {
+	".png": "image/png",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+	".webp": "image/webp",
+	".gif": "image/gif",
+};
+
 export class AeryMediaStudioOverlay extends Container {
 	#mediaPanel: StudioMediaPanel;
 	#mediaUnsubscribe?: () => void;
 	#videoPlayer?: VideoPlayer;
 	#playerKeyListener?: (data: string) => { consume?: boolean } | undefined;
+	/** Cached preview for the currently selected gallery image. */
+	#previewImage?: Image;
+	#previewPath?: string;
 	onClose?: () => void;
 	onRequestRender?: () => void;
 
@@ -45,11 +58,13 @@ export class AeryMediaStudioOverlay extends Container {
 		});
 
 		this.#mediaUnsubscribe = mediaManager.subscribe(() => {
-			this.#mediaPanel.updateSnapshot(MediaStateManager.instance().getSnapshot());
+			const snap = MediaStateManager.instance().getSnapshot();
+			this.#mediaPanel.updateSnapshot(snap);
+			this.#loadPreview(snap.gallery[snap.selectedIndex]);
 			this.onRequestRender?.();
 		});
 
-		this.onRequestRender?.();
+		this.#loadPreview(mediaManager.getSnapshot().gallery[mediaManager.getSnapshot().selectedIndex]);
 	}
 
 	dispose(): void {
@@ -89,6 +104,35 @@ export class AeryMediaStudioOverlay extends Container {
 		this.#playerKeyListener = undefined;
 	}
 
+	/** Load an image preview for the selected gallery item (async, cached). */
+	#loadPreview(item: MediaGalleryItem | undefined): void {
+		if (!item || item.kind !== "image") {
+			this.#previewImage = undefined;
+			this.#previewPath = undefined;
+			return;
+		}
+		if (item.path === this.#previewPath) return;
+		this.#previewPath = item.path;
+		this.#previewImage = undefined;
+		const ext = item.path.slice(item.path.lastIndexOf(".")).toLowerCase();
+		const mime = EXT_MIME[ext] ?? "image/png";
+		try {
+			const buf = fs.readFileSync(item.path);
+			const b64 = buf.toString("base64");
+			this.#previewImage = new Image(
+				b64,
+				mime,
+				{
+					fallbackColor: (s: string) => theme.fg("toolOutput", s),
+				},
+				{ maxWidthCells: 60, maxHeightCells: 20 },
+			);
+			this.onRequestRender?.();
+		} catch {
+			// File may have been deleted; leave preview empty.
+		}
+	}
+
 	/**
 	 * Full-terminal frame exactly like /hub: the content (media panel with its
 	 * own header/footer) renders at the top of a viewport that fills
@@ -96,7 +140,6 @@ export class AeryMediaStudioOverlay extends Container {
 	 */
 	override render(width: number): string[] {
 		const termHeight = process.stdout.rows || 40;
-		const padY = Math.max(0, termHeight - TOP_CHROME - BOTTOM_CHROME);
 		const viewport: string[] = [];
 
 		// Top border + header
@@ -106,10 +149,35 @@ export class AeryMediaStudioOverlay extends Container {
 		);
 		viewport.push("");
 
-		// Media panel (content) with blank padding below to reach full height.
+		// Media panel (prompt, queue, gallery list).
 		const content = this.#mediaPanel.render(width);
+		for (const line of content) {
+			viewport.push(line);
+		}
+
+		// Image preview: render the selected gallery image inline (Kitty/sixel/iTerm2).
+		if (this.#previewImage) {
+			viewport.push("");
+			viewport.push(`  ${theme.bold("  Preview")}`);
+			const imgLines = this.#previewImage.render(width);
+			for (const line of imgLines) {
+				viewport.push(line);
+			}
+		}
+
+		// Video player (if active).
+		if (this.#videoPlayer) {
+			viewport.push("");
+			const playerLines = this.#videoPlayer.render(width);
+			for (const line of playerLines) {
+				viewport.push(line);
+			}
+		}
+
+		// Pad to full terminal height.
+		const padY = Math.max(0, termHeight - viewport.length - BOTTOM_CHROME);
 		for (let i = 0; i < padY; i++) {
-			viewport.push(content[i] ?? " ".repeat(Math.max(0, width)));
+			viewport.push("");
 		}
 
 		// Footer chrome

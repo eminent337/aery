@@ -124,7 +124,7 @@ describe("MediaStateManager", () => {
 		expect(snapshot.gallery).toHaveLength(1);
 		expect(snapshot.gallery[0].kind).toBe("video");
 		expect(snapshot.gallery[0].prompt).toBe("a hummingbird");
-		expect(snapshot.selectedIndex).toBe(-1); // selection starts unset
+		expect(snapshot.selectedIndex).toBe(0); // selection jumps to the fresh render
 	});
 
 	it("streams progress updates from onUpdate into job.note", async () => {
