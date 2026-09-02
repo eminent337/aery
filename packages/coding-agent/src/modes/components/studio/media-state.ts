@@ -7,6 +7,9 @@
  * tools are untouched — the studio is purely additive.
  */
 
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { CustomToolContext } from "../../../extensibility/custom-tools/types";
 import { type ImageGenParams, imageGenTool } from "../../../tools/image-gen";
 import { type VideoGenParams, videoGenTool } from "../../../tools/video-gen";
@@ -241,19 +244,46 @@ export class MediaStateManager {
 	}
 
 	#archiveToGallery(job: MediaJob): void {
+		void this.#archiveToGalleryAsync(job);
+	}
+
+	/**
+	 * Copy completed renders into ~/.aery/studio/ (temp files do not survive
+	 * reboots) and record gallery entries pointing at the persistent copies.
+	 */
+	async #archiveToGalleryAsync(job: MediaJob): Promise<void> {
 		if (job.status !== "completed") return;
 		const paths = job.kind === "image" ? (job.imagePaths ?? []) : (job.videoPaths ?? []);
-		for (const path of paths) {
+		const dir = path.join(os.homedir(), ".aery", "studio", job.kind === "image" ? "images" : "videos");
+		try {
+			await fs.mkdir(dir, { recursive: true });
+		} catch {
+			// Persistence is best-effort; fall back to the temp path below.
+		}
+
+		for (const srcPath of paths) {
+			let storedPath = srcPath;
+			const ext = path.extname(srcPath) || (job.kind === "image" ? ".png" : ".mp4");
+			const fileName = `${new Date(job.finishedAt ?? Date.now()).toISOString().replace(/[:.]/g, "-")}${ext}`;
+			try {
+				const destPath = path.join(dir, fileName);
+				await fs.copyFile(srcPath, destPath);
+				storedPath = destPath;
+			} catch {
+				// Keep the temp path if the copy fails.
+			}
+
 			this.#gallery.unshift({
-				id: `${job.id}:${path}`,
+				id: `${job.id}:${storedPath}`,
 				kind: job.kind,
-				path,
+				path: storedPath,
 				provider: job.provider ?? "auto",
 				model: job.model ?? "auto",
 				prompt: job.subject,
-				timestamp: Date.now(),
+				timestamp: job.finishedAt ?? Date.now(),
 			});
 		}
 		if (this.#gallery.length > 50) this.#gallery.length = 50;
+		this.#notify();
 	}
 }

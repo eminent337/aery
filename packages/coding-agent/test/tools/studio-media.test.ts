@@ -3,6 +3,8 @@ process.env.AERY_VIDEO_POLL_INTERVAL_MS = "25";
 const { MediaStateManager } = await import("@aryee337/aery/modes/components/studio/media-state");
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import type { ModelRegistry } from "@aryee337/aery/config/model-registry";
 import type { Model } from "@aryee337/aery-ai";
 
@@ -216,6 +218,50 @@ describe("MediaStateManager", () => {
 		await waitFor(() => failing.getSnapshot().jobs[0]?.status === "failed");
 		failing.enqueue({ kind: "image", subject: "queued behind" });
 		// Second job is queued (no context → first fails, second runs and fails too)
-		await waitFor(() => failing.getSnapshot().jobs.every(j => j.status === "failed"));
+		await waitFor(() => failing.getSnapshot().jobs.every((j: { status: string }) => j.status === "failed"));
 	});
+
+	it("persists completed videos to ~/.aery/studio/videos/", async () => {
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			const url = input.toString();
+			const method = init?.method ?? "GET";
+			if (method === "POST" && url === "https://apihub.agnes-ai.com/v1/videos") {
+				return jsonResponse({ id: "vid_persist" });
+			}
+			if (url === "https://apihub.agnes-ai.com/v1/videos/vid_persist") {
+				return jsonResponse({
+					status: "completed",
+					metadata: { url: "https://platform-outputs.agnes-ai.space/videos/persist.mp4" },
+				});
+			}
+			if (url === "https://platform-outputs.agnes-ai.space/videos/persist.mp4") {
+				return new Response(Buffer.from("persisted-bytes"), {
+					status: 200,
+					headers: { "content-type": "video/mp4" },
+				});
+			}
+			return new Response("unexpected", { status: 500 });
+		}) as unknown as typeof fetch;
+		global.fetch = fetchMock;
+
+		manager.setContext({
+			modelRegistry: makeRegistry(agnesVideoModel, "test-agnes-key"),
+			sessionId: "studio-session",
+		});
+		manager.enqueue({ kind: "video", subject: "persistence check" });
+
+		await waitFor(
+			() =>
+				manager.getSnapshot().gallery.length > 0 &&
+				manager.getSnapshot().gallery[0].path.includes(`${os.homedir()}/.aery/studio/videos/`),
+		);
+
+		const entry = manager.getSnapshot().gallery[0];
+		expect(entry.path.startsWith(`${os.homedir()}/.aery/studio/videos/`)).toBe(true);
+		expect(entry.prompt).toBe("persistence check");
+		// The persisted file really exists on disk with the right bytes.
+		expect(await Bun.file(entry.path).text()).toBe("persisted-bytes");
+
+		await fs.rm(entry.path, { force: true });
+	}, 10_000);
 });
