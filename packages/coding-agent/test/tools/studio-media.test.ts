@@ -1,3 +1,8 @@
+// The poll-interval env must be set before media-state (and its dependency
+// chain, video-gen.ts) evaluates: media-state imports videoGenTool statically,
+// so the module-level VIDEO_POLL_INTERVAL_MS const would otherwise already be
+// locked to the default. Deliberate module-loading-boundary test — static
+// import cannot express "load after env is set".
 process.env.AERY_VIDEO_POLL_INTERVAL_MS = "25";
 
 const { MediaStateManager } = await import("@aryee337/aery/modes/components/studio/media-state");

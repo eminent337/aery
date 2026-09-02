@@ -78,6 +78,11 @@ export class StudioMediaPanel extends Container {
 		this.#buildLayout();
 	}
 
+	/** Current generation mode (Image/Video). */
+	getMode(): MediaKind {
+		return this.#mode;
+	}
+
 	/** Overlay-driven mode switch (tab in the header). */
 	setMode(kind: MediaKind): void {
 		this.#mode = kind;

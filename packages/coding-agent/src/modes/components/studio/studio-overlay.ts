@@ -211,31 +211,35 @@ export class AeryStudioOverlay extends Container {
 			}
 		}
 
-		const activeTabId = this.#tabBar.getActiveTab()?.id;
-		const isGenerate = activeTabId === "generate";
-
-		if (
-			matchesKey(data, "tab") ||
-			matchesKey(data, "shift+tab") ||
-			(!isGenerate && (matchesKey(data, "left") || matchesKey(data, "right")))
-		) {
-			this.#tabBar.handleInput(data);
-			this.onRequestRender?.();
-			return;
-		}
-
 		const state = this.#stateManager.getState();
 
 		if (state.activeTab === "generate") {
-			// Tab still switches views; ←/→ drives gallery selection inside the
-			// media panel; everything else (typing, enter) goes to the prompt.
-			if (matchesKey(data, "tab") || matchesKey(data, "shift+tab")) {
+			// On the generate tab: Tab toggles Image/Video mode; Shift+Tab
+			// leaves back to the previous view so the pane is never a trap.
+			if (matchesKey(data, "shift+tab")) {
 				this.#tabBar.handleInput(data);
+				this.onRequestRender?.();
+				return;
+			}
+			if (matchesKey(data, "tab")) {
+				this.#mediaPanel.setMode(this.#mediaPanel.getMode() === "image" ? "video" : "image");
 				this.onRequestRender?.();
 				return;
 			}
 			this.#mediaPanel.handleMediaKey(data);
 			this.#mediaPanel.handleTextInput(data);
+			this.onRequestRender?.();
+			return;
+		}
+
+		// Non-generate tabs: Tab / Shift+Tab / arrows switch views.
+		if (
+			matchesKey(data, "tab") ||
+			matchesKey(data, "shift+tab") ||
+			matchesKey(data, "left") ||
+			matchesKey(data, "right")
+		) {
+			this.#tabBar.handleInput(data);
 			this.onRequestRender?.();
 			return;
 		}
