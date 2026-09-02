@@ -12,9 +12,14 @@ beforeAll(async () => {
 });
 
 describe("AeryMediaStudioOverlay", () => {
-	it("renders the media studio surface (header, media panel, footer)", () => {
+	it("fills the terminal height exactly like /hub (not a bottom panel)", () => {
 		const studio = new AeryMediaStudioOverlay();
-		const output = plain(studio.render(120));
+		const lines = studio.render(120);
+
+		const termHeight = process.stdout.rows || 40;
+		expect(lines.length).toBe(termHeight);
+
+		const output = plain(lines);
 		expect(output).toContain("✦ Aery Media Studio");
 		expect(output).toContain("[● Image]");
 		expect(output).toContain("(  Video )");

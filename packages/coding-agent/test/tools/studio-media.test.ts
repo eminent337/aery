@@ -201,6 +201,8 @@ describe("MediaStateManager", () => {
 		manager.enqueue({ kind: "video", subject: "job three" });
 
 		await waitFor(() => manager.getSnapshot().jobs.every((j: { status: string }) => j.status === "completed"));
+		// Archiving is async (file copies); wait for the gallery to settle before counting.
+		await waitFor(() => manager.getSnapshot().gallery.length === 3);
 		expect(maxConcurrent).toBe(1);
 
 		const snapshot = manager.getSnapshot();

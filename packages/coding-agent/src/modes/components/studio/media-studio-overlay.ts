@@ -11,13 +11,16 @@
  * is the media Hub the user asked for ("like settings / hub").
  */
 
-import { Container, matchesKey, Spacer, Text } from "@aryee337/aery-tui";
+import { Container, matchesKey } from "@aryee337/aery-tui";
 import { theme } from "../../theme/theme.js";
-import { DynamicBorder } from "../dynamic-border.js";
 import { VideoPlayer, type VideoPlayerTheme } from "../video-player.js";
 import { MediaStateManager } from "./media-state.js";
 import { StudioMediaPanel } from "./studio-media-panel.js";
 
+/** Top chrome lines: top border, header, blank. */
+const TOP_CHROME = 3;
+/** Bottom chrome lines: blank, footer, bottom border. */
+const BOTTOM_CHROME = 3;
 export class AeryMediaStudioOverlay extends Container {
 	#mediaPanel: StudioMediaPanel;
 	#mediaUnsubscribe?: () => void;
@@ -43,9 +46,10 @@ export class AeryMediaStudioOverlay extends Container {
 
 		this.#mediaUnsubscribe = mediaManager.subscribe(() => {
 			this.#mediaPanel.updateSnapshot(MediaStateManager.instance().getSnapshot());
+			this.onRequestRender?.();
 		});
 
-		this.#buildLayout();
+		this.onRequestRender?.();
 	}
 
 	dispose(): void {
@@ -85,23 +89,39 @@ export class AeryMediaStudioOverlay extends Container {
 		this.#playerKeyListener = undefined;
 	}
 
-	#buildLayout(): void {
-		this.clear();
-		this.addChild(new DynamicBorder());
+	/**
+	 * Full-terminal frame exactly like /hub: the content (media panel with its
+	 * own header/footer) renders at the top of a viewport that fills
+	 * process.stdout.rows, so `/studio` takes over the whole window.
+	 */
+	override render(width: number): string[] {
+		const termHeight = process.stdout.rows || 40;
+		const padY = Math.max(0, termHeight - TOP_CHROME - BOTTOM_CHROME);
+		const viewport: string[] = [];
 
-		const header = `  ${theme.bold(theme.fg("accent", "✦ Aery Media Studio"))}  ${theme.fg("dim", "— image & video generation")}`;
-		this.addChild(new Text(header, 0, 0));
-		this.addChild(new Spacer(1));
-		this.addChild(this.#mediaPanel);
-		this.addChild(new Spacer(1));
-		const footer = theme.fg(
-			"dim",
-			"  [tab] Image/Video · [enter] render · [←/→] gallery · [enter on 🎬] play · [esc / q / F2] close",
+		// Top border + header
+		viewport.push(theme.fg("border", "─".repeat(Math.max(1, width))));
+		viewport.push(
+			`  ${theme.bold(theme.fg("accent", "✦ Aery Media Studio"))}  ${theme.fg("dim", "— image & video generation")}`,
 		);
-		this.addChild(new Text(footer, 0, 0));
-		this.addChild(new DynamicBorder());
+		viewport.push("");
 
-		this.onRequestRender?.();
+		// Media panel (content) with blank padding below to reach full height.
+		const content = this.#mediaPanel.render(width);
+		for (let i = 0; i < padY; i++) {
+			viewport.push(content[i] ?? " ".repeat(Math.max(0, width)));
+		}
+
+		// Footer chrome
+		viewport.push("");
+		viewport.push(
+			theme.fg(
+				"dim",
+				"  [tab] Image/Video · [enter] render · [←/→] gallery · [enter on 🎬] play · [esc / q / F2] close",
+			),
+		);
+		viewport.push(theme.fg("border", "─".repeat(Math.max(1, width))));
+		return viewport;
 	}
 
 	handleInput(data: string): void {
