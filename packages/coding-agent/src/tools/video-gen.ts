@@ -1,6 +1,6 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import { $env, ptree, Snowflake, untilAborted } from "@aryee337/aery-utils";
+import { $env, $envpos, ptree, Snowflake, untilAborted } from "@aryee337/aery-utils";
 import * as z from "zod/v4";
 import { isAuthenticated, type ModelRegistry } from "../config/model-registry";
 import type { CustomTool } from "../extensibility/custom-tools/types";
@@ -21,7 +21,7 @@ import type { CustomTool } from "../extensibility/custom-tools/types";
  */
 
 const VIDEO_SUBMIT_TIMEOUT_MS = 60_000;
-const VIDEO_POLL_INTERVAL_MS = 10_000;
+const VIDEO_POLL_INTERVAL_MS = $envpos("AERY_VIDEO_POLL_INTERVAL_MS", 10_000);
 const VIDEO_MAX_WAIT_MS = 15 * 60 * 1000;
 const VIDEO_MAX_TRANSIENT_STATUS_ERRORS = 5;
 const VIDEO_DOWNLOAD_TIMEOUT_MS = 3 * 60_000;

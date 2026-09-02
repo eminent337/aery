@@ -5,12 +5,14 @@
 
 import { Container, matchesKey, Spacer, TabBar, Text } from "@aryee337/aery-tui";
 import { getTabBarTheme } from "../../shared.js";
-import { DynamicBorder } from "../dynamic-border.js";
 import { theme } from "../../theme/theme.js";
+import { DynamicBorder } from "../dynamic-border.js";
+import { MediaStateManager } from "./media-state.js";
 import { StudioStateManager } from "./state.js";
-import { StudioHierarchyPanel } from "./studio-hierarchy-panel.js";
 import { StudioChatPanel } from "./studio-chat-panel.js";
+import { StudioHierarchyPanel } from "./studio-hierarchy-panel.js";
 import { StudioInspectorPanel } from "./studio-inspector-panel.js";
+import { StudioMediaPanel } from "./studio-media-panel.js";
 import type { StudioTab } from "./types.js";
 
 export class AeryStudioOverlay extends Container {
@@ -18,6 +20,8 @@ export class AeryStudioOverlay extends Container {
 	#tabBar: TabBar;
 	#hierarchyPanel: StudioHierarchyPanel;
 	#chatPanel: StudioChatPanel;
+	#mediaPanel: StudioMediaPanel;
+	#mediaUnsubscribe?: () => void;
 	#inspectorPanel: StudioInspectorPanel;
 	#contentContainer: Container;
 	#unsubscribe?: () => void;
@@ -27,14 +31,15 @@ export class AeryStudioOverlay extends Container {
 	constructor(stateManager?: StudioStateManager) {
 		super();
 		this.#stateManager = stateManager ?? StudioStateManager.instance();
-
 		const state = this.#stateManager.getState();
+
 		this.#tabBar = new TabBar(
 			"",
 			[
 				{ id: "swarm", label: "✦ Swarm Hierarchy" },
 				{ id: "chat", label: `💬 Inter-Agent IRC (${state.chatMessages.length})` },
 				{ id: "inspector", label: "🔍 Diff & Consensus Inspector" },
+				{ id: "generate", label: "🎨 Generate" },
 			],
 			getTabBarTheme(),
 			0,
@@ -53,6 +58,18 @@ export class AeryStudioOverlay extends Container {
 
 		this.#chatPanel = new StudioChatPanel(state.chatMessages);
 
+		const mediaManager = MediaStateManager.instance();
+		this.#mediaPanel = new StudioMediaPanel(mediaManager.getSnapshot(), {
+			onGenerate: (kind, prompt) => {
+				mediaManager.enqueue({ kind, subject: prompt });
+			},
+			onMoveSelection: delta => {
+				mediaManager.moveSelection(delta);
+			},
+			onOpenInPlayer: () => {
+				// Wired in phase 3 (video playback + controls).
+			},
+		});
 		const selectedAgent = state.agents.find(a => a.id === state.activeAgentId);
 		this.#inspectorPanel = new StudioInspectorPanel(
 			selectedAgent,
@@ -68,10 +85,15 @@ export class AeryStudioOverlay extends Container {
 		this.#unsubscribe = this.#stateManager.subscribe(() => {
 			this.#syncState();
 		});
+
+		this.#mediaUnsubscribe = MediaStateManager.instance().subscribe(() => {
+			this.#mediaPanel.updateSnapshot(MediaStateManager.instance().getSnapshot());
+		});
 	}
 
 	dispose(): void {
 		this.#unsubscribe?.();
+		this.#mediaUnsubscribe?.();
 	}
 
 	#buildLayout(): void {
@@ -80,16 +102,12 @@ export class AeryStudioOverlay extends Container {
 			{ id: "swarm", label: "✦ Swarm Hierarchy" },
 			{ id: "chat", label: `💬 Inter-Agent IRC (${state.chatMessages.length})` },
 			{ id: "inspector", label: "🔍 Diff & Consensus Inspector" },
+			{ id: "generate", label: "🎨 Generate" },
 		]);
 		this.#hierarchyPanel.updateAgents(state.agents);
 		this.#chatPanel.updateMessages(state.chatMessages);
 		const selectedAgent = state.agents.find(a => a.id === state.activeAgentId);
-		this.#inspectorPanel.update(
-			selectedAgent,
-			state.diffs,
-			state.consensusAgreedCount,
-			state.consensusTotalCount,
-		);
+		this.#inspectorPanel.update(selectedAgent, state.diffs, state.consensusAgreedCount, state.consensusTotalCount);
 
 		this.clear();
 		this.addChild(new DynamicBorder());
@@ -109,15 +127,18 @@ export class AeryStudioOverlay extends Container {
 			this.#contentContainer.addChild(this.#hierarchyPanel);
 		} else if (state.activeTab === "chat") {
 			this.#contentContainer.addChild(this.#chatPanel);
+		} else if (state.activeTab === "generate") {
+			this.#contentContainer.addChild(this.#mediaPanel);
 		} else {
 			this.#contentContainer.addChild(this.#inspectorPanel);
 		}
 
 		this.addChild(this.#contentContainer);
 		this.addChild(new Spacer(1));
-
-		// Footer Hints
-		const footer = theme.fg("dim", "  [Tab / ← / →] Switch View · [↑ / ↓] Select Agent · [Esc / F2] Exit Studio");
+		const footer = theme.fg(
+			"dim",
+			"  [Tab / ← / →] Switch View · [↑ / ↓] Select Agent · Generate tab: [enter] render · [←/→] gallery · [Esc / F2] Exit",
+		);
 		this.addChild(new Text(footer, 0, 0));
 		this.addChild(new DynamicBorder());
 
@@ -134,11 +155,13 @@ export class AeryStudioOverlay extends Container {
 			return;
 		}
 
+		const activeTabId = this.#tabBar.getActiveTab()?.id;
+		const isGenerate = activeTabId === "generate";
+
 		if (
 			matchesKey(data, "tab") ||
 			matchesKey(data, "shift+tab") ||
-			matchesKey(data, "left") ||
-			matchesKey(data, "right")
+			(!isGenerate && (matchesKey(data, "left") || matchesKey(data, "right")))
 		) {
 			this.#tabBar.handleInput(data);
 			this.onRequestRender?.();
@@ -146,6 +169,21 @@ export class AeryStudioOverlay extends Container {
 		}
 
 		const state = this.#stateManager.getState();
+
+		if (state.activeTab === "generate") {
+			// Tab still switches views; ←/→ drives gallery selection inside the
+			// media panel; everything else (typing, enter) goes to the prompt.
+			if (matchesKey(data, "tab") || matchesKey(data, "shift+tab")) {
+				this.#tabBar.handleInput(data);
+				this.onRequestRender?.();
+				return;
+			}
+			this.#mediaPanel.handleMediaKey(data);
+			this.#mediaPanel.handleTextInput(data);
+			this.onRequestRender?.();
+			return;
+		}
+
 		if (state.activeTab === "swarm") {
 			this.#hierarchyPanel.handleInput(data);
 		} else if (state.activeTab === "chat") {

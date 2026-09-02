@@ -3,8 +3,8 @@
  * Aggregates live agent lifecycle, IrcBus communication stream, and consensus status.
  */
 
-import { AgentRegistry } from "../../../registry/agent-registry.js";
 import { IrcBus } from "../../../irc/bus.js";
+import { AgentRegistry } from "../../../registry/agent-registry.js";
 import type { StudioAgentNode, StudioChatMessage, StudioInspectorDiff, StudioState, StudioTab } from "./types.js";
 
 export class StudioStateManager {
@@ -26,7 +26,7 @@ export class StudioStateManager {
 	constructor() {
 		// Auto-hook IrcBus global traffic
 		const bus = IrcBus.global();
-		bus.onMessage((msg) => {
+		bus.onMessage(msg => {
 			this.recordIrcMessage(msg);
 		});
 

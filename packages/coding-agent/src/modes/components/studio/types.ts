@@ -1,8 +1,7 @@
 /**
  * Type definitions for Aery Studio (/studio) multi-agent visual war-room overlay.
  */
-
-export type StudioTab = "swarm" | "chat" | "inspector";
+export type StudioTab = "swarm" | "chat" | "inspector" | "generate";
 
 export interface StudioAgentNode {
 	id: string;

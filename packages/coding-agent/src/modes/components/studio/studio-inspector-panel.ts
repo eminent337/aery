@@ -2,7 +2,7 @@
  * Right Pane: Diffs, Artifacts, and Consensus Tracker.
  */
 
-import { Container, Text, Spacer } from "@aryee337/aery-tui";
+import { Container, Spacer, Text } from "@aryee337/aery-tui";
 import { theme } from "../../theme/theme.js";
 import type { StudioAgentNode, StudioInspectorDiff } from "./types.js";
 
@@ -59,7 +59,9 @@ export class StudioInspectorPanel extends Container {
 			this.addChild(new Text(theme.fg("muted", "    No recent file diffs recorded in this session."), 0, 0));
 		} else {
 			for (const diff of this.#diffs.slice(0, 5)) {
-				this.addChild(new Text(`    📄 ${theme.bold(diff.filePath)} ${theme.fg("dim", `(by ${diff.authorAgentId})`)}`, 0, 0));
+				this.addChild(
+					new Text(`    📄 ${theme.bold(diff.filePath)} ${theme.fg("dim", `(by ${diff.authorAgentId})`)}`, 0, 0),
+				);
 			}
 		}
 	}

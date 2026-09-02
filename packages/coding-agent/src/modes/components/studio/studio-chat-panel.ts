@@ -2,7 +2,7 @@
  * Center Pane: Live Inter-Agent Chat Stream (IRC).
  */
 
-import { Container, Text, Spacer } from "@aryee337/aery-tui";
+import { Container, Spacer, Text } from "@aryee337/aery-tui";
 import { theme } from "../../theme/theme.js";
 import type { StudioChatMessage } from "./types.js";
 
@@ -28,7 +28,10 @@ export class StudioChatPanel extends Container {
 		if (this.#messages.length === 0) {
 			this.addChild(
 				new Text(
-					theme.fg("muted", "  No inter-agent messages yet. Subagents will communicate here over IRC during team collaboration."),
+					theme.fg(
+						"muted",
+						"  No inter-agent messages yet. Subagents will communicate here over IRC during team collaboration.",
+					),
 					0,
 					0,
 				),

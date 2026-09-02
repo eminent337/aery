@@ -2,7 +2,7 @@
  * Left Pane: Swarm Hierarchy and active subagent tree.
  */
 
-import { Container, SelectList, type SelectItem, Text, Spacer } from "@aryee337/aery-tui";
+import { Container, type SelectItem, SelectList, Spacer, Text } from "@aryee337/aery-tui";
 import { getSelectListTheme, theme } from "../../theme/theme.js";
 import type { StudioAgentNode } from "./types.js";
 
@@ -47,7 +47,9 @@ export class StudioHierarchyPanel extends Container {
 			return {
 				value: agent.id,
 				label: `${prefix}${theme.bold(agent.displayName)}  ${statusIcon}`,
-				description: agent.currentTool ? `Tool: ${agent.currentTool} ${agent.currentToolArgs || ""}` : `Kind: ${agent.kind}`,
+				description: agent.currentTool
+					? `Tool: ${agent.currentTool} ${agent.currentToolArgs || ""}`
+					: `Kind: ${agent.kind}`,
 			};
 		});
 
