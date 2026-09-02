@@ -36,6 +36,18 @@ const KIND_LABEL: Record<MediaKind, string> = {
 	video: "Video",
 };
 
+/** Static cycle lists (first entry = provider default). */
+const IMAGE_RATIOS = [undefined, "1:1", "3:4", "4:3", "9:16", "16:9"] as const;
+const VIDEO_RATIOS = [undefined, "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
+const VIDEO_DURATIONS = [undefined, 3, 5, 8, 10, 15] as const;
+const VIDEO_RESOLUTIONS = [undefined, "480P", "768P", "1080P", "2K"] as const;
+
+/** Compute the next entry in a cycle list (wraps past the end). */
+function nextIn<T>(list: readonly (T | undefined)[], current: T | undefined): T | undefined {
+	const idx = list.indexOf(current);
+	return list[(idx + 1) % list.length];
+}
+
 export interface MediaPanelCallbacks {
 	/** User pressed Enter on a non-empty prompt. */
 	onGenerate: (kind: MediaKind, prompt: string) => void;
@@ -43,6 +55,8 @@ export interface MediaPanelCallbacks {
 	onMoveSelection: (delta: number) => void;
 	/** Enter on a selected gallery video → open in the video player. */
 	onOpenInPlayer: (videoPath: "selected" | (string & {})) => void;
+	/** User confirmed a pick in the model picker (undefined = back to auto). */
+	onPickModel?: (label: string | undefined) => void;
 }
 
 export class StudioMediaPanel extends Container {
@@ -51,6 +65,14 @@ export class StudioMediaPanel extends Container {
 	#snapshot: MediaStateSnapshot;
 	#callbacks: MediaPanelCallbacks;
 	#promptInput: Input;
+	/** Settings cycle state (undefined = provider default). */
+	#imageRatio?: string;
+	#videoRatio?: string;
+	#videoDuration?: number;
+	#videoResolution?: string;
+	/** Open model picker state (labels from overlay enumeration, cursor). */
+	#pickerItems: string[] = [];
+	#pickerIndex = 0;
 
 	constructor(snapshot: MediaStateSnapshot, callbacks: MediaPanelCallbacks) {
 		super();
@@ -78,6 +100,61 @@ export class StudioMediaPanel extends Container {
 		this.#buildLayout();
 	}
 
+	/** Cycle image aspect ratio (wraps back to provider default). */
+	cycleImageRatio(): void {
+		this.#imageRatio = nextIn(IMAGE_RATIOS, this.#imageRatio);
+		this.#buildLayout();
+	}
+
+	/** Cycle video aspect ratio (wraps back to provider default). */
+	cycleVideoRatio(): void {
+		this.#videoRatio = nextIn(VIDEO_RATIOS, this.#videoRatio);
+		this.#buildLayout();
+	}
+
+	/** Cycle video length (wraps back to provider default). */
+	cycleVideoDuration(): void {
+		this.#videoDuration = nextIn(VIDEO_DURATIONS, this.#videoDuration);
+		this.#buildLayout();
+	}
+
+	/** Cycle video resolution (wraps back to provider default). */
+	cycleVideoResolution(): void {
+		this.#videoResolution = nextIn(VIDEO_RESOLUTIONS, this.#videoResolution);
+		this.#buildLayout();
+	}
+
+	/** Open the model picker with labels enumerated by the overlay. */
+	openPicker(items: string[]): void {
+		if (items.length === 0) return;
+		this.#pickerItems = items;
+		this.#pickerIndex = 0;
+		this.#buildLayout();
+	}
+
+	closePicker(): void {
+		this.#pickerItems = [];
+		this.#pickerIndex = 0;
+		this.#buildLayout();
+	}
+
+	get isPickerOpen(): boolean {
+		return this.#pickerItems.length > 0;
+	}
+
+	/** Move the picker cursor (wraps). */
+	movePicker(delta: number): void {
+		if (this.#pickerItems.length === 0) return;
+		const n = this.#pickerItems.length;
+		this.#pickerIndex = (this.#pickerIndex + delta + n) % n;
+		this.#buildLayout();
+	}
+
+	/** Currently highlighted picker label. */
+	get pickerSelection(): string | undefined {
+		return this.#pickerItems[this.#pickerIndex];
+	}
+
 	/** Current generation mode (Image/Video). */
 	getMode(): MediaKind {
 		return this.#mode;
@@ -95,15 +172,15 @@ export class StudioMediaPanel extends Container {
 		// Header: mode toggle + model line
 		const imageTab = this.#mode === "image" ? "[● Image]" : "(  Image )";
 		const videoTab = this.#mode === "video" ? "[● Video]" : "(  Video )";
-		const modelLine = this.#model ? `model: ${this.#model}` : "model: auto (best free)";
+		const settings = this.#settingsLine();
 		this.addChild(
-			new Text(theme.bold(theme.fg("accent", `  ✦ Generate   ${imageTab}  ${videoTab}   ${modelLine}`)), 0, 0),
+			new Text(theme.bold(theme.fg("accent", `  ✦ Generate   ${imageTab}  ${videoTab}   ${settings}`)), 0, 0),
 		);
 		this.addChild(
 			new Text(
 				theme.fg(
 					"muted",
-					"  tab = switch mode · m = pick model · enter = generate · ←/→ = gallery · enter on 🎬 = play",
+					"  tab mode · alt+a aspect · alt+d length · alt+r res · alt+m model · enter generate · ←/→ gallery",
 				),
 				1,
 				0,
@@ -114,6 +191,17 @@ export class StudioMediaPanel extends Container {
 		// Prompt input
 		this.addChild(this.#promptInput);
 		this.addChild(new Spacer(1));
+
+		// Live model picker (alt+m) — sits between prompt and queue.
+		if (this.#pickerItems.length > 0) {
+			this.addChild(new Text(theme.bold("  Pick a model:"), 0, 0));
+			for (let i = 0; i < this.#pickerItems.length; i++) {
+				const marker = i === this.#pickerIndex ? theme.fg("accent", " ▶") : "  ";
+				this.addChild(new Text(`${marker} ${this.#pickerItems[i]}`, 0, 0));
+			}
+			this.addChild(new Text(theme.fg("muted", "    ↑/↓ move · enter confirm · esc cancel"), 0, 0));
+			this.addChild(new Spacer(1));
+		}
 
 		// Queue: up to 4 most recent jobs (oldest first)
 		this.addChild(new Text(theme.bold("  Queue"), 0, 0));
@@ -155,6 +243,17 @@ export class StudioMediaPanel extends Container {
 		}
 	}
 
+	/** fal-style settings summary for the current mode. */
+	#settingsLine(): string {
+		const model = this.#model ?? "auto (best free)";
+		if (this.#mode === "image") {
+			return `model: ${model} · ratio ${this.#imageRatio ?? "default"}`;
+		}
+		const len = this.#videoDuration === undefined ? "—" : `${this.#videoDuration}s`;
+		const res = this.#videoResolution ?? "—";
+		return `model: ${model} · ratio ${this.#videoRatio ?? "default"} · len ${len} · res ${res}`;
+	}
+
 	#jobLine(job: MediaJob): Text {
 		const icon =
 			job.status === "running"
@@ -174,6 +273,27 @@ export class StudioMediaPanel extends Container {
 	 * global keys. Returns true when the key was consumed.
 	 */
 	handleMediaKey(data: string): boolean {
+		// Model picker navigation first (it owns ↑/↓/enter/esc while open).
+		if (this.#pickerItems.length > 0) {
+			if (matchesKey(data, "up")) {
+				this.movePicker(-1);
+				return true;
+			}
+			if (matchesKey(data, "down")) {
+				this.movePicker(1);
+				return true;
+			}
+			if (data === "\r" || data === "\n") {
+				this.#callbacks.onPickModel?.(this.pickerSelection);
+				this.closePicker();
+				return true;
+			}
+			if (matchesKey(data, "escape")) {
+				this.closePicker();
+				return true;
+			}
+		}
+
 		// Tab toggles Image/Video (the overlay's TabBar consumes its own tab
 		// handling first, so this only fires when the overlay delegates).
 		if (matchesKey(data, "left") || matchesKey(data, "right")) {

@@ -82,6 +82,11 @@ export class MediaStateManager {
 		this.#statusMessage = spec ? undefined : "studio not attached to a session";
 	}
 
+	/** Live-session context spec (model registry etc.) for candidate enumeration. */
+	getContextSpec(): MediaContextSpec | undefined {
+		return this.#contextSpec;
+	}
+
 	/** Static label for a job status (Record lookup, no dynamic Set needed). */
 	statusLabel(status: MediaJobStatus): string {
 		return STATUS_LABEL[status];
@@ -96,7 +101,97 @@ export class MediaStateManager {
 		};
 	}
 
-	/** Enqueue a generation job; the queue drains one job at a time. */
+	// ---- Generation settings (fal-style: model + aspect + duration) ----
+
+	/** Image aspect ratios supported by the common image providers. */
+	static readonly IMAGE_RATIOS = ["1:1", "3:4", "4:3", "9:16", "16:9"] as const;
+	/** Video aspect ratios supported by the video providers. */
+	static readonly VIDEO_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
+	/** Video length steps in seconds (tool allows 3–15). */
+	static readonly VIDEO_DURATIONS = [3, 5, 8, 10, 15] as const;
+	/** Video resolution tiers. */
+	static readonly VIDEO_RESOLUTIONS = ["480P", "768P", "1080P", "2K"] as const;
+
+	#imageRatio?: string;
+	#videoRatio?: string;
+	#videoDuration?: number;
+	#videoResolution?: string;
+	#imageModel?: { provider: string; model: string };
+	#videoModel?: { provider: string; model: string };
+
+	/** Current image-mode settings. */
+	get imageSettings(): { aspectRatio?: string; model?: string; provider?: string } {
+		return {
+			aspectRatio: this.#imageRatio,
+			model: this.#imageModel?.model,
+			provider: this.#imageModel?.provider,
+		};
+	}
+
+	/** Current video-mode settings. */
+	get videoSettings(): {
+		ratio?: string;
+		duration?: number;
+		resolution?: string;
+		model?: string;
+		provider?: string;
+	} {
+		return {
+			ratio: this.#videoRatio,
+			duration: this.#videoDuration,
+			resolution: this.#videoResolution,
+			model: this.#videoModel?.model,
+			provider: this.#videoModel?.provider,
+		};
+	}
+
+	/** Cycle to the next image aspect ratio (wraps to undefined = provider default). */
+	cycleImageRatio(): void {
+		const opts = [...MediaStateManager.IMAGE_RATIOS, undefined];
+		const idx = opts.indexOf(this.#imageRatio as (typeof opts)[number]);
+		this.#imageRatio = opts[(idx + 1) % opts.length];
+		this.#notify();
+	}
+
+	/** Cycle to the next video aspect ratio (wraps to undefined = provider default). */
+	cycleVideoRatio(): void {
+		const opts = [...MediaStateManager.VIDEO_RATIOS, undefined];
+		const idx = opts.indexOf(this.#videoRatio as (typeof opts)[number]);
+		this.#videoRatio = opts[(idx + 1) % opts.length];
+		this.#notify();
+	}
+
+	/** Cycle video length: default → 3 → 5 → 8 → 10 → 15 → default. */
+	cycleVideoDuration(): void {
+		const opts: (number | undefined)[] = [...MediaStateManager.VIDEO_DURATIONS, undefined];
+		const idx = opts.indexOf(this.#videoDuration);
+		this.#videoDuration = opts[(idx + 1) % opts.length];
+		this.#notify();
+	}
+
+	/** Cycle video resolution: default → 480P → 768P → 1080P → 2K → default. */
+	cycleVideoResolution(): void {
+		const opts: (string | undefined)[] = [...MediaStateManager.VIDEO_RESOLUTIONS, undefined];
+		const idx = opts.indexOf(this.#videoResolution);
+		this.#videoResolution = opts[(idx + 1) % opts.length];
+		this.#notify();
+	}
+
+	/** Set the model for the current mode from a live candidate pick. */
+	setModelPick(kind: MediaKind, pick: { provider: string; model: string } | undefined): void {
+		if (kind === "image") {
+			this.#imageModel = pick;
+		} else {
+			this.#videoModel = pick;
+		}
+		this.#notify();
+	}
+
+	/**
+	 * Enqueue a generation job; the queue drains one job at a time. Settings
+	 * (aspect ratio, duration, resolution, model) default to the studio's
+	 * current picks and can be overridden per call (tests do this).
+	 */
 	enqueue(input: {
 		kind: MediaKind;
 		subject: string;
@@ -110,10 +205,20 @@ export class MediaStateManager {
 		resolution?: string;
 		ratio?: string;
 	}): void {
+		const kind = input.kind;
+		const withSettings: typeof input = {
+			...input,
+			aspect_ratio: input.aspect_ratio ?? (kind === "image" ? this.#imageRatio : undefined),
+			ratio: input.ratio ?? (kind === "video" ? this.#videoRatio : undefined),
+			duration: input.duration ?? (kind === "video" ? this.#videoDuration : undefined),
+			resolution: input.resolution ?? (kind === "video" ? this.#videoResolution : undefined),
+			model: input.model ?? (kind === "image" ? this.#imageModel?.model : this.#videoModel?.model),
+			provider: input.provider ?? (kind === "image" ? this.#imageModel?.provider : this.#videoModel?.provider),
+		};
 		const job: MediaJob = {
 			id: `media_${Date.now()}_${this.#nextJobId++}`,
 			status: "queued",
-			...input,
+			...withSettings,
 		};
 		this.#jobs.push(job);
 		if (this.#jobs.length > 50) this.#jobs.shift();

@@ -13,6 +13,8 @@
 
 import * as fs from "node:fs";
 import { Container, Image, matchesKey } from "@aryee337/aery-tui";
+import { enumerateImageCandidates } from "../../../tools/image-gen";
+import { enumerateVideoCandidates } from "../../../tools/video-gen";
 import { theme } from "../../theme/theme.js";
 import { VideoPlayer, type VideoPlayerTheme } from "../video-player.js";
 import { MediaStateManager } from "./media-state.js";
@@ -39,12 +41,17 @@ export class AeryMediaStudioOverlay extends Container {
 	/** Cached preview for the currently selected gallery image. */
 	#previewImage?: Image;
 	#previewPath?: string;
+	/** Captured live-session context for async candidate enumeration. */
+	#modelRegistry?: Parameters<typeof enumerateImageCandidates>[0];
+	/** Guard so alt+m doesn't stack overlapping enumerations. */
+	#enumerating = false;
 	onClose?: () => void;
 	onRequestRender?: () => void;
 
 	constructor() {
 		super();
 		const mediaManager = MediaStateManager.instance();
+		this.#modelRegistry = mediaManager.getContextSpec()?.modelRegistry;
 		this.#mediaPanel = new StudioMediaPanel(mediaManager.getSnapshot(), {
 			onGenerate: (kind, prompt) => {
 				mediaManager.enqueue({ kind, subject: prompt });
@@ -54,6 +61,9 @@ export class AeryMediaStudioOverlay extends Container {
 			},
 			onOpenInPlayer: (videoPath: string) => {
 				void this.#openInPlayer(videoPath);
+			},
+			onPickModel: label => {
+				this.#applyModelPick(label);
 			},
 		});
 
@@ -102,6 +112,64 @@ export class AeryMediaStudioOverlay extends Container {
 		this.#videoPlayer?.close();
 		this.#videoPlayer = undefined;
 		this.#playerKeyListener = undefined;
+	}
+
+	/** alt+m: enumerate live candidates and open the in-panel model picker. */
+	async #openModelPicker(): Promise<void> {
+		if (this.#enumerating || this.#mediaPanel.isPickerOpen) return;
+		const kind = this.#mediaPanel.getMode();
+		const spec = MediaStateManager.instance().getContextSpec();
+		if (!spec) {
+			this.#mediaPanel.openPicker([]);
+			return;
+		}
+		this.#enumerating = true;
+		try {
+			const items =
+				kind === "image"
+					? (await enumerateImageCandidates(spec.modelRegistry, undefined, spec.sessionId)).map(
+							c => `${c.provider}${c.modelId ? ` — ${c.modelId}` : ""}`,
+						)
+					: (await enumerateVideoCandidates(spec.modelRegistry, spec.sessionId)).map(
+							c => `${c.provider} — ${c.modelId}`,
+						);
+			this.#mediaPanel.openPicker(items);
+		} catch {
+			// Enumeration is best-effort; keep the studio usable without a picker.
+		} finally {
+			this.#enumerating = false;
+		}
+	}
+
+	/** Resolve a picked label back to provider/model and store it in the manager. */
+	#applyModelPick(label: string | undefined): void {
+		const kind = this.#mediaPanel.getMode();
+		const spec = MediaStateManager.instance().getContextSpec();
+		if (spec?.modelRegistry) {
+			try {
+				// Re-enumerate cheaply is wasteful; instead resolve from label via
+				// the same candidates used to build it — re-run enumeration sync-free
+				// is impossible, so cache was avoided: simplest is re-enumerate once.
+				void Promise.resolve().then(async () => {
+					const candidates =
+						kind === "image"
+							? await enumerateImageCandidates(spec.modelRegistry, undefined, spec.sessionId)
+							: await enumerateVideoCandidates(spec.modelRegistry, spec.sessionId);
+					const match = candidates.find(c => c.provider + (c.modelId ? ` — ${c.modelId}` : "") === label);
+					if (match) {
+						MediaStateManager.instance().setModelPick(kind, {
+							provider: match.provider,
+							model: match.modelId ?? match.provider,
+						});
+					} else {
+						MediaStateManager.instance().setModelPick(kind, undefined);
+					}
+					this.onRequestRender?.();
+				});
+			} catch {
+				// Keep last pick on failure.
+			}
+		}
 	}
 
 	/** Load an image preview for the selected gallery item (async, cached). */
@@ -212,6 +280,30 @@ export class AeryMediaStudioOverlay extends Container {
 				this.onRequestRender?.();
 				return;
 			}
+		}
+
+		// Studio settings alt-chords (fal-style: aspect/length/res/model).
+		if (matchesKey(data, "alt+a")) {
+			this.#mediaPanel.getMode() === "image"
+				? this.#mediaPanel.cycleImageRatio()
+				: this.#mediaPanel.cycleVideoRatio();
+			this.onRequestRender?.();
+			return;
+		}
+		if (matchesKey(data, "alt+d")) {
+			this.#mediaPanel.cycleVideoDuration();
+			this.onRequestRender?.();
+			return;
+		}
+		if (matchesKey(data, "alt+r")) {
+			this.#mediaPanel.cycleVideoResolution();
+			this.onRequestRender?.();
+			return;
+		}
+		if (matchesKey(data, "alt+m")) {
+			void this.#openModelPicker();
+			this.onRequestRender?.();
+			return;
 		}
 
 		// On the media studio, Tab toggles Image/Video mode.
