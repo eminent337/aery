@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import type { ModelRegistry } from "@aryee337/aery/config/model-registry";
 import type { CustomToolContext } from "@aryee337/aery/extensibility/custom-tools";
 import type { ReadonlySessionManager } from "@aryee337/aery/session/session-manager";
-import { imageGenTool, setPreferredImageProvider } from "@aryee337/aery/tools/image-gen";
+import { enumerateImageCandidates, imageGenTool, setPreferredImageProvider } from "@aryee337/aery/tools/image-gen";
 import type { Model } from "@aryee337/aery-ai";
 
 const originalFetch = global.fetch;
@@ -570,5 +570,57 @@ describe("imageGenTool", () => {
 		controller.abort();
 		await expect(executePromise).rejects.toThrow("Aborted");
 		expect(callCount).toBe(1);
+	}, 60_000);
+});
+
+describe("enumerateImageCandidates", () => {
+	it("lists every authenticated image-only custom model, not just the first", async () => {
+		const mk = (id: string) =>
+			({
+				api: "openai-completions",
+				provider: "custom-api-apihub-agnes-ai-com-v1",
+				id,
+				name: id,
+				baseUrl: "https://apihub.agnes-ai.com/v1",
+				imageOnly: true,
+			}) as unknown as Model;
+		const models = [mk("agnes-image-2.0-flash"), mk("agnes-image-2.1-flash"), mk("agnes-image-2.5-flash")];
+		const registry = {
+			getApiKey: async () => "test-agnes-key",
+			getApiKeyForProvider: async () => undefined,
+			getProviderBaseUrl: () => undefined,
+			getAll: () => models,
+			authStorage: { hasNonEnvCredential: () => false },
+		} as unknown as ModelRegistry;
+
+		const candidates = await enumerateImageCandidates(registry, undefined);
+		const custom = candidates.filter(c => c.provider === "custom").map(c => c.modelId);
+
+		expect(custom).toEqual(["agnes-image-2.0-flash", "agnes-image-2.1-flash", "agnes-image-2.5-flash"]);
+	}, 60_000);
+
+	it("still returns the first custom model as the auto-detected default", async () => {
+		const mk = (id: string) =>
+			({
+				api: "openai-completions",
+				provider: "custom-api-apihub-agnes-ai-com-v1",
+				id,
+				name: id,
+				baseUrl: "https://apihub.agnes-ai.com/v1",
+				imageOnly: true,
+			}) as unknown as Model;
+		const models = [mk("agnes-image-2.0-flash"), mk("agnes-image-2.5-flash")];
+		const registry = {
+			getApiKey: async () => "test-agnes-key",
+			getApiKeyForProvider: async () => undefined,
+			getProviderBaseUrl: () => undefined,
+			getAll: () => models,
+			authStorage: { hasNonEnvCredential: () => false },
+		} as unknown as ModelRegistry;
+
+		const candidates = await enumerateImageCandidates(registry, undefined);
+		const firstCustom = candidates.find(c => c.provider === "custom");
+
+		expect(firstCustom?.modelId).toBe("agnes-image-2.0-flash");
 	}, 60_000);
 });

@@ -554,38 +554,54 @@ function isCustomImageModel(activeModel: Model | undefined): activeModel is Mode
 	return /(^|[_-])(image|img|img2|dall-e|dalle|flux|sdxl|stable-diffusion|imagen)/.test(id);
 }
 
-async function findCustomImageCredentials(
+async function enumerateCustomImageCredentials(
 	modelRegistry: ModelRegistry | undefined,
 	activeModel: Model | undefined,
 	sessionId?: string,
-): Promise<ImageApiKey | null> {
-	if (!modelRegistry) return null;
+): Promise<ImageApiKey[]> {
+	if (!modelRegistry) return [];
+	const results: ImageApiKey[] = [];
 
-	// Active model itself is an image-capable custom model — use it directly.
+	// Active model itself is an image-capable custom model — use it directly
+	// and list it first.
 	if (isCustomImageModel(activeModel)) {
 		const apiKey = await modelRegistry.getApiKey(activeModel, sessionId);
 		if (isAuthenticated(apiKey)) {
-			return { provider: "custom", apiKey, model: activeModel, baseUrl: activeModel.baseUrl };
+			results.push({ provider: "custom", apiKey, model: activeModel, baseUrl: activeModel.baseUrl });
 		}
 	}
 
 	// Registry fallback: the session may be on a text model (or an
-	// image-only model hidden from chat selection) while a custom provider
-	// exposes imageOnly models (e.g. Agnes agnes-image-*). Prefer a provider
-	// we already have auth for; the active provider wins ties.
+	// image-only model hidden from chat selection) while custom providers
+	// expose imageOnly models (e.g. Agnes agnes-image-*). Prefer a provider
+	// we already have auth for; the active provider wins ties. Every
+	// authenticated image-only model is returned so the candidate picker can
+	// offer the full catalog, not just whichever model the provider lists
+	// first.
 	const candidates = modelRegistry.getAll().filter(model => model.imageOnly && model.baseUrl);
-	if (candidates.length === 0) return null;
 	const ordered = activeModel
 		? [...candidates].sort(
 				(a, b) => (a.provider === activeModel.provider ? -1 : 0) - (b.provider === activeModel.provider ? -1 : 0),
 			)
 		: candidates;
+	const seen = new Set(results.map(r => r.model?.id));
 	for (const model of ordered) {
+		if (model.id && seen.has(model.id)) continue;
 		const apiKey = await modelRegistry.getApiKey(model, sessionId);
 		if (!isAuthenticated(apiKey)) continue;
-		return { provider: "custom", apiKey, model, baseUrl: model.baseUrl };
+		if (model.id) seen.add(model.id);
+		results.push({ provider: "custom", apiKey, model, baseUrl: model.baseUrl });
 	}
-	return null;
+	return results;
+}
+
+async function findCustomImageCredentials(
+	modelRegistry: ModelRegistry | undefined,
+	activeModel: Model | undefined,
+	sessionId?: string,
+): Promise<ImageApiKey | null> {
+	const all = await enumerateCustomImageCredentials(modelRegistry, activeModel, sessionId);
+	return all[0] ?? null;
 }
 
 async function findImageApiKey(
@@ -666,7 +682,7 @@ interface ImageCandidate {
  * the default. Used to build the interactive `ask` picker options and the
  * "Available image models" list in the tool description.
  */
-async function enumerateImageCandidates(
+export async function enumerateImageCandidates(
 	modelRegistry: ModelRegistry | undefined,
 	activeModel: Model | undefined,
 	sessionId?: string,
@@ -693,8 +709,13 @@ async function enumerateImageCandidates(
 		candidates.push({ label, provider, modelId, apiKey });
 	};
 
+	// List every same-provider variant (e.g. all agnes-image-* models).
+	const pushAll = (keys: ImageApiKey[]): void => {
+		for (const key of keys) push(key);
+	};
+
 	push(await findOpenAIHostedImageCredentials(modelRegistry, activeModel, sessionId));
-	push(await findCustomImageCredentials(modelRegistry, activeModel, sessionId));
+	pushAll(await enumerateCustomImageCredentials(modelRegistry, activeModel, sessionId));
 	if (modelRegistry) push(await findAntigravityCredentials(modelRegistry));
 	push(await findXAIImageCredentials(modelRegistry));
 	const openRouterKey = getEnvApiKey("openrouter");
