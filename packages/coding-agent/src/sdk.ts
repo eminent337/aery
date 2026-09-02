@@ -175,6 +175,7 @@ import { wrapToolWithMetaNotice } from "./tools/output-meta";
 import { queueResolveHandler } from "./tools/resolve";
 import { ToolError } from "./tools/tool-errors";
 import { ttsTool } from "./tools/tts";
+import { getVideoGenTools } from "./tools/video-gen";
 import { copyToClipboard } from "./utils/clipboard";
 import { EventBus } from "./utils/event-bus";
 import { buildNamedToolChoice } from "./utils/tool-choice";
@@ -1735,6 +1736,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			customTools.push(...(imageGenTools as unknown as CustomTool[]));
 		}
 
+		// Add video generation when video credentials are configured (FAL_KEY).
+		const videoGenTools = await getVideoGenTools();
+		if (videoGenTools.length > 0) {
+			customTools.push(...(videoGenTools as unknown as CustomTool[]));
+		}
+
 		if (settings.get("tts.enabled")) {
 			customTools.push(ttsTool as unknown as CustomTool);
 		}
@@ -2107,11 +2114,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		}
 		// When IRC is enabled and an agent specifies an explicit tool list, ensure `irc` is retained
 		// so team mode swarm communication and inter-agent collaboration works seamlessly.
-		if (
-			explicitlyRequestedToolNames &&
-			toolRegistry.has("irc") &&
-			!explicitlyRequestedToolNames.includes("irc")
-		) {
+		if (explicitlyRequestedToolNames && toolRegistry.has("irc") && !explicitlyRequestedToolNames.includes("irc")) {
 			explicitlyRequestedToolNames.push("irc");
 		}
 		const requestedToolNames = explicitlyRequestedToolNames ?? toolNamesFromRegistry;
