@@ -21,9 +21,6 @@ import { MediaStateManager } from "./media-state.js";
 import type { MediaGalleryItem } from "./media-types.js";
 import { StudioMediaPanel } from "./studio-media-panel.js";
 
-/** Bottom chrome lines: blank, footer, bottom border. */
-const BOTTOM_CHROME = 3;
-
 /** Mime type from file extension (Record per house rules). */
 const EXT_MIME: Record<string, string> = {
 	".png": "image/png",
@@ -208,55 +205,183 @@ export class AeryMediaStudioOverlay extends Container {
 	 */
 	override render(width: number): string[] {
 		const termHeight = process.stdout.rows || 40;
+		const w = Math.max(70, width);
+		const innerW = w - 4;
+		const snap = MediaStateManager.instance().getSnapshot();
+		const mode = this.#mediaPanel.getMode();
+		const gallery = snap.gallery;
+		const selected = gallery[snap.selectedIndex];
+
 		const viewport: string[] = [];
 
-		// Top border + header
-		viewport.push(theme.fg("border", "─".repeat(Math.max(1, width))));
-		viewport.push(
-			`  ${theme.bold(theme.fg("accent", "✦ Aery Media Studio"))}  ${theme.fg("dim", "— image & video generation")}`,
-		);
-		viewport.push("");
+		// 1. Top Header Bar (with styled badges & settings)
+		const imageTab = mode === "image" ? "[● Image]" : "(  Image )";
+		const videoTab = mode === "video" ? "[● Video]" : "(  Video )";
+		const modelText = "model: auto (best free)";
+		const settingsText =
+			mode === "image" ? `${imageTab}  ${videoTab}   ${modelText}` : `${imageTab}  ${videoTab}   ${modelText}`;
 
-		// Media panel (prompt, queue, gallery list).
-		const content = this.#mediaPanel.render(width);
-		for (const line of content) {
-			viewport.push(line);
-		}
-
-		// Image preview: render the selected gallery image inline (Kitty/sixel/iTerm2).
-		if (this.#previewImage) {
-			viewport.push("");
-			viewport.push(`  ${theme.bold("  Preview")}`);
-			const imgLines = this.#previewImage.render(width);
-			for (const line of imgLines) {
-				viewport.push(line);
-			}
-		}
-
-		// Video player (if active).
-		if (this.#videoPlayer) {
-			viewport.push("");
-			const playerLines = this.#videoPlayer.render(width);
-			for (const line of playerLines) {
-				viewport.push(line);
-			}
-		}
-
-		// Pad to full terminal height.
-		const padY = Math.max(0, termHeight - viewport.length - BOTTOM_CHROME);
-		for (let i = 0; i < padY; i++) {
-			viewport.push("");
-		}
-
-		// Footer chrome
-		viewport.push("");
 		viewport.push(
 			theme.fg(
-				"dim",
-				"  [tab] Image/Video · [enter] render · [←/→] gallery · [enter on 🎬] play · [esc / q / F2] close",
+				"border",
+				`╭─ ${theme.bold(theme.fg("accent", "✦ Aery Media Studio"))} ${theme.fg("border", "─".repeat(Math.max(0, w - 28)))}╮`,
 			),
 		);
-		viewport.push(theme.fg("border", "─".repeat(Math.max(1, width))));
+		const headerContent = `  ${theme.bold(theme.fg("accent", "✦ Generate"))}   ${settingsText}`;
+		const padHead = Math.max(0, w - 2 - headerContent.replace(/\u001b\[[0-9;]*m/g, "").length);
+		viewport.push(theme.fg("border", "│") + headerContent + " ".repeat(padHead) + theme.fg("border", "│"));
+		viewport.push(theme.fg("border", `├${"─".repeat(w - 2)}┤`));
+
+		// 2. Hero Viewport (Large centerpiece taking primary visual weight)
+		if (this.#videoPlayer) {
+			viewport.push(
+				theme.fg(
+					"border",
+					`│ ${theme.bold(theme.fg("accent", "🎬 Video Player"))}${" ".repeat(Math.max(0, w - 18))}│`,
+				),
+			);
+			const playerLines = this.#videoPlayer.render(innerW);
+			for (const l of playerLines) {
+				const cleanLen = l.replace(/\u001b\[[0-9;]*m/g, "").length;
+				viewport.push(
+					theme.fg("border", "│ ") + l + " ".repeat(Math.max(0, innerW - cleanLen)) + theme.fg("border", " │"),
+				);
+			}
+		} else if (this.#previewImage) {
+			viewport.push(
+				theme.fg(
+					"border",
+					`│ ${theme.bold(theme.fg("accent", "🖼 Hero Preview"))}${" ".repeat(Math.max(0, w - 18))}│`,
+				),
+			);
+			const imgLines = this.#previewImage.render(innerW);
+			for (const l of imgLines) {
+				const cleanLen = l.replace(/\u001b\[[0-9;]*m/g, "").length;
+				viewport.push(
+					theme.fg("border", "│ ") + l + " ".repeat(Math.max(0, innerW - cleanLen)) + theme.fg("border", " │"),
+				);
+			}
+		} else if (selected && selected.kind === "video") {
+			viewport.push(
+				theme.fg(
+					"border",
+					`│ ${theme.bold(theme.fg("accent", "🎬 Video Ready"))}${" ".repeat(Math.max(0, w - 17))}│`,
+				),
+			);
+			viewport.push(theme.fg("border", `│${" ".repeat(w - 2)}│`));
+			const playPrompt = `       ▶ Press [Enter] to play video in terminal player`;
+			viewport.push(
+				theme.fg("border", "│") +
+					theme.bold(theme.fg("success", playPrompt)) +
+					" ".repeat(Math.max(0, w - 2 - playPrompt.length)) +
+					theme.fg("border", "│"),
+			);
+			viewport.push(theme.fg("border", `│${" ".repeat(w - 2)}│`));
+		} else {
+			// Sleek Hero Empty Canvas
+			viewport.push(
+				theme.fg(
+					"border",
+					`│ ${theme.bold(theme.fg("muted", "✦ Studio Canvas"))}${" ".repeat(Math.max(0, w - 19))}│`,
+				),
+			);
+			viewport.push(theme.fg("border", `│${" ".repeat(w - 2)}│`));
+			const welcome1 = "                 ✦ AERY TERMINAL MEDIA STUDIO ✦";
+			const welcome2 = "      Next-generation AI image & video generation in your terminal";
+			const welcome3 = "        Type a prompt below and press [Enter] to generate media";
+			viewport.push(
+				theme.fg("border", "│") +
+					theme.bold(theme.fg("accent", welcome1)) +
+					" ".repeat(Math.max(0, w - 2 - welcome1.length)) +
+					theme.fg("border", "│"),
+			);
+			viewport.push(
+				theme.fg("border", "│") +
+					theme.fg("muted", welcome2) +
+					" ".repeat(Math.max(0, w - 2 - welcome2.length)) +
+					theme.fg("border", "│"),
+			);
+			viewport.push(
+				theme.fg("border", "│") +
+					theme.fg("dim", welcome3) +
+					" ".repeat(Math.max(0, w - 2 - welcome3.length)) +
+					theme.fg("border", "│"),
+			);
+			viewport.push(theme.fg("border", `│${" ".repeat(w - 2)}│`));
+		}
+
+		// Selected Media Metadata Pill (if gallery has items)
+		if (selected) {
+			viewport.push(theme.fg("border", `├${"─".repeat(w - 2)}┤`));
+			const icon = selected.kind === "image" ? "🖼" : "🎬";
+			const metaStr = ` ${icon} "${selected.prompt.slice(0, 42)}"  ·  ${selected.provider}/${selected.model}  [${snap.selectedIndex + 1}/${gallery.length}]`;
+			const metaCleanLen = metaStr.replace(/\u001b\[[0-9;]*m/g, "").length;
+			viewport.push(
+				theme.fg("border", "│") +
+					theme.fg("accent", metaStr) +
+					" ".repeat(Math.max(0, w - 2 - metaCleanLen)) +
+					theme.fg("border", "│"),
+			);
+		}
+
+		// 3. Queue / Activity Ticker (if jobs running or queued)
+		const activeJob = snap.jobs.find(j => j.status === "running" || j.status === "queued");
+		if (activeJob) {
+			viewport.push(theme.fg("border", `├${"─".repeat(w - 2)}┤`));
+			const qIcon =
+				activeJob.status === "running" ? theme.fg("warning", "⚡ Rendering") : theme.fg("muted", "⏳ Queued");
+			const qText = ` ${qIcon} "${activeJob.subject.slice(0, 36)}" — ${activeJob.note ?? activeJob.status}`;
+			const qCleanLen = qText.replace(/\u001b\[[0-9;]*m/g, "").length;
+			viewport.push(
+				theme.fg("border", "│") + qText + " ".repeat(Math.max(0, w - 2 - qCleanLen)) + theme.fg("border", "│"),
+			);
+		}
+
+		// 4. Model Picker Modal or Prompt Dock
+		if (this.#mediaPanel.isPickerOpen) {
+			viewport.push(theme.fg("border", `├─ ${theme.bold("Pick Model")} ${"─".repeat(Math.max(0, w - 16))}┤`));
+			const promptLines = this.#mediaPanel.render(innerW);
+			for (const pl of promptLines) {
+				const cleanLen = pl.replace(/\u001b\[[0-9;]*m/g, "").length;
+				viewport.push(
+					theme.fg("border", "│ ") + pl + " ".repeat(Math.max(0, innerW - cleanLen)) + theme.fg("border", " │"),
+				);
+			}
+		} else {
+			viewport.push(theme.fg("border", `├─ ${theme.bold("Prompt")} ${"─".repeat(Math.max(0, w - 12))}┤`));
+			const promptVal = `  prompt > ${this.#mediaPanel.getPrompt()}▊`;
+			const pCleanLen = promptVal.length;
+			viewport.push(
+				theme.fg("border", "│") +
+					theme.bold(promptVal) +
+					" ".repeat(Math.max(0, w - 2 - pCleanLen)) +
+					theme.fg("border", "│"),
+			);
+		}
+
+		// 5. Dock Controls / Keybinding Bar
+		viewport.push(theme.fg("border", `├${"─".repeat(w - 2)}┤`));
+		const helpBar =
+			"  [tab] mode · [alt+a] aspect · [alt+d] length · [alt+m] model · [←/→] gallery · [enter] render · [esc] close";
+		const hCleanLen = helpBar.length;
+		viewport.push(
+			theme.fg("border", "│") +
+				theme.fg("muted", helpBar) +
+				" ".repeat(Math.max(0, w - 2 - hCleanLen)) +
+				theme.fg("border", "│"),
+		);
+		viewport.push(theme.fg("border", `╰${"─".repeat(w - 2)}╯`));
+
+		// Fill/Pad to exactly termHeight so overlay takes full window
+		while (viewport.length < termHeight) {
+			// Insert extra canvas rows inside the Hero section (before prompt)
+			const insertIdx = 3;
+			viewport.splice(insertIdx, 0, theme.fg("border", `│${" ".repeat(w - 2)}│`));
+		}
+		if (viewport.length > termHeight) {
+			viewport.length = termHeight;
+		}
+
 		return viewport;
 	}
 
