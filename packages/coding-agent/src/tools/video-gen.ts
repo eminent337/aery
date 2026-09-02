@@ -29,9 +29,7 @@ const VIDEO_DOWNLOAD_TIMEOUT_MS = 3 * 60_000;
 const FAL_QUEUE_BASE_URL = "https://queue.fal.run";
 const DEFAULT_FAL_VIDEO_MODEL = "fal-ai/wan-t2v";
 const DEFAULT_AGNES_VIDEO_MODEL = "agnes-video-2.5-flash";
-const MINIMAX_API_BASE_URL = "https://api.minimax.io";
-const DEFAULT_MINIMAX_VIDEO_MODEL = "MiniMax-H3";
-const MINIMAX_VIDEO_MODELS: ReadonlyArray<string> = ["MiniMax-H3", "MiniMax-H3-Max"];
+
 const AGNES_BASE_URL_MARKER = "agnes-ai.com";
 
 const FAL_TERMINAL_STATUSES: Record<string, true> = { OK: true, COMPLETED: true, SUCCESS: true };
@@ -41,7 +39,7 @@ const AGNES_FAILED_STATUSES: Record<string, true> = { failed: true, error: true,
 const VIDEO_DURATION_MIN = 3;
 const VIDEO_DURATION_MAX = 15;
 
-export type VideoProvider = "agnes" | "minimax" | "fal";
+export type VideoProvider = "agnes" | "fal";
 
 const videoGenSchema = z
 	.object({
@@ -59,7 +57,7 @@ const videoGenSchema = z
 		resolution: z
 			.enum(["480P", "768P", "1080P", "2K"])
 			.describe(
-				"target resolution (MiniMax: 768P default, 2K via H3-Regenerate; Agnes: 720P). Omit for provider default.",
+				"target resolution. Agnes renders 720P; other providers use their default. Omit for provider default.",
 			)
 			.optional(),
 		ratio: z
@@ -69,13 +67,13 @@ const videoGenSchema = z
 		model: z
 			.string()
 			.describe(
-				"provider-specific model id (e.g. 'agnes-video-2.5-flash', 'MiniMax-H3-Max', 'fal-ai/wan-t2v'). Optional; uses the provider default when omitted.",
+				"provider-specific model id (e.g. 'agnes-video-2.5-flash', 'fal-ai/wan-t2v'). Optional; uses the provider default when omitted.",
 			)
 			.optional(),
 		provider: z
-			.enum(["auto", "agnes", "minimax", "fal"])
+			.enum(["auto", "agnes", "fal"])
 			.describe(
-				"video provider to use. 'auto' or omitted prefers Agnes (free with the configured Agnes key), then MiniMax (MINIMAX_API_KEY), then fal (FAL_KEY).",
+				"video provider to use. 'auto' or omitted prefers Agnes (free with the configured Agnes key), then fal (FAL_KEY).",
 			)
 			.optional(),
 	})
@@ -106,10 +104,6 @@ function findFalKey(): string | undefined {
 	return Bun.env.FAL_KEY ?? $env.FAL_KEY ?? undefined;
 }
 
-function findMinimaxKey(): string | undefined {
-	return Bun.env.MINIMAX_API_KEY ?? $env.MINIMAX_API_KEY ?? undefined;
-}
-
 interface VideoCredentials {
 	provider: VideoProvider;
 	apiKey: string;
@@ -128,9 +122,7 @@ async function findVideoCredentials(
 	sessionId?: string,
 ): Promise<VideoCredentials | null> {
 	const wantAgnes = preferred === "auto" || preferred === "agnes" || preferred === undefined;
-	const wantMinimax = preferred === "auto" || preferred === "minimax" || preferred === undefined;
 	const wantFal = preferred === "auto" || preferred === "fal" || preferred === undefined;
-
 	if (wantAgnes && modelRegistry) {
 		const agnesModel = modelRegistry
 			.getAll()
@@ -145,13 +137,6 @@ async function findVideoCredentials(
 					baseUrl: agnesModel.baseUrl,
 				};
 			}
-		}
-	}
-
-	if (wantMinimax) {
-		const minimaxKey = findMinimaxKey();
-		if (minimaxKey) {
-			return { provider: "minimax", apiKey: minimaxKey, model: DEFAULT_MINIMAX_VIDEO_MODEL };
 		}
 	}
 
@@ -277,112 +262,6 @@ async function pollAgnesStatus(
 	}
 	const progress = typeof parsed.progress === "number" ? ` ${parsed.progress}%` : "";
 	return { done: false, note: `${status || "in progress"}${progress}` };
-}
-
-// --- MiniMax (H3 / H3-Max, async task API) ---
-
-interface MinimaxVideoSubmitResponse {
-	task_id?: string;
-	error?: { message?: string };
-	base_resp?: { status_code?: number; status_msg?: string };
-}
-
-interface MinimaxVideoTask {
-	id?: string;
-	status?: string;
-	content?: { url?: string };
-	error?: { message?: string; code?: string };
-}
-
-interface MinimaxVideoStatusResponse {
-	task?: MinimaxVideoTask;
-	error?: { message?: string };
-}
-
-function minimaxCredentialsModel(credentials: VideoCredentials, preferred?: string): string {
-	const model = preferred ?? credentials.model;
-	return MINIMAX_VIDEO_MODELS.includes(model) ? model : DEFAULT_MINIMAX_VIDEO_MODEL;
-}
-
-async function submitMinimaxJob(
-	credentials: VideoCredentials,
-	params: VideoGenParams,
-	signal?: AbortSignal,
-): Promise<string> {
-	const model = minimaxCredentialsModel(credentials, params.model);
-	const duration = Math.min(Math.max(params.duration ?? 5, 4), 15);
-	const body: Record<string, unknown> = {
-		model,
-		content: [{ type: "text", text: assembleVideoPrompt(params) }],
-		resolution: params.resolution ?? "768P",
-		duration,
-		ratio: params.ratio ?? "16:9",
-	};
-	const response = await fetch(`${MINIMAX_API_BASE_URL}/v2/video_generation`, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${credentials.apiKey}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify(body),
-		signal: ptree.combineSignals(signal, VIDEO_SUBMIT_TIMEOUT_MS),
-	});
-	const rawText = await response.text();
-	let parsed: MinimaxVideoSubmitResponse = {};
-	try {
-		parsed = JSON.parse(rawText) as MinimaxVideoSubmitResponse;
-	} catch {
-		// Non-JSON error body — handled by the status check below.
-	}
-	if (!response.ok) {
-		const detail = parsed.error?.message ?? parsed.base_resp?.status_msg ?? rawText.slice(0, 300);
-		throw new Error(`Video job submission failed (${response.status}): ${detail}`);
-	}
-	const taskId = parsed.task_id;
-	if (!taskId) {
-		throw new Error("Video job submission response missing task_id.");
-	}
-	return taskId;
-}
-
-async function pollMinimaxStatus(
-	credentials: VideoCredentials,
-	taskId: string,
-	signal?: AbortSignal,
-): Promise<{ done: boolean; videoUrl?: string; error?: string; note?: string }> {
-	let response: Response;
-	try {
-		response = await fetch(`${MINIMAX_API_BASE_URL}/v2/query/video_generation/${taskId}`, {
-			headers: { Authorization: `Bearer ${credentials.apiKey}` },
-			signal,
-		});
-	} catch (error) {
-		if (signal?.aborted) throw error;
-		return { done: false, error: error instanceof Error ? error.message : "status check failed" };
-	}
-	const rawText = await response.text();
-	let parsed: MinimaxVideoStatusResponse = {};
-	try {
-		parsed = JSON.parse(rawText) as MinimaxVideoStatusResponse;
-	} catch {
-		parsed = {};
-	}
-	if (!response.ok) {
-		return { done: false, error: `status ${response.status}` };
-	}
-	const status = (parsed.task?.status ?? "").toLowerCase();
-	if (status === "succeeded") {
-		const videoUrl = parsed.task?.content?.url;
-		if (!videoUrl) {
-			return { done: true, error: "job succeeded but no video URL was returned" };
-		}
-		return { done: true, videoUrl };
-	}
-	if (parsed.task?.error?.message || status === "failed" || status === "cancelled") {
-		const detail = parsed.task?.error?.message ?? "render failed";
-		return { done: true, error: detail };
-	}
-	return { done: false, note: status || "queued" };
 }
 
 // --- fal (queue API, mirrors fal-js client/queue.ts) ---
@@ -564,8 +443,6 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 		"Available video models:",
 		"- agnes — agnes-video-2.5-flash (default), agnes-video-2.5, agnes-video-v2.0",
 		"  (free, uses the configured Agnes key)",
-		"- minimax — MiniMax-H3 (default), MiniMax-H3-Max (2K/768P, 4-15s, 24fps;",
-		"  requires MINIMAX_API_KEY, pay-as-you-go)",
 		"- fal — fal-ai/wan-t2v and other fal-ai/* video models",
 		"  (requires FAL_KEY; fal.ai account → API keys)",
 	].join("\n"),
@@ -579,7 +456,7 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 			);
 			if (!credentials) {
 				throw new Error(
-					"No video generation credentials found. Add an Agnes provider with video models, set MINIMAX_API_KEY (platform.minimax.io → API key, pay-as-you-go), or set FAL_KEY (fal.ai account → API keys).",
+					"No video generation credentials found. Add an Agnes provider with video models or set FAL_KEY (fal.ai account → API keys).",
 				);
 			}
 			const model = params.model ?? credentials.model;
@@ -622,65 +499,6 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 								videoUrls: [status.videoUrl as string],
 								resolution: "720P",
 								durationSeconds: params.duration,
-							},
-						};
-					}
-					if (status.error) {
-						transientErrors += 1;
-						if (transientErrors >= VIDEO_MAX_TRANSIENT_STATUS_ERRORS) {
-							throw new Error(`Video status check kept failing (${status.error}) — giving up.`);
-						}
-					} else {
-						transientErrors = 0;
-					}
-					if (status.note !== jobNote) {
-						jobNote = status.note;
-						onUpdate?.({
-							content: [
-								{
-									type: "text",
-									text: `Video rendering… ${Math.round((Date.now() - startedAt) / 1000)}s elapsed — ${status.note ?? status.error ?? "waiting"}`,
-								},
-							],
-							details: { provider: credentials.provider, model, videoCount: 0, videoPaths: [], videoUrls: [] },
-						});
-					}
-				}
-			}
-
-			if (credentials.provider === "minimax") {
-				const jobId = await submitMinimaxJob(credentials, { ...params, model }, signal);
-				let transientErrors = 0;
-				for (;;) {
-					if (Date.now() - startedAt > VIDEO_MAX_WAIT_MS) {
-						throw new Error(
-							`Video render exceeded ${Math.round(VIDEO_MAX_WAIT_MS / 60_000)} minutes — the queue may be congested. Try again or pick a different model.`,
-						);
-					}
-					await untilAborted(signal, sleep(VIDEO_POLL_INTERVAL_MS));
-					const status = await pollMinimaxStatus(credentials, jobId, signal);
-					if (status.done) {
-						if (status.error) {
-							throw new Error(`Video generation failed: ${status.error}`);
-						}
-						const bytes = await downloadVideo(status.videoUrl as string, signal);
-						const videoPath = await saveVideoToTemp(bytes);
-						const elapsedSeconds = (Date.now() - startedAt) / 1000;
-						return {
-							content: [
-								{
-									type: "text",
-									text: buildVideoSummary(credentials.provider, model, [videoPath], elapsedSeconds),
-								},
-							],
-							details: {
-								provider: credentials.provider,
-								model,
-								videoCount: 1,
-								videoPaths: [videoPath],
-								videoUrls: [status.videoUrl as string],
-								resolution: params.resolution ?? "768P",
-								durationSeconds: Math.min(Math.max(params.duration ?? 5, 4), 15),
 							},
 						};
 					}
@@ -815,12 +633,6 @@ export async function enumerateVideoCandidates(
 		}
 	}
 
-	if (findMinimaxKey()) {
-		for (const model of MINIMAX_VIDEO_MODELS) {
-			pushUnique("minimax", model);
-		}
-	}
-
 	if (findFalKey()) {
 		pushUnique("fal", DEFAULT_FAL_VIDEO_MODEL);
 	}
@@ -830,10 +642,10 @@ export async function enumerateVideoCandidates(
 
 /**
  * Build the video generation tool list. Returns an empty array when neither
- * the Agnes custom provider (free video models), MINIMAX_API_KEY, nor FAL_KEY
- * is available so the tool is simply not offered. When candidates exist, the
- * tool description advertises them so the model can present them via the
- * interactive `ask` picker, mirroring `buildImageGenToolWithCandidates`.
+ * the Agnes custom provider (free video models) nor FAL_KEY is available so
+ * the tool is simply not offered. When candidates exist, the tool description
+ * advertises them so the model can present them via the interactive `ask`
+ * picker, mirroring `buildImageGenToolWithCandidates`.
  */
 export async function buildVideoToolWithCandidates(
 	modelRegistry?: ModelRegistry,
