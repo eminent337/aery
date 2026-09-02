@@ -37,6 +37,7 @@ import { TODO_WRITE_STRIKE_TOTAL_FRAMES } from "../../tools/todo-write";
 import { renderStatusLine } from "../../tui";
 import { sanitizeWithOptionalSixelPassthrough } from "../../utils/sixel";
 import { renderDiff } from "./diff";
+import { VideoPlayer, type VideoPlayerTheme } from "./video-player";
 
 function ensureInvalidate(component: unknown): Component {
 	const c = component as { render: Component["render"]; invalidate?: () => void };
@@ -159,6 +160,7 @@ export class ToolExecutionComponent extends Container {
 	#multiFileBoxes: (Box | Spacer)[] = []; // Extra boxes for multi-file edit results
 	#imageComponents: Image[] = [];
 	#imageSpacers: Spacer[] = [];
+	#videoPlayer: VideoPlayer | undefined;
 	#toolName: string;
 	#toolLabel: string;
 	#args: any;
@@ -365,6 +367,7 @@ export class ToolExecutionComponent extends Container {
 		this.#updateDisplay();
 		// Convert non-PNG images to PNG for Kitty protocol (async)
 		this.#maybeConvertImagesForKitty();
+		this.#maybeMountVideoPlayer();
 	}
 
 	/**
@@ -376,6 +379,38 @@ export class ToolExecutionComponent extends Container {
 		const contentImages = this.#result.content?.filter((c: any) => c.type === "image") || [];
 		const detailImages = this.#result.details?.images || [];
 		return [...contentImages, ...detailImages];
+	}
+
+	/**
+	 * Mount the inline video player for generate_video results. Mounted once —
+	 * the player owns its own interval + global key listener and re-renders
+	 * itself, so the #updateDisplay rebuild cycle must not recreate it.
+	 */
+	#maybeMountVideoPlayer(): void {
+		if (this.#videoPlayer || !this.#result || this.#result.isError) return;
+		const details = this.#result.details as { videoPaths?: string[] } | undefined;
+		const videoPath = details?.videoPaths?.[0];
+		if (typeof videoPath !== "string" || videoPath.length === 0) return;
+		const playerTheme: VideoPlayerTheme = {
+			fallbackColor: (s: string) => theme.fg("toolOutput", s),
+			accentColor: (s: string) => theme.fg("accent", s),
+			dimColor: (s: string) => theme.fg("toolOutput", s),
+			successColor: (s: string) => theme.fg("success", s),
+		};
+		const player = new VideoPlayer(videoPath, playerTheme);
+		this.#videoPlayer = player;
+		const spacer = new Spacer(1);
+		this.addChild(spacer);
+		this.addChild(player);
+		void player.start(this.#ui).then(setup => {
+			if (!setup.ready) {
+				// Player could not start (no ffmpeg etc.) — unmount it; the
+				// player's own fallback line notes the reason.
+				this.removeChild(player);
+				this.removeChild(spacer);
+			}
+			this.#ui.requestRender();
+		});
 	}
 
 	/**
@@ -457,20 +492,20 @@ export class ToolExecutionComponent extends Container {
 			this.#stopTodoStrikeAnimation();
 			return;
 		}
-		if (this.#todoStrikeInterval) return;
-
-		this.#spinnerFrame = 0;
-		this.#renderState.spinnerFrame = 0;
-		this.#todoStrikeInterval = setInterval(() => {
-			const nextFrame = (this.#spinnerFrame ?? 0) + 1;
-			if (nextFrame > TODO_WRITE_STRIKE_TOTAL_FRAMES) {
-				this.#stopTodoStrikeAnimation();
-			} else {
-				this.#spinnerFrame = nextFrame;
-				this.#renderState.spinnerFrame = nextFrame;
-			}
-			this.#ui.requestRender();
-		}, 65);
+		if (!this.#todoStrikeInterval) {
+			this.#spinnerFrame = 0;
+			this.#renderState.spinnerFrame = 0;
+			this.#todoStrikeInterval = setInterval(() => {
+				const nextFrame = (this.#spinnerFrame ?? 0) + 1;
+				if (nextFrame > TODO_WRITE_STRIKE_TOTAL_FRAMES) {
+					this.#stopTodoStrikeAnimation();
+				} else {
+					this.#spinnerFrame = nextFrame;
+					this.#renderState.spinnerFrame = nextFrame;
+				}
+				this.#ui.requestRender();
+			}, 65);
+		}
 	}
 
 	#stopTodoStrikeAnimation(): void {
@@ -496,6 +531,8 @@ export class ToolExecutionComponent extends Container {
 		this.#stopTodoStrikeAnimation();
 		this.#editDiffAbort?.abort();
 		this.#editDiffAbort = undefined;
+		this.#videoPlayer?.close();
+		this.#videoPlayer = undefined;
 	}
 
 	setExpanded(expanded: boolean): void {

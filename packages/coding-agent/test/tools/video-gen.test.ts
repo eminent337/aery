@@ -3,11 +3,17 @@ import * as fs from "node:fs/promises";
 import type { ModelRegistry } from "@aryee337/aery/config/model-registry";
 import type { CustomToolContext } from "@aryee337/aery/extensibility/custom-tools";
 import type { ReadonlySessionManager } from "@aryee337/aery/session/session-manager";
-import { getVideoGenTools, videoGenTool } from "@aryee337/aery/tools/video-gen";
+import {
+	buildVideoToolWithCandidates,
+	enumerateVideoCandidates,
+	getVideoGenTools,
+	videoGenTool,
+} from "@aryee337/aery/tools/video-gen";
 import type { Model } from "@aryee337/aery-ai";
 
 const originalFetch = global.fetch;
 const originalFalKey = Bun.env.FAL_KEY;
+const originalMinimaxKey = Bun.env.MINIMAX_API_KEY;
 const generatedVideoPaths: string[] = [];
 
 afterEach(async () => {
@@ -17,6 +23,11 @@ afterEach(async () => {
 		delete Bun.env.FAL_KEY;
 	} else {
 		Bun.env.FAL_KEY = originalFalKey;
+	}
+	if (originalMinimaxKey === undefined) {
+		delete Bun.env.MINIMAX_API_KEY;
+	} else {
+		Bun.env.MINIMAX_API_KEY = originalMinimaxKey;
 	}
 });
 
@@ -294,4 +305,167 @@ describe("generate_video", () => {
 		expect(message).toContain("429");
 		expect(message).toContain("rate limit");
 	}, 60_000);
+
+	it("honors explicit picker choice (provider=minimax, model=MiniMax-H3-Max)", async () => {
+		delete Bun.env.FAL_KEY;
+		Bun.env.MINIMAX_API_KEY = "test-minimax-key";
+		const calls: Array<{ url: string; body?: unknown }> = [];
+		const videoBytes = Buffer.from("fake-mm-max-mp4");
+
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			const url = input.toString();
+			const method = init?.method ?? "GET";
+			if (method === "POST" && url === "https://api.minimax.io/v2/video_generation") {
+				calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+				return jsonResponse({ task_id: "task_mmmax" });
+			}
+			if (url.includes("/v2/query/video_generation/task_mmmax")) {
+				return jsonResponse({
+					task: {
+						id: "task_mmmax",
+						status: "succeeded",
+						content: { url: "https://video-product.cdn.minimax.io/max.mp4" },
+					},
+				});
+			}
+			if (url.startsWith("https://video-product.cdn.minimax.io/")) {
+				return new Response(videoBytes, { status: 200, headers: { "content-type": "video/mp4" } });
+			}
+			return new Response("unexpected", { status: 500 });
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const result = await videoGenTool.execute(
+			"call-mm-max",
+			{ subject: "a panda", provider: "minimax", model: "MiniMax-H3-Max", resolution: "2K", ratio: "9:16" },
+			undefined,
+			makeContext(makeRegistry(undefined, undefined)),
+		);
+		generatedVideoPaths.push(...(result.details?.videoPaths ?? []));
+
+		expect(calls[0].body).toMatchObject({
+			model: "MiniMax-H3-Max",
+			resolution: "2K",
+			ratio: "9:16",
+		});
+		expect(result.details?.provider).toBe("minimax");
+		expect(result.details?.model).toBe("MiniMax-H3-Max");
+		expect(result.details?.resolution).toBe("2K");
+	}, 60_000);
+	it("generates via MiniMax H3 (submit -> poll -> download content.url)", async () => {
+		delete Bun.env.FAL_KEY;
+		Bun.env.MINIMAX_API_KEY = "test-minimax-key";
+		const calls: Array<{ url: string; method: string; auth: string | null; body?: unknown }> = [];
+		let polls = 0;
+		const videoBytes = Buffer.from("fake-minimax-mp4");
+
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			const url = input.toString();
+			const method = init?.method ?? "GET";
+			const auth = new Headers(init?.headers).get("authorization");
+			calls.push({ url, method, auth, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+
+			if (method === "POST" && url === "https://api.minimax.io/v2/video_generation") {
+				return jsonResponse({ task_id: "task_mm1" });
+			}
+			if (url.includes("/v2/query/video_generation/task_mm1")) {
+				polls += 1;
+				if (polls === 1) {
+					return jsonResponse({ task: { id: "task_mm1", status: "queued" } });
+				}
+				if (polls === 2) {
+					return jsonResponse({ task: { id: "task_mm1", status: "running" } });
+				}
+				return jsonResponse({
+					task: {
+						id: "task_mm1",
+						status: "succeeded",
+						content: { url: "https://video-product.cdn.minimax.io/output.mp4" },
+						resolution: "768P",
+						duration: 5,
+					},
+				});
+			}
+			if (url.startsWith("https://video-product.cdn.minimax.io/")) {
+				return new Response(videoBytes, { status: 200, headers: { "content-type": "video/mp4" } });
+			}
+			return new Response("unexpected", { status: 500 });
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const result = await videoGenTool.execute(
+			"call-mm",
+			{ subject: "a panda", duration: 5 },
+			undefined,
+			makeContext(makeRegistry(undefined, undefined)),
+		);
+		generatedVideoPaths.push(...(result.details?.videoPaths ?? []));
+
+		const submit = calls.find(c => c.method === "POST");
+		if (!submit) throw new Error("submit call missing");
+		expect(submit.auth).toBe("Bearer test-minimax-key");
+		expect(submit.body).toMatchObject({
+			model: "MiniMax-H3",
+			resolution: "768P",
+			duration: 5,
+			ratio: "16:9",
+		});
+		expect((submit.body as { content: Array<{ type: string; text: string }> }).content[0]).toMatchObject({
+			type: "text",
+			text: "a panda.",
+		});
+		expect(polls).toBeGreaterThanOrEqual(3);
+		expect(result.details?.provider).toBe("minimax");
+		expect(result.details?.model).toBe("MiniMax-H3");
+		expect(result.details?.videoCount).toBe(1);
+		expect(result.details?.videoUrls[0]).toBe("https://video-product.cdn.minimax.io/output.mp4");
+		expect(result.details?.resolution).toBe("768P");
+		expect(result.details?.durationSeconds).toBe(5);
+		const savedPath = result.details?.videoPaths[0];
+		if (!savedPath) throw new Error("Expected saved video path");
+		expect(await Bun.file(savedPath).bytes()).toEqual(videoBytes);
+	}, 60_000);
+
+	it("enumerates candidates: Agnes models when Agnes key, MiniMax when MINIMAX_API_KEY, fal when FAL_KEY", async () => {
+		delete Bun.env.FAL_KEY;
+		delete Bun.env.MINIMAX_API_KEY;
+
+		const agnesRegistry = makeRegistry(agnesModel, "test-agnes-key");
+		const agnesCandidates = await enumerateVideoCandidates(agnesRegistry);
+		expect(agnesCandidates.map(c => c.label)).toEqual([
+			"agnes — agnes-video-2.5",
+			"agnes — agnes-video-2.5-flash",
+			"agnes — agnes-video-v2.0",
+		]);
+
+		delete Bun.env.FAL_KEY;
+		Bun.env.MINIMAX_API_KEY = "test-minimax-key";
+		const mmCandidates = await enumerateVideoCandidates(undefined);
+		expect(mmCandidates.map(c => `${c.provider} — ${c.modelId}`)).toEqual([
+			"minimax — MiniMax-H3",
+			"minimax — MiniMax-H3-Max",
+		]);
+
+		delete Bun.env.MINIMAX_API_KEY;
+		Bun.env.FAL_KEY = "test-key:test-secret";
+		const falCandidates = await enumerateVideoCandidates(undefined);
+		expect(falCandidates.map(c => `${c.provider} — ${c.modelId}`)).toEqual(["fal — fal-ai/wan-t2v"]);
+
+		delete Bun.env.FAL_KEY;
+		expect(await enumerateVideoCandidates(undefined)).toEqual([]);
+	});
+
+	it("builds tool with <available-models> list mirroring image", async () => {
+		delete Bun.env.FAL_KEY;
+		delete Bun.env.MINIMAX_API_KEY;
+		const tools = await buildVideoToolWithCandidates(makeRegistry(agnesModel, "test-agnes-key"));
+		expect(tools).toHaveLength(1);
+		expect(tools[0].description).toContain("<available-models>");
+		expect(tools[0].description).toContain("Available video models:");
+		expect(tools[0].description).toContain("- agnes — agnes-video-2.5");
+		expect(tools[0].description).toContain("- agnes — agnes-video-2.5-flash");
+		expect(tools[0].description).toContain("- agnes — agnes-video-v2.0");
+	});
 });
