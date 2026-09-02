@@ -352,6 +352,61 @@ describe("imageGenTool", () => {
 		expect(await Bun.file(savedPath).bytes()).toEqual(Buffer.from("fake-agnes-image"));
 	});
 
+	it("overrides a same-provider candidate default when an explicit model id is requested", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		const fetchMock: typeof fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+			requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			return new Response(
+				JSON.stringify({ data: [{ b64_json: Buffer.from("override-image").toString("base64") }] }),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		// The registry's default custom image model is 2.0…
+		const model = {
+			api: "openai-completions",
+			provider: "custom-api-apihub-agnes-ai-com-v1",
+			id: "agnes-image-2.0-flash",
+			name: "Agnes Image 2.0 Flash",
+			baseUrl: "https://apihub.agnes-ai.com/v1",
+		} as Model;
+		const ctx: CustomToolContext = {
+			sessionManager: {
+				getCwd: () => "/tmp",
+				getSessionId: () => "test-session",
+			} as unknown as ReadonlySessionManager,
+			modelRegistry: {
+				getApiKey: async () => "test-agnes-key",
+				getApiKeyForProvider: async () => undefined,
+				getProviderBaseUrl: () => undefined,
+				getAll: () => [],
+				authStorage: {
+					hasNonEnvCredential: () => false,
+				},
+			} as unknown as ModelRegistry,
+			model,
+			isIdle: () => true,
+			hasQueuedMessages: () => false,
+			abort: () => {},
+		};
+
+		// …but the caller explicitly asks for 2.1: the request must carry 2.1,
+		// not the provider's default.
+		const result = await imageGenTool.execute(
+			"call-override",
+			{ subject: "a panda", provider: "custom", model: "agnes-image-2.1-flash" },
+			undefined,
+			ctx,
+		);
+		generatedImagePaths.push(...(result.details?.imagePaths ?? []));
+
+		expect(requestBody?.model).toBe("agnes-image-2.1-flash");
+		expect(result.details?.model).toBe("agnes-image-2.1-flash");
+		expect(result.details?.provider).toBe("custom");
+	}, 60_000);
+
 	it("falls back to a registered imageOnly custom model when the active model is text-only", async () => {
 		let requestUrl: string | undefined;
 		let requestBody: Record<string, unknown> | undefined;

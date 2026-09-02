@@ -1172,13 +1172,24 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 			// auto-detected default.
 			if (params.provider && params.provider !== "auto") {
 				const candidates = await enumerateImageCandidates(ctx.modelRegistry, ctx.model, sessionId);
+				// Exact provider+model match first: an explicit model id
+				// (e.g. agnes-image-2.1-flash) must never be silently satisfied
+				// by a same-provider candidate carrying a different default.
 				const match =
-					candidates.find(c => c.provider === params.provider) ??
-					candidates.find(c => c.provider === params.provider && c.modelId === params.model);
+					(params.model
+						? candidates.find(c => c.provider === params.provider && c.modelId === params.model)
+						: undefined) ?? candidates.find(c => c.provider === params.provider);
 				if (match) {
 					apiKey = match.apiKey;
+					// Provider matched but the candidate's default model differs
+					// from the explicitly requested one: override so the request
+					// honors the caller's model choice (custom/openai read
+					// apiKey.model.id; other providers ignore it).
+					if (params.model && params.model !== match.modelId && apiKey.model) {
+						apiKey = { ...apiKey, model: { ...apiKey.model, id: params.model } as Model };
+					}
 				} else if (params.model) {
-					// Provider known but exact candidate missing: build a
+					// Provider known but no candidate at all: build a
 					// custom/openai key with the requested model id directly.
 					if (params.provider === "custom" && apiKey?.provider === "custom" && apiKey.baseUrl) {
 						apiKey = { ...apiKey, model: { ...apiKey.model, id: params.model } as Model };
