@@ -178,11 +178,18 @@ export class StudioMediaPanel extends Container {
 		}
 		if (data === "\r" || data === "\n") {
 			const prompt = this.#promptInput.getValue().trim();
-			if (prompt.length > 0) {
-				this.#callbacks.onGenerate(this.#mode, prompt);
-				this.#promptInput.setValue("");
-				this.#buildLayout();
+			if (prompt.length === 0) {
+				// Empty prompt + selected video → open in the player.
+				const selected = this.#snapshot.gallery[this.#snapshot.selectedIndex];
+				if (selected && selected.kind === "video") {
+					this.#callbacks.onOpenInPlayer(selected.path);
+					return true;
+				}
+				return true;
 			}
+			this.#callbacks.onGenerate(this.#mode, prompt);
+			this.#promptInput.setValue("");
+			this.#buildLayout();
 			return true;
 		}
 		return false;

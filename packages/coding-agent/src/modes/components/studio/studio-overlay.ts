@@ -7,6 +7,7 @@ import { Container, matchesKey, Spacer, TabBar, Text } from "@aryee337/aery-tui"
 import { getTabBarTheme } from "../../shared.js";
 import { theme } from "../../theme/theme.js";
 import { DynamicBorder } from "../dynamic-border.js";
+import { VideoPlayer, type VideoPlayerTheme } from "../video-player.js";
 import { MediaStateManager } from "./media-state.js";
 import { StudioStateManager } from "./state.js";
 import { StudioChatPanel } from "./studio-chat-panel.js";
@@ -20,8 +21,10 @@ export class AeryStudioOverlay extends Container {
 	#tabBar: TabBar;
 	#hierarchyPanel: StudioHierarchyPanel;
 	#chatPanel: StudioChatPanel;
-	#mediaPanel: StudioMediaPanel;
 	#mediaUnsubscribe?: () => void;
+	#mediaPanel: StudioMediaPanel;
+	#videoPlayer?: VideoPlayer;
+	#playerKeyListener?: (data: string) => { consume?: boolean } | undefined;
 	#inspectorPanel: StudioInspectorPanel;
 	#contentContainer: Container;
 	#unsubscribe?: () => void;
@@ -66,8 +69,8 @@ export class AeryStudioOverlay extends Container {
 			onMoveSelection: delta => {
 				mediaManager.moveSelection(delta);
 			},
-			onOpenInPlayer: () => {
-				// Wired in phase 3 (video playback + controls).
+			onOpenInPlayer: (videoPath: string) => {
+				void this.#openInPlayer(videoPath);
 			},
 		});
 		const selectedAgent = state.agents.find(a => a.id === state.activeAgentId);
@@ -94,6 +97,45 @@ export class AeryStudioOverlay extends Container {
 	dispose(): void {
 		this.#unsubscribe?.();
 		this.#mediaUnsubscribe?.();
+		this.#closeVideoPlayer();
+	}
+
+	/** Open a completed video in the inline frame-cycling player. */
+	async #openInPlayer(videoPath: string): Promise<void> {
+		// One player at a time: reopen replaces the previous one.
+		this.#closeVideoPlayer();
+
+		const playerTheme: VideoPlayerTheme = {
+			fallbackColor: (s: string) => theme.fg("toolOutput", s),
+			accentColor: (s: string) => theme.fg("accent", s),
+			dimColor: (s: string) => theme.fg("toolOutput", s),
+			successColor: (s: string) => theme.fg("success", s),
+		};
+		const player = new VideoPlayer(videoPath, playerTheme);
+		this.#videoPlayer = player;
+
+		// The player draws itself via its own render loop; route its global
+		// alt-chords through the overlay's input path so chat stays usable.
+		const setup = await player.start({
+			addInputListener: listener => {
+				this.#playerKeyListener = listener;
+				return () => {
+					if (this.#playerKeyListener === listener) this.#playerKeyListener = undefined;
+				};
+			},
+			requestRender: () => this.onRequestRender?.(),
+		});
+		if (!setup.ready) {
+			// Could not start (no ffmpeg etc.) — surface the fallback line.
+			this.#closeVideoPlayer();
+		}
+		this.onRequestRender?.();
+	}
+
+	#closeVideoPlayer(): void {
+		this.#videoPlayer?.close();
+		this.#videoPlayer = undefined;
+		this.#playerKeyListener = undefined;
 	}
 
 	#buildLayout(): void {
@@ -129,6 +171,9 @@ export class AeryStudioOverlay extends Container {
 			this.#contentContainer.addChild(this.#chatPanel);
 		} else if (state.activeTab === "generate") {
 			this.#contentContainer.addChild(this.#mediaPanel);
+			if (this.#videoPlayer) {
+				this.#contentContainer.addChild(this.#videoPlayer);
+			}
 		} else {
 			this.#contentContainer.addChild(this.#inspectorPanel);
 		}
@@ -153,6 +198,17 @@ export class AeryStudioOverlay extends Container {
 		if (matchesKey(data, "escape") || data === "\x1b" || data === "\x1b\x1b" || matchesKey(data, "q")) {
 			this.onClose?.();
 			return;
+		}
+
+		// Video player alt-chords (play/pause, seek, restart, close) take
+		// priority over everything but Escape.
+		const playerListener = this.#playerKeyListener;
+		if (playerListener) {
+			const handled = playerListener(data);
+			if (handled?.consume) {
+				this.onRequestRender?.();
+				return;
+			}
 		}
 
 		const activeTabId = this.#tabBar.getActiveTab()?.id;

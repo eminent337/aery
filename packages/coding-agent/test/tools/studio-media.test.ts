@@ -40,8 +40,8 @@ async function waitFor(cond: () => boolean, timeoutMs = 5_000): Promise<void> {
 }
 
 describe("MediaStateManager", () => {
-	let manager: MediaStateManager;
-	let videoBytes: Buffer;
+	let manager: InstanceType<typeof MediaStateManager>;
+	let videoBytes: Buffer<ArrayBuffer>;
 	let fetchCalls: Array<{ url: string; method: string }>;
 
 	beforeEach(() => {
@@ -193,7 +193,7 @@ describe("MediaStateManager", () => {
 		manager.enqueue({ kind: "video", subject: "job two" });
 		manager.enqueue({ kind: "video", subject: "job three" });
 
-		await waitFor(() => manager.getSnapshot().jobs.every(j => j.status === "completed"));
+		await waitFor(() => manager.getSnapshot().jobs.every((j: { status: string }) => j.status === "completed"));
 		expect(maxConcurrent).toBe(1);
 
 		const snapshot = manager.getSnapshot();
