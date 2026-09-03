@@ -45,6 +45,10 @@ export class AeryMediaStudioOverlay extends Container {
 	onClose?: () => void;
 	onRequestRender?: () => void;
 
+	get isPickerOpen(): boolean {
+		return this.#mediaPanel.isPickerOpen;
+	}
+
 	constructor() {
 		super();
 		const mediaManager = MediaStateManager.instance();
@@ -113,24 +117,33 @@ export class AeryMediaStudioOverlay extends Container {
 
 	/** alt+m: enumerate live candidates and open the in-panel model picker. */
 	async #openModelPicker(): Promise<void> {
-		if (this.#enumerating || this.#mediaPanel.isPickerOpen) return;
+		if (this.#enumerating) return;
+		if (this.#mediaPanel.isPickerOpen) {
+			this.#mediaPanel.closePicker();
+			this.onRequestRender?.();
+			return;
+		}
 		const kind = this.#mediaPanel.getMode();
 		const spec = MediaStateManager.instance().getContextSpec();
 		if (!spec) {
-			this.#mediaPanel.openPicker([]);
+			this.#mediaPanel.openPicker(["auto (best free)"]);
+			this.onRequestRender?.();
 			return;
 		}
 		this.#enumerating = true;
 		try {
-			const items =
+			const candidates =
 				kind === "image"
-					? (await enumerateImageCandidates(spec.modelRegistry, undefined, spec.sessionId)).map(
-							c => `${c.provider}${c.modelId ? ` — ${c.modelId}` : ""}`,
-						)
-					: (await enumerateVideoCandidates(spec.modelRegistry, spec.sessionId)).map(
-							c => `${c.provider} — ${c.modelId}`,
-						);
+					? await enumerateImageCandidates(spec.modelRegistry, undefined, spec.sessionId)
+					: await enumerateVideoCandidates(spec.modelRegistry, spec.sessionId);
+			const items = [
+				"auto (best free)",
+				...candidates.map(c =>
+					kind === "image" ? `${c.provider}${c.modelId ? ` — ${c.modelId}` : ""}` : `${c.provider} — ${c.modelId}`,
+				),
+			];
 			this.#mediaPanel.openPicker(items);
+			this.onRequestRender?.();
 		} catch {
 			// Enumeration is best-effort; keep the studio usable without a picker.
 		} finally {
@@ -386,6 +399,15 @@ export class AeryMediaStudioOverlay extends Container {
 	}
 
 	handleInput(data: string): void {
+		// When the model picker is open, Escape/q cancels the picker without closing studio
+		if (this.#mediaPanel.isPickerOpen) {
+			if (matchesKey(data, "escape") || data === "\x1b" || data === "\x1b\x1b" || matchesKey(data, "q")) {
+				this.#mediaPanel.closePicker();
+				this.onRequestRender?.();
+				return;
+			}
+		}
+
 		if (
 			matchesKey(data, "escape") ||
 			data === "\x1b" ||

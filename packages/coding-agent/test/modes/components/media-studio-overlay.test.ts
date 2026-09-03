@@ -37,12 +37,33 @@ describe("AeryMediaStudioOverlay", () => {
 		studio.dispose();
 	});
 
-	it("closes on Escape", () => {
+	it("closes on Escape when picker is not open", () => {
 		const studio = new AeryMediaStudioOverlay();
 		let closed = 0;
 		studio.onClose = () => {
 			closed++;
 		};
+		studio.handleInput("\x1b");
+		expect(closed).toBe(1);
+		studio.dispose();
+	});
+
+	it("cancels the model picker on Escape without closing studio", () => {
+		const studio = new AeryMediaStudioOverlay();
+		let closed = 0;
+		studio.onClose = () => {
+			closed++;
+		};
+
+		// Open picker with alt+m
+		studio.handleInput("\x1bm");
+		// Press Escape to cancel picker
+		studio.handleInput("\x1b");
+
+		// Studio should still be open!
+		expect(closed).toBe(0);
+
+		// Pressing Escape again closes studio
 		studio.handleInput("\x1b");
 		expect(closed).toBe(1);
 		studio.dispose();
