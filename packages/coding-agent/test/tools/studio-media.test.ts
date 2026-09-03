@@ -114,7 +114,7 @@ describe("MediaStateManager", () => {
 		});
 		manager.enqueue({ kind: "video", subject: "a hummingbird", duration: 5 });
 
-		await waitFor(() => manager.getSnapshot().jobs[0]?.status === "completed");
+		await waitFor(() => manager.getSnapshot().gallery.length === 1);
 
 		const job = manager.getSnapshot().jobs[0];
 		expect(job.videoPaths).toHaveLength(1);
