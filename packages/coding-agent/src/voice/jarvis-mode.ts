@@ -23,13 +23,9 @@ import { defaultVoiceEngine } from "./voice-engine";
 const WAKE_CHIME = path.join(os.homedir(), ".local", "share", "aerys", "voice", "wake-chime.wav");
 
 let isSpeaking = false;
-let isBusy = false; // True while Aerys is actively processing tools or prompts
+let isBusy = false;
 let lastSpeechFinishedAt = 0;
 const TAIL_ECHO_GRACE_MS = 500;
-
-let hotWindowExpiry = 0;
-const HOT_WINDOW_DURATION_MS = 20_000; // 20s active follow-up conversation window
-
 /** Play the subtle J.A.R.V.I.S. wake chime */
 function playWakeChime(): Promise<void> {
 	if (!fs.existsSync(WAKE_CHIME)) return Promise.resolve();
@@ -153,7 +149,8 @@ export async function runJarvisMode(): Promise<void> {
 
 		const rms = computeRms(chunk);
 		// Voice activity threshold on echo-cancelled stream
-		if (rms >= 1000) {
+		// Voice activity threshold on echo-cancelled stream (speech: >1500 RMS)
+		if (rms >= 1500) {
 			lastUtteranceTime = Date.now();
 			if (!voiceActive) {
 				voiceActive = true;
@@ -182,10 +179,9 @@ export async function runJarvisMode(): Promise<void> {
 						if (isGhostHallucination(raw)) return;
 
 						const match = detectWakeWord(raw);
-						const inHotWindow = Date.now() < hotWindowExpiry;
+
 
 						if (match.detected) {
-							hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
 							await playWakeChime();
 
 							if (!match.query || match.query.length < 2) {
@@ -219,37 +215,9 @@ export async function runJarvisMode(): Promise<void> {
 									await speak("I encountered an issue running that command, Peter.");
 								} finally {
 									lastSpeechFinishedAt = Date.now();
-									hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
+
 									isBusy = false;
 								}
-							}
-						} else if (inHotWindow && !isBusy) {
-							// Conversational follow-up mode
-							isBusy = true;
-							console.log(`\n🗣️  Peter (Follow-up): "${raw}"`);
-							console.log("⚡ [Executing command with desktop tools...]");
-							try {
-								await session.prompt(raw);
-								const last = session.getLastAssistantMessage?.();
-								if (last) {
-									const text = last.content
-										.filter(c => c.type === "text")
-										.map(c => c.text)
-										.join("\n");
-									const summary = extractSpokenText(text);
-									if (summary) {
-										console.log(`🤖 Aerys: "${summary}"\n`);
-										await speak(summary);
-									}
-								}
-							} catch (err: unknown) {
-								const error = err as Error;
-								console.error("[Execution error]:", error.message);
-								await speak("I encountered an issue running that command, Peter.");
-							} finally {
-								lastSpeechFinishedAt = Date.now();
-								hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
-								isBusy = false;
 							}
 						}
 					}
