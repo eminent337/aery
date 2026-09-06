@@ -13,12 +13,13 @@ import * as z from "zod/v4";
 import type { ToolSession } from "./index";
 import { defaultVoiceEngine } from "../voice/voice-engine";
 import { defaultVoiceDaemon } from "../voice/voice-daemon";
+import { enrollPeter } from "../voice/speaker-id";
 
 const voiceControlSchema = z.object({
 	action: z
-		.enum(["speak", "listen", "stop", "list_voices", "start_ambient", "stop_ambient", "ambient_status"])
+		.enum(["speak", "listen", "stop", "list_voices", "start_ambient", "stop_ambient", "ambient_status", "enroll_voice"])
 		.describe(
-			"Action: 'speak' synthesizes text to speech, 'listen' records a single utterance, 'stop' halts speech playback, 'list_voices' lists voice models, 'start_ambient' starts hands-free background microphone listening, 'stop_ambient' stops ambient listening, 'ambient_status' queries listening state.",
+			"Action: 'speak' synthesizes text to speech, 'listen' records a single utterance, 'stop' halts speech playback, 'list_voices' lists voice models, 'start_ambient' starts hands-free background microphone listening, 'stop_ambient' stops ambient listening, 'ambient_status' queries listening state, 'enroll_voice' records a calibration sample of Peter's voice for voice biometrics.",
 		),
 	text: z.string().optional().describe("Text for Aerys to speak out loud when action is 'speak'."),
 	voice: z
@@ -193,6 +194,23 @@ export class VoiceControlTool implements AgentTool<typeof voiceControlSchema> {
 					],
 					details: status,
 				};
+			}
+
+			case "enroll_voice": {
+				try {
+					const { profilePath } = await enrollPeter();
+					await defaultVoiceEngine.speak("Voiceprint enrolled successfully. Voice pattern recognized: Peter.");
+					return {
+						content: [{ type: "text", text: `Voiceprint enrolled successfully at: ${profilePath}` }],
+						details: { enrolled: true, profilePath },
+					};
+				} catch (err: unknown) {
+					const error = err as Error;
+					return {
+						content: [{ type: "text", text: `Voice enrollment failed: ${error.message}` }],
+						details: { error: error.message },
+					};
+				}
 			}
 		}
 	}
