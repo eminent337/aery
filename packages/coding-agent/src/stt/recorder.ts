@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { $which, logger, Snowflake } from "@aryee337/aery-utils";
 import { $ } from "bun";
+import { computeRms, pcmToWav } from "../voice/voice-daemon";
 
 export interface RecordingHandle {
 	stop(): Promise<void>;
@@ -41,21 +42,54 @@ async function detectWindowsAudioDevice(): Promise<string> {
 }
 
 // ── Recording implementations ──────────────────────────────────────
-async function startPwRecordRecording(outputPath: string): Promise<RecordingHandle> {
-	const proc = Bun.spawn(["pw-record", "--channels=1", "--rate=16000", "--format=s16", outputPath], {
+async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () => void): Promise<RecordingHandle> {
+	const proc = Bun.spawn(["pw-record", "--channels=1", "--rate=16000", "--format=s16", "-"], {
 		stdin: "ignore",
-		stdout: "ignore",
+		stdout: "pipe",
 		stderr: "ignore",
 	});
 	await verifyProcessAlive(proc, "pw-record");
+
+	const chunks: Buffer[] = [];
+	let hasSpoken = false;
+	let lastSpeechTime = 0;
+	let autoStopped = false;
+
+	const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+
+	// Read incoming PCM chunks and monitor Voice Activity Detection
+	(async () => {
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done || !value) break;
+				const chunk = Buffer.from(value);
+				chunks.push(chunk);
+
+				const rms = computeRms(chunk);
+				if (rms >= 1000) {
+					hasSpoken = true;
+					lastSpeechTime = Date.now();
+				} else if (hasSpoken && onSilenceTimeout && !autoStopped) {
+					if (Date.now() - lastSpeechTime >= 1200) {
+						autoStopped = true;
+						onSilenceTimeout();
+					}
+				}
+			}
+		} catch {}
+	})();
+
 	return {
 		async stop() {
 			proc.kill("SIGINT");
 			await proc.exited;
+			const pcm = Buffer.concat(chunks);
+			const wav = pcmToWav(pcm);
+			await fs.writeFile(outputPath, wav);
 		},
 	};
 }
-
 
 async function startSoxRecording(outputPath: string): Promise<RecordingHandle> {
 	// On Windows, "-d" (default device) often fails. Use "-t waveaudio 0" for the first input.
@@ -309,7 +343,7 @@ async function verifyProcessAlive(proc: ReturnType<typeof Bun.spawn>, tool: stri
 
 // ── Public API ─────────────────────────────────────────────────────
 
-export async function startRecording(outputPath: string): Promise<RecordingHandle> {
+export async function startRecording(outputPath: string, onSilenceTimeout?: () => void): Promise<RecordingHandle> {
 	const tools = detectRecordingTools();
 	if (tools.length === 0) {
 		throw new Error(
@@ -325,7 +359,7 @@ export async function startRecording(outputPath: string): Promise<RecordingHandl
 		try {
 			switch (tool) {
 				case "pw-record":
-					return await startPwRecordRecording(outputPath);
+					return await startPwRecordRecording(outputPath, onSilenceTimeout);
 				case "sox":
 					return await startSoxRecording(outputPath);
 				case "ffmpeg":
