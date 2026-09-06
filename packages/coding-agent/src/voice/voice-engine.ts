@@ -173,39 +173,41 @@ export class VoiceEngine {
 	/**
 	 * Record microphone audio for a specified duration and transcribe with Whisper.cpp.
 	 */
-	async listen(options: { durationSeconds?: number } = {}): Promise<TranscriptionResult> {
+	async listen(options: { durationSeconds?: number; audioPath?: string } = {}): Promise<TranscriptionResult> {
 		const duration = options.durationSeconds ?? 4;
 		const timestamp = Date.now();
-		const audioPath = path.join(os.tmpdir(), `aerys-mic-${timestamp}.wav`);
-
+		const targetAudio = options.audioPath || path.join(os.tmpdir(), `aerys-mic-${timestamp}.wav`);
 		const startTime = Date.now();
 
-		// Record 16kHz mono WAV from PipeWire microphone
-		await new Promise<void>((resolve, reject) => {
-			const recorder = spawn(
-				"pw-record",
-				["--channels=1", "--rate=16000", "--format=s16", audioPath],
-				{ stdio: "ignore" },
-			);
+		if (!options.audioPath) {
+			// Record 16kHz mono WAV from PipeWire microphone
+			await new Promise<void>((resolve, reject) => {
+				const recorder = spawn(
+					"pw-record",
+					["--channels=1", "--rate=16000", "--format=s16", targetAudio],
+					{ stdio: "ignore" },
+				);
 
-			recorder.on("error", reject);
+				recorder.on("error", reject);
 
-			// Stop recording after duration
-			const timer = setTimeout(() => {
-				try {
-					recorder.kill("SIGINT");
-				} catch {}
-			}, duration * 1000);
+				// Stop recording after duration
+				const timer = setTimeout(() => {
+					try {
+						recorder.kill("SIGINT");
+					} catch {}
+				}, duration * 1000);
 
-			recorder.on("close", () => {
-				clearTimeout(timer);
-				resolve();
+				recorder.on("close", () => {
+					clearTimeout(timer);
+					resolve();
+				});
 			});
-		});
+		}
 
-		if (!fs.existsSync(audioPath) || fs.statSync(audioPath).size === 0) {
+		if (!fs.existsSync(targetAudio) || fs.statSync(targetAudio).size === 0) {
 			throw new Error("Recording failed: no audio captured from microphone.");
 		}
+		const audioPath = targetAudio;
 
 		// Transcribe with Whisper.cpp
 		const text = await new Promise<string>((resolve, reject) => {

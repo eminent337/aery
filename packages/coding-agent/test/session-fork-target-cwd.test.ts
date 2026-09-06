@@ -30,13 +30,24 @@ describe("Cross-directory session forking", () => {
 		await sessionManagerA.appendMessage({
 			role: "user",
 			content: [{ type: "text", text: "Hello from Project A" }],
-			timestamp: new Date().toISOString(),
+			timestamp: Date.now(),
 		});
 		await sessionManagerA.appendMessage({
 			role: "assistant",
 			content: [{ type: "text", text: "Response from Project A" }],
-			timestamp: new Date().toISOString(),
-			usage: { input: 1, output: 1, cost: 0 },
+			api: "openai-completions",
+			provider: "anthropic",
+			model: "claude-3-5-sonnet",
+			stopReason: "stop",
+			timestamp: Date.now(),
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
 		});
 		await sessionManagerA.flush();
 		const origSessionFile = sessionManagerA.getSessionFile();
@@ -111,8 +122,9 @@ describe("Cross-directory session forking", () => {
 		expect(forkedTarget).toBe(projectB);
 		expect(forkedTitle).toBe("Forked to B");
 		expect(result.content[0].type).toBe("text");
-		expect(result.content[0].text).toContain(projectB);
-		expect(result.content[0].text).toContain("new-id-123");
+		const textContent = result.content[0] as { type: string; text: string };
+		expect(textContent.text).toContain(projectB);
+		expect(textContent.text).toContain("new-id-123");
 	});
 
 	it("resolveToCwd correctly handles relative paths and tildes", () => {
