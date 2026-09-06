@@ -209,11 +209,14 @@ export class VoiceEngine {
 
 		// Transcribe with Whisper.cpp
 		const text = await new Promise<string>((resolve, reject) => {
-			const whisper = spawn(
-				this.whisperBinary,
-				["-m", this.whisperModel, "-f", audioPath, "-nt", "-np"],
-				{ stdio: ["ignore", "pipe", "pipe"] },
-			);
+			const vadModelPath = path.join(this.#modelsDir, "ggml-silero-vad.bin");
+			const whisperArgs = fs.existsSync(vadModelPath)
+				? ["--vad", "-vm", vadModelPath, "-m", this.whisperModel, "-f", audioPath, "-nt", "-np"]
+				: ["-m", this.whisperModel, "-f", audioPath, "-nt", "-np"];
+
+			const whisper = spawn(this.whisperBinary, whisperArgs, {
+				stdio: ["ignore", "pipe", "pipe"],
+			});
 
 			let stdout = "";
 			let stderr = "";
