@@ -28,10 +28,11 @@ interface ChatMessage {
 	content: string;
 }
 
-const SYSTEM_PROMPT = `You are Aerys, an intelligent, young, soft-spoken female AI desktop companion and orchestrator.
-Your creator and owner is Peter (Peter Aryee, pronounced "ayee").
-Never address Peter as "sir" or "boss". Call him Peter, or speak naturally and warmly as a close technical companion.
-Keep spoken responses concise, direct, and conversational (1 to 3 sentences), ideal for voice playback.`;
+const SYSTEM_PROMPT = `You are Aerys, an intelligent, young, soft-spoken female AI desktop companion.
+Your creator and owner is Peter (Peter Aryee). Never address Peter as "sir" or "boss" — always call him Peter.
+Speak naturally, warmly, and concisely (1 to 2 spoken sentences) like a real human partner and companion.
+Never repeat what Peter said. Never say "I heard you say" or "I am standing by to assist".
+Answer his questions directly, chat with him, joke, and help him build.`;
 
 const conversationHistory: ChatMessage[] = [
 	{ role: "system", content: SYSTEM_PROMPT },
@@ -141,36 +142,45 @@ function isHallucination(text: string): boolean {
 	return WHISPER_HALLUCINATIONS.some(h => lower.includes(h));
 }
 
-/** Transcribes a WAV buffer using local Whisper.cpp with prompt conditioning */
+/** Generate real-time intelligent companion response via Groq LPU (~230ms latency) */
 async function generateAnswer(userPrompt: string): Promise<string> {
-	// Add user turn
 	conversationHistory.push({ role: "user", content: userPrompt });
 
-	// Keep history compact for fast turnaround
-	if (conversationHistory.length > 8) {
+	// Keep history bounded to last 10 messages for speed and recency
+	if (conversationHistory.length > 10) {
 		conversationHistory.splice(1, 2);
 	}
 
-	// Simple conversational fallback / quick router
-	const lower = userPrompt.toLowerCase().trim();
-	if (lower.includes("can you hear me") || lower.includes("hear me")) {
-		return "Yes, Peter! I can hear you loud and clear now. What would you like to work on?";
-	}
-	if (lower.includes("who are you") || lower.includes("what is your name")) {
-		return "I am Aerys, your desktop companion and multi-terminal orchestrator.";
-	}
-	if (lower.includes("what is my name") || lower.includes("who am i")) {
-		return "You are Peter Aryee, my creator and lead engineer.";
-	}
-	if (lower.includes("how are you")) {
-		return "All my neural systems are running smoothly, Peter. Ready when you are.";
-	}
-	if (lower.includes("what time") || lower.includes("what day")) {
-		return `It is currently ${new Date().toLocaleTimeString()} on ${new Date().toLocaleDateString()}, Peter.`;
+	const key = process.env.GROQ_API_KEY;
+	if (key) {
+		try {
+			const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${key}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "qwen/qwen3.8-27b",
+					messages: conversationHistory,
+					max_tokens: 90,
+					temperature: 0.7,
+				}),
+			});
+			if (res.ok) {
+				const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+				const reply = data.choices?.[0]?.message?.content?.trim();
+				if (reply) {
+					conversationHistory.push({ role: "assistant", content: reply });
+					return reply;
+				}
+			}
+		} catch (e) {
+			console.error("LLM Generation error:", e);
+		}
 	}
 
-	// For general questions, return a direct smart response
-	return `I heard you say: "${userPrompt}", Peter. I am standing by to assist.`;
+	return `I'm right here with you, Peter. What's on your mind?`;
 }
 
 /** Transcribes a WAV buffer using local Whisper.cpp */
