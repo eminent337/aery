@@ -1,45 +1,40 @@
-# Session Handoff & Project Briefing: Aery Jarvis
+# Aery Jarvis Workspace: Session Handoff & Quickstart
 
-## Executive Summary
-This workspace (`/home/aryee/aery/aery-jarvis`) is the dedicated evolution of **Aery** into **Aery Jarvis**: an all-powerful, ambient desktop commander and agent orchestrator.
+## Welcome to Aery Jarvis!
 
-- **`aery`** (`/home/aryee/aery/ai_agent/aery`) remains the surgical, high-performance terminal AI coding agent (all latest rendering, image dedup, video retry, and crash-loop fixes are committed and pushed to `origin/main` on GitHub).
-- **`aery-jarvis`** (`/home/aryee/aery/aery-jarvis`) is the new home where we build the overarching assistant (audio voice duplex, desktop/app vision and computer use, and multi-terminal swarm orchestration across Kitty/Tmux panes).
+This workspace is dedicated to building the **all-powerful Aery Desktop Assistant & Multi-Agent Swarm Orchestrator (J.A.R.V.I.S.-like)**.
 
----
-
-## Workspace Setup Status
-1. **Repository Location:** `/home/aryee/aery/aery-jarvis`
-2. **Git Branch:** `feat/aery-jarvis`
-3. **Remote:** `https://github.com/eminent337/aery.git` (synchronized with upstream main)
-4. **Dependencies & Build:** `bun install` completed; `packages/coding-agent` and `packages/tui` both typecheck with **0 errors**.
-5. **Session State:** Full transcript and session data from the original session have been copied to:
-   `/home/aryee/.aery/agent/sessions/-aery-aery-jarvis/2026-06-08T23-16-03-588Z_019ea985-9184-7000-8a4e-53ab11080dc1.jsonl`
+### Workspace Status
+- **Location:** `/home/aryee/aery/aery-jarvis`
+- **Git Branch:** `feat/aery-jarvis`
+- **Origin Remote:** `https://github.com/eminent337/aery.git`
+- **Build Status:** Verified clean build with `bun install`, 0 typecheck errors in all packages.
+- **Session State:** Full transcript and agent history synced to `/home/aryee/.aery/agent/sessions/-aery-aery-jarvis/`.
 
 ---
 
-## Objectives & Roadmap Overview (Detailed in `OBJECTIVES.md`)
+## Core Objectives (Summary of OBJECTIVES.md)
 
-### The 4 Core Pillars
-1. **Multi-Terminal & Swarm Commander:**
-   - Programmatically spawn, arrange, and manage visible terminal panes via Kitty remote control (`kitty @ launch`) and Tmux control mode (`tmux split-window`).
-   - Command and coordinate sub-agents visually across multiple terminal windows instead of hidden background threads.
-2. **Desktop Vision & Computer Use:**
-   - OS-level screen/window capture with high-DPI coordinate scaling.
-   - Native mouse/keyboard interaction with desktop apps (VS Code, browser, Figma, etc.).
-3. **Ambient Voice & Audio Duplex:**
-   - Real-time streaming voice loop (VAD $\to$ STT $\to$ LLM $\to$ TTS) with sub-second turnaround and instant interruption/barge-in.
-4. **Companion Memory & Technical Persona:**
-   - Long-term cross-session memory with a sharp, dry-witted, loyal technical copilot persona.
+1. **Multi-Terminal & Swarm Commander (Pillar 1)**
+   - Kitty remote control (`kitty @ launch`) and Tmux split-window management.
+   - Programmatically spawn visible worker panes and orchestrate parallel coding subagents.
+2. **Desktop Vision & Computer Use (Pillar 2)**
+   - DPI-aware screen/window capture.
+   - Native desktop application control (mouse clicks, drags, keyboard shortcuts).
+3. **Ambient Voice & Audio Duplex (Pillar 3)**
+   - Streaming STT $\to$ LLM $\to$ Streaming TTS.
+   - Real-time VAD & barge-in interruption handling.
+4. **Personal Companion Memory (Pillar 4)**
+   - Persistent cross-session relationship and project memory.
+   - Witty, loyal, high-competence persona.
 
 ---
 
-## Next Steps to Execute Here
-- **Phase 1 (Immediate Next Task):** Implement `packages/coding-agent/src/tools/terminal-pane.ts`
-  - Support Kitty socket API (`KITTY_LISTEN_ON` or `--to`) and Tmux fallback.
-  - Expose actions: `split_pane`, `send_keys`, `read_pane`, `close_pane`.
-  - Connect agent task delegation so workers can be spawned in live, visible terminal panes.
-- **Reference Repos to Study:**
-  - `anthropics/anthropic-quickstarts/computer-use-demo` (screen coordinates & input automation)
-  - `open-interpreter/open-interpreter` (OS mode & computer control)
-  - `livekit/agents` (low-latency voice loop & VAD)
+## Immediate Next Actions
+1. **Clone reference open-source repos into a study cache (e.g. `study/`):**
+   - `computer-use-demo` (Anthropic Quickstarts)
+   - `open-interpreter`
+   - `self-operating-computer`
+   - `livekit-agents`
+2. **Phase 1 Implementation:**
+   - Create `packages/coding-agent/src/tools/terminal-pane.ts` to control Kitty/Tmux panes.
