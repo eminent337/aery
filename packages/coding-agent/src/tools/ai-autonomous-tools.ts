@@ -13,7 +13,10 @@
  * - `ai_auto_research` — Multi-step autonomous research (search → read → compile)
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { AgentTool, AgentToolContext, AgentToolResult } from "@aryee337/aery-core";
+import { getProjectDir } from "@aryee337/aery-utils";
 import * as z from "zod/v4";
 import { getGlobalCronScheduler } from "../cron/scheduler";
 import { PluginManager } from "../extensibility/plugins/manager";
@@ -592,12 +595,21 @@ export class ShakeContextTool implements AgentTool<typeof shakeSchema> {
 	}
 }
 
-const forkSchema = confirmSchema.extend({ messageIndex: z.number().int().optional() });
+const forkSchema = confirmSchema.extend({
+	messageIndex: z.number().int().optional().describe("Optional message index up to which to fork history."),
+	targetDir: z
+		.string()
+		.optional()
+		.describe(
+			"Optional target project directory to fork into. If provided, creates the new session in that project and switches the active working directory there.",
+		),
+	title: z.string().optional().describe("Optional title for the new forked session."),
+});
 export class ForkSessionTool implements AgentTool<typeof forkSchema> {
 	readonly name = "ai_fork_session";
 	readonly approval = "read" as const;
 	readonly label = "Fork Session";
-	readonly description = "Create a new fork from a previous message.";
+	readonly description = "Create a new fork from a previous message or into a different project directory.";
 	readonly parameters = forkSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
@@ -614,12 +626,29 @@ export class ForkSessionTool implements AgentTool<typeof forkSchema> {
 		context?: AgentToolContext,
 	): Promise<AgentToolResult> {
 		if (!params.confirmed) {
-			const gate = await confirmGate(context, params, "Create a fork from the previous message?");
+			const prompt = params.targetDir
+				? `Fork session into project directory "${params.targetDir}"?`
+				: "Create a fork from the current session?";
+			const gate = await confirmGate(context, params, prompt);
 			if (gate) return gate;
 		}
 		if (!this.session.fork) return successResult("Forking is not available in this session.");
-		const done = await this.session.fork();
-		return successResult(done ? "Session forked into a new session file." : "Fork cancelled (hook or persistence).");
+		const targetCwd = params.targetDir?.trim() ? path.resolve(getProjectDir(), params.targetDir.trim()) : undefined;
+		if (targetCwd) {
+			await fs.promises.mkdir(targetCwd, { recursive: true });
+		}
+		const done = await this.session.fork({
+			targetCwd,
+			title: params.title?.trim() || undefined,
+			messageIndex: params.messageIndex,
+		});
+		if (!done) return successResult("Fork cancelled (hook or persistence).");
+		if (typeof done === "object" && "newCwd" in done) {
+			return successResult(
+				`Session successfully forked into "${done.newCwd}" (Session ID: ${done.newSessionId}). Working directory switched to "${done.newCwd}".`,
+			);
+		}
+		return successResult("Session forked into a new session file.");
 	}
 }
 
@@ -878,7 +907,11 @@ export class AutonomousModeTool implements AgentTool<typeof autonomousSchema> {
 		context?: AgentToolContext,
 	): Promise<AgentToolResult> {
 		if (!params.confirmed) {
-			const gate = await confirmGate(context, params, `Autonomous: ${params.action}${params.objective ? ` "${params.objective}"` : ""}?`);
+			const gate = await confirmGate(
+				context,
+				params,
+				`Autonomous: ${params.action}${params.objective ? ` "${params.objective}"` : ""}?`,
+			);
 			if (gate) return gate;
 		}
 		const runtime = this.session.getAutonomousRuntime?.();
@@ -1032,7 +1065,11 @@ export class McpManageTool implements AgentTool<typeof mcpManageSchema> {
 		context?: AgentToolContext,
 	): Promise<AgentToolResult> {
 		if (!params.confirmed) {
-			const gate = await confirmGate(context, params, `MCP: ${params.action}${params.name ? ` ${params.name}` : ""}?`);
+			const gate = await confirmGate(
+				context,
+				params,
+				`MCP: ${params.action}${params.name ? ` ${params.name}` : ""}?`,
+			);
 			if (gate) return gate;
 		}
 		const manager = this.session.mcpManager;
@@ -1574,7 +1611,6 @@ export class MarketplaceTool implements AgentTool<typeof marketplaceSchema> {
 
 // ── Special Tools ───────────────────────────────────────────────────────────
 
-
 const autoResearchSchema = confirmSchema.extend({
 	topic: z.string().describe("The research topic or question to investigate"),
 	depth: z.enum(["quick", "standard", "deep"]).optional().describe("Research depth (default: standard)"),
@@ -1606,12 +1642,17 @@ export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
 		const sources = params.sources ?? 5;
 
 		if (!params.confirmed) {
-			const gate = await confirmGate(context, params, `Research "${params.topic}" (${depth} depth, ~${sources} sources)?`, {
-				tool: "auto_research",
-				topic: params.topic,
-				depth,
-				sources,
-			});
+			const gate = await confirmGate(
+				context,
+				params,
+				`Research "${params.topic}" (${depth} depth, ~${sources} sources)?`,
+				{
+					tool: "auto_research",
+					topic: params.topic,
+					depth,
+					sources,
+				},
+			);
 			if (gate) return gate;
 		}
 
@@ -1625,10 +1666,7 @@ export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
 		for (const query of subQueries) {
 			if (_signal?.aborted) break;
 			try {
-				const result = await runSearchQuery(
-					{ query, limit: sources, provider: "auto" },
-					{ signal: _signal },
-				);
+				const result = await runSearchQuery({ query, limit: sources, provider: "auto" }, { signal: _signal });
 				const text = result.content[0]?.text ?? "";
 				if (text.startsWith("Error:")) {
 					findings.push(`Search for "${query}" failed: ${text}`);
@@ -1672,13 +1710,8 @@ export class AutoResearchTool implements AgentTool<typeof autoResearchSchema> {
 function buildSubQueries(topic: string, depth: string): string[] {
 	const base = topic.trim();
 	if (depth === "quick") return [base];
-	if (depth === "deep") return [
-		base,
-		`${base} overview`,
-		`${base} details`,
-		`${base} alternatives`,
-		`${base} pros cons`,
-	];
+	if (depth === "deep")
+		return [base, `${base} overview`, `${base} details`, `${base} alternatives`, `${base} pros cons`];
 	// standard
 	return [base, `${base} details`];
 }
@@ -1743,10 +1776,15 @@ export class GreenTool implements AgentTool<typeof greenSchema> {
 		context?: AgentToolContext,
 	): Promise<AgentToolResult> {
 		if (!params.confirmed) {
-			const gate = await confirmGate(context, params, `Iterate on CI failures until green${params.focus ? ` (focus: ${params.focus})` : ""}?`, {
-				tool: "green",
-				focus: params.focus,
-			});
+			const gate = await confirmGate(
+				context,
+				params,
+				`Iterate on CI failures until green${params.focus ? ` (focus: ${params.focus})` : ""}?`,
+				{
+					tool: "green",
+					focus: params.focus,
+				},
+			);
 			if (gate) return gate;
 		}
 		if (this.session?.executeSlashCommand) {
@@ -1861,7 +1899,11 @@ export class SSHManageTool implements AgentTool<typeof sshManageSchema> {
 		context?: AgentToolContext,
 	): Promise<AgentToolResult> {
 		if (!params.confirmed && params.action !== "list" && params.action !== "help") {
-			const gate = await confirmGate(context, params, `SSH: ${params.action}${params.name ? ` ${params.name}` : ""}?`);
+			const gate = await confirmGate(
+				context,
+				params,
+				`SSH: ${params.action}${params.name ? ` ${params.name}` : ""}?`,
+			);
 			if (gate) return gate;
 		}
 		try {

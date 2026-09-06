@@ -1928,6 +1928,19 @@ export async function resolveResumableSession(
 
 	return { session: globalMatch, scope: "global" };
 }
+export interface ForkSessionOptions {
+	targetCwd?: string;
+	title?: string;
+	messageIndex?: number;
+}
+
+export interface ForkSessionResult {
+	oldSessionFile: string;
+	newSessionFile: string;
+	newSessionId: string;
+	newCwd: string;
+}
+
 interface SessionManagerStateSnapshot {
 	cwd: string;
 	sessionDir: string;
@@ -2127,7 +2140,7 @@ export class SessionManager {
 	 * Returns both the old and new session file paths for artifact copying.
 	 * @returns { oldSessionFile, newSessionFile } or undefined if not persisting
 	 */
-	async fork(): Promise<{ oldSessionFile: string; newSessionFile: string } | undefined> {
+	async fork(options?: ForkSessionOptions): Promise<ForkSessionResult | undefined> {
 		if (!this.persist || !this.#sessionFile) {
 			return undefined;
 		}
@@ -2141,11 +2154,23 @@ export class SessionManager {
 		this.#persistError = undefined;
 		this.#persistErrorReported = false;
 
+		const targetCwd = options?.targetCwd ? path.resolve(this.cwd, options.targetCwd) : this.cwd;
+		const managedSessionsRoot = resolveManagedSessionRoot(this.sessionDir, this.cwd);
+		const targetSessionDir = options?.targetCwd
+			? managedSessionsRoot
+				? computeDefaultSessionDir(targetCwd, this.storage, managedSessionsRoot)
+				: computeDefaultSessionDir(targetCwd, this.storage)
+			: this.getSessionDir();
+
+		this.storage.ensureDirSync(targetSessionDir);
+
 		// Create new session ID and header
 		this.#sessionId = createSessionId();
 		const timestamp = new Date().toISOString();
 		const fileTimestamp = timestamp.replace(/[:.]/g, "-");
-		this.#sessionFile = path.join(this.getSessionDir(), `${fileTimestamp}_${this.#sessionId}.jsonl`);
+		this.#sessionFile = path.join(targetSessionDir, `${fileTimestamp}_${this.#sessionId}.jsonl`);
+		this.cwd = targetCwd;
+		this.sessionDir = targetSessionDir;
 
 		// Update the header with new ID but keep all entries
 		const oldHeader = this.#fileEntries.find(e => e.type === "session") as SessionHeader | undefined;
@@ -2153,24 +2178,44 @@ export class SessionManager {
 			type: "session",
 			version: CURRENT_SESSION_VERSION,
 			id: this.#sessionId,
-			title: oldHeader?.title ?? this.#sessionName,
-			titleSource: oldHeader?.titleSource ?? this.#titleSource,
+			title: options?.title ?? oldHeader?.title ?? this.#sessionName,
+			titleSource: options?.title ? "user" : (oldHeader?.titleSource ?? this.#titleSource),
 			timestamp,
-			cwd: this.cwd,
+			cwd: targetCwd,
 			parentSession: oldSessionId,
 		};
 		this.#sessionName = newHeader.title;
 		this.#titleSource = newHeader.titleSource;
 
 		// Replace the header in fileEntries
-		const entries = this.#fileEntries.filter((e): e is SessionEntry => e.type !== "session");
+		let entries = this.#fileEntries.filter((e): e is SessionEntry => e.type !== "session");
+		if (typeof options?.messageIndex === "number" && options.messageIndex >= 0) {
+			let msgCount = 0;
+			const filtered: SessionEntry[] = [];
+			for (const entry of entries) {
+				if (entry.type === "message") {
+					if (msgCount > options.messageIndex) break;
+					msgCount++;
+				}
+				filtered.push(entry);
+			}
+			entries = filtered;
+		}
 		this.#fileEntries = [newHeader, ...entries];
 
 		// Write the new session file
 		this.#flushed = false;
 		await this.#rewriteFile();
 
-		return { oldSessionFile, newSessionFile: this.#sessionFile };
+		// Write terminal breadcrumb for the new session file and project cwd
+		writeTerminalBreadcrumb(targetCwd, this.#sessionFile);
+
+		return {
+			oldSessionFile,
+			newSessionFile: this.#sessionFile,
+			newSessionId: this.#sessionId,
+			newCwd: targetCwd,
+		};
 	}
 
 	/**

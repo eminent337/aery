@@ -1442,7 +1442,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		// AI-autonomous tool backing — route each to the real AgentSession/sessionManager call.
 		toolSession.getAutonomousRuntime = () => session?.getAutonomousRuntime();
 		toolSession.newSession = async options => (session ? await session.newSession(options) : false);
-		toolSession.fork = async () => (session ? await session.fork() : false);
+		toolSession.fork = async options => (session ? await session.fork(options) : false);
 		toolSession.retry = async () => (session ? await session.retry() : false);
 		toolSession.shake = async (mode, opts) =>
 			session ? await session.shake(mode, { signal: opts?.signal }) : undefined;
