@@ -1212,6 +1212,17 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"voice.autoSpeak": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "interaction",
+			group: "Voice",
+			label: "Auto-Speak Responses",
+			description: "Speak concise conversational turn summaries out loud with Aerys's neural voice",
+		},
+	},
+
 	"batchNudge.enabled": {
 		type: "boolean",
 		default: true,

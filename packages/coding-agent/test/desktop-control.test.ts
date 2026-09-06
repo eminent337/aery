@@ -14,19 +14,19 @@ describe("DesktopControlTool", () => {
 	it("validates required parameters for focus and close actions", async () => {
 		const res1 = await tool.execute("call_1", { action: "focus_window" });
 		expect(res1.content[0].type).toBe("text");
-		expect(res1.content[0].text).toContain("query");
+		expect((res1.content[0] as { text: string }).text).toContain("query");
 
 		const res2 = await tool.execute("call_2", { action: "close_window" });
 		expect(res2.content[0].type).toBe("text");
-		expect(res2.content[0].text).toContain("query");
+		expect((res2.content[0] as { text: string }).text).toContain("query");
 
 		const res3 = await tool.execute("call_3", { action: "switch_workspace" });
 		expect(res3.content[0].type).toBe("text");
-		expect(res3.content[0].text).toContain("workspace");
+		expect((res3.content[0] as { text: string }).text).toContain("workspace");
 
 		const res4 = await tool.execute("call_4", { action: "launch_app" });
 		expect(res4.content[0].type).toBe("text");
-		expect(res4.content[0].text).toContain("command");
+		expect((res4.content[0] as { text: string }).text).toContain("command");
 	});
 
 	it("gets cursor position or returns structured result", async () => {

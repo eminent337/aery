@@ -17,7 +17,7 @@ describe("TerminalPaneTool", () => {
 			command: "echo test",
 		});
 		expect(res1.content[0].type).toBe("text");
-		expect(res1.content[0].text).toContain("paneId is required");
+		expect((res1.content[0] as { text: string }).text).toContain("paneId is required");
 
 		// Missing command
 		const res2 = await tool.execute("call_2", {
@@ -25,7 +25,7 @@ describe("TerminalPaneTool", () => {
 			paneId: "%1",
 		});
 		expect(res2.content[0].type).toBe("text");
-		expect(res2.content[0].text).toContain("command is required");
+		expect((res2.content[0] as { text: string }).text).toContain("command is required");
 	});
 
 	it("validates required parameters for read action", async () => {
@@ -33,7 +33,7 @@ describe("TerminalPaneTool", () => {
 			action: "read",
 		});
 		expect(res.content[0].type).toBe("text");
-		expect(res.content[0].text).toContain("paneId is required");
+		expect((res.content[0] as { text: string }).text).toContain("paneId is required");
 	});
 
 	it("validates required parameters for close action", async () => {
@@ -41,7 +41,7 @@ describe("TerminalPaneTool", () => {
 			action: "close",
 		});
 		expect(res.content[0].type).toBe("text");
-		expect(res.content[0].text).toContain("paneId is required");
+		expect((res.content[0] as { text: string }).text).toContain("paneId is required");
 	});
 
 	it("lists panes gracefully when no panes exist", async () => {

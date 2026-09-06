@@ -20,6 +20,7 @@ import type { AgentSessionEvent } from "../../session/agent-session";
 import { isSilentAbort, readPendingDisplayTag } from "../../session/messages";
 import type { ResolveToolDetails } from "../../tools/resolve";
 import { buildTurnNotification, detectTerminalKind, sendTurnNotification } from "../../utils/turn-notifier";
+import { defaultVoiceEngine } from "../../voice/voice-engine";
 import { interruptHint } from "../shared";
 
 type AgentSessionEventKind = AgentSessionEvent["type"];
@@ -38,6 +39,24 @@ const STREAM_RENDER_MODE_EVENTS: Record<string, true> = {
 	tool_execution_update: true,
 	tool_execution_end: true,
 };
+function extractSpokenSummary(markdown: string): string {
+	let clean = markdown.replace(/```[\s\S]*?```/g, "").trim();
+	clean = clean.replace(/^#+\s+.*$/gm, "").trim();
+	clean = clean.replace(/[*_`~]/g, "");
+	clean = clean.replace(/\[(.*?)\]\(.*?\)/g, "$1");
+	clean = clean.replace(/<.*?>/g, "");
+
+	const paragraphs = clean
+		.split(/\n\s*\n/)
+		.map(p => p.trim())
+		.filter(p => p.length > 10 && !p.startsWith("-") && !p.startsWith("*") && !p.startsWith("|"));
+
+	if (paragraphs.length === 0) return "";
+	const firstP = paragraphs[0].replace(/\n+/g, " ");
+	const sentences = firstP.match(/[^.!?]+[.!?]+/g) || [firstP];
+	return sentences.slice(0, 2).join(" ").trim();
+}
+
 
 type AgentSessionEventHandlers = {
 	[E in AgentSessionEventKind]: (event: Extract<AgentSessionEvent, { type: E }>) => Promise<void>;
@@ -659,6 +678,26 @@ export class EventController {
 		this.#scheduleIdleCompaction();
 		this.sendCompletionNotification();
 		this.sendTurnNotificationIfNeeded();
+		this.speakTurnResponseIfNeeded();
+	}
+
+	speakTurnResponseIfNeeded(): void {
+		if (settings.get("voice.autoSpeak") !== true) return;
+		const last = this.ctx.session.getLastAssistantMessage?.();
+		if (!last || last.stopReason === "aborted" || last.stopReason === "error") return;
+
+		let raw = "";
+		for (const block of last.content) {
+			if (block.type === "text") {
+				raw += block.text + "\n";
+			}
+		}
+		if (!raw.trim()) return;
+
+		const spoken = extractSpokenSummary(raw);
+		if (spoken && defaultVoiceEngine.isReady()) {
+			void defaultVoiceEngine.speak(spoken).catch(() => {});
+		}
 	}
 
 	sendTurnNotificationIfNeeded(): void {
