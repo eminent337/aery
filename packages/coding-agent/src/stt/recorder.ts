@@ -15,6 +15,7 @@ const isWindows = process.platform === "win32";
  */
 export function detectRecordingTools(): string[] {
 	const tools: string[] = [];
+	if (!isWindows && $which("pw-record")) tools.push("pw-record");
 	if ($which("sox")) tools.push("sox");
 	if ($which("ffmpeg")) tools.push("ffmpeg");
 	if (!isWindows && $which("arecord")) tools.push("arecord");
@@ -40,6 +41,21 @@ async function detectWindowsAudioDevice(): Promise<string> {
 }
 
 // ── Recording implementations ──────────────────────────────────────
+async function startPwRecordRecording(outputPath: string): Promise<RecordingHandle> {
+	const proc = Bun.spawn(["pw-record", "--channels=1", "--rate=16000", "--format=s16", outputPath], {
+		stdin: "ignore",
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	await verifyProcessAlive(proc, "pw-record");
+	return {
+		async stop() {
+			proc.kill("SIGINT");
+			await proc.exited;
+		},
+	};
+}
+
 
 async function startSoxRecording(outputPath: string): Promise<RecordingHandle> {
 	// On Windows, "-d" (default device) often fails. Use "-t waveaudio 0" for the first input.
@@ -308,6 +324,8 @@ export async function startRecording(outputPath: string): Promise<RecordingHandl
 		logger.debug("Trying audio recording", { tool, outputPath });
 		try {
 			switch (tool) {
+				case "pw-record":
+					return await startPwRecordRecording(outputPath);
 				case "sox":
 					return await startSoxRecording(outputPath);
 				case "ffmpeg":
