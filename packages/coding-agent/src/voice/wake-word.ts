@@ -79,31 +79,42 @@ export function detectWakeWord(rawText: string, fuzzyThreshold = 0.70): WakeDete
 		.split(/\s+/)
 		.filter(t => t.length > 0);
 
+	if (tokens.length === 0) {
+		return { detected: false, query: "" };
+	}
+
+	const first = tokens[0];
+	const second = tokens.length > 1 ? tokens[1] : undefined;
+	const last = tokens.length > 1 ? tokens[tokens.length - 1] : undefined;
+	const isGreeting = first === "hey" || first === "hi" || first === "hello" || first === "ok" || first === "okay";
+
+	const candidates: string[] = [isGreeting && second ? second : first];
+	if (last && last !== candidates[0]) {
+		candidates.push(last);
+	}
+
 	let matchedToken: string | undefined;
 
-	// 1. Check exact match first
-	for (let i = 0; i < tokens.length; i++) {
-		const token = tokens[i];
-		if (ALL_VARIANTS.includes(token)) {
-			matchedToken = token;
+	// 1. Check exact match on leading or trailing candidate
+	for (const candidate of candidates) {
+		if (ALL_VARIANTS.includes(candidate)) {
+			matchedToken = candidate;
 			break;
 		}
 	}
 
-	// 2. Fall back to fuzzy match if no exact token
+	// 2. Fall back to fuzzy match only on the candidates
 	if (!matchedToken) {
-		for (let i = 0; i < tokens.length; i++) {
-			const token = tokens[i];
+		for (const candidate of candidates) {
 			for (const variant of ALL_VARIANTS) {
-				if (similarityRatio(token, variant) >= fuzzyThreshold) {
-					matchedToken = token;
+				if (similarityRatio(candidate, variant) >= fuzzyThreshold) {
+					matchedToken = candidate;
 					break;
 				}
 			}
 			if (matchedToken) break;
 		}
 	}
-
 	if (!matchedToken) {
 		return { detected: false, query: "" };
 	}
