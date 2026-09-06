@@ -5,11 +5,11 @@
 This workspace is dedicated to building the **all-powerful Aery Desktop Assistant & Multi-Agent Swarm Orchestrator (J.A.R.V.I.S.-like)**.
 
 ### Workspace Status
-- **Location:** `/home/aryee/aery/aerys`
+- **Location:** `/home/aryee/aery/aery_jarvis`
 - **Git Branch:** `feat/aerys`
 - **Origin Remote:** `https://github.com/eminent337/aery.git`
 - **Build Status:** Verified clean build with `bun install`, 0 typecheck errors in all packages.
-- **Session State:** Full transcript and agent history synced to `/home/aryee/.aery/agent/sessions/-aery-aerys/`.
+- **Session State:** Full transcript and agent history synced to `/home/aryee/.aery/agent/sessions/-aery-aery_jarvis/`.
 
 ---
 
