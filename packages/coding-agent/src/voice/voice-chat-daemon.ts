@@ -13,6 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { defaultVoiceEngine } from "./voice-engine";
 import { computeRms, pcmToWav } from "./voice-daemon";
+import { transcribeWithGroq } from "./groq-whisper";
 
 const WHISPER_BIN = path.join(os.homedir(), ".local", "share", "aerys", "voice", "bin", "whisper-cli");
 const SMALL_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "ggml-small.en.bin");
@@ -174,6 +175,13 @@ async function generateAnswer(userPrompt: string): Promise<string> {
 
 /** Transcribes a WAV buffer using local Whisper.cpp */
 async function transcribeAudio(wavBuffer: Buffer): Promise<string> {
+	// 1. Try Groq Whisper (~150ms latency, whisper-large-v3) if API key is present
+	const groqRes = await transcribeWithGroq(wavBuffer);
+	if (groqRes && groqRes.text.length > 0) {
+		return groqRes.text;
+	}
+
+	// 2. Offline local Whisper.cpp fallback
 	const tmpWav = path.join(os.tmpdir(), `aerys-hear-${Date.now()}.wav`);
 	try {
 		await fs.promises.writeFile(tmpWav, wavBuffer);
