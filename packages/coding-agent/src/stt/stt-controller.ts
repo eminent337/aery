@@ -44,10 +44,10 @@ export class STTController {
 		try {
 			switch (this.#state) {
 				case "idle":
-					await this.#startRecording(editor, options);
+					await this.startRecording(editor, options);
 					break;
 				case "recording":
-					await this.#stopAndTranscribe(editor, options);
+					await this.stopAndTranscribe(editor, options);
 					break;
 				case "transcribing":
 					options.showStatus("Transcription in progress...");
@@ -58,7 +58,7 @@ export class STTController {
 		}
 	}
 
-	async #startRecording(editor: Editor, options: ToggleOptions): Promise<void> {
+	async startRecording(editor: Editor, options: ToggleOptions): Promise<void> {
 		if (!this.#depsResolved) {
 			try {
 				options.showStatus("Checking STT dependencies...");
@@ -79,9 +79,12 @@ export class STTController {
 		this.#tempFile = path.join(os.tmpdir(), `aery-stt-${id}.wav`);
 
 		try {
-			this.#recordingHandle = await startRecording(this.#tempFile);
+			this.#recordingHandle = await startRecording(this.#tempFile, async () => {
+				if (this.#state === "recording") {
+					await this.stopAndTranscribe(editor, options);
+				}
+			});
 			this.#setState("recording", options);
-			logger.debug("STT recording started", { tempFile: this.#tempFile });
 		} catch (err) {
 			this.#tempFile = null;
 			const msg = err instanceof Error ? err.message : "Failed to start recording";
@@ -90,7 +93,7 @@ export class STTController {
 		}
 	}
 
-	async #stopAndTranscribe(editor: Editor, options: ToggleOptions): Promise<void> {
+	async stopAndTranscribe(editor: Editor, options: ToggleOptions): Promise<void> {
 		const handle = this.#recordingHandle;
 		const tempFile = this.#tempFile;
 		this.#recordingHandle = null;
@@ -142,6 +145,33 @@ export class STTController {
 			}
 			this.#tempFile = null;
 		}
+	}
+
+	async cancel(options?: Partial<ToggleOptions>): Promise<void> {
+		const handle = this.#recordingHandle;
+		const tempFile = this.#tempFile;
+		this.#recordingHandle = null;
+		this.#tempFile = null;
+
+		if (this.#transcriptionAbort) {
+			this.#transcriptionAbort.abort();
+			this.#transcriptionAbort = null;
+		}
+
+		if (handle) {
+			try {
+				await handle.stop();
+			} catch {}
+		}
+
+		if (tempFile) {
+			try {
+				await fs.rm(tempFile, { force: true });
+			} catch {}
+		}
+
+		this.#state = "idle";
+		if (options?.onStateChange) options.onStateChange("idle");
 	}
 
 	dispose(): void {
