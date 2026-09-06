@@ -12,7 +12,7 @@
  */
 
 import * as fs from "node:fs";
-import { Container, Image, matchesKey } from "@aryee337/aery-tui";
+import { Container, Image, matchesKey, visibleWidth } from "@aryee337/aery-tui";
 import { enumerateImageCandidates } from "../../../tools/image-gen";
 import { enumerateVideoCandidates } from "../../../tools/video-gen";
 import { theme } from "../../theme/theme.js";
@@ -203,7 +203,16 @@ export class AeryMediaStudioOverlay extends Container {
 				{
 					fallbackColor: (s: string) => theme.fg("toolOutput", s),
 				},
-				{ maxWidthCells: 60, maxHeightCells: 20 },
+				{
+					maxWidthCells: 60,
+					maxHeightCells: 20,
+					// Stable identity per file: a NEW preview renders placeholder cells
+					// that overwrite the previous grid (no ghost placement behind), and
+					// a regenerated file re-transmits under the same id — replace, not
+					// stack. Without this the kitty placement of the old image is never
+					// erased and peeks out around the new one.
+					imageKey: `studio:${item.path}`,
+				},
 			);
 			this.onRequestRender?.();
 		} catch {
@@ -255,7 +264,7 @@ export class AeryMediaStudioOverlay extends Container {
 			);
 			const playerLines = this.#videoPlayer.render(innerW);
 			for (const l of playerLines) {
-				const cleanLen = l.replace(/\u001b\[[0-9;]*m/g, "").length;
+				const cleanLen = visibleWidth(l);
 				viewport.push(
 					theme.fg("border", "│ ") + l + " ".repeat(Math.max(0, innerW - cleanLen)) + theme.fg("border", " │"),
 				);
@@ -269,7 +278,7 @@ export class AeryMediaStudioOverlay extends Container {
 			);
 			const imgLines = this.#previewImage.render(innerW);
 			for (const l of imgLines) {
-				const cleanLen = l.replace(/\u001b\[[0-9;]*m/g, "").length;
+				const cleanLen = visibleWidth(l);
 				viewport.push(
 					theme.fg("border", "│ ") + l + " ".repeat(Math.max(0, innerW - cleanLen)) + theme.fg("border", " │"),
 				);

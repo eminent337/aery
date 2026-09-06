@@ -173,6 +173,8 @@ export class ToolExecutionComponent extends Container {
 	#tool?: AgentTool;
 	#ui: TUI;
 	#cwd: string;
+	/** Stable identity for kitty graphics ids — survives transcript re-renders. */
+	#toolCallId?: string;
 	#result?: {
 		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
 		isError?: boolean;
@@ -225,6 +227,7 @@ export class ToolExecutionComponent extends Container {
 		this.#ui = ui;
 		this.#cwd = cwd;
 		this.#args = args;
+		this.#toolCallId = _toolCallId;
 
 		this.addChild(new Spacer(1));
 
@@ -792,7 +795,12 @@ export class ToolExecutionComponent extends Container {
 						imageData,
 						imageMimeType,
 						{ fallbackColor: (s: string) => theme.fg("toolOutput", s) },
-						resolveImageOptions(),
+						{
+							...resolveImageOptions(),
+							// Stable per-image identity: kitty rebinds the transmitted
+							// payload by id instead of stacking a duplicate on repaint.
+							imageKey: `tool:${this.#toolCallId ?? this.#toolName}:${i}`,
+						},
 					);
 					this.#imageComponents.push(imageComponent);
 					this.addChild(imageComponent);

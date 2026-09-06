@@ -24,6 +24,8 @@ const VIDEO_SUBMIT_TIMEOUT_MS = 60_000;
 const VIDEO_POLL_INTERVAL_MS = $envpos("AERY_VIDEO_POLL_INTERVAL_MS", 10_000);
 const VIDEO_MAX_WAIT_MS = 15 * 60 * 1000;
 const VIDEO_MAX_TRANSIENT_STATUS_ERRORS = 5;
+const VIDEO_MAX_SUBMIT_RETRIES = 3;
+const VIDEO_SUBMIT_RETRY_DELAY_MS = 2_000;
 const VIDEO_DOWNLOAD_TIMEOUT_MS = 3 * 60_000;
 
 const FAL_QUEUE_BASE_URL = "https://queue.fal.run";
@@ -154,6 +156,30 @@ function sleep(ms: number): Promise<void> {
 	const { promise, resolve } = Promise.withResolvers<void>();
 	setTimeout(resolve, ms);
 	return promise;
+}
+
+/**
+ * Retry a transient submission failure (503 queue-full / 429 throttled) with
+ * linear backoff, mirroring the status-poll transient-error tally. Non-transient
+ * failures are rethrown immediately; after the last retry the caller's wrapper
+ * produces the final "after N tries" error.
+ */
+async function retryTransientSubmit(attempt: number, error: Error, signal?: AbortSignal): Promise<void> {
+	const status = /(^|[^0-9])(503|429)([^0-9]|$)/.exec(error.message)?.[2];
+	if (!status) throw error;
+	if (attempt >= VIDEO_MAX_SUBMIT_RETRIES) return;
+	await untilAborted(signal, sleep(VIDEO_SUBMIT_RETRY_DELAY_MS * (attempt + 1)));
+}
+
+/** Return a short reason extracted from a submission error message. */
+function submissionErrorDetail(error: unknown): string {
+	const detail =
+		error instanceof Error && error.message.startsWith("Video job submission failed")
+			? error.message.replace("Video job submission failed", "").trim()
+			: error instanceof Error
+				? error.message
+				: String(error);
+	return detail || "unknown submission error";
 }
 
 // --- Agnes (Sora-style jobs API) ---
@@ -467,7 +493,25 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 				if (!credentials.baseUrl) {
 					throw new Error("Missing Agnes baseUrl for video generation.");
 				}
-				const jobId = await submitAgnesJob(credentials, { ...params, model }, signal);
+				let submissionError: unknown;
+				let jobId: string | undefined;
+				for (let attempt = 0; attempt <= VIDEO_MAX_SUBMIT_RETRIES; attempt++) {
+					try {
+						jobId = await submitAgnesJob(credentials, { ...params, model }, signal);
+						submissionError = undefined;
+						break;
+					} catch (error) {
+						submissionError = error;
+						// Transient 503/429 (e.g. "video queue is full, retry later")
+						// backs off and retries; anything else rethrows immediately.
+						await retryTransientSubmit(attempt, error as Error, signal);
+					}
+				}
+				if (!jobId || submissionError) {
+					throw new Error(
+						`Video job submission failed after ${VIDEO_MAX_SUBMIT_RETRIES + 1} tries: ${submissionErrorDetail(submissionError)}`,
+					);
+				}
 				let transientErrors = 0;
 				for (;;) {
 					if (Date.now() - startedAt > VIDEO_MAX_WAIT_MS) {
@@ -526,7 +570,26 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 			}
 
 			// fal branch
-			const { statusUrl, responseUrl } = await submitFalJob(credentials, { ...params, model }, signal);
+			let submissionError: unknown;
+			let falQueue: { statusUrl: string; responseUrl: string } | undefined;
+			for (let attempt = 0; attempt <= VIDEO_MAX_SUBMIT_RETRIES; attempt++) {
+				try {
+					falQueue = await submitFalJob(credentials, { ...params, model }, signal);
+					submissionError = undefined;
+					break;
+				} catch (error) {
+					submissionError = error;
+					// Transient 503/429 (queue saturated / throttled) backs off and
+					// retries; anything else rethrows immediately.
+					await retryTransientSubmit(attempt, error as Error, signal);
+				}
+			}
+			if (!falQueue || submissionError) {
+				throw new Error(
+					`Video job submission failed after ${VIDEO_MAX_SUBMIT_RETRIES + 1} tries: ${submissionErrorDetail(submissionError)}`,
+				);
+			}
+			const { statusUrl, responseUrl } = falQueue;
 			try {
 				let transientErrors = 0;
 				for (;;) {

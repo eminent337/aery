@@ -249,7 +249,10 @@ export class Container implements Component {
 		width = Math.max(1, width);
 		const lines: string[] = [];
 		for (const child of this.children) {
-			lines.push(...child.render(width));
+			const childLines = child.render(width);
+			for (let i = 0; i < childLines.length; i++) {
+				lines.push(childLines[i]);
+			}
 		}
 		return lines;
 	}
@@ -1426,6 +1429,28 @@ export class TUI extends Container {
 			// viewport, but it must keep the existing diff basis so later coalesced
 			// content mutations can still update native scrollback correctly.
 			if (forceViewportRepaint) return { kind: "viewportRepaint" };
+			// A pure resize (content unchanged) is the common frame during a drag.
+			// When the transcript previously overflowed into native scrollback and
+			// now fits, the committed rows are stale at the old geometry and the
+			// grow-reflow handling differs by terminal (xterm.js pulls them back
+			// onto the screen where the repaint overwrites them; kitty-style hosts
+			// can leave them above the fold). An in-place repaint never erases
+			// them — no `\x1b[3J` — so on those hosts they reflow into stale-width
+			// copies that never clear on their own. Rebuild once here (the same
+			// contract as the content-change fits gates below) so `3J` clears the
+			// committed rows; afterwards `scrollbackHighWater` drops to 0 and
+			// later resizes repaint in place, preserving whatever is above.
+			const geometryChanged = widthChanged || heightChanged;
+			if (
+				geometryChanged &&
+				newLines.length <= height &&
+				this.#scrollbackHighWater > 0 &&
+				!isTermuxSession() &&
+				!isMultiplexerSession() &&
+				!this.#nativeViewportIsScrolled(this.#readNativeViewportAtBottom(), allowUnknownViewportMutation)
+			) {
+				return { kind: "historyRebuild" };
+			}
 			// Width change still alters wrapping geometry; height change shifts the
 			// visible window. Either needs a repaint (outside hostile environments).
 			if (widthChanged) return { kind: "viewportRepaint" };
@@ -1437,6 +1462,17 @@ export class TUI extends Container {
 		// native history at the old width, so rebuild it now — the terminal already
 		// reflowed and the user is at the terminal to resize. Pure appends fall
 		// through to the diff path so the append handler scrolls them into history.
+		if (isMultiplexerSession() && widthChanged) {
+			// A multiplexer reflows and redraws its own pane on resize and never
+			// honors native scrollback clears, so a `historyRebuild` here would
+			// re-push the entire transcript into pane history on every resize —
+			// stacking stale-width frames of the same content (the duplicated
+			// "welcome boxes at different widths" artifact) that never get erased.
+			// Repaint the visible window in place and let the checkpoint rebuild
+			// (prompt submit) reconcile native history at the new width.
+			this.#markNativeScrollbackDirty();
+			return { kind: "viewportRepaint" };
+		}
 		if (widthChanged) {
 			if (diff.firstChanged < prevViewportTop) {
 				if (this.#nativeViewportIsScrolled(this.#readNativeViewportAtBottom(), allowUnknownViewportMutation)) {
@@ -1524,11 +1560,69 @@ export class TUI extends Container {
 		// entirely on screen cannot use the diff or append-tail emitters below:
 		// both position scrolled rows against the previous viewport top and
 		// hardware cursor row, which the reflow just invalidated, so the appended
-		// tail lands `height`-delta rows too low. With no overflow there is no
-		// native scrollback to preserve, so repaint the viewport at the new
-		// geometry. (Height changes with overflow keep the existing deferral.)
+		// tail lands `height`-delta rows too low. When nothing ever overflowed
+		// (`scrollbackHighWater === 0`) there is no native scrollback to
+		// preserve, so repaint the viewport at the new geometry. But when the
+		// transcript previously overflowed, its rows are committed in native
+		// scrollback at the old geometry and an in-place repaint leaves them
+		// duplicated above the viewport until a checkpoint — rebuild (resize is
+		// an explicit user action at the terminal, matching the overflow policy
+		// below) so the committed rows are cleared with the reflow they just
+		// underwent.
 		if (heightChanged && newLines.length <= height && !isTermuxSession() && !isMultiplexerSession()) {
+			if (this.#scrollbackHighWater > 0) {
+				return { kind: "historyRebuild" };
+			}
 			return { kind: "viewportRepaint" };
+		}
+		// A real resize (width or height change) rewraps/reflows the transcript the
+		// terminal already holds and can move or clamp the hardware cursor (kitty
+		// clamps the cursor on shrink instead of moving it with the pushed rows).
+		// Every emitter below this point (`#emitDiff`, `#emitAppendTail`,
+		// `#emitShrink`) positions rows relative to the *previous* viewport top and
+		// hardware cursor row, which that reflow just invalidated, so a frame that
+		// pairs a geometry change with changed content must never reach them — the
+		// rows would land on the wrong screen lines, duplicating text (and image
+		// placements) and leaving stale-width fragments that only a manual repaint
+		// clears. Take an absolute, reflow-safe path instead:
+		if ((widthChanged || heightChanged) && diff.firstChanged !== -1) {
+			// Termux toggles height for the software keyboard; multiplexers reflow
+			// and redraw their panes themselves. Both tolerate an in-place absolute
+			// repaint but must never have native scrollback cleared mid-session.
+			if (isTermuxSession() || isMultiplexerSession()) {
+				return { kind: "viewportRepaint" };
+			}
+			const nativeViewportAtBottom = this.#readNativeViewportAtBottom();
+			// A reader positively parked in scrollback is not yanked: repaint the
+			// visible window in place and let the next checkpoint rebuild reconcile
+			// native scrollback, exactly like the other unknown/known-scrolled paths.
+			if (this.#nativeViewportIsScrolled(nativeViewportAtBottom, allowUnknownViewportMutation)) {
+				this.#markNativeScrollbackDirty();
+				return { kind: "viewportRepaint" };
+			}
+			// Content that now fits entirely on screen with nothing ever pushed into
+			// native scrollback has no rows to preserve, so an absolute in-place
+			// repaint is exact and cheap (and keeps pristine pre-app shell history
+			// above the viewport). But when the transcript previously overflowed
+			// (`scrollbackHighWater > 0`), its rows were committed to native
+			// scrollback at the old width; the reflow this resize just performed has
+			// wrapped those committed rows (kitty/xterm) into stale-width copies that
+			// an in-place repaint can never erase — the "welcome boxes stacked at many
+			// widths" artifact, which chat never shows because overflowing frames
+			// already rebuild. Resize is an explicit user action and the app already
+			// owns that scrollback, so rebuild to clear the reflowed leftovers.
+			if (newLines.length <= height) {
+				if (this.#scrollbackHighWater > 0) {
+					return { kind: "historyRebuild" };
+				}
+				return { kind: "viewportRepaint" };
+			}
+			// Overflowing content: the terminal already reflowed its copy at the new
+			// geometry, so the only way to keep committed scrollback and the visible
+			// tail consistent with the model — with zero cursor-relative writes — is
+			// to rebuild from the top. Resize is an explicit user action at the
+			// terminal, matching the rebuild policy used for width changes above.
+			return { kind: "historyRebuild" };
 		}
 
 		// Configurable shrink-clear: opt-in path that repaints to wipe rows the

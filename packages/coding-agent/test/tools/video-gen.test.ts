@@ -137,6 +137,76 @@ describe("generate_video", () => {
 		expect(await Bun.file(savedPath).bytes()).toEqual(videoBytes);
 	}, 60_000);
 
+	it("retries transient 503 queue-full errors before giving up (Agnes)", async () => {
+		const calls: Array<{ url: string; method: string }> = [];
+		const videoBytes = Buffer.from("fake-mp4-after-503");
+		let submitAttempts = 0;
+		let polls = 0;
+
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			const url = input.toString();
+			const method = init?.method ?? "GET";
+			calls.push({ url, method });
+
+			if (method === "POST" && url === "https://apihub.agnes-ai.com/v1/videos") {
+				submitAttempts += 1;
+				if (submitAttempts <= 2) {
+					return jsonResponse({ error: { message: "video queue is full, please retry later" } }, 503);
+				}
+				return jsonResponse({ id: "task_retry1", object: "video", status: "in_progress", progress: 0 });
+			}
+			if (url === "https://apihub.agnes-ai.com/v1/videos/task_retry1") {
+				polls += 1;
+				return jsonResponse({
+					status: "completed",
+					progress: 100,
+					metadata: { url: "https://platform-outputs.agnes-ai.space/videos/retry.mp4" },
+				});
+			}
+			if (url.startsWith("https://platform-outputs.agnes-ai.space/")) {
+				return new Response(videoBytes, { status: 200, headers: { "content-type": "video/mp4" } });
+			}
+			return new Response("unexpected", { status: 500 });
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		const result = await videoGenTool.execute(
+			"call-retry",
+			{ subject: "a rocket", action: "launching", duration: 4 },
+			undefined,
+			makeContext(makeRegistry(agnesModel, "test-agnes-key")),
+		);
+		generatedVideoPaths.push(...(result.details?.videoPaths ?? []));
+
+		expect(submitAttempts).toBe(3);
+		expect(polls).toBeGreaterThanOrEqual(1);
+		expect(result.details?.provider).toBe("agnes");
+		expect(result.details?.videoPaths[0]).toBeTruthy();
+	}, 60_000);
+
+	it("gives up with a clear error when 503 persists past retries (Agnes)", async () => {
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			const url = input.toString();
+			const method = init?.method ?? "GET";
+			if (method === "POST" && url === "https://apihub.agnes-ai.com/v1/videos") {
+				return jsonResponse({ error: { message: "video queue is full, please retry later" } }, 503);
+			}
+			return new Response("unexpected", { status: 500 });
+		}) as unknown as typeof fetch;
+		fetchMock.preconnect = originalFetch.preconnect;
+		global.fetch = fetchMock;
+
+		await expect(
+			videoGenTool.execute(
+				"call-giveup",
+				{ subject: "a whale", action: "jumping", duration: 4 },
+				undefined,
+				makeContext(makeRegistry(agnesModel, "test-agnes-key")),
+			),
+		).rejects.toThrow(/after 4 tries: \(503\): video queue is full, please retry later/);
+	}, 60_000);
+
 	it("falls back to fal when FAL_KEY is set and no Agnes provider exists", async () => {
 		Bun.env.FAL_KEY = "test-key:test-secret";
 		const calls: Array<{ url: string; method: string; auth: string | null; body?: unknown }> = [];

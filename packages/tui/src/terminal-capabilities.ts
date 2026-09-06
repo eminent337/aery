@@ -1,5 +1,12 @@
 import { encodeSixel } from "@aryee337/aery-engine";
 import { $env } from "@aryee337/aery-utils";
+import {
+	detectKittyUnicodePlaceholdersSupport,
+	encodeKittyTransmitOnce,
+	getKittyGraphics,
+	renderKittyPlaceholderLines,
+	setKittyGraphics,
+} from "./kitty-graphics";
 
 export enum ImageProtocol {
 	Kitty = "\x1b_G",
@@ -204,6 +211,11 @@ export function setTerminalImageProtocol(imageProtocol: ImageProtocol | null): v
 	(TERMINAL as unknown as MutableTerminalInfo).imageProtocol = imageProtocol;
 }
 
+// Seed the Kitty placeholder feature from the detected terminal id (kitty and
+// ghostty render U+10EEEE placeholder cells; everything else stays on the
+// anonymous transmit-display path). Env overrides win — see kitty-graphics.ts.
+setKittyGraphics({ unicodePlaceholders: detectKittyUnicodePlaceholdersSupport(TERMINAL_ID) });
+
 export function getTerminalInfo(terminalId: TerminalId): TerminalInfo {
 	return KNOWN_TERMINALS[terminalId];
 }
@@ -222,6 +234,15 @@ export interface ImageRenderOptions {
 	maxWidthCells?: number;
 	maxHeightCells?: number;
 	preserveAspectRatio?: boolean;
+	/**
+	 * Stable graphics id: when set, the Kitty branch renders transmit-once
+	 * (`a=t`, only when `includeTransmit`) plus Unicode-placeholder placement
+	 * lines instead of an anonymous transmit-display — so repaints never stack
+	 * duplicate images in the terminal's graphics store.
+	 */
+	imageId?: number;
+	/** Include the full base64 transmit in the returned sequence (first render only). */
+	includeTransmit?: boolean;
 }
 
 // Default cell dimensions - updated by TUI when terminal responds to query
@@ -489,7 +510,7 @@ export function renderImage(
 	base64Data: string,
 	imageDimensions: ImageDimensions,
 	options: ImageRenderOptions = {},
-): { sequence: string; rows: number } | null {
+): { sequence: string; rows: number; lines?: string[] } | null {
 	if (!TERMINAL.imageProtocol) {
 		return null;
 	}
@@ -498,6 +519,22 @@ export function renderImage(
 	const fit = calculateImageFit(imageDimensions, options, cellDims);
 
 	if (TERMINAL.imageProtocol === ImageProtocol.Kitty) {
+		// Stable-id path: transmit once (`a=t`), display via Unicode placeholder
+		// cells. Re-renders emit only the placeholder grid — an idempotent
+		// placement that the TUI can diff/repaint/erase like ordinary text — so
+		// resize-triggered repaints can never stack duplicate images in kitty's
+		// graphics store (the anonymous `a=T` path did exactly that).
+		if (options.imageId != null && getKittyGraphics().unicodePlaceholders) {
+			const lines = renderKittyPlaceholderLines({
+				imageId: options.imageId,
+				columns: fit.columns,
+				rows: fit.rows,
+			});
+			if (options.includeTransmit) {
+				lines[0] = encodeKittyTransmitOnce(base64Data, options.imageId) + lines[0];
+			}
+			return { sequence: "", rows: fit.rows, lines };
+		}
 		const sequence = encodeKitty(base64Data, {
 			columns: fit.columns,
 			rows: fit.rows,

@@ -207,7 +207,12 @@ export class AssistantMessageComponent extends Container {
 						displayImage.data,
 						displayImage.mimeType,
 						{ fallbackColor: (text: string) => theme.fg("toolOutput", text) },
-						resolveImageOptions(),
+						{
+							...resolveImageOptions(),
+							// The `toolCallId:index` key is already stable across re-renders —
+							// reuse it as the kitty graphics identity.
+							imageKey: `assistant:${key}`,
+						},
 					),
 				);
 				continue;

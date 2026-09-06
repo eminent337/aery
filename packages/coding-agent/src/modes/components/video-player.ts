@@ -254,7 +254,13 @@ export class VideoPlayer implements Component {
 					this.#frameData[this.#frameIndex],
 					"image/png",
 					{ fallbackColor: this.#theme.fallbackColor },
-					{ filename: path.basename(this.videoPath) },
+					{
+						filename: path.basename(this.videoPath),
+						// Per-frame stable id: each decoded frame REPLACES the previous
+						// one's cells instead of stacking a placement over it (a legacy
+						// anonymous transmit-display would leave ghost edges behind).
+						imageKey: `vframe:${this.videoPath}:${this.#frameIndex}`,
+					},
 				);
 			})
 			.catch(() => {
