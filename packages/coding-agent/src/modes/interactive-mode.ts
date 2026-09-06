@@ -2724,6 +2724,13 @@ export class InteractiveMode implements InteractiveModeContext {
 		await this.#sttController.toggle(this.editor, {
 			showWarning: (msg: string) => this.showWarning(msg),
 			showStatus: (msg: string) => this.showStatus(msg),
+			onSubmit: async (text: string) => {
+				if (text.trim().length > 0) {
+					this.editor.addToHistory(text);
+					this.editor.setText("");
+					await this.withLocalSubmission(text, () => this.session.prompt(text));
+				}
+			},
 			onStateChange: (state: SttState) => {
 				if (state === "recording") {
 					this.#voicePreviousShowHardwareCursor = this.ui.getShowHardwareCursor();

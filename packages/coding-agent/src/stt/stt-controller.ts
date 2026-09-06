@@ -9,10 +9,11 @@ import { transcribe } from "./transcriber";
 
 export type SttState = "idle" | "recording" | "transcribing";
 
-interface ToggleOptions {
+export interface ToggleOptions {
 	showWarning(msg: string): void;
 	showStatus(msg: string): void;
 	onStateChange(state: SttState): void;
+	onSubmit?(text: string): Promise<void> | void;
 }
 
 interface Editor {
@@ -43,7 +44,7 @@ export class STTController {
 		try {
 			switch (this.#state) {
 				case "idle":
-					await this.#startRecording(options);
+					await this.#startRecording(editor, options);
 					break;
 				case "recording":
 					await this.#stopAndTranscribe(editor, options);
@@ -57,7 +58,7 @@ export class STTController {
 		}
 	}
 
-	async #startRecording(options: ToggleOptions): Promise<void> {
+	async #startRecording(editor: Editor, options: ToggleOptions): Promise<void> {
 		if (!this.#depsResolved) {
 			try {
 				options.showStatus("Checking STT dependencies...");
@@ -78,7 +79,11 @@ export class STTController {
 		this.#tempFile = path.join(os.tmpdir(), `aery-stt-${id}.wav`);
 
 		try {
-			this.#recordingHandle = await startRecording(this.#tempFile);
+			this.#recordingHandle = await startRecording(this.#tempFile, async () => {
+				if (this.#state === "recording") {
+					await this.#stopAndTranscribe(editor, options);
+				}
+			});
 			this.#setState("recording", options);
 			logger.debug("STT recording started", { tempFile: this.#tempFile });
 		} catch (err) {
@@ -116,6 +121,9 @@ export class STTController {
 			if (text.length > 0) {
 				editor.insertText(text);
 				options.showStatus("");
+				if (options.onSubmit) {
+					await options.onSubmit(text);
+				}
 			} else {
 				options.showStatus("No speech detected.");
 			}
