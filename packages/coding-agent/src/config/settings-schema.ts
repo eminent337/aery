@@ -1262,7 +1262,7 @@ export const SETTINGS_SCHEMA = {
 	// Speech-to-text
 	"stt.enabled": {
 		type: "boolean",
-		default: false,
+		default: true,
 		ui: { tab: "interaction", label: "Speech-to-Text", description: "Enable speech-to-text input via microphone" },
 	},
 
