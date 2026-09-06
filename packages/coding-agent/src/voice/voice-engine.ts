@@ -41,7 +41,7 @@ export class VoiceEngine {
 		const baseDir = config.voiceDir || path.join(os.homedir(), ".local", "share", "aerys", "voice");
 		this.#binDir = path.join(baseDir, "bin");
 		this.#modelsDir = path.join(baseDir, "models");
-		this.#defaultVoice = config.defaultVoice || "en_US-lessac-medium";
+		this.#defaultVoice = config.defaultVoice || "en_US-hfc_female-medium";
 	}
 
 	get defaultVoice(): string {
@@ -110,7 +110,19 @@ export class VoiceEngine {
 
 		// Generate WAV audio file with Piper
 		await new Promise<void>((resolve, reject) => {
-			const piper = spawn(this.piperBinary, ["--model", voicePath, "--output_file", audioPath], {
+			const piperArgs = [
+				"--model",
+				voicePath,
+				"--noise_scale",
+				"0.33",
+				"--noise_w",
+				"0.4",
+				"--length_scale",
+				"0.95",
+				"--output_file",
+				audioPath,
+			];
+			const piper = spawn(this.piperBinary, piperArgs, {
 				stdio: ["pipe", "pipe", "pipe"],
 			});
 
