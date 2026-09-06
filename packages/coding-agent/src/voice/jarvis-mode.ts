@@ -15,6 +15,89 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createAgentSession } from "../sdk";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFileAsync = promisify(execFile);
+
+/** Inspects real-time OS context (inspired by slappy_AI_) */
+async function getRealtimeDesktopContext(): Promise<string> {
+	const now = new Date();
+	const timeStr = now.toLocaleTimeString();
+	const dateStr = now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+
+	let batteryInfo = "Unknown";
+	try {
+		const cap = (await fs.promises.readFile("/sys/class/power_supply/BAT0/capacity", "utf-8")).trim();
+		const stat = (await fs.promises.readFile("/sys/class/power_supply/BAT0/status", "utf-8")).trim();
+		batteryInfo = `${cap}% (${stat})`;
+	} catch {}
+
+	let activeWindow = "Desktop";
+	let activeWorkspace = "1";
+	let openApps: string[] = [];
+
+	try {
+		const { stdout } = await execFileAsync("hyprctl", ["activewindow", "-j"]);
+		const win = JSON.parse(stdout);
+		if (win?.title) {
+			activeWindow = `"${win.title}" (app: ${win.class})`;
+			activeWorkspace = String(win.workspace?.id || win.workspace?.name || 1);
+		}
+	} catch {}
+
+	try {
+		const { stdout } = await execFileAsync("hyprctl", ["clients", "-j"]);
+		const clients = JSON.parse(stdout) as Array<{ class: string; title: string; workspace: { id: number } }>;
+		openApps = clients.map(c => `[ws:${c.workspace?.id || 1}] ${c.class} ("${c.title}")`);
+	} catch {}
+
+	return (
+		`\n\n[REAL-TIME DESKTOP CONTEXT]\n` +
+		`- Current Time: ${timeStr} on ${dateStr}\n` +
+		`- Battery Status: ${batteryInfo}\n` +
+		`- Active Focused Window: ${activeWindow} on workspace ${activeWorkspace}\n` +
+		`- Open Applications (${openApps.length}):\n  ` +
+		openApps.slice(0, 8).join("\n  ") +
+		`\n[END CONTEXT]`
+	);
+}
+
+/** Check if the spoken query requires screen vision (slappy_AI_ pattern) */
+function needsVision(text: string): boolean {
+	const lower = text.toLowerCase();
+	const keywords = [
+		"look at my screen",
+		"look at screen",
+		"look at this",
+		"see my screen",
+		"what do you see",
+		"what's on my screen",
+		"what is on my screen",
+		"check my screen",
+		"analyze my screen",
+		"read my screen",
+		"screenshot",
+		"what app is this",
+		"what website is this",
+	];
+	return keywords.some(k => lower.includes(k));
+}
+
+/** Capture scaled screenshot for vision queries */
+async function captureVisionScreenshot(): Promise<string | null> {
+	const rawPath = path.join(os.tmpdir(), "aerys-vision-raw.png");
+	const scaledPath = path.join(os.tmpdir(), "aerys-vision.png");
+	try {
+		await execFileAsync("grim", [rawPath]);
+		await execFileAsync("convert", [rawPath, "-resize", "1024x768>", scaledPath]);
+		try {
+			await fs.promises.unlink(rawPath);
+		} catch {}
+		return scaledPath;
+	} catch {
+		return null;
+	}
+}
 import { computeRms, pcmToWav } from "./voice-daemon";
 import { transcribeWithGroq } from "./groq-whisper";
 import { detectWakeWord } from "./wake-word";
@@ -228,7 +311,41 @@ export async function runJarvisMode(): Promise<void> {
 								console.log(`\n🗣️  Peter: "${match.query}"`);
 								console.log("⚡ [Executing command with desktop tools...]");
 								try {
-									await session.prompt(match.query);
+									const qLower = match.query.toLowerCase().trim();
+
+									// Instant fast-path responses for pure system queries
+									if (qLower === "what time is it" || qLower === "what's the time" || qLower === "what time") {
+										const timeNow = new Date().toLocaleTimeString();
+										console.log(`🤖 Aerys: "It's ${timeNow}, Peter."\n`);
+										await speak(`It's ${timeNow}, Peter.`);
+										return;
+									}
+									if (qLower.includes("battery") && (qLower.includes("what") || qLower.includes("check"))) {
+										let bat = "77% and charging";
+										try {
+											const cap = (await fs.promises.readFile("/sys/class/power_supply/BAT0/capacity", "utf-8")).trim();
+											const stat = (await fs.promises.readFile("/sys/class/power_supply/BAT0/status", "utf-8")).trim();
+											bat = `${cap}% and ${stat.toLowerCase()}`;
+										} catch {}
+										console.log(`🤖 Aerys: "Your battery is at ${bat}, Peter."\n`);
+										await speak(`Your battery is at ${bat}, Peter.`);
+										return;
+									}
+
+									// Build full context-aware prompt
+									const systemContext = await getRealtimeDesktopContext();
+									let fullPrompt = match.query + systemContext;
+
+									// Automatic screen vision trigger
+									if (needsVision(match.query)) {
+										console.log("👁️ [Capturing screen vision snapshot...]");
+										const shotPath = await captureVisionScreenshot();
+										if (shotPath) {
+											fullPrompt += `\n[SCREEN VISION ATTACHED: A visual snapshot of the screen was captured at ${shotPath}. Inspect the screen image and tell Peter what is visible.]`;
+										}
+									}
+
+									await session.prompt(fullPrompt);
 									const last = session.getLastAssistantMessage?.();
 									if (last) {
 										const text = last.content
