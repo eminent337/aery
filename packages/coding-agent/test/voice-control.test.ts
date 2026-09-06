@@ -13,7 +13,7 @@ describe("VoiceControlTool", () => {
 	it("validates required parameters for speak action", async () => {
 		const res = await tool.execute("call_1", { action: "speak" });
 		expect(res.content[0].type).toBe("text");
-		expect(res.content[0].text).toContain("text");
+		expect((res.content[0] as { text: string }).text).toContain("text");
 	});
 
 	it("lists available installed voices", async () => {
@@ -28,7 +28,7 @@ describe("VoiceControlTool", () => {
 	it("handles stop playback command", async () => {
 		const res = await tool.execute("call_3", { action: "stop" });
 		expect(res.content[0].type).toBe("text");
-		expect(res.content[0].text).toContain("Stopped audio playback");
+		expect((res.content[0] as { text: string }).text).toContain("Stopped audio playback");
 	});
 
 	it("handles start_ambient, ambient_status, and stop_ambient lifecycle", async () => {
