@@ -679,6 +679,15 @@ export class EventController {
 		this.sendCompletionNotification();
 		this.sendTurnNotificationIfNeeded();
 		this.speakTurnResponseIfNeeded();
+
+		// Continuous Speech Mode: automatically re-arm the microphone for the next sentence!
+		if ((this.ctx as any).isContinuousSpeechMode) {
+			setTimeout(() => {
+				if ((this.ctx as any).isContinuousSpeechMode) {
+					void (this.ctx as any).startContinuousSpeechTurn?.();
+				}
+			}, 800);
+		}
 	}
 
 	speakTurnResponseIfNeeded(): void {
