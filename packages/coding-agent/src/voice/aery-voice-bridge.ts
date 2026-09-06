@@ -16,12 +16,37 @@ import { computeRms, pcmToWav } from "./voice-daemon";
 import { transcribeWithGroq } from "./groq-whisper";
 import { detectWakeWord } from "./wake-word";
 
+/** Audio peak normalization: scales quiet speech to standard optimal range for Whisper */
+function normalizePcm(pcm: Buffer): Buffer {
+	let maxVal = 0;
+	const sampleCount = Math.floor(pcm.length / 2);
+	if (sampleCount === 0) return pcm;
+
+	for (let i = 0; i < sampleCount; i++) {
+		const val = Math.abs(pcm.readInt16LE(i * 2));
+		if (val > maxVal) maxVal = val;
+	}
+
+	if (maxVal < 400 || maxVal >= 28000) return pcm;
+
+	const gain = 26000 / maxVal;
+	const out = Buffer.alloc(pcm.length);
+	for (let i = 0; i < sampleCount; i++) {
+		const sample = pcm.readInt16LE(i * 2);
+		const boosted = Math.max(-32768, Math.min(32767, Math.round(sample * gain)));
+		out.writeInt16LE(boosted, i * 2);
+	}
+	return out;
+}
+
 const PIPER_BIN = path.join(os.homedir(), ".local", "share", "aerys", "voice", "bin", "piper");
 const PIPER_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "en_US-hfc_female-medium.onnx");
 
 let isSpeaking = false;
 let lastSpeechTime = 0;
 const TAIL_ECHO_MS = 400;
+let hotWindowExpiry = Date.now() + 60_000; // Start with a 60s open window for immediate conversation
+const HOT_WINDOW_DURATION_MS = 25_000; // 25s conversational follow-up window after each interaction
 
 async function acknowledgeAloud(text: string): Promise<void> {
 	isSpeaking = true;
@@ -127,27 +152,29 @@ export async function runVoiceBridge(): Promise<void> {
 						// Ignore clicks under 0.6s
 						if (pcm.length < 10000) return;
 
-						const wav = pcmToWav(pcm);
+						const normalizedPcm = normalizePcm(pcm);
+						const wav = pcmToWav(normalizedPcm);
 						const res = await transcribeWithGroq(wav);
 						const raw = res?.text?.trim();
 
 						if (!raw || raw.length < 2) return;
 
-						// Check wake word (isair/jarvis protocol)
 						const match = detectWakeWord(raw);
-						if (!match.detected) {
-							// Silently ignore background conversation
-							return;
-						}
+						const inHotWindow = Date.now() < hotWindowExpiry;
 
-						console.log(`\n[Wake Word Detected]: "${match.matchedWord}" | Query: "${match.query}"`);
+						console.log(`[Heard (${res?.latencyMs ?? 0}ms)]: "${raw}" | wake: ${match.detected} | active: ${inHotWindow}`);
 
-						if (!match.query || match.query.length < 2) {
-							// Peter just said "Aerys" -> acknowledge and listen
-							await acknowledgeAloud("Yes, Peter?");
-						} else {
-							// Peter gave a command -> inject into Aery!
-							await injectPromptIntoAery(match.query);
+						if (match.detected) {
+							hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
+							if (!match.query || match.query.length < 2) {
+								await acknowledgeAloud("Yes, Peter?");
+							} else {
+								await injectPromptIntoAery(match.query);
+							}
+						} else if (inHotWindow) {
+							// Active conversation mode: accept follow-up commands without repeated wake word
+							hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
+							await injectPromptIntoAery(raw);
 						}
 					}
 				}, 100);
