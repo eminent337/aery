@@ -173,7 +173,21 @@ export async function runJarvisMode(): Promise<void> {
 						const normalizedPcm = normalizePcm(pcm);
 						const wav = pcmToWav(normalizedPcm);
 						const res = await transcribeWithGroq(wav);
-						const raw = res?.text?.trim();
+						let raw = res?.text?.trim();
+
+						// Resilient offline fallback if network/socket reset occurs
+						if (!raw && defaultVoiceEngine.isReady()) {
+							const tmpWav = path.join(os.tmpdir(), `aerys-fb-${Date.now()}.wav`);
+							try {
+								await fs.promises.writeFile(tmpWav, wav);
+								const local = await defaultVoiceEngine.listen({ audioPath: tmpWav });
+								raw = local.text.trim();
+							} catch {} finally {
+								try {
+									if (fs.existsSync(tmpWav)) await fs.promises.unlink(tmpWav);
+								} catch {}
+							}
+						}
 
 						if (!raw || raw.length < 2) return;
 						if (isGhostHallucination(raw)) return;
