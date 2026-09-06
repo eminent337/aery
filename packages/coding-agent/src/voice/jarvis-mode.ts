@@ -231,13 +231,13 @@ export async function runJarvisMode(): Promise<void> {
 		}
 
 		const rms = computeRms(chunk);
-		// Voice activity threshold on echo-cancelled stream
-		// Voice activity threshold on echo-cancelled stream (speech: >1500 RMS)
-		if (rms >= 1500) {
+		// Voice activity threshold on echo-cancelled stream (speech: >500 RMS)
+		if (rms >= 500) {
 			lastUtteranceTime = Date.now();
 			if (!voiceActive) {
 				voiceActive = true;
 				utteranceChunks = [chunk];
+				process.stdout.write("\r🎙️  [Hearing speech...]                   ");
 
 				if (endpointTimer) clearInterval(endpointTimer);
 				endpointTimer = setInterval(async () => {
@@ -247,7 +247,7 @@ export async function runJarvisMode(): Promise<void> {
 						clearInterval(endpointTimer!);
 						endpointTimer = null;
 						voiceActive = false;
-
+						process.stdout.write("\r🎧 [Listening for 'Aerys'...]          ");
 						const pcm = Buffer.concat(utteranceChunks);
 						utteranceChunks = [];
 

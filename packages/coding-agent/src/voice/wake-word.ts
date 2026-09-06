@@ -16,10 +16,18 @@ const PHONETIC_ALIASES = [
 	"ayres",
 	"aeris",
 	"eriss",
+	"paris",
+	"areas",
+	"ares",
+	"iris",
+	"harris",
+	"airis",
+	"aerie",
+	"ariss",
+	"erice",
 ];
 
 const ALL_VARIANTS = [...PRIMARY_WAKE_WORDS, ...PHONETIC_ALIASES];
-
 /** Simple string similarity (Levenshtein-based ratio) */
 function similarityRatio(s1: string, s2: string): number {
 	if (s1 === s2) return 1.0;
@@ -60,7 +68,7 @@ export interface WakeDetectionResult {
  * - "Can you hear me, Aery?"        -> { detected: true, query: "Can you hear me" }
  * - "Talking to a friend on phone"   -> { detected: false, query: "" }
  */
-export function detectWakeWord(rawText: string, fuzzyThreshold = 0.78): WakeDetectionResult {
+export function detectWakeWord(rawText: string, fuzzyThreshold = 0.70): WakeDetectionResult {
 	if (!rawText || !rawText.trim()) {
 		return { detected: false, query: "" };
 	}
