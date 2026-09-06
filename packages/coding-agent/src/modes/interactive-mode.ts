@@ -354,6 +354,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	readonly #selectorController: SelectorController;
 	readonly #uiHelpers: UiHelpers;
 	#sttController: STTController | undefined;
+	#continuousSpeechMode = false;
 	#voiceAnimationInterval: NodeJS.Timeout | undefined;
 	#voiceHue = 0;
 	#voicePreviousShowHardwareCursor: boolean | null = null;
@@ -2713,15 +2714,18 @@ export class InteractiveMode implements InteractiveModeContext {
 		return this.#commandController.handleRenameCommand(title);
 	}
 
-	async handleSTTToggle(): Promise<void> {
-		if (!settings.get("stt.enabled")) {
-			this.showWarning("Speech-to-text is disabled. Enable it in settings: stt.enabled");
-			return;
-		}
+	get isContinuousSpeechMode(): boolean {
+		return this.#continuousSpeechMode;
+	}
+
+	async startContinuousSpeechTurn(): Promise<void> {
+		if (!this.#continuousSpeechMode) return;
 		if (!this.#sttController) {
 			this.#sttController = new STTController();
 		}
-		await this.#sttController.toggle(this.editor, {
+		if (this.#sttController.state !== "idle") return;
+
+		await this.#sttController.startRecording(this.editor, {
 			showWarning: (msg: string) => this.showWarning(msg),
 			showStatus: (msg: string) => this.showStatus(msg),
 			onSubmit: async (text: string) => {
@@ -2748,6 +2752,33 @@ export class InteractiveMode implements InteractiveModeContext {
 				this.ui.requestRender();
 			},
 		});
+	}
+
+	async handleSTTToggle(): Promise<void> {
+		if (!settings.get("stt.enabled")) {
+			this.showWarning("Speech-to-text is disabled. Enable it in settings: stt.enabled");
+			return;
+		}
+		if (!this.#sttController) {
+			this.#sttController = new STTController();
+		}
+
+		if (this.#continuousSpeechMode) {
+			// Switch back to text mode!
+			this.#continuousSpeechMode = false;
+			await this.#sttController.cancel({
+				onStateChange: () => this.#cleanupMicAnimation(),
+			});
+			this.showStatus("Returned to text mode.");
+			this.updateEditorTopBorder();
+			this.ui.requestRender();
+			return;
+		}
+
+		// Activate Continuous Speech Mode!
+		this.#continuousSpeechMode = true;
+		this.showStatus("Speech Mode active. Speak freely; press Alt+H to return to text.");
+		await this.startContinuousSpeechTurn();
 	}
 
 	#setMicCursor(color: { r: number; g: number; b: number }): void {
