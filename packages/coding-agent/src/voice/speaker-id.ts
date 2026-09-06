@@ -26,9 +26,9 @@ export function isPeterEnrolled(): boolean {
 }
 
 /**
- * Enrolls Peter's voice by recording a 4-second calibration sample.
+ * Enrolls Peter's voice by recording an 8-second calibration sample.
  */
-export async function enrollPeter(audioSamplePath?: string): Promise<{ success: boolean; profilePath: string }> {
+export async function enrollPeter(durationSec = 8, audioSamplePath?: string): Promise<{ success: boolean; profilePath: string }> {
 	await fs.promises.mkdir(PROFILES_DIR, { recursive: true });
 	const targetPath = path.join(PROFILES_DIR, "peter_profile.wav");
 
@@ -47,7 +47,7 @@ export async function enrollPeter(audioSamplePath?: string): Promise<{ success: 
 				try {
 					rec.kill("SIGINT");
 				} catch {}
-			}, 4000);
+			}, durationSec * 1000);
 			rec.on("close", () => resolve());
 		});
 	}
