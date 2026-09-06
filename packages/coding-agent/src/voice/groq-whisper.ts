@@ -37,6 +37,7 @@ export async function transcribeWithGroq(
 	formData.append("model", "whisper-large-v3");
 	formData.append("language", "en");
 	formData.append("temperature", "0");
+	formData.append("response_format", "verbose_json");
 
 	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
@@ -56,8 +57,22 @@ export async function transcribeWithGroq(
 				return null;
 			}
 
-			const data = (await res.json()) as { text?: string };
+			const data = (await res.json()) as {
+				text?: string;
+				segments?: Array<{ no_speech_prob?: number }>;
+			};
+
 			const latencyMs = Date.now() - startTime;
+
+			// Reject silence and fan noise hallucinations using Whisper's neural confidence score
+			const noSpeechProb = data.segments?.[0]?.no_speech_prob ?? 0;
+			if (noSpeechProb > 0.35) {
+				return {
+					text: "",
+					latencyMs,
+				};
+			}
+
 			return {
 				text: (data.text || "").trim(),
 				latencyMs,
