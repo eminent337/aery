@@ -52,6 +52,11 @@ export class VoiceEngine {
 		this.#defaultVoice = name;
 	}
 
+	/** Returns true while audio is actively playing through the speakers */
+	get isSpeaking(): boolean {
+		return this.#activePlaybackProcess !== null;
+	}
+
 	/** Path to piper binary */
 	get piperBinary(): string {
 		return path.join(this.#binDir, "piper");
