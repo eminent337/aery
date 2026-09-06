@@ -23,8 +23,9 @@ import { defaultVoiceEngine } from "./voice-engine";
 const WAKE_CHIME = path.join(os.homedir(), ".local", "share", "aerys", "voice", "wake-chime.wav");
 
 let isSpeaking = false;
+let isBusy = false; // True while Aerys is actively processing tools or prompts
 let lastSpeechFinishedAt = 0;
-const TAIL_ECHO_GRACE_MS = 400;
+const TAIL_ECHO_GRACE_MS = 500;
 
 let hotWindowExpiry = 0;
 const HOT_WINDOW_DURATION_MS = 20_000; // 20s active follow-up conversation window
@@ -127,7 +128,7 @@ export async function runJarvisMode(): Promise<void> {
 	console.log("\n[Initializing Aerys Agent Session with all desktop tools...]");
 
 	const { session } = await createAgentSession({ cwd: process.cwd() });
-	console.log("✔ Aerys Agent ready. Tools active:", session.agent.tools?.length ?? "all");
+	console.log("✔ Aerys Agent ready. Desktop tools active (vision, terminal panes, bash, files).");
 
 	// Initial spoken greeting
 	await speak("I am online and listening, Peter. Call my name whenever you need me.");
@@ -144,14 +145,13 @@ export async function runJarvisMode(): Promise<void> {
 	const SILENCE_TIMEOUT_MS = 1100;
 
 	rec.stdout?.on("data", async (chunk: Buffer) => {
-		// Never listen while Aerys is actively speaking or room echo is settling
-		if (isSpeaking || Date.now() - lastSpeechFinishedAt < TAIL_ECHO_GRACE_MS) {
+		// HARD GATE: Never listen while Aerys is thinking, running tools, speaking, or settling echo
+		if (isBusy || isSpeaking || Date.now() - lastSpeechFinishedAt < TAIL_ECHO_GRACE_MS) {
 			utteranceChunks = [];
 			return;
 		}
 
 		const rms = computeRms(chunk);
-
 		// Voice activity threshold on echo-cancelled stream
 		if (rms >= 1000) {
 			lastUtteranceTime = Date.now();
@@ -195,6 +195,8 @@ export async function runJarvisMode(): Promise<void> {
 								await speak("Yes, Peter?");
 							} else {
 								// Peter gave a command with the wake word
+								if (isBusy) return;
+								isBusy = true;
 								console.log(`\n🗣️  Peter: "${match.query}"`);
 								console.log("⚡ [Executing command with desktop tools...]");
 								try {
@@ -215,11 +217,15 @@ export async function runJarvisMode(): Promise<void> {
 									const error = err as Error;
 									console.error("[Execution error]:", error.message);
 									await speak("I encountered an issue running that command, Peter.");
+								} finally {
+									lastSpeechFinishedAt = Date.now();
+									hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
+									isBusy = false;
 								}
 							}
-						} else if (inHotWindow) {
+						} else if (inHotWindow && !isBusy) {
 							// Conversational follow-up mode
-							hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
+							isBusy = true;
 							console.log(`\n🗣️  Peter (Follow-up): "${raw}"`);
 							console.log("⚡ [Executing command with desktop tools...]");
 							try {
@@ -240,6 +246,10 @@ export async function runJarvisMode(): Promise<void> {
 								const error = err as Error;
 								console.error("[Execution error]:", error.message);
 								await speak("I encountered an issue running that command, Peter.");
+							} finally {
+								lastSpeechFinishedAt = Date.now();
+								hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
+								isBusy = false;
 							}
 						}
 					}
