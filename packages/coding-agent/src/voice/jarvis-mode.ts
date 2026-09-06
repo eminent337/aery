@@ -1,0 +1,262 @@
+/**
+ * Aerys J.A.R.V.I.S. Voice-First Desktop Assistant Mode.
+ *
+ * Runs Aerys as a true speech-first AI assistant:
+ * 1. Listens silently for wake-words: "Aerys", "Aery", "Aries", "Airy".
+ * 2. Plays a subtle audio chime when awakened.
+ * 3. Transcribes speech in ~150ms using Groq Whisper Large-v3.
+ * 4. Executes real desktop tools (desktop_control, terminal_pane, bash, files).
+ * 5. Speaks responses out loud through PipeWire using her calibrated soft AI voice.
+ * 6. Keeps a 20-second active conversation window for natural multi-turn dialogue.
+ */
+
+import { spawn } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { createAgentSession } from "../sdk";
+import { computeRms, pcmToWav } from "./voice-daemon";
+import { transcribeWithGroq } from "./groq-whisper";
+import { detectWakeWord } from "./wake-word";
+import { defaultVoiceEngine } from "./voice-engine";
+
+const WAKE_CHIME = path.join(os.homedir(), ".local", "share", "aerys", "voice", "wake-chime.wav");
+
+let isSpeaking = false;
+let lastSpeechFinishedAt = 0;
+const TAIL_ECHO_GRACE_MS = 400;
+
+let hotWindowExpiry = 0;
+const HOT_WINDOW_DURATION_MS = 20_000; // 20s active follow-up conversation window
+
+/** Play the subtle J.A.R.V.I.S. wake chime */
+function playWakeChime(): Promise<void> {
+	if (!fs.existsSync(WAKE_CHIME)) return Promise.resolve();
+	return new Promise<void>((resolve) => {
+		const player = spawn("pw-play", [WAKE_CHIME], { stdio: "ignore" });
+		player.on("close", () => resolve());
+		player.on("error", () => resolve());
+	});
+}
+
+/** Extract concise spoken text from assistant message */
+function extractSpokenText(markdown: string): string {
+	let clean = markdown.replace(/```[\s\S]*?```/g, "").trim();
+	clean = clean.replace(/^#+\s+.*$/gm, "").trim();
+	clean = clean.replace(/[*_`~]/g, "");
+	clean = clean.replace(/\[(.*?)\]\(.*?\)/g, "$1");
+	clean = clean.replace(/<.*?>/g, "");
+
+	const paragraphs = clean
+		.split(/\n\s*\n/)
+		.map(p => p.trim())
+		.filter(p => p.length > 5 && !p.startsWith("-") && !p.startsWith("*") && !p.startsWith("|"));
+
+	if (paragraphs.length === 0) return "";
+	const firstP = paragraphs[0].replace(/\n+/g, " ");
+	const sentences = firstP.match(/[^.!?]+[.!?]+/g) || [firstP];
+	return sentences.slice(0, 2).join(" ").trim();
+}
+
+/** Speak out loud with Aerys's calibrated soft AI voice */
+async function speak(text: string): Promise<void> {
+	if (!text || !text.trim()) return;
+	isSpeaking = true;
+	try {
+		await defaultVoiceEngine.speak(text.trim());
+	} catch (e) {
+		console.error("[Speech Error]:", e);
+	} finally {
+		lastSpeechFinishedAt = Date.now();
+		setTimeout(() => {
+			isSpeaking = false;
+		}, TAIL_ECHO_GRACE_MS);
+	}
+}
+
+/** Normalize PCM audio amplitude */
+function normalizePcm(pcm: Buffer): Buffer {
+	let maxVal = 0;
+	const sampleCount = Math.floor(pcm.length / 2);
+	if (sampleCount === 0) return pcm;
+
+	for (let i = 0; i < sampleCount; i++) {
+		const val = Math.abs(pcm.readInt16LE(i * 2));
+		if (val > maxVal) maxVal = val;
+	}
+
+	if (maxVal < 400 || maxVal >= 28000) return pcm;
+
+	const gain = 26000 / maxVal;
+	const out = Buffer.alloc(pcm.length);
+	for (let i = 0; i < sampleCount; i++) {
+		const sample = pcm.readInt16LE(i * 2);
+		const boosted = Math.max(-32768, Math.min(32767, Math.round(sample * gain)));
+		out.writeInt16LE(boosted, i * 2);
+	}
+	return out;
+}
+
+const GHOST_HALLUCINATIONS = new Set([
+	"thank you",
+	"thank you very much",
+	"thanks",
+	"you",
+	"bye",
+	"cheers",
+	"f",
+	"salo",
+]);
+
+function isGhostHallucination(text: string): boolean {
+	const cleaned = text.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+	return GHOST_HALLUCINATIONS.has(cleaned);
+}
+
+export async function runJarvisMode(): Promise<void> {
+	console.clear();
+	console.log("╔══════════════════════════════════════════════════════════════╗");
+	console.log("║                 AERYS: J.A.R.V.I.S. MODE                     ║");
+	console.log("╠══════════════════════════════════════════════════════════════╣");
+	console.log("║  • Interface: 100% Voice-First Speech Assistant              ║");
+	console.log("║  • Wake Word: 'Aerys' or 'Aery'                              ║");
+	console.log("║  • Owner: Peter (Peter Aryee)                                ║");
+	console.log("║  • Engine: Groq Whisper (150ms) + Neural Voice (Piper)       ║");
+	console.log("║  • Tools Active: Desktop Vision, Kitty Panes, Bash, Files    ║");
+	console.log("╚══════════════════════════════════════════════════════════════╝");
+	console.log("\n[Initializing Aerys Agent Session with all desktop tools...]");
+
+	const { session } = await createAgentSession({ cwd: process.cwd() });
+	console.log("✔ Aerys Agent ready. Tools active:", session.agent.tools?.length ?? "all");
+
+	// Initial spoken greeting
+	await speak("I am online and listening, Peter. Call my name whenever you need me.");
+
+	// Start microphone stream
+	const rec = spawn("pw-record", ["--channels=1", "--rate=16000", "--format=s16", "-"], {
+		stdio: ["ignore", "pipe", "ignore"],
+	});
+
+	let utteranceChunks: Buffer[] = [];
+	let voiceActive = false;
+	let lastUtteranceTime = 0;
+	let endpointTimer: NodeJS.Timeout | null = null;
+	const SILENCE_TIMEOUT_MS = 1100;
+
+	rec.stdout?.on("data", async (chunk: Buffer) => {
+		// Never listen while Aerys is actively speaking or room echo is settling
+		if (isSpeaking || Date.now() - lastSpeechFinishedAt < TAIL_ECHO_GRACE_MS) {
+			utteranceChunks = [];
+			return;
+		}
+
+		const rms = computeRms(chunk);
+
+		// Voice activity threshold on echo-cancelled stream
+		if (rms >= 1000) {
+			lastUtteranceTime = Date.now();
+			if (!voiceActive) {
+				voiceActive = true;
+				utteranceChunks = [chunk];
+
+				if (endpointTimer) clearInterval(endpointTimer);
+				endpointTimer = setInterval(async () => {
+					if (!voiceActive) return;
+					const elapsed = Date.now() - lastUtteranceTime;
+					if (elapsed >= SILENCE_TIMEOUT_MS) {
+						clearInterval(endpointTimer!);
+						endpointTimer = null;
+						voiceActive = false;
+
+						const pcm = Buffer.concat(utteranceChunks);
+						utteranceChunks = [];
+
+						if (pcm.length < 10000) return;
+
+						const normalizedPcm = normalizePcm(pcm);
+						const wav = pcmToWav(normalizedPcm);
+						const res = await transcribeWithGroq(wav);
+						const raw = res?.text?.trim();
+
+						if (!raw || raw.length < 2) return;
+						if (isGhostHallucination(raw)) return;
+
+						const match = detectWakeWord(raw);
+						const inHotWindow = Date.now() < hotWindowExpiry;
+
+						if (match.detected) {
+							hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
+							await playWakeChime();
+
+							if (!match.query || match.query.length < 2) {
+								// Peter called "Aerys" with no command -> respond directly
+								console.log(`\n🗣️  Peter: "${raw}"`);
+								console.log("🤖 Aerys: 'Yes, Peter?'");
+								await speak("Yes, Peter?");
+							} else {
+								// Peter gave a command with the wake word
+								console.log(`\n🗣️  Peter: "${match.query}"`);
+								console.log("⚡ [Executing command with desktop tools...]");
+								try {
+									await session.prompt(match.query);
+									const last = session.getLastAssistantMessage?.();
+									if (last) {
+										const text = last.content
+											.filter(c => c.type === "text")
+											.map(c => c.text)
+											.join("\n");
+										const summary = extractSpokenText(text);
+										if (summary) {
+											console.log(`🤖 Aerys: "${summary}"\n`);
+											await speak(summary);
+										}
+									}
+								} catch (err: unknown) {
+									const error = err as Error;
+									console.error("[Execution error]:", error.message);
+									await speak("I encountered an issue running that command, Peter.");
+								}
+							}
+						} else if (inHotWindow) {
+							// Conversational follow-up mode
+							hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
+							console.log(`\n🗣️  Peter (Follow-up): "${raw}"`);
+							console.log("⚡ [Executing command with desktop tools...]");
+							try {
+								await session.prompt(raw);
+								const last = session.getLastAssistantMessage?.();
+								if (last) {
+									const text = last.content
+										.filter(c => c.type === "text")
+										.map(c => c.text)
+										.join("\n");
+									const summary = extractSpokenText(text);
+									if (summary) {
+										console.log(`🤖 Aerys: "${summary}"\n`);
+										await speak(summary);
+									}
+								}
+							} catch (err: unknown) {
+								const error = err as Error;
+								console.error("[Execution error]:", error.message);
+								await speak("I encountered an issue running that command, Peter.");
+							}
+						}
+					}
+				}, 100);
+			} else {
+				utteranceChunks.push(chunk);
+			}
+		} else if (voiceActive) {
+			utteranceChunks.push(chunk);
+		}
+	});
+
+	rec.on("close", () => {
+		console.log("\nAerys voice stream closed.");
+	});
+}
+
+if (import.meta.main) {
+	await runJarvisMode();
+}
