@@ -15,7 +15,9 @@ import { defaultVoiceEngine } from "./voice-engine";
 import { computeRms, pcmToWav } from "./voice-daemon";
 
 const WHISPER_BIN = path.join(os.homedir(), ".local", "share", "aerys", "voice", "bin", "whisper-cli");
-const WHISPER_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "ggml-base.en.bin");
+const SMALL_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "ggml-small.en.bin");
+const BASE_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "ggml-base.en.bin");
+const WHISPER_MODEL = fs.existsSync(SMALL_MODEL) ? SMALL_MODEL : BASE_MODEL;
 const VAD_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "ggml-silero-vad.bin");
 const PIPER_BIN = path.join(os.homedir(), ".local", "share", "aerys", "voice", "bin", "piper");
 const PIPER_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "en_US-hfc_female-medium.onnx");
@@ -99,8 +101,46 @@ async function speakAloud(text: string): Promise<void> {
 		}, TAIL_ECHO_GRACE_MS);
 	}
 }
+/** Audio peak normalization: scales quiet speech to standard optimal range for Whisper */
+function normalizePcm(pcm: Buffer): Buffer {
+	let maxVal = 0;
+	const sampleCount = Math.floor(pcm.length / 2);
+	if (sampleCount === 0) return pcm;
 
-/** Simple LLM response generator using available API or offline heuristic */
+	for (let i = 0; i < sampleCount; i++) {
+		const val = Math.abs(pcm.readInt16LE(i * 2));
+		if (val > maxVal) maxVal = val;
+	}
+
+	if (maxVal < 400 || maxVal >= 28000) return pcm;
+
+	const gain = 26000 / maxVal;
+	const out = Buffer.alloc(pcm.length);
+	for (let i = 0; i < sampleCount; i++) {
+		const sample = pcm.readInt16LE(i * 2);
+		const boosted = Math.max(-32768, Math.min(32767, Math.round(sample * gain)));
+		out.writeInt16LE(boosted, i * 2);
+	}
+	return out;
+}
+
+/** Common Whisper training hallucinations to filter out */
+const WHISPER_HALLUCINATIONS = [
+	"thanks for watching",
+	"thank you for watching",
+	"subscribe",
+	"like and subscribe",
+	"the end",
+	"see you next time",
+	"bye bye",
+];
+
+function isHallucination(text: string): boolean {
+	const lower = text.toLowerCase().trim();
+	return WHISPER_HALLUCINATIONS.some(h => lower.includes(h));
+}
+
+/** Transcribes a WAV buffer using local Whisper.cpp with prompt conditioning */
 async function generateAnswer(userPrompt: string): Promise<string> {
 	// Add user turn
 	conversationHistory.push({ role: "user", content: userPrompt });
@@ -138,13 +178,21 @@ async function transcribeAudio(wavBuffer: Buffer): Promise<string> {
 	try {
 		await fs.promises.writeFile(tmpWav, wavBuffer);
 		return await new Promise<string>((resolve) => {
-			const whisperArgs = fs.existsSync(VAD_MODEL)
-				? ["--vad", "-vm", VAD_MODEL, "-m", WHISPER_MODEL, "-f", tmpWav, "-nt", "-np"]
-				: ["-m", WHISPER_MODEL, "-f", tmpWav, "-nt", "-np"];
+			const whisperArgs = [
+				"-m", WHISPER_MODEL,
+				"-f", tmpWav,
+				"--prompt", "Conversation with Peter. Clear direct spoken English.",
+				"-sns",
+				"--no-speech-thold", "0.6",
+				"-t", "4",
+				"-nt", "-np",
+			];
+			if (fs.existsSync(VAD_MODEL)) {
+				whisperArgs.unshift("--vad", "-vm", VAD_MODEL);
+			}
 			const whisper = spawn(WHISPER_BIN, whisperArgs, {
 				stdio: ["ignore", "pipe", "ignore"],
 			});
-			let out = "";
 			whisper.stdout?.on("data", d => out += d.toString());
 			whisper.on("close", () => {
 				const cleaned = out.replace(/^\[.*?\]/, "").replace(/^\(.*?\)/, "").trim();
@@ -233,13 +281,19 @@ export async function runVoiceChatDaemon(): Promise<void> {
 						}
 
 						process.stdout.write("\r[Transcribing with Whisper...]   ");
-						const wav = pcmToWav(pcm);
+						const normalizedPcm = normalizePcm(pcm);
+						const wav = pcmToWav(normalizedPcm);
 						const rawText = await transcribeAudio(wav);
 						const userText = rawText.replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "").trim();
 
 						// Echo check: reject if what Whisper heard matches what Aerys just said
 						if (isEcho(userText, lastTtsText)) {
 							process.stdout.write("\r[Echo filtered]                   ");
+							return;
+						}
+						// Filter out common Whisper YouTube hallucinations
+						if (isHallucination(userText)) {
+							process.stdout.write("\r[Hallucination filtered]          ");
 							return;
 						}
 
