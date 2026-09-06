@@ -37,7 +37,22 @@ function normalizePcm(pcm: Buffer): Buffer {
 		out.writeInt16LE(boosted, i * 2);
 	}
 	return out;
+const GHOST_HALLUCINATIONS = new Set([
+	"thank you",
+	"thank you very much",
+	"thanks",
+	"you",
+	"bye",
+	"cheers",
+	"f",
+	"salo",
+]);
+
+function isGhostHallucination(text: string): boolean {
+	const cleaned = text.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+	return GHOST_HALLUCINATIONS.has(cleaned);
 }
+
 
 const PIPER_BIN = path.join(os.homedir(), ".local", "share", "aerys", "voice", "bin", "piper");
 const PIPER_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "en_US-hfc_female-medium.onnx");
@@ -155,7 +170,7 @@ export async function runVoiceBridge(): Promise<void> {
 	let voiceActive = false;
 	let lastUtteranceTime = 0;
 	let endpointTimer: NodeJS.Timeout | null = null;
-	const SILENCE_TIMEOUT_MS = 600;
+	const SILENCE_TIMEOUT_MS = 1100; // 1.1s natural speech pause so sentences aren't split
 
 	rec.stdout?.on("data", async (chunk: Buffer) => {
 		// Drop input while Aery is actively speaking or room echo is settling
@@ -195,6 +210,10 @@ export async function runVoiceBridge(): Promise<void> {
 
 						if (!raw || raw.length < 2) return;
 
+						// Filter out standalone Whisper silence hallucinations (stops the "you're welcome" loop)
+						if (isGhostHallucination(raw)) {
+							return;
+						}
 						const match = detectWakeWord(raw);
 						const inHotWindow = Date.now() < hotWindowExpiry;
 
