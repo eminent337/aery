@@ -12,12 +12,13 @@ import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import * as z from "zod/v4";
 import type { ToolSession } from "./index";
 import { defaultVoiceEngine } from "../voice/voice-engine";
+import { defaultVoiceDaemon } from "../voice/voice-daemon";
 
 const voiceControlSchema = z.object({
 	action: z
-		.enum(["speak", "listen", "stop", "list_voices"])
+		.enum(["speak", "listen", "stop", "list_voices", "start_ambient", "stop_ambient", "ambient_status"])
 		.describe(
-			"Action: 'speak' synthesizes text to speech through speakers, 'listen' records from microphone and transcribes speech, 'stop' immediately halts audio playback (barge-in), 'list_voices' shows installed local voices.",
+			"Action: 'speak' synthesizes text to speech, 'listen' records a single utterance, 'stop' halts speech playback, 'list_voices' lists voice models, 'start_ambient' starts hands-free background microphone listening, 'stop_ambient' stops ambient listening, 'ambient_status' queries listening state.",
 		),
 	text: z.string().optional().describe("Text for Aerys to speak out loud when action is 'speak'."),
 	voice: z
@@ -148,6 +149,49 @@ export class VoiceControlTool implements AgentTool<typeof voiceControlSchema> {
 						},
 					],
 					details: { voices, default: defaultVoiceEngine.defaultVoice },
+				};
+			}
+
+			case "start_ambient": {
+				const started = defaultVoiceDaemon.start();
+				return {
+					content: [
+						{
+							type: "text",
+							text: started
+								? "Aerys ambient voice listener started. I am now listening hands-free for your voice."
+								: "Aerys ambient voice listener is already running.",
+						},
+					],
+					details: defaultVoiceDaemon.getStatus(),
+				};
+			}
+
+			case "stop_ambient": {
+				const stopped = defaultVoiceDaemon.stop();
+				return {
+					content: [
+						{
+							type: "text",
+							text: stopped
+								? "Aerys ambient voice listener stopped."
+								: "Aerys ambient voice listener was not active.",
+						},
+					],
+					details: defaultVoiceDaemon.getStatus(),
+				};
+			}
+
+			case "ambient_status": {
+				const status = defaultVoiceDaemon.getStatus();
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Ambient Listener Status: ${status.running ? "ACTIVE" : "INACTIVE"}${status.recordingUtterance ? " (detecting speech)" : ""}`,
+						},
+					],
+					details: status,
 				};
 			}
 		}
