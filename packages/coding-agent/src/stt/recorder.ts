@@ -42,51 +42,18 @@ async function detectWindowsAudioDevice(): Promise<string> {
 }
 
 // ── Recording implementations ──────────────────────────────────────
-async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () => void): Promise<RecordingHandle> {
-	const proc = Bun.spawn(["pw-record", "--channels=1", "--rate=16000", "--format=s16", "-"], {
+async function startPwRecordRecording(outputPath: string): Promise<RecordingHandle> {
+	const proc = Bun.spawn(["pw-record", "--channels=1", "--rate=16000", "--format=s16", outputPath], {
 		stdin: "ignore",
-		stdout: "pipe",
+		stdout: "ignore",
 		stderr: "ignore",
 	});
 	await verifyProcessAlive(proc, "pw-record");
-
-	const chunks: Buffer[] = [];
-	let hasSpoken = false;
-	let lastSpeechTime = 0;
-	let autoStopped = false;
-
-	const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-
-	// Read incoming PCM chunks and monitor Voice Activity Detection
-	(async () => {
-		try {
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done || !value) break;
-				const chunk = Buffer.from(value);
-				chunks.push(chunk);
-
-				const rms = computeRms(chunk);
-				if (rms >= 1000) {
-					hasSpoken = true;
-					lastSpeechTime = Date.now();
-				} else if (hasSpoken && onSilenceTimeout && !autoStopped) {
-					if (Date.now() - lastSpeechTime >= 1200) {
-						autoStopped = true;
-						onSilenceTimeout();
-					}
-				}
-			}
-		} catch {}
-	})();
 
 	return {
 		async stop() {
 			proc.kill("SIGINT");
 			await proc.exited;
-			const pcm = Buffer.concat(chunks);
-			const wav = pcmToWav(pcm);
-			await fs.writeFile(outputPath, wav);
 		},
 	};
 }
@@ -331,7 +298,6 @@ async function verifyProcessAlive(proc: ReturnType<typeof Bun.spawn>, tool: stri
 	await Bun.sleep(300);
 
 	const exited = await Promise.race([proc.exited.then(code => code), Bun.sleep(0).then(() => "running" as const)]);
-
 	if (exited !== "running") {
 		let stderr = "";
 		if (proc.stderr && typeof proc.stderr !== "number") {
@@ -343,7 +309,7 @@ async function verifyProcessAlive(proc: ReturnType<typeof Bun.spawn>, tool: stri
 
 // ── Public API ─────────────────────────────────────────────────────
 
-export async function startRecording(outputPath: string, onSilenceTimeout?: () => void): Promise<RecordingHandle> {
+export async function startRecording(outputPath: string): Promise<RecordingHandle> {
 	const tools = detectRecordingTools();
 	if (tools.length === 0) {
 		throw new Error(
@@ -359,8 +325,7 @@ export async function startRecording(outputPath: string, onSilenceTimeout?: () =
 		try {
 			switch (tool) {
 				case "pw-record":
-					return await startPwRecordRecording(outputPath, onSilenceTimeout);
-				case "sox":
+					return await startPwRecordRecording(outputPath);
 					return await startSoxRecording(outputPath);
 				case "ffmpeg":
 					return await startFFmpegRecording(outputPath);

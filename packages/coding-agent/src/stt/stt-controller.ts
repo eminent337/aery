@@ -79,11 +79,7 @@ export class STTController {
 		this.#tempFile = path.join(os.tmpdir(), `aery-stt-${id}.wav`);
 
 		try {
-			this.#recordingHandle = await startRecording(this.#tempFile, async () => {
-				if (this.#state === "recording") {
-					await this.#stopAndTranscribe(editor, options);
-				}
-			});
+			this.#recordingHandle = await startRecording(this.#tempFile);
 			this.#setState("recording", options);
 			logger.debug("STT recording started", { tempFile: this.#tempFile });
 		} catch (err) {
