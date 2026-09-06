@@ -190,7 +190,6 @@ async function transcribeAudio(wavBuffer: Buffer): Promise<string> {
 			const whisperArgs = [
 				"-m", WHISPER_MODEL,
 				"-f", tmpWav,
-				"--prompt", "Conversation with Peter. Clear direct spoken English.",
 				"-sns",
 				"--no-speech-thold", "0.6",
 				"-t", "4",
@@ -244,7 +243,7 @@ export async function runVoiceChatDaemon(): Promise<void> {
 	let isSpeaking = false;
 	let lastSpeechTime = 0;
 	let silenceTimer: NodeJS.Timeout | null = null;
-	let energyThreshold = 12000;
+	let energyThreshold = 1200;
 	const SILENCE_MS = 650;
 	const noiseSamples: number[] = [];
 	let calibrated = false;
@@ -261,7 +260,7 @@ export async function runVoiceChatDaemon(): Promise<void> {
 			noiseSamples.push(rms);
 			if (noiseSamples.length >= 10) {
 				const avgNoise = noiseSamples.reduce((a, b) => a + b, 0) / noiseSamples.length;
-				energyThreshold = Math.max(9000, Math.round(avgNoise * 1.6));
+				energyThreshold = Math.max(1000, Math.round(avgNoise * 2.5));
 				calibrated = true;
 				console.log(`[Aerys Voice] Calibrated noise floor: ${Math.round(avgNoise)} RMS -> Speech Threshold: ${energyThreshold} RMS`);
 				process.stdout.write("🎧 [Listening for your voice...]     ");

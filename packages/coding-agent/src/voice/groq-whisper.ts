@@ -20,7 +20,6 @@ export async function transcribeWithGroq(
 	formData.append("model", "whisper-large-v3");
 	formData.append("language", "en");
 	formData.append("temperature", "0");
-	formData.append("prompt", "Conversation with Peter Aryee. Clear spoken English.");
 
 	try {
 		const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
