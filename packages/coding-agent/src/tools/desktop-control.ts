@@ -40,9 +40,9 @@ export interface ScreenshotResultDetails {
 
 const desktopControlSchema = z.object({
 	action: z
-		.enum(["screenshot", "list_windows", "focus_window", "close_window", "switch_workspace", "launch_app", "cursor_pos"])
+		.enum(["screenshot", "list_windows", "focus_window", "close_window", "switch_workspace", "launch_app", "cursor_pos", "system_control"])
 		.describe(
-			"Action: 'screenshot' captures full screen or target window, 'list_windows' lists all open GUI apps, 'focus_window' brings an app to the front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a desktop app, 'cursor_pos' gets current mouse coordinates.",
+			"Action: 'screenshot' captures display/window, 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns an app, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume, media, brightness, screen lock, and web search.",
 		),
 	target: z
 		.string()
@@ -62,6 +62,27 @@ const desktopControlSchema = z.object({
 		.string()
 		.optional()
 		.describe("Application command or desktop binary to run for 'launch_app' (e.g. 'brave', 'code', 'pavucontrol')."),
+	subAction: z
+		.enum([
+			"volume_up",
+			"volume_down",
+			"set_volume",
+			"mute",
+			"unmute",
+			"play_pause",
+			"next_track",
+			"prev_track",
+			"lock_screen",
+			"set_brightness",
+			"web_search",
+		])
+		.optional()
+		.describe("Sub-action for 'system_control'."),
+	value: z.number().optional().describe("Numeric value for volume (0-100) or brightness (0-100)."),
+	platform: z
+		.enum(["google", "youtube", "github", "reddit", "stackoverflow", "wikipedia"])
+		.optional()
+		.describe("Search platform for 'web_search' sub-action (default: google)."),
 	maxWidth: z
 		.number()
 		.int()
@@ -323,6 +344,110 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					content: [{ type: "text", text: `Launched application: ${params.command}` }],
 					details: { command: params.command, success: true },
 				};
+			}
+
+			case "system_control": {
+				const sub = params.subAction;
+				if (!sub) {
+					return {
+						content: [{ type: "text", text: "Error: 'subAction' is required for system_control." }],
+						details: { error: "missing_sub_action" },
+					};
+				}
+
+				switch (sub) {
+					case "volume_up": {
+						await runCmd("wpctl", ["set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"]);
+						return {
+							content: [{ type: "text", text: "Volume increased by 5%, Peter." }],
+							details: { action: sub, success: true },
+						};
+					}
+					case "volume_down": {
+						await runCmd("wpctl", ["set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"]);
+						return {
+							content: [{ type: "text", text: "Volume decreased by 5%, Peter." }],
+							details: { action: sub, success: true },
+						};
+					}
+					case "set_volume": {
+						const val = Math.max(0, Math.min(100, Math.round(params.value ?? 50)));
+						const frac = (val / 100).toFixed(2);
+						await runCmd("wpctl", ["set-volume", "@DEFAULT_AUDIO_SINK@", frac]);
+						return {
+							content: [{ type: "text", text: `Volume set to ${val} percent, Peter.` }],
+							details: { action: sub, value: val, success: true },
+						};
+					}
+					case "mute":
+					case "unmute": {
+						await runCmd("wpctl", ["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]);
+						return {
+							content: [{ type: "text", text: "Audio mute toggled, Peter." }],
+							details: { action: sub, success: true },
+						};
+					}
+					case "play_pause": {
+						await runCmd("playerctl", ["play-pause"]);
+						return {
+							content: [{ type: "text", text: "Media playback toggled, Peter." }],
+							details: { action: sub, success: true },
+						};
+					}
+					case "next_track": {
+						await runCmd("playerctl", ["next"]);
+						return {
+							content: [{ type: "text", text: "Playing next track, Peter." }],
+							details: { action: sub, success: true },
+						};
+					}
+					case "prev_track": {
+						await runCmd("playerctl", ["previous"]);
+						return {
+							content: [{ type: "text", text: "Playing previous track, Peter." }],
+							details: { action: sub, success: true },
+						};
+					}
+					case "set_brightness": {
+						const val = Math.max(5, Math.min(100, Math.round(params.value ?? 50)));
+						await runCmd("brightnessctl", ["set", `${val}%`]);
+						return {
+							content: [{ type: "text", text: `Screen brightness set to ${val} percent, Peter.` }],
+							details: { action: sub, value: val, success: true },
+						};
+					}
+					case "lock_screen": {
+						await runCmd("hyprctl", ["dispatch", "exec", "hyprlock"]);
+						return {
+							content: [{ type: "text", text: "Screen locked, Peter." }],
+							details: { action: sub, success: true },
+						};
+					}
+					case "web_search": {
+						const q = (params.query || "").trim();
+						if (!q) {
+							return {
+								content: [{ type: "text", text: "Error: 'query' is required for web_search." }],
+								details: { error: "missing_query" },
+							};
+						}
+						const platform = params.platform || "google";
+						const urls: Record<string, string> = {
+							youtube: `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
+							github: `https://github.com/search?q=${encodeURIComponent(q)}`,
+							reddit: `https://www.reddit.com/search/?q=${encodeURIComponent(q)}`,
+							stackoverflow: `https://stackoverflow.com/search?q=${encodeURIComponent(q)}`,
+							wikipedia: `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(q)}`,
+							google: `https://www.google.com/search?q=${encodeURIComponent(q)}`,
+						};
+						const targetUrl = urls[platform] || urls.google;
+						await runCmd("xdg-open", [targetUrl]);
+						return {
+							content: [{ type: "text", text: `Searching ${platform} for "${q}" in your browser, Peter.` }],
+							details: { action: sub, platform, query: q, url: targetUrl, success: true },
+						};
+					}
+				}
 			}
 
 			case "cursor_pos": {
