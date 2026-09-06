@@ -207,11 +207,14 @@ export class VoiceDaemon {
 
 			// Transcribe with Whisper.cpp
 			const text = await new Promise<string>((resolve, reject) => {
-				const whisper = spawn(
-					defaultVoiceEngine.whisperBinary,
-					["-m", defaultVoiceEngine.whisperModel, "-f", tmpWav, "-nt", "-np"],
-					{ stdio: ["ignore", "pipe", "ignore"] },
-				);
+				const vadModelPath = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "ggml-silero-vad.bin");
+				const whisperArgs = fs.existsSync(vadModelPath)
+					? ["--vad", "-vm", vadModelPath, "-m", defaultVoiceEngine.whisperModel, "-f", tmpWav, "-nt", "-np"]
+					: ["-m", defaultVoiceEngine.whisperModel, "-f", tmpWav, "-nt", "-np"];
+
+				const whisper = spawn(defaultVoiceEngine.whisperBinary, whisperArgs, {
+					stdio: ["ignore", "pipe", "ignore"],
+				});
 
 				let stdout = "";
 				whisper.stdout?.on("data", d => {
