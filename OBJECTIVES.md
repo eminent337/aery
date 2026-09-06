@@ -1,10 +1,10 @@
-# Aery Jarvis: The Desktop Commander & Autonomous Orchestrator
+# Aerys: The Desktop Commander & Autonomous Orchestrator
 
 ## 1. Vision & Purpose
 
 **Aery** is our high-performance AI coding agent: surgical, terminal-first, and deeply integrated into software repositories.
 
-**Aery Jarvis** is the evolutionary leap: an **all-powerful, ambient desktop orchestrator and companion**. It sits above your entire operating system, listens to your voice, watches your screens, operates desktop applications, and acts as the **General commanding an army of sub-agents across visible terminal panes**.
+**Aerys** is the evolutionary leap: an **all-powerful, ambient desktop orchestrator and companion**. It sits above your entire operating system, listens to your voice, watches your screens, operates desktop applications, and acts as the **General commanding an army of sub-agents across visible terminal panes**.
 
 ### Non-Goals
 - **No Physical Hardware Fabrication:** We are not 3D printing or soldering physical boards; this is 100% focused on software, operating system control, and multi-agent developer workflows.

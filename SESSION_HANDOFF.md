@@ -1,15 +1,15 @@
-# Aery Jarvis Workspace: Session Handoff & Quickstart
+# Aerys Workspace: Session Handoff & Quickstart
 
-## Welcome to Aery Jarvis!
+## Welcome to Aerys!
 
 This workspace is dedicated to building the **all-powerful Aery Desktop Assistant & Multi-Agent Swarm Orchestrator (J.A.R.V.I.S.-like)**.
 
 ### Workspace Status
-- **Location:** `/home/aryee/aery/aery-jarvis`
-- **Git Branch:** `feat/aery-jarvis`
+- **Location:** `/home/aryee/aery/aerys`
+- **Git Branch:** `feat/aerys`
 - **Origin Remote:** `https://github.com/eminent337/aery.git`
 - **Build Status:** Verified clean build with `bun install`, 0 typecheck errors in all packages.
-- **Session State:** Full transcript and agent history synced to `/home/aryee/.aery/agent/sessions/-aery-aery-jarvis/`.
+- **Session State:** Full transcript and agent history synced to `/home/aryee/.aery/agent/sessions/-aery-aerys/`.
 
 ---
 
