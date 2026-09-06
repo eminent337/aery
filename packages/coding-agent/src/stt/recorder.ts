@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import { computeRms, pcmToWav } from "../voice/voice-daemon";
+import { defaultVoiceEngine } from "../voice/voice-engine";
 import * as path from "node:path";
 import { $which, logger, Snowflake } from "@aryee337/aery-utils";
 import { $ } from "bun";
@@ -63,6 +64,14 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done || !value) break;
+
+				// HARD MUTE: Drop all microphone input while Aerys is speaking through speakers
+				if (defaultVoiceEngine.isSpeaking) {
+					chunks.length = 0;
+					hasSpoken = false;
+					continue;
+				}
+
 				const chunk = Buffer.from(value);
 				chunks.push(chunk);
 

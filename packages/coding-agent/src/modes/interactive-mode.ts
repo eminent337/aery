@@ -2770,6 +2770,34 @@ export class InteractiveMode implements InteractiveModeContext {
 					return;
 				}
 
+				// Filter out acoustic speaker echoes of Aery's own voice
+				const lastMsg = this.session.getLastAssistantMessage?.();
+				if (lastMsg) {
+					const assistantText = lastMsg.content
+						.filter(c => c.type === "text")
+						.map(c => c.text)
+						.join(" ")
+						.toLowerCase()
+						.trim();
+					if (assistantText.length > 0) {
+						const userWords = cleaned.split(/\s+/).filter(w => w.length > 2);
+						const asstWords = new Set(assistantText.replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(w => w.length > 2));
+						if (userWords.length > 0) {
+							let matches = 0;
+							for (const w of userWords) {
+								if (asstWords.has(w)) matches++;
+							}
+							if (matches / userWords.length >= 0.4) {
+								logger.debug("Blocked acoustic speaker feedback loop", { text: trimmed });
+								if (this.#continuousSpeechMode) {
+									setTimeout(() => void this.startContinuousSpeechTurn(), 400);
+								}
+								return;
+							}
+						}
+					}
+				}
+
 				this.editor.addToHistory(trimmed);
 				this.editor.setText("");
 				await this.withLocalSubmission(trimmed, () => this.session.prompt(trimmed));

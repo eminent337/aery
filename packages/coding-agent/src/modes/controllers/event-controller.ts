@@ -678,19 +678,19 @@ export class EventController {
 		this.#scheduleIdleCompaction();
 		this.sendCompletionNotification();
 		this.sendTurnNotificationIfNeeded();
-		this.speakTurnResponseIfNeeded();
+		await this.speakTurnResponseIfNeeded();
 
-		// Continuous Speech Mode: re-arm microphone after response audio settles
+		// Continuous Speech Mode: re-arm microphone ONLY after audio playback completely finishes!
 		if ((this.ctx as any).isContinuousSpeechMode) {
 			setTimeout(() => {
 				if ((this.ctx as any).isContinuousSpeechMode) {
 					void (this.ctx as any).startContinuousSpeechTurn?.();
 				}
-			}, 750);
+			}, 800);
 		}
 	}
 
-	speakTurnResponseIfNeeded(): void {
+	async speakTurnResponseIfNeeded(): Promise<void> {
 		if (settings.get("voice.autoSpeak") !== true) return;
 		const last = this.ctx.session.getLastAssistantMessage?.();
 		if (!last || last.stopReason === "aborted" || last.stopReason === "error") return;
@@ -705,7 +705,7 @@ export class EventController {
 
 		const spoken = extractSpokenSummary(raw);
 		if (spoken && defaultVoiceEngine.isReady()) {
-			void defaultVoiceEngine.speak(spoken).catch(() => {});
+			await defaultVoiceEngine.speak(spoken).catch(() => {});
 		}
 	}
 
