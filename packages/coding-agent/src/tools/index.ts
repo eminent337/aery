@@ -120,8 +120,8 @@ import {
 	McpManageTool,
 	OmfgTool,
 	PluginManageTool,
-	RenameSessionTool,
 	RefineTool,
+	RenameSessionTool,
 	RetryTurnTool,
 	ReviewTool,
 	ScheduleManageTool,
@@ -463,8 +463,12 @@ export interface ToolSession {
 	getTelemetry?: () => AgentTelemetryConfig | undefined;
 	/** Start a new session (clears messages). Returns false if cancelled by hook. */
 	newSession?: (options?: { parentSession?: string; drop?: boolean }) => Promise<boolean>;
-	/** Fork the current session, preserving all messages. */
-	fork?: () => Promise<boolean>;
+	/** Fork the current session, optionally into a target directory. */
+	fork?: (options?: {
+		targetCwd?: string;
+		title?: string;
+		messageIndex?: number;
+	}) => Promise<boolean | { oldSessionFile: string; newSessionFile: string; newSessionId: string; newCwd: string }>;
 	/** Retry the last failed assistant turn. */
 	retry?: () => Promise<boolean>;
 	/** Drop heavy content from context (mode: elide|images|thinking). */

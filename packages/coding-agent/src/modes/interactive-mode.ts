@@ -374,6 +374,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		eventBus?: EventBus,
 	) {
 		this.session = session;
+		this.session.setOnCwdChange(async newCwd => {
+			await this.applyCwdChange(newCwd);
+		});
 		this.sessionManager = session.sessionManager;
 		this.settings = session.settings;
 		this.keybindings = KeybindingsManager.inMemory();

@@ -712,7 +712,7 @@ export class CommandController {
 		await this.#runNewSessionFlow({ drop: true }, "Session dropped");
 	}
 
-	async handleForkCommand(): Promise<void> {
+	async handleForkCommand(targetPath?: string): Promise<void> {
 		if (this.ctx.session.isStreaming) {
 			this.ctx.showWarning("Wait for the current response to finish or abort it before forking.");
 			return;
@@ -723,8 +723,16 @@ export class CommandController {
 		}
 		this.ctx.statusContainer.clear();
 
-		const success = await this.ctx.session.fork();
-		if (!success) {
+		const rawTarget = targetPath?.trim();
+		let resolvedTargetCwd: string | undefined;
+		if (rawTarget) {
+			const unquoted = stripOuterDoubleQuotes(rawTarget);
+			resolvedTargetCwd = resolveToCwd(unquoted, this.ctx.sessionManager.getCwd());
+			await fs.mkdir(resolvedTargetCwd, { recursive: true });
+		}
+
+		const result = await this.ctx.session.fork(resolvedTargetCwd ? { targetCwd: resolvedTargetCwd } : undefined);
+		if (!result) {
 			this.ctx.showError("Fork failed (session not persisted or cancelled)");
 			return;
 		}
@@ -736,7 +744,11 @@ export class CommandController {
 		const shortPath = sessionFile ? sessionFile.split("/").pop() : "new session";
 		this.ctx.chatContainer.addChild(new Spacer(1));
 		this.ctx.chatContainer.addChild(
-			new Text(`${theme.fg("accent", `${theme.status.success} Session forked to ${shortPath}`)}`, 1, 1),
+			new Text(
+				`${theme.fg("accent", `${theme.status.success} Session forked to ${shortPath}${resolvedTargetCwd ? ` in ${resolvedTargetCwd}` : ""}`)}`,
+				1,
+				1,
+			),
 		);
 		this.ctx.ui.requestRender();
 	}

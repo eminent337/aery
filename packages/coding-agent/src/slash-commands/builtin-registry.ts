@@ -1045,10 +1045,13 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	},
 	{
 		name: "fork",
-		description: "Create a new fork from a previous message",
-		handleTui: async (_command, runtime) => {
+		description: "Create a new fork from a previous message or into another directory",
+		inlineHint: "[directory]",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			const targetDir = command.args?.trim() || undefined;
 			runtime.ctx.editor.setText("");
-			await runtime.ctx.handleForkCommand();
+			await runtime.ctx.handleForkCommand(targetDir);
 		},
 	},
 	{

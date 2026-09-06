@@ -94,8 +94,10 @@ import {
 	isEnoent,
 	isUnexpectedSocketCloseMessage,
 	logger,
+	normalizePathForComparison,
 	prompt,
 	Snowflake,
+	setProjectDir,
 } from "@aryee337/aery-utils";
 import type { InMemorySnapshotStore } from "@aryee337/hashline";
 import {
@@ -262,6 +264,8 @@ import { formatSessionHistoryMarkdown } from "./session-history-format";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
+	ForkSessionOptions,
+	ForkSessionResult,
 	NewSessionOptions,
 	SessionContext,
 	SessionManager,
@@ -916,6 +920,10 @@ export class AgentSession {
 	#goalModeState: GoalModeState | undefined;
 	#goalRuntime: GoalRuntime;
 	#autonomousRuntime?: AutonomousRuntime;
+	#onCwdChange?: (newCwd: string) => Promise<void>;
+	setOnCwdChange(callback: (newCwd: string) => Promise<void>): void {
+		this.#onCwdChange = callback;
+	}
 	#harnessEngine?: ContinualHarnessEngine;
 	#harnessHost?: HarnessHost;
 	#turnsSinceLastRefineReview = 0;
@@ -5688,8 +5696,9 @@ export class AgentSession {
 	 * Unlike newSession(), this preserves all messages in the agent state.
 	 * @returns true if completed, false if cancelled by hook or not persisting
 	 */
-	async fork(): Promise<boolean> {
+	async fork(options?: ForkSessionOptions): Promise<ForkSessionResult | boolean> {
 		const previousSessionFile = this.sessionFile;
+		const previousCwd = this.sessionManager.getCwd();
 
 		// Emit session_before_switch event with reason "fork" (can be cancelled)
 		if (this.#extensionRunner?.hasHandlers("session_before_switch")) {
@@ -5707,7 +5716,7 @@ export class AgentSession {
 		await this.sessionManager.flush();
 
 		// Fork the session (creates new session file with same entries)
-		const forkResult = await this.sessionManager.fork();
+		const forkResult = await this.sessionManager.fork(options);
 		if (!forkResult) {
 			return false;
 		}
@@ -5730,23 +5739,33 @@ export class AgentSession {
 				});
 			}
 		}
+		// If the fork moved to a different project directory, update active project dir
+		if (
+			forkResult.newCwd &&
+			normalizePathForComparison(forkResult.newCwd) !== normalizePathForComparison(previousCwd)
+		) {
+			setProjectDir(forkResult.newCwd);
+			if (this.#onCwdChange) {
+				await this.#onCwdChange(forkResult.newCwd);
+			}
+		}
 
 		// Update agent session ID
 		this.#syncAgentSessionId();
 		this.#rekeyHindsightMemoryForCurrentSessionId();
 		this.#rekeyMnemopiMemoryForCurrentSessionId();
 		this.#resetMnemopiConversationTrackingIfMnemopi();
-
 		// Emit session_switch event with reason "fork" to hooks
 		if (this.#extensionRunner) {
 			await this.#extensionRunner.emit({
 				type: "session_switch",
 				reason: "fork",
 				previousSessionFile,
+				newSessionFile: forkResult.newSessionFile,
+				newCwd: forkResult.newCwd,
 			});
 		}
-
-		return true;
+		return forkResult;
 	}
 
 	// =========================================================================
