@@ -6,6 +6,7 @@ import { VirtualTerminal } from "./virtual-terminal";
 
 class HugeChild implements Component {
 	constructor(private readonly n: number) {}
+	invalidate(): void {}
 	render(_width: number): string[] {
 		return Array.from({ length: this.n }, (_, i) => `line-${i}`);
 	}
