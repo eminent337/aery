@@ -198,7 +198,7 @@ For these, call the tool first to preview, then present the confirmation to the 
 - `ai_switch_model` — Switch session model
 - `ai_retry_turn` — Retry the last failed turn
 - `ai_shake_context` — Drop heavy content from context
-- `ai_fork_session` — Create a fork from a previous message
+- `ai_fork_session` — Fork the active session into a new session file, optionally into a different project directory (`targetDir`) with a custom `title`
 - `ai_reload_plugins` — Reload all plugins
 - `ai_new_session` — Start a new session
 - `ai_drop_session` — Delete the current session

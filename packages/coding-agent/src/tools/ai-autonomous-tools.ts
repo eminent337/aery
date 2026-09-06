@@ -22,6 +22,7 @@ import { getGlobalCronScheduler } from "../cron/scheduler";
 import { PluginManager } from "../extensibility/plugins/manager";
 import { globalScheduler } from "../task/schedule/scheduler";
 import type { ToolSession } from "./index";
+import { resolveToCwd } from "./path-utils";
 
 const confirmSchema = z.object({
 	confirmed: z.boolean().optional().describe("Set true to confirm and execute the action"),
@@ -609,7 +610,8 @@ export class ForkSessionTool implements AgentTool<typeof forkSchema> {
 	readonly name = "ai_fork_session";
 	readonly approval = "read" as const;
 	readonly label = "Fork Session";
-	readonly description = "Create a new fork from a previous message or into a different project directory.";
+	readonly description =
+		"Fork the active session into a new session file, optionally into a different project directory (targetDir). Safely preserves full conversation history while assigning a fresh unique session ID, setting the target working directory, updating terminal breadcrumbs, and switching the active project directory.";
 	readonly parameters = forkSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
@@ -633,7 +635,7 @@ export class ForkSessionTool implements AgentTool<typeof forkSchema> {
 			if (gate) return gate;
 		}
 		if (!this.session.fork) return successResult("Forking is not available in this session.");
-		const targetCwd = params.targetDir?.trim() ? path.resolve(getProjectDir(), params.targetDir.trim()) : undefined;
+		const targetCwd = params.targetDir?.trim() ? resolveToCwd(params.targetDir.trim(), getProjectDir()) : undefined;
 		if (targetCwd) {
 			await fs.promises.mkdir(targetCwd, { recursive: true });
 		}

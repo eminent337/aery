@@ -291,3 +291,14 @@ irc(op: "list")
 | `irc(to: "explore", message: "...")` | Missing `op` field | Use `irc(op: "send", to: "id", message: "...")` |
 | Sending IRC to finished agent | Agent no longer exists | Check `job(list: true)` before sending |
 | Using `task` for background | `task` runs inline (no background) | Use `invoke_subagent` for background execution |
+
+## Engineering Principle: Study, Port & Advance ("Nothing New Under the Sun")
+
+We do not build complex systems solely from scratch or rely on limited personal knowledge. There is nothing new under the sun: for virtually every tool, protocol, or system we want to construct, a battle-tested open-source product already exists.
+
+A true engineer:
+1. **Finds Prior Art:** Identifies existing high-performance open-source projects solving the same problem.
+2. **Clones Temporarily:** Clones the reference project into an isolated, gitignored directory (e.g. `study/` or `/tmp/...`). Clones are strictly **temporal study materials**.
+3. **Studies the Hard Details:** Inspects how the reference handles concurrency, edge cases, protocol nuances, and failure modes.
+4. **Ports With Advancement:** Ports the clean mechanism into Aery/Aerys, advancing the architecture with cleaner abstractions, strict typing, and tighter native tool integration.
+5. **Mandatory Cleanup:** Once implementation and testing are complete, **immediately removes the cloned reference directory**. Never leave temporary reference materials lingering in the repository.
