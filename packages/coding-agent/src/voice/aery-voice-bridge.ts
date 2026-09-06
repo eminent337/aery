@@ -37,6 +37,8 @@ function normalizePcm(pcm: Buffer): Buffer {
 		out.writeInt16LE(boosted, i * 2);
 	}
 	return out;
+}
+
 const GHOST_HALLUCINATIONS = new Set([
 	"thank you",
 	"thank you very much",
