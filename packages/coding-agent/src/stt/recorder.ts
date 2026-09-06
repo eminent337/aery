@@ -1,9 +1,9 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
-import { computeRms, pcmToWav } from "../voice/voice-daemon";
 import * as path from "node:path";
 import { $which, logger, Snowflake } from "@aryee337/aery-utils";
 import { $ } from "bun";
+import { computeRms, pcmToWav } from "../voice/voice-daemon";
 
 export interface RecordingHandle {
 	stop(): Promise<void>;
@@ -42,51 +42,18 @@ async function detectWindowsAudioDevice(): Promise<string> {
 }
 
 // ── Recording implementations ──────────────────────────────────────
-async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () => void): Promise<RecordingHandle> {
-	const proc = Bun.spawn(["pw-record", "--channels=1", "--rate=16000", "--format=s16", "-"], {
+async function startPwRecordRecording(outputPath: string): Promise<RecordingHandle> {
+	const proc = Bun.spawn(["pw-record", "--channels=1", "--rate=16000", "--format=s16", outputPath], {
 		stdin: "ignore",
-		stdout: "pipe",
+		stdout: "ignore",
 		stderr: "ignore",
 	});
 	await verifyProcessAlive(proc, "pw-record");
-
-	const chunks: Buffer[] = [];
-	let hasSpoken = false;
-	let lastSpeechTime = 0;
-	let autoStopped = false;
-
-	const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-
-	// Read incoming PCM chunks and monitor Voice Activity Detection
-	(async () => {
-		try {
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done || !value) break;
-				const chunk = Buffer.from(value);
-				chunks.push(chunk);
-
-				const rms = computeRms(chunk);
-				if (rms >= 600) {
-					hasSpoken = true;
-					lastSpeechTime = Date.now();
-				} else if (hasSpoken && onSilenceTimeout && !autoStopped) {
-					if (Date.now() - lastSpeechTime >= 1200) {
-						autoStopped = true;
-						onSilenceTimeout();
-					}
-				}
-			}
-		} catch {}
-	})();
 
 	return {
 		async stop() {
 			proc.kill("SIGINT");
 			await proc.exited;
-			const pcm = Buffer.concat(chunks);
-			const wav = pcmToWav(pcm);
-			await fs.writeFile(outputPath, wav);
 		},
 	};
 }
@@ -342,7 +309,7 @@ async function verifyProcessAlive(proc: ReturnType<typeof Bun.spawn>, tool: stri
 
 // ── Public API ─────────────────────────────────────────────────────
 
-export async function startRecording(outputPath: string, onSilenceTimeout?: () => void): Promise<RecordingHandle> {
+export async function startRecording(outputPath: string): Promise<RecordingHandle> {
 	const tools = detectRecordingTools();
 	if (tools.length === 0) {
 		throw new Error(
@@ -358,9 +325,9 @@ export async function startRecording(outputPath: string, onSilenceTimeout?: () =
 		try {
 			switch (tool) {
 				case "pw-record":
-					return await startPwRecordRecording(outputPath, onSilenceTimeout);
-				case "sox":
+					return await startPwRecordRecording(outputPath);
 					return await startSoxRecording(outputPath);
+				case "ffmpeg":
 					return await startFFmpegRecording(outputPath);
 				case "arecord":
 					return await startArecordRecording(outputPath);
