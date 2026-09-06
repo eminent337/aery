@@ -190,6 +190,24 @@ export async function runJarvisMode(): Promise<void> {
 								console.log("🤖 Aerys: 'Yes, Peter?'");
 								await speak("Yes, Peter?");
 							} else {
+								const q = match.query.toLowerCase().trim();
+								if (
+									q.includes("shut down") ||
+									q.includes("shutdown") ||
+									q.includes("exit") ||
+									q.includes("quit") ||
+									q.includes("go to sleep") ||
+									q.includes("stop listening")
+								) {
+									console.log(`\n🗣️  Peter: "${match.query}"`);
+									console.log("🤖 Aerys: 'Shutting down. Goodbye, Peter.'\n");
+									await speak("Shutting down. Goodbye, Peter.");
+									try {
+										rec.kill("SIGINT");
+									} catch {}
+									process.exit(0);
+								}
+
 								// Peter gave a command with the wake word
 								if (isBusy) return;
 								isBusy = true;
