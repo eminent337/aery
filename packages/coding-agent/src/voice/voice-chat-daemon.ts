@@ -16,6 +16,7 @@ import { computeRms, pcmToWav } from "./voice-daemon";
 
 const WHISPER_BIN = path.join(os.homedir(), ".local", "share", "aerys", "voice", "bin", "whisper-cli");
 const WHISPER_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "ggml-base.en.bin");
+const VAD_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "ggml-silero-vad.bin");
 const PIPER_BIN = path.join(os.homedir(), ".local", "share", "aerys", "voice", "bin", "piper");
 const PIPER_MODEL = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "en_US-hfc_female-medium.onnx");
 
@@ -105,11 +106,12 @@ async function transcribeAudio(wavBuffer: Buffer): Promise<string> {
 	try {
 		await fs.promises.writeFile(tmpWav, wavBuffer);
 		return await new Promise<string>((resolve) => {
-			const whisper = spawn(
-				WHISPER_BIN,
-				["-m", WHISPER_MODEL, "-f", tmpWav, "-nt", "-np"],
-				{ stdio: ["ignore", "pipe", "ignore"] },
-			);
+			const whisperArgs = fs.existsSync(VAD_MODEL)
+				? ["--vad", "-vm", VAD_MODEL, "-m", WHISPER_MODEL, "-f", tmpWav, "-nt", "-np"]
+				: ["-m", WHISPER_MODEL, "-f", tmpWav, "-nt", "-np"];
+			const whisper = spawn(WHISPER_BIN, whisperArgs, {
+				stdio: ["ignore", "pipe", "ignore"],
+			});
 			let out = "";
 			whisper.stdout?.on("data", d => out += d.toString());
 			whisper.on("close", () => {
@@ -149,13 +151,27 @@ export async function runVoiceChatDaemon(): Promise<void> {
 	let isSpeaking = false;
 	let lastSpeechTime = 0;
 	let silenceTimer: NodeJS.Timeout | null = null;
-	const ENERGY_THRESHOLD = 7000;
-	const SILENCE_MS = 750;
-
+	let energyThreshold = 12000;
+	const SILENCE_MS = 650;
+	const noiseSamples: number[] = [];
+	let calibrated = false;
 	rec.stdout?.on("data", async (chunk: Buffer) => {
 		const rms = computeRms(chunk);
 
-		if (rms >= ENERGY_THRESHOLD) {
+		// First 1 second: calibrate ambient room noise floor automatically
+		if (!calibrated) {
+			noiseSamples.push(rms);
+			if (noiseSamples.length >= 10) {
+				const avgNoise = noiseSamples.reduce((a, b) => a + b, 0) / noiseSamples.length;
+				energyThreshold = Math.max(9000, Math.round(avgNoise * 1.6));
+				calibrated = true;
+				console.log(`[Aerys Voice] Calibrated noise floor: ${Math.round(avgNoise)} RMS -> Speech Threshold: ${energyThreshold} RMS`);
+				process.stdout.write("🎧 [Listening for your voice...]     ");
+			}
+			return;
+		}
+
+		if (rms >= energyThreshold) {
 			lastSpeechTime = Date.now();
 			if (!isSpeaking) {
 				isSpeaking = true;
