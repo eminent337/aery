@@ -42,16 +42,16 @@ export async function runEnrollment(): Promise<void> {
 	console.log("╚══════════════════════════════════════════════════════════════╝\n");
 
 	console.log("Preparing microphone calibration...\n");
-	await speak("Peter, please speak a sentence after the chime to calibrate your personal voiceprint.");
+	await speak("Peter, please speak naturally after the chime to calibrate your personal voiceprint. You have eight seconds.");
 
 	await Bun.sleep(500);
 	await playChime();
 
-	console.log("🎙️  [RECORDING YOUR VOICE NOW - SPEAK A SENTENCE (4 seconds)...]");
-	console.log("Example: 'I am Peter Aryee, and Aerys is my personal companion.'\n");
+	console.log("🎙️  [RECORDING YOUR VOICE NOW - SPEAK NATURALLY (8 seconds)...]");
+	console.log("Example: 'I am Peter Aryee, and Aerys is my personal desktop companion. We are building the real Jarvis.'\n");
 
 	try {
-		const result = await enrollPeter();
+		const result = await enrollPeter(8);
 		console.log("\n✔ Voice calibration complete!");
 		console.log("Profile saved to:", result.profilePath);
 		console.log("Registered in: speaker.txt\n");
