@@ -2759,6 +2759,11 @@ export class InteractiveMode implements InteractiveModeContext {
 		await this.#sttController.startRecording(this.editor, {
 			showWarning: (msg: string) => this.showWarning(msg),
 			showStatus: (msg: string) => this.showStatus(msg),
+			onNoSpeech: () => {
+				if (this.#continuousSpeechMode) {
+					setTimeout(() => void this.startContinuousSpeechTurn(), 200);
+				}
+			},
 			onSubmit: async (text: string) => {
 				const trimmed = text.trim();
 				const cleaned = trimmed.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
@@ -2787,7 +2792,8 @@ export class InteractiveMode implements InteractiveModeContext {
 							for (const w of userWords) {
 								if (asstWords.has(w)) matches++;
 							}
-							if (matches / userWords.length >= 0.4) {
+							// Only reject if speech is an almost verbatim echo (>= 75% identical)
+							if (matches / userWords.length >= 0.75) {
 								logger.debug("Blocked acoustic speaker feedback loop", { text: trimmed });
 								if (this.#continuousSpeechMode) {
 									setTimeout(() => void this.startContinuousSpeechTurn(), 400);

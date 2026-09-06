@@ -14,6 +14,7 @@ export interface ToggleOptions {
 	showStatus(msg: string): void;
 	onStateChange(state: SttState): void;
 	onSubmit?(text: string): Promise<void> | void;
+	onNoSpeech?(): void;
 }
 
 interface Editor {
@@ -118,13 +119,17 @@ export class STTController {
 			this.#transcriptionAbort = null;
 			if (this.#disposed) return;
 			if (text.length > 0) {
-				editor.insertText(text);
 				options.showStatus("");
 				if (options.onSubmit) {
 					await options.onSubmit(text);
+				} else {
+					editor.insertText(text);
 				}
 			} else {
 				options.showStatus("No speech detected.");
+				if (options.onNoSpeech) {
+					options.onNoSpeech();
+				}
 			}
 			if (!this.#disposed) this.#setState("idle", options);
 		} catch (err) {
