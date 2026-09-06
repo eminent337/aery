@@ -118,7 +118,7 @@ export class VoiceEngine {
 				"--noise_w",
 				"0.4",
 				"--length_scale",
-				"0.95",
+				"1.06",
 				"--output_file",
 				audioPath,
 			];
