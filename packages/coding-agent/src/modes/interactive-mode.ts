@@ -354,6 +354,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	readonly #selectorController: SelectorController;
 	readonly #uiHelpers: UiHelpers;
 	#sttController: STTController | undefined;
+	#continuousSpeechMode = false;
 	#voiceAnimationInterval: NodeJS.Timeout | undefined;
 	#voiceHue = 0;
 	#voicePreviousShowHardwareCursor: boolean | null = null;
@@ -2713,23 +2714,65 @@ export class InteractiveMode implements InteractiveModeContext {
 		return this.#commandController.handleRenameCommand(title);
 	}
 
-	async handleSTTToggle(): Promise<void> {
-		if (!settings.get("stt.enabled")) {
-			this.showWarning("Speech-to-text is disabled. Enable it in settings: stt.enabled");
-			return;
-		}
+	get isContinuousSpeechMode(): boolean {
+		return this.#continuousSpeechMode;
+	}
+
+	async startContinuousSpeechTurn(): Promise<void> {
+		if (!this.#continuousSpeechMode) return;
 		if (!this.#sttController) {
 			this.#sttController = new STTController();
 		}
-		await this.#sttController.toggle(this.editor, {
+		if (this.#sttController.state !== "idle") return;
+
+		const GHOSTS: Record<string, true> = {
+			"thank you": true,
+			"thank you.": true,
+			thanks: true,
+			"thanks.": true,
+			"thank you very much": true,
+			"thank you for watching": true,
+			"thank you for watching.": true,
+			"thanks for watching": true,
+			"thanks for watching.": true,
+			"thanks for watching!": true,
+			yeah: true,
+			"yeah.": true,
+			yes: true,
+			yep: true,
+			"uh-huh": true,
+			"i'm sorry": true,
+			"i'm sorry.": true,
+			peace: true,
+			"peace.": true,
+			so: true,
+			"so,": true,
+			"so.": true,
+			bye: true,
+			"bye.": true,
+			you: true,
+			"you.": true,
+			f: true,
+			salo: true,
+		};
+
+		await this.#sttController.startRecording(this.editor, {
 			showWarning: (msg: string) => this.showWarning(msg),
 			showStatus: (msg: string) => this.showStatus(msg),
 			onSubmit: async (text: string) => {
-				if (text.trim().length > 0) {
-					this.editor.addToHistory(text);
-					this.editor.setText("");
-					await this.withLocalSubmission(text, () => this.session.prompt(text));
+				const trimmed = text.trim();
+				const cleaned = trimmed.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+				// Filter out silence hallucinations so they never trigger prompts
+				if (Boolean(GHOSTS[cleaned]) || trimmed.length < 3) {
+					if (this.#continuousSpeechMode) {
+						setTimeout(() => void this.startContinuousSpeechTurn(), 300);
+					}
+					return;
 				}
+
+				this.editor.addToHistory(trimmed);
+				this.editor.setText("");
+				await this.withLocalSubmission(trimmed, () => this.session.prompt(trimmed));
 			},
 			onStateChange: (state: SttState) => {
 				if (state === "recording") {
@@ -2748,6 +2791,33 @@ export class InteractiveMode implements InteractiveModeContext {
 				this.ui.requestRender();
 			},
 		});
+	}
+
+	async handleSTTToggle(): Promise<void> {
+		if (!settings.get("stt.enabled")) {
+			this.showWarning("Speech-to-text is disabled. Enable it in settings: stt.enabled");
+			return;
+		}
+		if (!this.#sttController) {
+			this.#sttController = new STTController();
+		}
+
+		if (this.#continuousSpeechMode) {
+			// Switch back to text mode!
+			this.#continuousSpeechMode = false;
+			await this.#sttController.cancel({
+				onStateChange: () => this.#cleanupMicAnimation(),
+			});
+			this.showStatus("Returned to text mode.");
+			this.updateEditorTopBorder();
+			this.ui.requestRender();
+			return;
+		}
+
+		// Activate Continuous Speech Mode!
+		this.#continuousSpeechMode = true;
+		this.showStatus("Continuous Speech Mode active. Speak freely; press Alt+H to return to text.");
+		await this.startContinuousSpeechTurn();
 	}
 
 	#setMicCursor(color: { r: number; g: number; b: number }): void {
