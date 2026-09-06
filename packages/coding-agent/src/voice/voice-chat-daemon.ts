@@ -178,6 +178,7 @@ async function transcribeAudio(wavBuffer: Buffer): Promise<string> {
 	try {
 		await fs.promises.writeFile(tmpWav, wavBuffer);
 		return await new Promise<string>((resolve) => {
+			let out = "";
 			const whisperArgs = [
 				"-m", WHISPER_MODEL,
 				"-f", tmpWav,
@@ -193,13 +194,17 @@ async function transcribeAudio(wavBuffer: Buffer): Promise<string> {
 			const whisper = spawn(WHISPER_BIN, whisperArgs, {
 				stdio: ["ignore", "pipe", "ignore"],
 			});
-			whisper.stdout?.on("data", d => out += d.toString());
+			whisper.stdout?.on("data", d => {
+				out += d.toString();
+			});
+			whisper.on("error", () => resolve(""));
 			whisper.on("close", () => {
 				const cleaned = out.replace(/^\[.*?\]/, "").replace(/^\(.*?\)/, "").trim();
 				resolve(cleaned);
 			});
 		});
-	} finally {
+	} catch {
+		return "";
 		try {
 			if (fs.existsSync(tmpWav)) fs.unlinkSync(tmpWav);
 		} catch {}
