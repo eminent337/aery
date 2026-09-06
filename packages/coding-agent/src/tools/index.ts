@@ -79,6 +79,7 @@ import { loadSshTool } from "./ssh";
 
 import { TerminalPaneTool } from "./terminal-pane";
 import { DesktopControlTool } from "./desktop-control";
+import { VoiceControlTool } from "./voice-control";
 import { TaskCreateTool, TaskGetTool, TaskListTool, TaskStopTool, TaskUpdateTool } from "./task-tracker";
 import { type TodoPhase, TodoWriteTool } from "./todo-write";
 import { WriteTool } from "./write";
@@ -197,6 +198,7 @@ export * from "./task-tracker";
 export * from "./todo-write";
 export * from "./terminal-pane";
 export * from "./desktop-control";
+export * from "./voice-control";
 export * from "./tts";
 export * from "./write";
 export * from "./yield";
@@ -600,6 +602,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	send_input: SendInputTool.createIf,
 	terminal_pane: TerminalPaneTool.createIf,
 	desktop_control: DesktopControlTool.createIf,
+	voice_control: VoiceControlTool.createIf,
 	search_context: SearchContextTool.createIf,
 	shadow_watch: ShadowWatchTool.createIf,
 	task_create: () => new TaskCreateTool(),
