@@ -6,8 +6,9 @@
  * using exact and token-level fuzzy matching.
  */
 
-const PRIMARY_WAKE_WORDS = ["aerys", "aery"];
+const PRIMARY_WAKE_WORDS = ["aerys", "aery", "aeries"];
 const PHONETIC_ALIASES = [
+	"aeries",
 	"aries",
 	"airy",
 	"eris",

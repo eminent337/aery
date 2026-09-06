@@ -49,7 +49,7 @@ function extractSpokenSummary(markdown: string): string {
 	const paragraphs = clean
 		.split(/\n\s*\n/)
 		.map(p => p.trim())
-		.filter(p => p.length > 10 && !p.startsWith("-") && !p.startsWith("*") && !p.startsWith("|"));
+		.filter(p => p.length > 2 && !p.startsWith("-") && !p.startsWith("*") && !p.startsWith("|"));
 
 	if (paragraphs.length === 0) return "";
 	const firstP = paragraphs[0].replace(/\n+/g, " ");
