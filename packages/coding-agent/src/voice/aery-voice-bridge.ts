@@ -78,6 +78,13 @@ async function acknowledgeAloud(text: string): Promise<void> {
 		try {
 			if (fs.existsSync(tmpWav)) fs.unlinkSync(tmpWav);
 		} catch {}
+		lastSpeechTime = Date.now();
+		setTimeout(() => {
+			isSpeaking = false;
+		}, TAIL_ECHO_MS);
+	}
+}
+
 /** Generates an intelligent companion response via Groq and speaks it out loud */
 async function generateAndSpeak(userPrompt: string): Promise<void> {
 	const key = process.env.GROQ_API_KEY;
@@ -95,7 +102,8 @@ async function generateAndSpeak(userPrompt: string): Promise<void> {
 					messages: [
 						{
 							role: "system",
-							content: "You are Aerys, an intelligent, young, soft-spoken female AI desktop companion. Your creator and owner is Peter (Peter Aryee). Never address Peter as \"sir\" or \"boss\" — always call him Peter. Speak naturally, warmly, and concisely (1 to 2 spoken sentences) like a real human partner and companion. Answer directly without robotic filler.",
+							content:
+								'You are Aerys, an intelligent, young, soft-spoken female AI desktop companion. Your creator and owner is Peter (Peter Aryee). Never address Peter as "sir" or "boss" — always call him Peter. Speak naturally, warmly, and concisely (1 to 2 spoken sentences) like a real human partner and companion. Answer directly without robotic filler.',
 						},
 						{ role: "user", content: userPrompt },
 					],
@@ -111,13 +119,6 @@ async function generateAndSpeak(userPrompt: string): Promise<void> {
 	}
 	console.log(`[Aerys Spoke]: "${reply}"`);
 	await acknowledgeAloud(reply);
-}
-
-		lastSpeechTime = Date.now();
-		setTimeout(() => {
-			isSpeaking = false;
-		}, TAIL_ECHO_MS);
-	}
 }
 
 /** Injects command into active Kitty terminal window */
