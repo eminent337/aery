@@ -1,13 +1,6 @@
+import * as os from "node:os";
+import * as path from "node:path";
 import { $which, logger } from "@aryee337/aery-utils";
-import transcribeScript from "./transcribe.py" with { type: "text" };
-
-export interface TranscribeOptions {
-	modelName?: string;
-	language?: string;
-	signal?: AbortSignal;
-}
-
-const TRANSCRIBE_TIMEOUT_MS = 120_000;
 
 /**
  * Find a usable Python command.
@@ -18,12 +11,18 @@ export function resolvePython(): string | null {
 	}
 	return null;
 }
+import { transcribeWithGroq } from "../voice/groq-whisper";
+import { defaultVoiceEngine } from "../voice/voice-engine";
+
+export interface TranscribeOptions {
+	modelName?: string;
+	language?: string;
+	signal?: AbortSignal;
+}
 
 /**
- * Transcribe a WAV file using Python openai-whisper.
- *
- * Reads the WAV via Python's built-in `wave` module (no ffmpeg needed),
- * resamples to 16 kHz mono, and passes the numpy array directly to whisper.
+ * Transcribe a WAV file using Groq Whisper (150ms) or local whisper-cli fallback.
+ * Completely eliminates Python and pip dependencies.
  */
 export async function transcribe(audioPath: string, options?: TranscribeOptions): Promise<string> {
 	const audioFile = Bun.file(audioPath);
@@ -31,61 +30,29 @@ export async function transcribe(audioPath: string, options?: TranscribeOptions)
 		throw new Error(`Audio file is empty or too small (${audioFile.size} bytes). Check microphone.`);
 	}
 
-	const pythonCmd = resolvePython();
-	if (!pythonCmd) {
-		throw new Error("Python not found. Install Python 3.8+ from https://python.org");
-	}
+	const buf = Buffer.from(await audioFile.arrayBuffer());
 
-	const modelName = options?.modelName ?? "base.en";
-	const language = options?.language ?? "en";
-
-	logger.debug("Transcribing with Python whisper", { pythonCmd, audioPath, modelName, language });
-
-	const proc = Bun.spawn([pythonCmd, "-c", transcribeScript, audioPath, modelName, language], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-
-	if (options?.signal?.aborted) {
-		proc.kill();
-		options.signal.throwIfAborted();
-	}
-
-	const onAbort = () => proc.kill();
-	options?.signal?.addEventListener("abort", onAbort, { once: true });
-
-	let timedOut = false;
-
-	const killTimer = setTimeout(() => {
-		timedOut = true;
-		logger.error("Python whisper transcription timed out, killing process", { timeoutMs: TRANSCRIBE_TIMEOUT_MS });
-		proc.kill();
-	}, TRANSCRIBE_TIMEOUT_MS);
-
-	const exitCode = await proc.exited;
-	clearTimeout(killTimer);
-	options?.signal?.removeEventListener("abort", onAbort);
-
-	options?.signal?.throwIfAborted();
-
-	const stdout = await new Response(proc.stdout).text();
-	const stderr = await new Response(proc.stderr).text();
-
-	if (timedOut) {
-		throw new Error(`Transcription timed out after ${Math.round(TRANSCRIBE_TIMEOUT_MS / 1000)}s`);
-	}
-
-	if (exitCode !== 0) {
-		logger.error("Python whisper transcription failed", { exitCode, stderr: stderr.trim() });
-		if (stderr.includes("No module named 'whisper'")) {
-			throw new Error("openai-whisper not installed. Run: pip install openai-whisper");
+	// 1. Fast path: Groq LPU Whisper (~150ms latency, whisper-large-v3)
+	if (process.env.GROQ_API_KEY) {
+		try {
+			const groqRes = await transcribeWithGroq(buf);
+			if (groqRes && groqRes.text && groqRes.text.length > 0) {
+				logger.debug("Groq Whisper transcription complete", {
+					text: groqRes.text,
+					latencyMs: groqRes.latencyMs,
+				});
+				return groqRes.text;
+			}
+		} catch (e) {
+			logger.debug("Groq Whisper unavailable, falling back to local engine", { error: e });
 		}
-		// Show last line of stderr (the actual error, not the full traceback)
-		const lastLine = stderr.trim().split("\n").pop() ?? "";
-		throw new Error(`Transcription failed: ${lastLine}`);
 	}
 
-	const text = stdout.trim();
-	logger.debug("Transcription complete", { length: text.length });
-	return text;
+	// 2. Offline fallback: local static whisper-cli
+	if (defaultVoiceEngine.isReady()) {
+		const res = await defaultVoiceEngine.listen({ audioPath });
+		return res.text;
+	}
+
+	throw new Error("No speech-to-text engine available. Set GROQ_API_KEY or install local voice models.");
 }

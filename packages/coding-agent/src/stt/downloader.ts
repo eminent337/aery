@@ -1,5 +1,6 @@
 import { $which, logger } from "@aryee337/aery-utils";
 import { $ } from "bun";
+import { defaultVoiceEngine } from "../voice/voice-engine";
 import { resolvePython } from "./transcriber";
 
 export interface DownloadProgress {
@@ -67,5 +68,8 @@ async function ensurePythonWhisper(options?: EnsureOptions): Promise<void> {
 
 export async function ensureSTTDependencies(options?: EnsureOptions): Promise<void> {
 	await ensureRecordingTool(options);
+	if (process.env.GROQ_API_KEY || defaultVoiceEngine.isReady()) {
+		return;
+	}
 	await ensurePythonWhisper(options);
 }
