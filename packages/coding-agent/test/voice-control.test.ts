@@ -30,4 +30,17 @@ describe("VoiceControlTool", () => {
 		expect(res.content[0].type).toBe("text");
 		expect(res.content[0].text).toContain("Stopped audio playback");
 	});
+
+	it("handles start_ambient, ambient_status, and stop_ambient lifecycle", async () => {
+		const startRes = await tool.execute("call_4", { action: "start_ambient" });
+		expect(startRes.content[0].type).toBe("text");
+
+		const statusRes = await tool.execute("call_5", { action: "ambient_status" });
+		expect(statusRes.content[0].type).toBe("text");
+		expect((statusRes.details as any)?.running).toBe(true);
+
+		const stopRes = await tool.execute("call_6", { action: "stop_ambient" });
+		expect(stopRes.content[0].type).toBe("text");
+		expect((stopRes.details as any)?.running).toBe(false);
+	});
 });
