@@ -111,10 +111,10 @@ const tmuxBackend = {
 	async split(direction: "horizontal" | "vertical", cmd?: string, cwd?: string, title?: string): Promise<PaneInfo> {
 		const splitFlag = direction === "horizontal" ? "-h" : "-v";
 		const targetCwd = cwd || getProjectDir();
-		const args = ["split-window", splitFlag, "-P", "-F", "#{pane_id}", "-c", targetCwd];
+		const args = ["split-window", "-d", splitFlag, "-P", "-F", "#{pane_id}", "-c", targetCwd];
 
 		if (cmd) {
-			args.push(cmd);
+			args.push("sh", "-c", cmd);
 		}
 
 		const res = await runCmd("tmux", args);
@@ -202,12 +202,12 @@ const kittyBackend = {
 		const targetCwd = cwd || getProjectDir();
 		const args = ["@"];
 		if (socket) args.push("--to", socket);
-		args.push("launch", `--location=${location}`, `--cwd=${targetCwd}`);
+		args.push("launch", "--keep-focus", `--location=${location}`, `--cwd=${targetCwd}`);
 
 		if (title) args.push(`--window-title=${title}`);
 		if (cmd) {
-			// Pass command to run inside the split
-			args.push(...cmd.split(" "));
+			// Keep window open to inspect output, and execute via sh -c for pipes/scripts
+			args.push("--hold", "sh", "-c", cmd);
 		}
 
 		const res = await runCmd("kitty", args);
@@ -249,6 +249,11 @@ const kittyBackend = {
 
 		const res = await runCmd("kitty", args);
 		if (res.code !== 0) {
+			if (res.stderr.includes("No matching windows")) {
+				const pane = managedPanes.get(paneId);
+				if (pane) pane.status = "closed";
+				return `(pane ${paneId} has exited or closed)`;
+			}
 			throw new Error(`kitty @ get-text failed on ${paneId}: ${res.stderr}`);
 		}
 		return res.stdout;
