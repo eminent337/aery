@@ -9,9 +9,26 @@ export async function transcribeWithGroq(
 	wavBuffer: Buffer,
 	apiKey?: string,
 ): Promise<{ text: string; latencyMs: number } | null> {
-	const key = apiKey || process.env.GROQ_API_KEY;
+	let key = apiKey || process.env.GROQ_API_KEY;
+	if (!key) {
+		try {
+			const { Database } = await import("bun:sqlite");
+			const os = await import("node:os");
+			const path = await import("node:path");
+			const fs = await import("node:fs");
+			const dbPath = path.join(os.homedir(), ".aery", "agent", "agent.db");
+			if (fs.existsSync(dbPath)) {
+				const db = new Database(dbPath);
+				const row = db
+					.query("SELECT data FROM auth_credentials WHERE provider = 'groq' AND credential_type = 'api_key' ORDER BY id DESC LIMIT 1")
+					.get() as { data: string } | null;
+				if (row) {
+					key = JSON.parse(row.data)?.key;
+				}
+			}
+		} catch {}
+	}
 	if (!key) return null;
-
 	const startTime = Date.now();
 
 	const formData = new FormData();
