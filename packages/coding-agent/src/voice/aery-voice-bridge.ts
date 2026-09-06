@@ -78,6 +78,41 @@ async function acknowledgeAloud(text: string): Promise<void> {
 		try {
 			if (fs.existsSync(tmpWav)) fs.unlinkSync(tmpWav);
 		} catch {}
+/** Generates an intelligent companion response via Groq and speaks it out loud */
+async function generateAndSpeak(userPrompt: string): Promise<void> {
+	const key = process.env.GROQ_API_KEY;
+	let reply = "I'm right here with you, Peter.";
+	if (key) {
+		try {
+			const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${key}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "qwen/qwen3.8-27b",
+					messages: [
+						{
+							role: "system",
+							content: "You are Aerys, an intelligent, young, soft-spoken female AI desktop companion. Your creator and owner is Peter (Peter Aryee). Never address Peter as \"sir\" or \"boss\" — always call him Peter. Speak naturally, warmly, and concisely (1 to 2 spoken sentences) like a real human partner and companion. Answer directly without robotic filler.",
+						},
+						{ role: "user", content: userPrompt },
+					],
+					max_tokens: 80,
+					temperature: 0.7,
+				}),
+			});
+			if (res.ok) {
+				const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+				reply = data.choices?.[0]?.message?.content?.trim() || reply;
+			}
+		} catch {}
+	}
+	console.log(`[Aerys Spoke]: "${reply}"`);
+	await acknowledgeAloud(reply);
+}
+
 		lastSpeechTime = Date.now();
 		setTimeout(() => {
 			isSpeaking = false;
@@ -169,12 +204,12 @@ export async function runVoiceBridge(): Promise<void> {
 							if (!match.query || match.query.length < 2) {
 								await acknowledgeAloud("Yes, Peter?");
 							} else {
-								await injectPromptIntoAery(match.query);
+								await generateAndSpeak(match.query);
 							}
 						} else if (inHotWindow) {
-							// Active conversation mode: accept follow-up commands without repeated wake word
+							// Active conversation mode: answer follow-up directly through speakers
 							hotWindowExpiry = Date.now() + HOT_WINDOW_DURATION_MS;
-							await injectPromptIntoAery(raw);
+							await generateAndSpeak(raw);
 						}
 					}
 				}, 100);
