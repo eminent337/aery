@@ -34,8 +34,35 @@ const conversationHistory: ChatMessage[] = [
 	{ role: "system", content: SYSTEM_PROMPT },
 ];
 
-/** Synthesize text and play audio out loud through speakers */
+let isAssistantSpeaking = false;
+let lastTtsText = "";
+let lastTtsFinishTime = 0;
+const TAIL_ECHO_GRACE_MS = 450; // Delay after speech to let room reverberation settle
+
+/** Check if transcribed text is a tail echo of what Aerys just said */
+function isEcho(userText: string, lastTts: string): boolean {
+	if (!lastTts || !userText) return false;
+	const u = userText.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+	const t = lastTts.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+	if (u.length === 0) return false;
+	if (u === t || t.includes(u) || u.includes(t)) return true;
+
+	const userWords = u.split(/\s+/).filter(w => w.length > 2);
+	const ttsWords = new Set(t.split(/\s+/).filter(w => w.length > 2));
+	if (userWords.length === 0) return false;
+
+	let overlap = 0;
+	for (const w of userWords) {
+		if (ttsWords.has(w)) overlap++;
+	}
+	return (overlap / userWords.length) >= 0.5;
+}
+
+/** Synthesize text and play audio out loud through speakers with full mic muting */
 async function speakAloud(text: string): Promise<void> {
+	isAssistantSpeaking = true;
+	lastTtsText = text;
+
 	const tmpAudio = path.join(os.tmpdir(), `aerys-speak-${Date.now()}.wav`);
 	try {
 		await new Promise<void>((resolve, reject) => {
@@ -65,6 +92,11 @@ async function speakAloud(text: string): Promise<void> {
 		try {
 			if (fs.existsSync(tmpAudio)) fs.unlinkSync(tmpAudio);
 		} catch {}
+		// Mark finish time and hold mute across tail echo grace period
+		lastTtsFinishTime = Date.now();
+		setTimeout(() => {
+			isAssistantSpeaking = false;
+		}, TAIL_ECHO_GRACE_MS);
 	}
 }
 
@@ -156,8 +188,13 @@ export async function runVoiceChatDaemon(): Promise<void> {
 	const noiseSamples: number[] = [];
 	let calibrated = false;
 	rec.stdout?.on("data", async (chunk: Buffer) => {
-		const rms = computeRms(chunk);
+		// HARD GATE: Never record microphone audio while assistant is speaking or settling
+		if (isAssistantSpeaking || (Date.now() - lastTtsFinishTime < TAIL_ECHO_GRACE_MS)) {
+			utteranceChunks = [];
+			return;
+		}
 
+		const rms = computeRms(chunk);
 		// First 1 second: calibrate ambient room noise floor automatically
 		if (!calibrated) {
 			noiseSamples.push(rms);
@@ -191,23 +228,30 @@ export async function runVoiceChatDaemon(): Promise<void> {
 						utteranceChunks = [];
 
 						if (pcm.length < 16000) {
-							process.stdout.write("\r🎧 [Listening...]                    ");
+							process.stdout.write("\r[Listening...]                    ");
 							return;
 						}
 
-						process.stdout.write("\r🧠 [Transcribing with Whisper...]   ");
+						process.stdout.write("\r[Transcribing with Whisper...]   ");
 						const wav = pcmToWav(pcm);
-						const userText = await transcribeAudio(wav);
+						const rawText = await transcribeAudio(wav);
+						const userText = rawText.replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "").trim();
+
+						// Echo check: reject if what Whisper heard matches what Aerys just said
+						if (isEcho(userText, lastTtsText)) {
+							process.stdout.write("\r[Echo filtered]                   ");
+							return;
+						}
 
 						if (userText && userText.length > 1) {
-							console.log(`\n\n🗣️  Peter: "${userText}"`);
-							process.stdout.write("⚡ [Aerys thinking...]            ");
+							console.log(`\n\nPeter: "${userText}"`);
+							process.stdout.write("[Aerys thinking...]            ");
 							const reply = await generateAnswer(userText);
-							console.log(`🤖 Aerys: "${reply}"\n`);
+							console.log(`Aerys: "${reply}"\n`);
 							await speakAloud(reply);
-							process.stdout.write("🎧 [Listening...]                    ");
+							process.stdout.write("[Listening...]                    ");
 						} else {
-							process.stdout.write("\r🎧 [Listening...]                    ");
+							process.stdout.write("\r[Listening...]                    ");
 						}
 					}
 				}, 100);
