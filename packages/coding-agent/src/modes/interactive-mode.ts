@@ -80,6 +80,7 @@ import { getRecentSessions } from "../session/session-manager";
 import type { ShakeMode } from "../session/shake-types";
 import { formatDuration } from "../slash-commands/helpers/format";
 import { STTController, type SttState, type ToggleOptions } from "../stt";
+import { captureScreenFrame } from "../voice/screen-vision";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
 import type { LspStartupServerInfo } from "../tools";
 import { normalizeLocalScheme } from "../tools/path-utils";
@@ -2800,7 +2801,30 @@ export class InteractiveMode implements InteractiveModeContext {
 
 				this.editor.addToHistory(trimmed);
 				this.editor.setText("");
-				await this.withLocalSubmission(trimmed, () => this.session.prompt(trimmed));
+
+				let promptText = trimmed;
+				let images: ImageContent[] | undefined;
+
+				// Project Astra / Gemini Live style Screen Grounding:
+				// Attach an instantaneous active-window or full-screen frame to the turn
+				if (settings.get("voice.screenVision") === true) {
+					try {
+						const target = (settings.get("voice.screenVisionTarget") as "active_window" | "fullscreen") || "active_window";
+						const vision = await captureScreenFrame({ target });
+						if (vision.image) {
+							images = [vision.image];
+						}
+						if (vision.metadata) {
+							promptText = `${vision.metadata}\n\n${trimmed}`;
+						}
+					} catch (err) {
+						logger.debug("Screen vision capture skipped", { error: err });
+					}
+				}
+
+				await this.withLocalSubmission(trimmed, () => this.session.prompt(promptText, { images }), {
+					imageCount: images?.length ?? 0,
+				});
 			},
 			onStateChange: (state: SttState) => {
 				if (state === "recording") {
