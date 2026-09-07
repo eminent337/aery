@@ -36,7 +36,7 @@ export class VoiceEngine {
 	readonly #modelsDir: string;
 	#defaultVoice: string;
 	#activePlaybackProcess: ChildProcess | null = null;
-
+	#lastPlaybackEndedAt = 0;
 	constructor(config: VoiceConfig = {}) {
 		const baseDir = config.voiceDir || path.join(os.homedir(), ".local", "share", "aerys", "voice");
 		this.#binDir = path.join(baseDir, "bin");
@@ -53,8 +53,9 @@ export class VoiceEngine {
 	}
 
 	/** Returns true while audio is actively playing through the speakers */
+	/** Returns true while audio is playing OR during immediate acoustic reverberation (500ms) */
 	get isSpeaking(): boolean {
-		return this.#activePlaybackProcess !== null;
+		return this.#activePlaybackProcess !== null || Date.now() - this.#lastPlaybackEndedAt < 500;
 	}
 
 	/** Path to piper binary */
@@ -89,12 +90,14 @@ export class VoiceEngine {
 	}
 
 	/** Stop any active audio playback immediately (Barge-in / interruption) */
+	/** Stop any active audio playback immediately (Barge-in / interruption) */
 	stopSpeaking(): void {
 		if (this.#activePlaybackProcess) {
 			try {
 				this.#activePlaybackProcess.kill("SIGTERM");
 			} catch {}
 			this.#activePlaybackProcess = null;
+			this.#lastPlaybackEndedAt = Date.now();
 		}
 	}
 
@@ -160,8 +163,8 @@ export class VoiceEngine {
 
 				player.on("close", (code, signal) => {
 					this.#activePlaybackProcess = null;
+					this.#lastPlaybackEndedAt = Date.now();
 					if (signal === "SIGTERM" || signal === "SIGINT") {
-						interrupted = true;
 						resolve();
 					} else if (code === 0) {
 						resolve();
