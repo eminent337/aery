@@ -680,6 +680,15 @@ export class EventController {
 		this.sendTurnNotificationIfNeeded();
 		await this.speakTurnResponseIfNeeded();
 
+		// Persistent Speech Mode: automatically re-arm the microphone for Peter's next sentence!
+		if ((this.ctx as any).isContinuousSpeechMode) {
+			setTimeout(() => {
+				if ((this.ctx as any).isContinuousSpeechMode) {
+					void (this.ctx as any).startContinuousSpeechTurn?.();
+				}
+			}, 600);
+		}
+
 	}
 
 	async speakTurnResponseIfNeeded(): Promise<void> {
