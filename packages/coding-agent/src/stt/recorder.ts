@@ -55,7 +55,7 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 	let hasSpoken = false;
 	let lastSpeechTime = 0;
 	let autoStopped = false;
-
+	let chunkIndex = 0;
 	const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
 
 	// Read incoming PCM chunks and monitor Voice Activity Detection
@@ -71,16 +71,19 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 					hasSpoken = false;
 					continue;
 				}
+				chunkIndex++;
+				// Skip initial PipeWire audio stream open pop
+				if (chunkIndex <= 3) continue;
 
 				const chunk = Buffer.from(value);
 				chunks.push(chunk);
 
 				const rms = computeRms(chunk);
-				if (rms >= 2200) {
+				if (rms >= 2800) {
 					hasSpoken = true;
 					lastSpeechTime = Date.now();
 				} else if (hasSpoken && onSilenceTimeout && !autoStopped) {
-					if (Date.now() - lastSpeechTime >= 900) {
+					if (Date.now() - lastSpeechTime >= 1000) {
 						autoStopped = true;
 						onSilenceTimeout();
 					}

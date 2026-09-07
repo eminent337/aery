@@ -12,7 +12,6 @@ export function resolvePython(): string | null {
 	return null;
 }
 import { transcribeWithGroq } from "../voice/groq-whisper";
-import { defaultVoiceEngine } from "../voice/voice-engine";
 
 export interface TranscribeOptions {
 	modelName?: string;
@@ -42,15 +41,14 @@ export async function transcribe(audioPath: string, options?: TranscribeOptions)
 			});
 			return groqRes.text;
 		}
-	} catch (e) {
-		logger.debug("Groq Whisper unavailable, falling back to local engine", { error: e });
+	} catch {
+		// Network failure: return empty so the caller reports "No speech detected"
+		// rather than crashing the speech loop.
+		return "";
 	}
 
-	// 2. Offline fallback: local static whisper-cli
-	if (defaultVoiceEngine.isReady()) {
-		const res = await defaultVoiceEngine.listen({ audioPath });
-		return res.text;
-	}
-
-	throw new Error("No speech-to-text engine available. Set GROQ_API_KEY or install local voice models.");
+	// Local whisper-cli fallback is disabled by design: it eats 130% CPU on this machine,
+	// spins the fans up to 5100 RPM, and the fan roar then drowns out the microphone.
+	// Groq LPU is the sole STT engine.
+	return "";
 }
