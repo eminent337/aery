@@ -37,7 +37,7 @@ export async function transcribeWithGroq(
 	formData.append("model", "whisper-large-v3");
 	formData.append("language", "en");
 	formData.append("temperature", "0");
-	formData.append("prompt", "Peter, Peter Aryee, Aerys, Jarvis, voice assistant, terminal, desktop, coding.");
+	formData.append("prompt", "Peter, Peter Aryee, Aery, Aerys, Jarvis, voice assistant, terminal, desktop, coding.");
 	formData.append("response_format", "verbose_json");
 
 	for (let attempt = 0; attempt < 2; attempt++) {
