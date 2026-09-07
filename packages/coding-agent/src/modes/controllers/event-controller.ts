@@ -680,14 +680,6 @@ export class EventController {
 		this.sendTurnNotificationIfNeeded();
 		await this.speakTurnResponseIfNeeded();
 
-		// Continuous Speech Mode: re-arm microphone ONLY after audio playback completely finishes!
-		if ((this.ctx as any).isContinuousSpeechMode) {
-			setTimeout(() => {
-				if ((this.ctx as any).isContinuousSpeechMode) {
-					void (this.ctx as any).startContinuousSpeechTurn?.();
-				}
-			}, 800);
-		}
 	}
 
 	async speakTurnResponseIfNeeded(): Promise<void> {
