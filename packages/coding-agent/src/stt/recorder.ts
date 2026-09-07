@@ -76,7 +76,7 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 				chunks.push(chunk);
 
 				const rms = computeRms(chunk);
-				if (rms >= 600) {
+				if (rms >= 2200) {
 					hasSpoken = true;
 					lastSpeechTime = Date.now();
 				} else if (hasSpoken && onSilenceTimeout && !autoStopped) {
@@ -91,8 +91,8 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 
 	return {
 		async stop() {
-			proc.kill("SIGINT");
-			await proc.exited;
+			proc.kill("SIGTERM");
+			await Promise.race([proc.exited, Bun.sleep(800)]);
 			const pcm = Buffer.concat(chunks);
 			const wav = pcmToWav(pcm);
 			await fs.writeFile(outputPath, wav);

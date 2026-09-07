@@ -79,7 +79,7 @@ import type { SessionContext, SessionManager } from "../session/session-manager"
 import { getRecentSessions } from "../session/session-manager";
 import type { ShakeMode } from "../session/shake-types";
 import { formatDuration } from "../slash-commands/helpers/format";
-import { STTController, type SttState } from "../stt";
+import { STTController, type SttState, type ToggleOptions } from "../stt";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
 import type { LspStartupServerInfo } from "../tools";
 import { normalizeLocalScheme } from "../tools/path-utils";
@@ -2718,13 +2718,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		return this.#continuousSpeechMode;
 	}
 
-	async startContinuousSpeechTurn(): Promise<void> {
-		if (!this.#continuousSpeechMode) return;
-		if (!this.#sttController) {
-			this.#sttController = new STTController();
-		}
-		if (this.#sttController.state !== "idle") return;
-
+	#getSTTOptions(): ToggleOptions {
 		const GHOSTS: Record<string, true> = {
 			"thank you": true,
 			"thank you.": true,
@@ -2756,7 +2750,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			salo: true,
 		};
 
-		await this.#sttController.startRecording(this.editor, {
+		return {
 			showWarning: (msg: string) => this.showWarning(msg),
 			showStatus: (msg: string) => this.showStatus(msg),
 			onNoSpeech: () => {
@@ -2824,7 +2818,17 @@ export class InteractiveMode implements InteractiveModeContext {
 				this.updateEditorTopBorder();
 				this.ui.requestRender();
 			},
-		});
+		};
+	}
+
+	async startContinuousSpeechTurn(): Promise<void> {
+		if (!this.#continuousSpeechMode) return;
+		if (!this.#sttController) {
+			this.#sttController = new STTController();
+		}
+		if (this.#sttController.state !== "idle") return;
+
+		await this.#sttController.startRecording(this.editor, this.#getSTTOptions());
 	}
 
 	async handleSTTToggle(): Promise<void> {
@@ -2834,6 +2838,13 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		if (!this.#sttController) {
 			this.#sttController = new STTController();
+		}
+
+		if (this.#sttController.state === "recording") {
+			// Alt+H while recording: Stop and transcribe immediately!
+			this.showStatus("Transcribing speech...");
+			await this.#sttController.stopAndTranscribe(this.editor, this.#getSTTOptions());
+			return;
 		}
 
 		if (this.#continuousSpeechMode) {
@@ -2848,9 +2859,9 @@ export class InteractiveMode implements InteractiveModeContext {
 			return;
 		}
 
-		// Activate Continuous Speech Mode!
+		// Activate Speech Mode!
 		this.#continuousSpeechMode = true;
-		this.showStatus("Continuous Speech Mode active. Speak freely; press Alt+H to return to text.");
+		this.showStatus("Speech Mode active. Speak freely; press Alt+H when done.");
 		await this.startContinuousSpeechTurn();
 	}
 

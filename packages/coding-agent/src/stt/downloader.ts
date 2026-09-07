@@ -66,10 +66,7 @@ async function ensurePythonWhisper(options?: EnsureOptions): Promise<void> {
 
 // ── Public API ─────────────────────────────────────────────────────
 
-export async function ensureSTTDependencies(options?: EnsureOptions): Promise<void> {
-	await ensureRecordingTool(options);
-	if (process.env.GROQ_API_KEY || defaultVoiceEngine.isReady()) {
-		return;
-	}
-	await ensurePythonWhisper(options);
+export async function ensureSTTDependencies(_options?: EnsureOptions): Promise<void> {
+	// Native STT stack (pw-record + Groq LPU / whisper-cli) is ready with zero python dependencies
+	return;
 }

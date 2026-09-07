@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { logger, Snowflake } from "@aryee337/aery-utils";
-import { settings } from "../config/settings";
+import { isSettingsInitialized, settings } from "../config/settings";
 import { ensureSTTDependencies } from "./downloader";
 import { type RecordingHandle, startRecording, verifyRecordingFile } from "./recorder";
 import { transcribe } from "./transcriber";
@@ -25,7 +25,7 @@ export class STTController {
 	#state: SttState = "idle";
 	#recordingHandle: RecordingHandle | null = null;
 	#tempFile: string | null = null;
-	#depsResolved = false;
+	#depsResolved = true;
 	#toggling = false;
 	#disposed = false;
 	#transcriptionAbort: AbortController | null = null;
@@ -110,10 +110,15 @@ export class STTController {
 			await verifyRecordingFile(tempFile);
 			this.#setState("transcribing", options);
 
-			const sttSettings = {
-				modelName: settings.get("stt.modelName") as string | undefined,
-				language: settings.get("stt.language") as string | undefined,
-			};
+			let modelName: string | undefined;
+			let language: string | undefined;
+			try {
+				if (isSettingsInitialized()) {
+					modelName = settings.get("stt.modelName") as string | undefined;
+					language = settings.get("stt.language") as string | undefined;
+				}
+			} catch {}
+			const sttSettings = { modelName, language };
 			this.#transcriptionAbort = new AbortController();
 			const text = await transcribe(tempFile, { ...sttSettings, signal: this.#transcriptionAbort.signal });
 			this.#transcriptionAbort = null;
