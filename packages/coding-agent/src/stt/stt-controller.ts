@@ -29,6 +29,13 @@ export class STTController {
 	#toggling = false;
 	#disposed = false;
 	#transcriptionAbort: AbortController | null = null;
+	/** Wall-clock timestamp of speech onset from the active/last recording. */
+	#lastSpeechStartedAt: number | undefined;
+
+	/** When the user's speech began in the active/last recording (Astra ambient-buffer retrieval key). */
+	get lastSpeechStartedAt(): number | undefined {
+		return this.#lastSpeechStartedAt;
+	}
 
 	get state(): SttState {
 		return this.#state;
@@ -105,6 +112,8 @@ export class STTController {
 		}
 
 		try {
+			// Astra ambient-buffer key: when the user BEGAN speaking this utterance.
+			this.#lastSpeechStartedAt = handle.speechStartedAt?.();
 			await handle.stop();
 			// Validate the recording produced a usable file
 			await verifyRecordingFile(tempFile);

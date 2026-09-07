@@ -80,7 +80,13 @@ import { getRecentSessions } from "../session/session-manager";
 import type { ShakeMode } from "../session/shake-types";
 import { formatDuration } from "../slash-commands/helpers/format";
 import { STTController, type SttState, type ToggleOptions } from "../stt";
-import { captureScreenFrame } from "../voice/screen-vision";
+import {
+	captureScreenFrame,
+	getAmbientFramesForTurn,
+	getAmbientFrameMetadata,
+	startAmbientScreenBuffer,
+	stopAmbientScreenBuffer,
+} from "../voice/screen-vision";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
 import type { LspStartupServerInfo } from "../tools";
 import { normalizeLocalScheme } from "../tools/path-utils";
@@ -2806,16 +2812,30 @@ export class InteractiveMode implements InteractiveModeContext {
 				let images: ImageContent[] | undefined;
 
 				// Project Astra / Gemini Live style Screen Grounding:
-				// Attach an instantaneous active-window or full-screen frame to the turn
+				// 1. Instant snapshot of the active window (Live Eye, ~180ms).
+				// 2. Ambient buffer frames bracketing the utterance: the screen as it
+				//    was when the user BEGAN speaking, plus the freshest frame — so
+				//    mid-speech window switches are visible, not just the final state.
 				if (settings.get("voice.screenVision") === true) {
 					try {
+						const frames: ImageContent[] = [];
+						const speechOnset = this.#sttController?.lastSpeechStartedAt;
+						for (const frame of getAmbientFramesForTurn(speechOnset)) {
+							frames.push(frame);
+						}
 						const target = (settings.get("voice.screenVisionTarget") as "active_window" | "fullscreen") || "active_window";
 						const vision = await captureScreenFrame({ target });
 						if (vision.image) {
-							images = [vision.image];
+							frames.push(vision.image);
 						}
-						if (vision.metadata) {
-							promptText = `${vision.metadata}\n\n${trimmed}`;
+						if (frames.length > 0) {
+							images = frames;
+							const ambientMeta = getAmbientFrameMetadata();
+							const liveMeta = vision.metadata;
+							const meta = [ambientMeta, liveMeta].filter(Boolean).join(" · ");
+							if (meta) {
+								promptText = `${meta}\n\n${trimmed}`;
+							}
 						}
 					} catch (err) {
 						logger.debug("Screen vision capture skipped", { error: err });
@@ -2867,6 +2887,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (this.#continuousSpeechMode) {
 			// Alt+H: Exit speech mode entirely and return to normal text mode
 			this.#continuousSpeechMode = false;
+			stopAmbientScreenBuffer();
 			if (this.#sttController.state === "recording") {
 				// Stop the mic and transcribe what was already said before exiting
 				await this.#sttController.stopAndTranscribe(this.editor, this.#getSTTOptions());
@@ -2883,9 +2904,15 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		// Activate Speech Mode!
 		this.#continuousSpeechMode = true;
+		// Astra-style ambient visual memory: rolling 1fps screen buffer for the
+		// duration of Speech Mode so turns see what Peter was looking at mid-speech.
+		if (settings.get("voice.screenVision") === true) {
+			startAmbientScreenBuffer();
+		}
 		this.showStatus("Speech Mode active. Speak freely; press Alt+H to return to text mode.");
 		await this.startContinuousSpeechTurn();
 	}
+
 
 	#setMicCursor(color: { r: number; g: number; b: number }): void {
 		this.editor.cursorOverride = `\x1b[38;2;${color.r};${color.g};${color.b}m${theme.icon.mic}\x1b[0m`;

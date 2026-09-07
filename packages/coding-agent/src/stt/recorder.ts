@@ -8,6 +8,12 @@ import { $ } from "bun";
 
 export interface RecordingHandle {
 	stop(): Promise<void>;
+	/**
+	 * Wall-clock timestamp (Date.now()) of detected speech onset, if speech was
+	 * detected. Consumers use it to fetch the visual context (Astra-style
+	 * ambient screen frame) from when the user BEGAN talking.
+	 */
+	speechStartedAt(): number | undefined;
 }
 
 const isWindows = process.platform === "win32";
@@ -53,6 +59,7 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 
 	const chunks: Buffer[] = [];
 	let hasSpoken = false;
+	let speechStartedAt: number | undefined;
 	let lastSpeechTime = 0;
 	let speechStartTime = 0;
 	const recordingStartTime = Date.now();
@@ -87,6 +94,7 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 							defaultVoiceEngine.stopSpeaking();
 							hasSpoken = true;
 							speechStartTime = Date.now();
+							speechStartedAt = speechStartTime;
 							chunks.length = 0;
 						}
 						lastSpeechTime = Date.now();
@@ -116,6 +124,7 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 				if (rms >= dynamicSpeechThreshold) {
 					if (!hasSpoken) {
 						speechStartTime = Date.now();
+						speechStartedAt = speechStartTime;
 					}
 					hasSpoken = true;
 					lastSpeechTime = Date.now();
@@ -141,7 +150,6 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 			}
 		} catch {}
 	})();
-
 	return {
 		async stop() {
 			proc.kill("SIGTERM");
@@ -149,6 +157,9 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 			const pcm = Buffer.concat(chunks);
 			const wav = pcmToWav(pcm);
 			await fs.writeFile(outputPath, wav);
+		},
+		speechStartedAt() {
+			return speechStartedAt;
 		},
 	};
 }
@@ -166,6 +177,9 @@ async function startSoxRecording(outputPath: string): Promise<RecordingHandle> {
 		async stop() {
 			proc.kill("SIGTERM");
 			await proc.exited;
+		},
+		speechStartedAt() {
+			return undefined;
 		},
 	};
 }
@@ -242,6 +256,9 @@ async function startFFmpegRecording(outputPath: string): Promise<RecordingHandle
 			await proc.exited;
 			clearTimeout(killTimer);
 		},
+		speechStartedAt() {
+			return undefined;
+		},
 	};
 }
 
@@ -255,6 +272,9 @@ async function startArecordRecording(outputPath: string): Promise<RecordingHandl
 		async stop() {
 			proc.kill("SIGTERM");
 			await proc.exited;
+		},
+		speechStartedAt() {
+			return undefined;
 		},
 	};
 }
@@ -383,6 +403,9 @@ async function startPowerShellRecording(outputPath: string): Promise<RecordingHa
 			clearTimeout(killTimer);
 			// Clean up temp script
 			fs.unlink(scriptPath).catch(() => {});
+		},
+		speechStartedAt() {
+			return undefined;
 		},
 	};
 }

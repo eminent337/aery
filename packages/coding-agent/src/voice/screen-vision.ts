@@ -216,3 +216,105 @@ export async function captureScreenFrame(options: CaptureOptions = {}): Promise<
 		return { latencyMs };
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Astra-style Ambient Screen Buffer
+// ---------------------------------------------------------------------------
+// Project Astra / Gemini Live keep a continuous low-fps visual memory so the
+// assistant can see what the user was looking at BEFORE they finished speaking.
+// Ported as a rolling JPEG ring buffer: a background loop captures a cheap
+// downscaled frame every second into memory; at speech onset the turn attaches
+// the frame from when the user BEGAN talking plus the freshest one. No video
+// stream, no new dependencies — same grim/hyprctl stack as Live Eye.
+
+interface AmbientFrame {
+	/** Full-resolution base64 JPEG (for attachment to turns). */
+	image: ImageContent;
+	/** Capture timestamp (Date.now()). */
+	at: number;
+	/** Active window metadata at capture time. */
+	window?: ActiveWindowInfo;
+	/** Metadata line, e.g. [Active Window: kitty — "…"]. */
+	metadata?: string;
+}
+
+const AMBIENT_MAX_FRAMES = 12; // ~12s of memory at 1fps
+const AMBIENT_INTERVAL_MS = 1000;
+
+const ambientFrames: AmbientFrame[] = [];
+let ambientTimer: ReturnType<typeof setInterval> | undefined;
+let ambientBusy = false;
+
+/** Start the background 1fps ambient capture loop (idempotent). */
+export function startAmbientScreenBuffer(): void {
+	if (ambientTimer || process.env.WAYLAND_DISPLAY === undefined) return;
+	ambientTimer = setInterval(() => {
+		if (ambientBusy) return; // never stack captures
+		ambientBusy = true;
+		void captureScreenFrame({ target: "fullscreen", quality: 70, timeoutMs: 900 })
+		.then(async vision => {
+			if (vision.image) {
+				ambientFrames.push({
+					image: vision.image,
+					at: Date.now(),
+					window: vision.window,
+					metadata: vision.metadata,
+				});
+				while (ambientFrames.length > AMBIENT_MAX_FRAMES) ambientFrames.shift();
+			}
+		})
+		.finally(() => {
+			ambientBusy = false;
+		});
+	}, AMBIENT_INTERVAL_MS);
+}
+
+/** Stop the ambient loop and drop buffered frames. */
+export function stopAmbientScreenBuffer(): void {
+	if (ambientTimer) {
+		clearInterval(ambientTimer);
+		ambientTimer = undefined;
+	}
+	ambientFrames.length = 0;
+}
+
+/** Test/diagnostic handle: whether the loop is running. */
+export function isAmbientScreenBufferRunning(): boolean {
+	return ambientTimer !== undefined;
+}
+
+/**
+ * Astra-style retrieval: frames bracketing the user's utterance — the visual
+ * context at speech onset plus the freshest frame at transcription. Falls back
+ * to whatever the buffer holds. Returns [] when the buffer is empty.
+ */
+export function getAmbientFramesForTurn(speechStartedAt?: number): ImageContent[] {
+	if (ambientFrames.length === 0) return [];
+	const picked: AmbientFrame[] = [];
+	if (speechStartedAt !== undefined) {
+		// Frame at (or just before) speech onset
+		let onset: AmbientFrame | undefined;
+		for (const f of ambientFrames) {
+			if (f.at <= speechStartedAt) onset = f;
+		}
+		if (onset) picked.push(onset);
+	}
+	const freshest = ambientFrames[ambientFrames.length - 1];
+	if (!picked.includes(freshest)) picked.push(freshest);
+	return picked.map(f => f.image);
+}
+
+/** Newest buffered frame's metadata line, if any. */
+export function getAmbientFrameMetadata(): string | undefined {
+	return ambientFrames.length ? ambientFrames[ambientFrames.length - 1].metadata : undefined;
+}
+
+/** Ambient buffer stats for diagnostics. */
+export function getAmbientBufferStats(): { frames: number; running: boolean; newestAgeMs?: number } {
+	const newest = ambientFrames[ambientFrames.length - 1];
+	return {
+		frames: ambientFrames.length,
+		running: ambientTimer !== undefined,
+		newestAgeMs: newest ? Date.now() - newest.at : undefined,
+	};
+}
