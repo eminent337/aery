@@ -1214,7 +1214,7 @@ export const SETTINGS_SCHEMA = {
 
 	"voice.autoSpeak": {
 		type: "boolean",
-		default: true,
+		default: false,
 		ui: {
 			tab: "interaction",
 			group: "Voice",
