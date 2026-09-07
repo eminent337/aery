@@ -36,6 +36,7 @@ export class VoiceEngine {
 	readonly #modelsDir: string;
 	#defaultVoice: string;
 	#activePlaybackProcess: ChildProcess | null = null;
+	#activePiperProcess: ChildProcess | null = null;
 	#lastPlaybackEndedAt = 0;
 	constructor(config: VoiceConfig = {}) {
 		const baseDir = config.voiceDir || path.join(os.homedir(), ".local", "share", "aerys", "voice");
@@ -89,21 +90,26 @@ export class VoiceEngine {
 		);
 	}
 
-	/** Stop any active audio playback immediately (Barge-in / interruption) */
-	/** Stop any active audio playback immediately (Barge-in / interruption) */
+	/** Stop any active audio playback and synthesis immediately (Barge-in / interruption) */
 	stopSpeaking(): void {
 		if (this.#activePlaybackProcess) {
 			try {
-				this.#activePlaybackProcess.kill("SIGTERM");
+				this.#activePlaybackProcess.kill("SIGKILL");
 			} catch {}
 			this.#activePlaybackProcess = null;
-			this.#lastPlaybackEndedAt = Date.now();
 		}
+		if (this.#activePiperProcess) {
+			try {
+				this.#activePiperProcess.kill("SIGKILL");
+			} catch {}
+			this.#activePiperProcess = null;
+		}
+		this.#lastPlaybackEndedAt = Date.now();
 	}
 
 	/**
-	 * Synthesize text to speech using Piper and play it through PipeWire.
-	 * Returns whether the playback completed or was interrupted.
+	 * Synthesize text to speech using Piper and stream directly through PipeWire pw-play.
+	 * Uses direct memory piping (piper -f - | pw-play -) for sub-second streaming audio.
 	 */
 	async speak(text: string, options: { voice?: string; playAudio?: boolean } = {}): Promise<SpeechResult> {
 		this.stopSpeaking();
@@ -113,69 +119,66 @@ export class VoiceEngine {
 			throw new Error(`Voice model not found: ${voicePath}`);
 		}
 
-		const timestamp = Date.now();
-		const audioPath = path.join(os.tmpdir(), `aerys-speech-${timestamp}.wav`);
+		const shouldPlay = options.playAudio ?? true;
+		if (!shouldPlay) {
+			return { audioPath: "", interrupted: false };
+		}
 
-		// Generate WAV audio file with Piper
-		await new Promise<void>((resolve, reject) => {
+		let interrupted = false;
+
+		await new Promise<void>(resolve => {
 			const piperArgs = [
 				"--model",
 				voicePath,
+				"-f",
+				"-",
 				"--noise_scale",
 				"0.33",
 				"--noise_w",
 				"0.4",
 				"--length_scale",
 				"1.06",
-				"--output_file",
-				audioPath,
 			];
+
 			const piper = spawn(this.piperBinary, piperArgs, {
-				stdio: ["pipe", "pipe", "pipe"],
+				stdio: ["pipe", "pipe", "ignore"],
+			});
+			this.#activePiperProcess = piper;
+
+			const player = spawn("pw-play", ["-"], {
+				stdio: ["pipe", "ignore", "ignore"],
+			});
+			this.#activePlaybackProcess = player;
+
+			piper.stdout.pipe(player.stdin);
+
+			piper.on("error", () => {
+				this.#activePiperProcess = null;
 			});
 
-			piper.on("error", reject);
-			piper.on("close", code => {
-				if (code === 0 && fs.existsSync(audioPath)) {
-					resolve();
-				} else {
-					reject(new Error(`Piper synthesis failed with code ${code}`));
+			piper.on("close", () => {
+				this.#activePiperProcess = null;
+			});
+
+			player.on("error", () => {
+				this.#activePlaybackProcess = null;
+				resolve();
+			});
+
+			player.on("close", (_code, signal) => {
+				this.#activePlaybackProcess = null;
+				this.#lastPlaybackEndedAt = Date.now();
+				if (signal === "SIGTERM" || signal === "SIGINT" || signal === "SIGKILL") {
+					interrupted = true;
 				}
+				resolve();
 			});
 
 			piper.stdin.write(text);
 			piper.stdin.end();
 		});
 
-		const shouldPlay = options.playAudio ?? true;
-		let interrupted = false;
-
-		if (shouldPlay) {
-			// Playback through PipeWire native pw-play (or mpv fallback)
-			await new Promise<void>((resolve, reject) => {
-				const player = spawn("pw-play", [audioPath], { stdio: "ignore" });
-				this.#activePlaybackProcess = player;
-
-				player.on("error", err => {
-					this.#activePlaybackProcess = null;
-					reject(err);
-				});
-
-				player.on("close", (code, signal) => {
-					this.#activePlaybackProcess = null;
-					this.#lastPlaybackEndedAt = Date.now();
-					if (signal === "SIGTERM" || signal === "SIGINT") {
-						resolve();
-					} else if (code === 0) {
-						resolve();
-					} else {
-						resolve(); // Graceful fallback
-					}
-				});
-			});
-		}
-
-		return { audioPath, interrupted };
+		return { audioPath: "", interrupted };
 	}
 
 	/**

@@ -71,23 +71,35 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done || !value) break;
-
-				// HARD MUTE: Drop all microphone input while Aerys is speaking or echoing
-				if (defaultVoiceEngine.isSpeaking) {
-					chunks.length = 0;
-					hasSpoken = false;
-					ambientSum = 0;
-					ambientCount = 0;
-					continue;
-				}
 				chunkIndex++;
 				// Skip initial PipeWire audio stream open pop
 				if (chunkIndex <= 3) continue;
 
 				const chunk = Buffer.from(value);
-				chunks.push(chunk);
-
 				const rms = computeRms(chunk);
+
+				// TRUE BARGE-IN INTERRUPTION (Google Gemini Live / Grok style):
+				// If Aerys is speaking through speakers, detect user interruption and cut off speech instantly!
+				if (defaultVoiceEngine.isSpeaking) {
+					if (rms >= Math.max(2200, dynamicSpeechThreshold * 1.3)) {
+						// User spoke to interrupt Aerys! Stop TTS immediately
+						defaultVoiceEngine.stopSpeaking();
+						hasSpoken = true;
+						speechStartTime = Date.now();
+						lastSpeechTime = Date.now();
+						chunks.length = 0;
+						chunks.push(chunk);
+					} else {
+						// Discard residual speaker bleed while Aerys is speaking
+						chunks.length = 0;
+						hasSpoken = false;
+						ambientSum = 0;
+						ambientCount = 0;
+					}
+					continue;
+				}
+
+				chunks.push(chunk);
 
 				// Calibrate ambient noise floor from the first ~300-500ms of pre-speech chunks
 				if (!hasSpoken && ambientCount < 15) {
