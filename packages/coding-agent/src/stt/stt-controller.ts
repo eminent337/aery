@@ -123,10 +123,11 @@ export class STTController {
 			const text = await transcribe(tempFile, { ...sttSettings, signal: this.#transcriptionAbort.signal });
 			this.#transcriptionAbort = null;
 			if (this.#disposed) return;
+			if (!this.#disposed) this.#setState("idle", options);
 			if (text.length > 0) {
 				options.showStatus("");
 				if (options.onSubmit) {
-					await options.onSubmit(text);
+					void options.onSubmit(text);
 				} else {
 					editor.insertText(text);
 				}
@@ -136,7 +137,6 @@ export class STTController {
 					options.onNoSpeech();
 				}
 			}
-			if (!this.#disposed) this.#setState("idle", options);
 		} catch (err) {
 			if (this.#disposed) return;
 			if (err instanceof DOMException && err.name === "AbortError") {

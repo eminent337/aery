@@ -2847,15 +2847,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			return;
 		}
 
-		if (this.#continuousSpeechMode) {
-			// Switch back to text mode!
-			this.#continuousSpeechMode = false;
-			await this.#sttController.cancel({
-				onStateChange: () => this.#cleanupMicAnimation(),
-			});
-			this.showStatus("Returned to text mode.");
-			this.updateEditorTopBorder();
-			this.ui.requestRender();
+		if (this.#sttController.state === "transcribing") {
 			return;
 		}
 
