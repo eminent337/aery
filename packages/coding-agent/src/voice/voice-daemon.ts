@@ -28,9 +28,23 @@ export interface VoiceDaemonStatus {
 }
 
 /** Converts raw 16kHz 16-bit mono PCM into a standard RIFF WAV buffer */
+/** Converts raw 16kHz 16-bit mono PCM into a standard RIFF WAV buffer, centering DC offset */
 export function pcmToWav(pcmData: Buffer, sampleRate = 16000, numChannels = 1): Buffer {
+	const sampleCount = Math.floor(pcmData.length / 2);
+	const cleanPcm = Buffer.alloc(pcmData.length);
+	let dcSum = 0;
+	for (let i = 0; i < sampleCount; i++) {
+		dcSum += pcmData.readInt16LE(i * 2);
+	}
+	const mean = Math.round(dcSum / (sampleCount || 1));
+	for (let i = 0; i < sampleCount; i++) {
+		const sample = pcmData.readInt16LE(i * 2) - mean;
+		const clamped = Math.max(-32768, Math.min(32767, sample));
+		cleanPcm.writeInt16LE(clamped, i * 2);
+	}
+
 	const header = Buffer.alloc(44);
-	const dataSize = pcmData.length;
+	const dataSize = cleanPcm.length;
 	header.write("RIFF", 0);
 	header.writeUInt32LE(36 + dataSize, 4);
 	header.write("WAVE", 8);
@@ -44,19 +58,24 @@ export function pcmToWav(pcmData: Buffer, sampleRate = 16000, numChannels = 1): 
 	header.writeUInt16LE(16, 34); // Bits per sample
 	header.write("data", 36);
 	header.writeUInt32LE(dataSize, 40);
-	return Buffer.concat([header, pcmData]);
+	return Buffer.concat([header, cleanPcm]);
 }
 
-/** Computes RMS audio energy of a 16-bit signed PCM buffer */
+/** Computes true AC RMS audio energy of a 16-bit signed PCM buffer, subtracting DC offset */
 export function computeRms(buffer: Buffer): number {
-	let sum = 0;
 	const sampleCount = Math.floor(buffer.length / 2);
 	if (sampleCount === 0) return 0;
+	let dcSum = 0;
 	for (let i = 0; i < sampleCount; i++) {
-		const sample = buffer.readInt16LE(i * 2);
-		sum += sample * sample;
+		dcSum += buffer.readInt16LE(i * 2);
 	}
-	return Math.sqrt(sum / sampleCount);
+	const mean = dcSum / sampleCount;
+	let acSum = 0;
+	for (let i = 0; i < sampleCount; i++) {
+		const diff = buffer.readInt16LE(i * 2) - mean;
+		acSum += diff * diff;
+	}
+	return Math.sqrt(acSum / sampleCount);
 }
 
 export class VoiceDaemon {

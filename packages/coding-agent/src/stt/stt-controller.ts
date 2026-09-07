@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { logger, Snowflake } from "@aryee337/aery-utils";
-import { settings } from "../config/settings";
+import { isSettingsInitialized, settings } from "../config/settings";
 import { ensureSTTDependencies } from "./downloader";
 import { type RecordingHandle, startRecording, verifyRecordingFile } from "./recorder";
 import { transcribe } from "./transcriber";
@@ -25,7 +25,7 @@ export class STTController {
 	#state: SttState = "idle";
 	#recordingHandle: RecordingHandle | null = null;
 	#tempFile: string | null = null;
-	#depsResolved = false;
+	#depsResolved = true;
 	#toggling = false;
 	#disposed = false;
 	#transcriptionAbort: AbortController | null = null;
@@ -110,18 +110,24 @@ export class STTController {
 			await verifyRecordingFile(tempFile);
 			this.#setState("transcribing", options);
 
-			const sttSettings = {
-				modelName: settings.get("stt.modelName") as string | undefined,
-				language: settings.get("stt.language") as string | undefined,
-			};
+			let modelName: string | undefined;
+			let language: string | undefined;
+			try {
+				if (isSettingsInitialized()) {
+					modelName = settings.get("stt.modelName") as string | undefined;
+					language = settings.get("stt.language") as string | undefined;
+				}
+			} catch {}
+			const sttSettings = { modelName, language };
 			this.#transcriptionAbort = new AbortController();
 			const text = await transcribe(tempFile, { ...sttSettings, signal: this.#transcriptionAbort.signal });
 			this.#transcriptionAbort = null;
 			if (this.#disposed) return;
+			if (!this.#disposed) this.#setState("idle", options);
 			if (text.length > 0) {
 				options.showStatus("");
 				if (options.onSubmit) {
-					await options.onSubmit(text);
+					void options.onSubmit(text);
 				} else {
 					editor.insertText(text);
 				}
@@ -131,7 +137,6 @@ export class STTController {
 					options.onNoSpeech();
 				}
 			}
-			if (!this.#disposed) this.#setState("idle", options);
 		} catch (err) {
 			if (this.#disposed) return;
 			if (err instanceof DOMException && err.name === "AbortError") {

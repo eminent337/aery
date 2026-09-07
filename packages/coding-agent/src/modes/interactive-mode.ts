@@ -79,7 +79,7 @@ import type { SessionContext, SessionManager } from "../session/session-manager"
 import { getRecentSessions } from "../session/session-manager";
 import type { ShakeMode } from "../session/shake-types";
 import { formatDuration } from "../slash-commands/helpers/format";
-import { STTController, type SttState } from "../stt";
+import { STTController, type SttState, type ToggleOptions } from "../stt";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
 import type { LspStartupServerInfo } from "../tools";
 import { normalizeLocalScheme } from "../tools/path-utils";
@@ -2718,13 +2718,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		return this.#continuousSpeechMode;
 	}
 
-	async startContinuousSpeechTurn(): Promise<void> {
-		if (!this.#continuousSpeechMode) return;
-		if (!this.#sttController) {
-			this.#sttController = new STTController();
-		}
-		if (this.#sttController.state !== "idle") return;
-
+	#getSTTOptions(): ToggleOptions {
 		const GHOSTS: Record<string, true> = {
 			"thank you": true,
 			"thank you.": true,
@@ -2756,7 +2750,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			salo: true,
 		};
 
-		await this.#sttController.startRecording(this.editor, {
+		return {
 			showWarning: (msg: string) => this.showWarning(msg),
 			showStatus: (msg: string) => this.showStatus(msg),
 			onNoSpeech: () => {
@@ -2824,7 +2818,17 @@ export class InteractiveMode implements InteractiveModeContext {
 				this.updateEditorTopBorder();
 				this.ui.requestRender();
 			},
-		});
+		};
+	}
+
+	async startContinuousSpeechTurn(): Promise<void> {
+		if (!this.#continuousSpeechMode) return;
+		if (!this.#sttController) {
+			this.#sttController = new STTController();
+		}
+		if (this.#sttController.state !== "idle") return;
+
+		await this.#sttController.startRecording(this.editor, this.#getSTTOptions());
 	}
 
 	async handleSTTToggle(): Promise<void> {
@@ -2837,20 +2841,25 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 
 		if (this.#continuousSpeechMode) {
-			// Switch back to text mode!
+			// Alt+H: Exit speech mode entirely and return to normal text mode
 			this.#continuousSpeechMode = false;
-			await this.#sttController.cancel({
-				onStateChange: () => this.#cleanupMicAnimation(),
-			});
-			this.showStatus("Returned to text mode.");
+			if (this.#sttController.state === "recording") {
+				// Stop the mic and transcribe what was already said before exiting
+				await this.#sttController.stopAndTranscribe(this.editor, this.#getSTTOptions());
+			} else {
+				await this.#sttController.cancel({
+					onStateChange: () => this.#cleanupMicAnimation(),
+				});
+				this.showStatus("Returned to text mode.");
+			}
 			this.updateEditorTopBorder();
 			this.ui.requestRender();
 			return;
 		}
 
-		// Activate Continuous Speech Mode!
+		// Activate Speech Mode!
 		this.#continuousSpeechMode = true;
-		this.showStatus("Continuous Speech Mode active. Speak freely; press Alt+H to return to text.");
+		this.showStatus("Speech Mode active. Speak freely; press Alt+H to return to text mode.");
 		await this.startContinuousSpeechTurn();
 	}
 

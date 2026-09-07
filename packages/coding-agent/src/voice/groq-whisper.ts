@@ -37,6 +37,7 @@ export async function transcribeWithGroq(
 	formData.append("model", "whisper-large-v3");
 	formData.append("language", "en");
 	formData.append("temperature", "0");
+	formData.append("prompt", "Peter, Peter Aryee, Aery, Aerys, Jarvis, voice assistant, terminal, desktop, coding.");
 	formData.append("response_format", "verbose_json");
 
 	for (let attempt = 0; attempt < 2; attempt++) {
@@ -64,15 +65,14 @@ export async function transcribeWithGroq(
 
 			const latencyMs = Date.now() - startTime;
 
-			// Reject silence and fan noise hallucinations using Whisper's neural confidence score
+			// Only reject if Whisper is highly confident (>80%) that there is zero speech
 			const noSpeechProb = data.segments?.[0]?.no_speech_prob ?? 0;
-			if (noSpeechProb > 0.35) {
+			if (noSpeechProb > 0.80) {
 				return {
 					text: "",
 					latencyMs,
 				};
 			}
-
 			return {
 				text: (data.text || "").trim(),
 				latencyMs,

@@ -54,9 +54,16 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 	const chunks: Buffer[] = [];
 	let hasSpoken = false;
 	let lastSpeechTime = 0;
+	let speechStartTime = 0;
+	const recordingStartTime = Date.now();
 	let autoStopped = false;
-
+	let chunkIndex = 0;
 	const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+
+	// Dynamic noise-floor calibration (adapts to room silence / fan noise)
+	let ambientSum = 0;
+	let ambientCount = 0;
+	let dynamicSpeechThreshold = 2200; // initial fallback floor
 
 	// Read incoming PCM chunks and monitor Voice Activity Detection
 	(async () => {
@@ -65,25 +72,56 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 				const { done, value } = await reader.read();
 				if (done || !value) break;
 
-				// HARD MUTE: Drop all microphone input while Aerys is speaking through speakers
+				// HARD MUTE: Drop all microphone input while Aerys is speaking or echoing
 				if (defaultVoiceEngine.isSpeaking) {
 					chunks.length = 0;
 					hasSpoken = false;
+					ambientSum = 0;
+					ambientCount = 0;
 					continue;
 				}
+				chunkIndex++;
+				// Skip initial PipeWire audio stream open pop
+				if (chunkIndex <= 3) continue;
 
 				const chunk = Buffer.from(value);
 				chunks.push(chunk);
 
 				const rms = computeRms(chunk);
-				if (rms >= 600) {
+
+				// Calibrate ambient noise floor from the first ~300-500ms of pre-speech chunks
+				if (!hasSpoken && ambientCount < 15) {
+					ambientSum += rms;
+					ambientCount++;
+					const ambientAvg = ambientSum / ambientCount;
+					// Dynamic speech threshold: bounded between 1400 and 3200 RMS
+					dynamicSpeechThreshold = Math.max(1400, Math.min(3200, Math.round(ambientAvg * 1.8 + 350)));
+				}
+
+				if (rms >= dynamicSpeechThreshold) {
+					if (!hasSpoken) {
+						speechStartTime = Date.now();
+					}
 					hasSpoken = true;
 					lastSpeechTime = Date.now();
 				} else if (hasSpoken && onSilenceTimeout && !autoStopped) {
-					if (Date.now() - lastSpeechTime >= 1200) {
+					// Dynamic endpointing: 750ms of post-speech silence stops recording
+					if (Date.now() - lastSpeechTime >= 750) {
 						autoStopped = true;
 						onSilenceTimeout();
 					}
+				}
+
+				// Safety caps to ensure zero latency hangs:
+				// 1. Max utterance length: 8 seconds after speech started -> auto-transcribe
+				if (hasSpoken && !autoStopped && onSilenceTimeout && Date.now() - speechStartTime >= 8000) {
+					autoStopped = true;
+					onSilenceTimeout();
+				}
+				// 2. Max wait timeout: 10 seconds of silence with no speech -> stop cleanly
+				if (!hasSpoken && !autoStopped && onSilenceTimeout && Date.now() - recordingStartTime >= 10000) {
+					autoStopped = true;
+					onSilenceTimeout();
 				}
 			}
 		} catch {}
@@ -91,8 +129,8 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 
 	return {
 		async stop() {
-			proc.kill("SIGINT");
-			await proc.exited;
+			proc.kill("SIGTERM");
+			await Promise.race([proc.exited, Bun.sleep(800)]);
 			const pcm = Buffer.concat(chunks);
 			const wav = pcmToWav(pcm);
 			await fs.writeFile(outputPath, wav);
