@@ -32,20 +32,18 @@ export async function transcribe(audioPath: string, options?: TranscribeOptions)
 
 	const buf = Buffer.from(await audioFile.arrayBuffer());
 
-	// 1. Fast path: Groq LPU Whisper (~150ms latency, whisper-large-v3)
-	if (process.env.GROQ_API_KEY) {
-		try {
-			const groqRes = await transcribeWithGroq(buf);
-			if (groqRes && groqRes.text && groqRes.text.length > 0) {
-				logger.debug("Groq Whisper transcription complete", {
-					text: groqRes.text,
-					latencyMs: groqRes.latencyMs,
-				});
-				return groqRes.text;
-			}
-		} catch (e) {
-			logger.debug("Groq Whisper unavailable, falling back to local engine", { error: e });
+	// 1. Fast path: Groq LPU Whisper (~150ms latency, checks env & agent.db)
+	try {
+		const groqRes = await transcribeWithGroq(buf);
+		if (groqRes && groqRes.text && groqRes.text.length > 0) {
+			logger.debug("Groq Whisper transcription complete", {
+				text: groqRes.text,
+				latencyMs: groqRes.latencyMs,
+			});
+			return groqRes.text;
 		}
+	} catch (e) {
+		logger.debug("Groq Whisper unavailable, falling back to local engine", { error: e });
 	}
 
 	// 2. Offline fallback: local static whisper-cli
