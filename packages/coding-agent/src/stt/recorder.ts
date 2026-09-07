@@ -82,20 +82,23 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 				// If Aerys is speaking through speakers, detect user interruption and cut off speech instantly!
 				if (defaultVoiceEngine.isSpeaking) {
 					if (rms >= Math.max(2200, dynamicSpeechThreshold * 1.3)) {
-						// User spoke to interrupt Aerys! Stop TTS immediately
-						defaultVoiceEngine.stopSpeaking();
-						hasSpoken = true;
-						speechStartTime = Date.now();
+						if (!hasSpoken) {
+							// Fresh interrupt: stop TTS mid-word and start collecting user speech
+							defaultVoiceEngine.stopSpeaking();
+							hasSpoken = true;
+							speechStartTime = Date.now();
+							chunks.length = 0;
+						}
 						lastSpeechTime = Date.now();
-						chunks.length = 0;
 						chunks.push(chunk);
-					} else {
-						// Discard residual speaker bleed while Aerys is speaking
+					} else if (!hasSpoken) {
+						// Speaker bleed before any interrupt: discard, keep calibrating fresh
 						chunks.length = 0;
-						hasSpoken = false;
 						ambientSum = 0;
 						ambientCount = 0;
 					}
+					// (hasSpoken && quiet) during the 500ms reverb window: keep collected
+					// interrupt speech, drop only this bleed chunk.
 					continue;
 				}
 
