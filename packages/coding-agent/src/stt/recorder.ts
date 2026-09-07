@@ -80,7 +80,7 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 					hasSpoken = true;
 					lastSpeechTime = Date.now();
 				} else if (hasSpoken && onSilenceTimeout && !autoStopped) {
-					if (Date.now() - lastSpeechTime >= 1200) {
+					if (Date.now() - lastSpeechTime >= 900) {
 						autoStopped = true;
 						onSilenceTimeout();
 					}

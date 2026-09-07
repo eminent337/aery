@@ -2840,20 +2840,26 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.#sttController = new STTController();
 		}
 
-		if (this.#sttController.state === "recording") {
-			// Alt+H while recording: Stop and transcribe immediately!
-			this.showStatus("Transcribing speech...");
-			await this.#sttController.stopAndTranscribe(this.editor, this.#getSTTOptions());
-			return;
-		}
-
-		if (this.#sttController.state === "transcribing") {
+		if (this.#continuousSpeechMode) {
+			// Alt+H: Exit speech mode entirely and return to normal text mode
+			this.#continuousSpeechMode = false;
+			if (this.#sttController.state === "recording") {
+				// Stop the mic and transcribe what was already said before exiting
+				await this.#sttController.stopAndTranscribe(this.editor, this.#getSTTOptions());
+			} else {
+				await this.#sttController.cancel({
+					onStateChange: () => this.#cleanupMicAnimation(),
+				});
+				this.showStatus("Returned to text mode.");
+			}
+			this.updateEditorTopBorder();
+			this.ui.requestRender();
 			return;
 		}
 
 		// Activate Speech Mode!
 		this.#continuousSpeechMode = true;
-		this.showStatus("Speech Mode active. Speak freely; press Alt+H when done.");
+		this.showStatus("Speech Mode active. Speak freely; press Alt+H to return to text mode.");
 		await this.startContinuousSpeechTurn();
 	}
 
