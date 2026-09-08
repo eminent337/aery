@@ -611,6 +611,14 @@ export class InteractiveMode implements InteractiveModeContext {
 		setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
 		this.updateEditorBorderColor();
 		this.#syncEditorMaxHeight();
+		// Ambient visual memory runs for the whole TUI session (not just Speech
+		// Mode) so TEXT turns also see what Peter was looking at before typing —
+		// Live Eye works in both modes. Idempotent: safe if Speech Mode later
+		// re-attempts to start it.
+		if (isSettingsInitialized() && settings.get("voice.screenVision") === true) {
+			startAmbientScreenBuffer();
+		}
+
 		this.isInitialized = true;
 		this.ui.requestRender(true);
 
@@ -2323,6 +2331,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.loadingAnimation = undefined;
 		}
 		this.#cleanupMicAnimation();
+		stopAmbientScreenBuffer(); // session-wide Live Eye loop; tear down with the TUI
 		this.#cancelTodoAutoClearTimer();
 		this.#cancelGoalContinuation();
 		if (this.#sttController) {
@@ -2885,9 +2894,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 
 		if (this.#continuousSpeechMode) {
-			// Alt+H: Exit speech mode entirely and return to normal text mode
+			// Alt+H: Exit speech mode entirely and return to normal text mode.
+			// The ambient screen buffer stays running — it now backs TEXT turns
+			// too (started at session init), so don't tear it down here.
 			this.#continuousSpeechMode = false;
-			stopAmbientScreenBuffer();
 			if (this.#sttController.state === "recording") {
 				// Stop the mic and transcribe what was already said before exiting
 				await this.#sttController.stopAndTranscribe(this.editor, this.#getSTTOptions());
