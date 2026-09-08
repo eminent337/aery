@@ -7,7 +7,16 @@ describe("DesktopControlTool", () => {
 
 	it("has correct tool metadata and schema", () => {
 		expect(tool.name).toBe("desktop_control");
-		expect(tool.approval).toBe("read");
+		expect(typeof tool.approval).toBe("function");
+		const decide = tool.approval as (args: unknown) => { tier?: string } | string;
+		// benign / window-management actions stay read-tier (no prompt)
+		expect(decide({ action: "screenshot" })).toBe("read");
+		expect(decide({ action: "focus_window" })).toBe("read");
+		// app-control gate toggles are harmless, not exec-tier
+		expect(decide({ action: "live_mode_on" })).toBe("read");
+		// first use of a live injection kind is exec-tier → Peter is prompted once per kind
+		const first = decide({ action: "live_click" }) as { tier: string };
+		expect(first.tier).toBe("exec");
 		expect(tool.description).toContain("Desktop screen vision and window manager tool");
 	});
 

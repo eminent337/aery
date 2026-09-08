@@ -13,9 +13,35 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
+import type { AgentTool, AgentToolResult, ToolApprovalDecision } from "@aryee337/aery-core";
 import * as z from "zod/v4";
 import type { ToolSession } from "./index";
+import {
+	frameToPhysical,
+	type InputFrame,
+	type InputKind,
+	isDirectTypeable,
+	type LiveBackend,
+	parseChord,
+	probeBackends,
+	resolveBackend,
+	specToXdotoolArgs,
+	specToYdotoolEvents,
+	splitForEnterTyping,
+	wtypeChord,
+	xdoClick,
+	xdoDrag,
+	xdoMove,
+	YDO_CTRL_V,
+	YDO_DOWN,
+	YDO_LEFT,
+	YDO_MIDDLE,
+	YDO_RIGHT,
+	YDO_UP,
+	ydoClickButton,
+	ydoKeyEvents,
+	ydoMove,
+} from "./live-input";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,6 +54,8 @@ export interface DesktopWindowInfo {
 	size: [number, number];
 	focused: boolean;
 	pid?: number;
+	/** true when the client is an XWayland app (matters for input backend choice). */
+	xwayland?: boolean;
 }
 
 export interface ScreenshotResultDetails {
@@ -48,6 +76,16 @@ const desktopControlSchema = z.object({
 			"switch_workspace",
 			"launch_app",
 			"cursor_pos",
+			"live_mode_on",
+			"live_mode_off",
+			"live_mode_status",
+			"live_backend_probe",
+			"live_move",
+			"live_click",
+			"live_drag",
+			"live_type",
+			"live_key",
+			"live_scroll",
 			"system_control",
 			"xvfb_launch",
 			"xvfb_screenshot",
@@ -58,30 +96,62 @@ const desktopControlSchema = z.object({
 			"xvfb_close",
 		])
 		.describe(
-			"Actions: 'screenshot' captures display/window, 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_close' ends it all.",
+			"Actions: 'screenshot' captures display/window, 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window — take a 'screenshot' first (its downscaled image IS the coordinate frame) then give x,y (and x2,y2 for drag) as frame px; 'live_backend_probe'/'live_mode_status' report backend + gate state.",
 		),
 	command: z
 		.string()
 		.optional()
-		.describe("Application command or desktop binary to run for 'launch_app' or 'xvfb_launch' (e.g. 'brave', 'code', 'pavucontrol'). For 'xvfb_launch' you may append args and a URL (e.g. 'flatpak run com.brave.Browser https://example.com')."),
+		.describe(
+			"Application command or desktop binary to run for 'launch_app' or 'xvfb_launch' (e.g. 'brave', 'code', 'pavucontrol'). For 'xvfb_launch' you may append args and a URL (e.g. 'flatpak run com.brave.Browser https://example.com').",
+		),
 	url: z.string().optional().describe("URL to open with the app for 'xvfb_launch' (appended to command)."),
-	x: z.number().int().optional().describe("X pixel coordinate for 'xvfb_click' (virtual display origin top-left)."),
-	y: z.number().int().optional().describe("Y pixel coordinate for 'xvfb_click'."),
-	keys: z.string().optional().describe("Keys or text for 'xvfb_type' (literal text) or 'xvfb_key' (key names like Return, Tab, ctrl+l, space)."),
+	x: z
+		.number()
+		.int()
+		.optional()
+		.describe(
+			"X pixel coordinate — 'xvfb_click' frame (virtual display origin top-left) or 'live_click'/'live_drag'/'live_move' model-visible screenshot frame px.",
+		),
+	y: z.number().int().optional().describe("Y pixel coordinate — see 'x'."),
+	x2: z.number().int().optional().describe("End X pixel coordinate for 'live_drag' (same frame as 'x')."),
+	y2: z.number().int().optional().describe("End Y pixel coordinate for 'live_drag' (same frame as 'y')."),
+	keys: z
+		.string()
+		.optional()
+		.describe(
+			"Text for 'xvfb_type'/'live_type' (literal text, newlines become Enter) or key spec for 'xvfb_key'/'live_key' (names like Return, Tab, ctrl+l, super+Return, space; multiple separated by spaces).",
+		),
+	button: z
+		.enum(["left", "right", "middle"])
+		.optional()
+		.describe("Mouse button for 'live_click'/'live_drag' (default: left)."),
+	count: z
+		.number()
+		.int()
+		.min(1)
+		.max(20)
+		.optional()
+		.describe("Repeat count: 'live_click' double-click = 2; 'live_scroll' = wheel/Page steps (default: 1)."),
+	direction: z
+		.enum(["up", "down"])
+		.optional()
+		.describe(
+			"Scroll direction for 'live_scroll' (default: down). Native Wayland wheel needs uinput REL_WHEEL which ydotool does not expose — 'live_scroll' on a native window emulates Page_Up/Page_Down.",
+		),
+	verify: z
+		.boolean()
+		.optional()
+		.describe(
+			"Take and return a follow-up screenshot after the live action (default: true) so the model self-corrects.",
+		),
 	target: z
 		.string()
 		.optional()
 		.describe(
 			"Target for 'screenshot' ('fullscreen', 'active_window', or substring of window title/class). Default: 'active_window'.",
 		),
-	query: z
-		.string()
-		.optional()
-		.describe("Window address, title, or class query for 'focus_window' or 'close_window'."),
-	workspace: z
-		.string()
-		.optional()
-		.describe("Workspace identifier for 'switch_workspace' (e.g. '1', '2', 'special')."),
+	query: z.string().optional().describe("Window address, title, or class query for 'focus_window' or 'close_window'."),
+	workspace: z.string().optional().describe("Workspace identifier for 'switch_workspace' (e.g. '1', '2', 'special')."),
 	subAction: z
 		.enum([
 			"volume_up",
@@ -103,16 +173,8 @@ const desktopControlSchema = z.object({
 		.enum(["google", "youtube", "github", "reddit", "stackoverflow", "wikipedia"])
 		.optional()
 		.describe("Search platform for 'web_search' sub-action (default: google)."),
-	maxWidth: z
-		.number()
-		.int()
-		.optional()
-		.describe("Max pixel width for vision downscaling (default: 1280)."),
-	maxHeight: z
-		.number()
-		.int()
-		.optional()
-		.describe("Max pixel height for vision downscaling (default: 800)."),
+	maxWidth: z.number().int().optional().describe("Max pixel width for vision downscaling (default: 1280)."),
+	maxHeight: z.number().int().optional().describe("Max pixel height for vision downscaling (default: 800)."),
 	includeBase64: z
 		.boolean()
 		.optional()
@@ -171,7 +233,10 @@ function xvfbEnv(): NodeJS.ProcessEnv {
 async function xvfbEnsureServer(): Promise<void> {
 	const probe = await runCmd("sh", ["-c", `DISPLAY=${XVFB_DISPLAY} xdotool getdisplaygeometry`]);
 	if (probe.code === 0) return;
-	const up = await runCmd("sh", ["-c", `nohup Xvfb ${XVFB_DISPLAY} -screen 0 ${XVFB_GEOMETRY} >/dev/null 2>&1 & sleep 1.5`]);
+	const up = await runCmd("sh", [
+		"-c",
+		`nohup Xvfb ${XVFB_DISPLAY} -screen 0 ${XVFB_GEOMETRY} >/dev/null 2>&1 & sleep 1.5`,
+	]);
 	if (up.code !== 0) throw new Error(`Failed to start Xvfb: ${up.stderr}`);
 	const check = await runCmd("sh", ["-c", `DISPLAY=${XVFB_DISPLAY} xdotool getdisplaygeometry`]);
 	if (check.code !== 0) throw new Error("Xvfb started but not responding");
@@ -190,7 +255,10 @@ async function xvfbListWindows(): Promise<string[]> {
 		env: xvfbEnv(),
 	});
 	return res.code === 0
-		? res.stdout.split("\n").map(s => s.trim()).filter(Boolean)
+		? res.stdout
+				.split("\n")
+				.map(s => s.trim())
+				.filter(Boolean)
 		: [];
 }
 
@@ -207,6 +275,7 @@ async function getHyprlandWindows(): Promise<DesktopWindowInfo[]> {
 			at: [number, number];
 			size: [number, number];
 			focusHistoryID: number;
+			xwayland?: boolean;
 			pid?: number;
 		}>;
 		return raw.map(w => ({
@@ -218,6 +287,7 @@ async function getHyprlandWindows(): Promise<DesktopWindowInfo[]> {
 			size: w.size || [0, 0],
 			focused: w.focusHistoryID === 0,
 			pid: w.pid,
+			xwayland: w.xwayland === true,
 		}));
 	} catch {
 		return [];
@@ -240,22 +310,389 @@ async function getHyprlandActiveWindow(): Promise<DesktopWindowInfo | undefined>
 			size: w.size || [0, 0],
 			focused: true,
 			pid: w.pid,
+			xwayland: w.xwayland === true,
 		};
 	} catch {
 		return undefined;
 	}
 }
+/* ================= Live desktop app-control (D002/D004) =================
+ * Model-visible coordinate frame = the last screenshot this tool returned (a window
+ * or the full display, downscaled to ≤ maxWidth×maxHeight). live_* actions inject
+ * input into the FOCUSED window; their coordinates are frame px mapped back to
+ * compositor pixels at execution time (TARS/CUDemo coordinate discipline).
+ * Safety gate: opt-in app-control mode + first-use prompt per action kind (D004),
+ * enforced via the host approval resolver below.
+ */
+let liveModeEnabled = false;
+let lastInputFrame: InputFrame | null = null;
+
+const LIVE_GATE_ACTIONS = new Set<string>(["live_mode_on", "live_mode_off", "live_mode_status", "live_backend_probe"]);
+const liveAuthorizedKinds = new Set<string>();
+
+function liveApprovalDecision(args: unknown): ToolApprovalDecision {
+	const action = (args as { action?: string } | undefined)?.action;
+	if (!action || !action.startsWith("live_")) return "read";
+	if (LIVE_GATE_ACTIONS.has(action)) return "read";
+	// First use of an injection kind is exec-tier ⇒ the host asks Peter once per kind
+	// (in always-ask/write modes); repeat uses drop to write tier. yolo stays permissive.
+	return liveAuthorizedKinds.has(action)
+		? "write"
+		: {
+				tier: "exec",
+				reason: `live desktop input "${action}" (first use this session) — approve this action kind once`,
+			};
+}
+
+async function identifyDims(filePath: string): Promise<[number, number] | null> {
+	const res = await runCmd("identify", ["-format", "%w %h", filePath]);
+	if (res.code !== 0) return null;
+	const m = res.stdout.trim().split(/\s+/).map(Number);
+	return m.length === 2 && Number.isFinite(m[0]) && Number.isFinite(m[1]) && m[0] > 0 && m[1] > 0
+		? [m[0], m[1]]
+		: null;
+}
+
+/** Record the coordinate frame of a finished capture (window or fullscreen). */
+async function rememberFrame(
+	win: DesktopWindowInfo | undefined,
+	geometry: string | undefined,
+	rawPath: string,
+	finalPath: string,
+): Promise<InputFrame | null> {
+	const raw = await identifyDims(rawPath);
+	const scaled = await identifyDims(finalPath);
+	if (!raw || !scaled) return null;
+	const frame: InputFrame =
+		geometry && win
+			? {
+					kind: "window",
+					atX: win.at[0],
+					atY: win.at[1],
+					physW: raw[0],
+					physH: raw[1],
+					scaledW: scaled[0],
+					scaledH: scaled[1],
+					address: win.address,
+				}
+			: {
+					kind: "fullscreen",
+					atX: 0,
+					atY: 0,
+					physW: raw[0],
+					physH: raw[1],
+					scaledW: scaled[0],
+					scaledH: scaled[1],
+				};
+	lastInputFrame = frame;
+	return frame;
+}
+
+type LiveImageBlock = Extract<AgentToolResult["content"][number], { type: "image" }>;
+
+interface LiveCapture {
+	text: string;
+	image?: LiveImageBlock;
+	frame: InputFrame | null;
+}
+
+/** grim the focused window (or full display) and downscale to the vision frame. */
+async function captureLiveFrame(lead: string): Promise<LiveCapture | { error: string }> {
+	if (!isHyprland()) return { error: "live input requires the Hyprland/Wayland session." };
+	const win = await getHyprlandActiveWindow();
+	const geometry =
+		win && win.size[0] > 0 && win.size[1] > 0 ? `${win.at[0]},${win.at[1]} ${win.size[0]}x${win.size[1]}` : undefined;
+	const stamp = Date.now();
+	const rawPath = path.join(os.tmpdir(), `aerys-live-${stamp}-raw.png`);
+	const scaledPath = path.join(os.tmpdir(), `aerys-live-${stamp}.png`);
+	const args: string[] = geometry ? ["-g", geometry] : [];
+	args.push(rawPath);
+	const cap = await runCmd("grim", args);
+	if (cap.code !== 0) return { error: `grim capture failed: ${cap.stderr}` };
+	const conv = await runCmd("convert", [rawPath, "-resize", "1280x800>", scaledPath]);
+	const finalPath = conv.code === 0 && fs.existsSync(scaledPath) ? scaledPath : rawPath;
+	const frame = await rememberFrame(win, geometry, rawPath, finalPath);
+	let base64 = "";
+	try {
+		base64 = (await fs.promises.readFile(finalPath)).toString("base64");
+	} catch {}
+	const where = win
+		? `focused window "${win.title}" (${win.class})`
+		: geometry
+			? `region ${geometry}`
+			: "fullscreen display";
+	return {
+		text: `${lead} Screenshot of ${where}${frame ? ` — frame ${frame.scaledW}x${frame.scaledH} (from ${frame.physW}x${frame.physH}px) — subsequent live_* coordinates use this frame.` : ""}.`,
+		image: base64 ? { type: "image" as const, data: base64, mimeType: "image/png" as const } : undefined,
+		frame,
+	};
+}
+
+/** Run argv steps sequentially with a small inter-step sleep. Returns error|null. */
+async function runSteps(steps: string[][], interStepMs = 30): Promise<string | null> {
+	for (const argv of steps) {
+		const res = await runCmd(argv[0], argv.slice(1), { timeout: 8000 });
+		if (res.code !== 0) return `"${argv[0]} ${argv.slice(1).join(" ")}" failed: ${res.stderr || res.stdout}`;
+		if (interStepMs > 0) await new Promise(r => setTimeout(r, interStepMs));
+	}
+	return null;
+}
+
+/** Type text with the chosen backend. Newlines become Enter; non-ASCII uses wl-copy paste. */
+async function typeTextWith(backend: LiveBackend, text: string): Promise<string | null> {
+	if (backend === "ydotool") {
+		if (isDirectTypeable(text)) {
+			const res = await runCmd("ydotool", ["type", text]);
+			return res.code === 0 ? null : `ydotool type failed: ${res.stderr}`;
+		}
+		const copy = await runCmd("wl-copy", [text]);
+		if (copy.code !== 0) return `wl-copy failed: ${copy.stderr}`;
+		const paste = await runCmd("ydotool", ["key", "-d", "24", ...YDO_CTRL_V]);
+		return paste.code === 0 ? null : `paste (Ctrl+V) failed: ${paste.stderr}`;
+	}
+	const lines = splitForEnterTyping(text);
+	for (let i = 0; i < lines.length; i++) {
+		if (lines[i]) {
+			const res =
+				backend === "xdotool"
+					? await runCmd("xdotool", ["type", "--delay", "40", lines[i]])
+					: await runCmd("wtype", [lines[i]]);
+			if (res.code !== 0) return `${backend} type failed: ${res.stderr}`;
+		}
+		if (i < lines.length - 1) {
+			const res =
+				backend === "xdotool"
+					? await runCmd("xdotool", ["key", "--clearmodifiers", "Return"])
+					: await runCmd("wtype", ["-k", "Return"]);
+			if (res.code !== 0) return `${backend} Enter failed: ${res.stderr}`;
+		}
+	}
+	return null;
+}
+/** Execute one live_* action (module-level so the execute() switch stays tiny). */
+async function executeLiveAction(action: string, params: DesktopControlParams): Promise<AgentToolResult> {
+	const okText = (text: string, extra?: Record<string, unknown>): AgentToolResult => ({
+		content: [{ type: "text", text }],
+		details: extra ?? {},
+	});
+	const errText = (text: string, code?: string): AgentToolResult => ({
+		content: [{ type: "text", text }],
+		details: code ? { error: code } : {},
+	});
+
+	// ---- mode / probe actions (harmless — never require opt-in) ----
+	if (action === "live_mode_on") {
+		liveModeEnabled = true;
+		return okText(
+			"App-control mode is ON. live_* actions may drive the focused window on your real desktop. Peter stays in control: the first use of each action kind prompts for approval.",
+			{ liveMode: true },
+		);
+	}
+	if (action === "live_mode_off") {
+		liveModeEnabled = false;
+		return okText("App-control mode OFF — live input disabled.", { liveMode: false });
+	}
+	if (action === "live_mode_status" || action === "live_backend_probe") {
+		const probe = await probeBackends();
+		const win = await getHyprlandActiveWindow();
+		const pointer = resolveBackend(probe, win?.xwayland, "pointer");
+		const keyboard = resolveBackend(probe, win?.xwayland, "keyboard");
+		const frame = lastInputFrame;
+		const lines = [
+			`App-control mode: ${liveModeEnabled ? "ON" : "OFF"}`,
+			`Backends: ydotool=${probe.ydotool} (daemon: ${probe.ydotoold ? "up" : "DOWN"}) | xdotool=${probe.xdotool} | wtype=${probe.wtype}`,
+			`Focused window: ${win ? `"${win.title}" (${win.class}) — ${win.xwayland ? "XWayland" : "native Wayland"}` : "none (focus one first)"}`,
+			`Resolved backend → pointer: ${pointer}${pointer === "no-daemon" ? " — start ydotoold / add the uinput udev rule" : ""}; keyboard/type: ${keyboard}`,
+			`Authorized kinds: ${liveAuthorizedKinds.size ? [...liveAuthorizedKinds].join(", ") : "(none — first use of each kind prompts Peter)"}`,
+			`Last screenshot frame: ${frame ? `${frame.kind} ${frame.scaledW}x${frame.scaledH}${frame.address ? ` @ ${frame.address}` : ""}` : "none — screenshot the target window first"}`,
+		];
+		return okText(lines.join("\n"), {
+			liveMode: liveModeEnabled,
+			probe,
+			focused: win,
+			resolvedPointer: pointer,
+			resolvedKeyboard: keyboard,
+			frame,
+		});
+	}
+
+	// ---- injection actions: opt-in gate first ----
+	if (!liveModeEnabled) {
+		return errText(
+			'App-control mode is OFF (D004 safety gate). Enable it with action "live_mode_on" first — live input drives your real desktop.',
+			"mode_off",
+		);
+	}
+	const probe = await probeBackends();
+	const win = await getHyprlandActiveWindow();
+	if (!win || !win.address) {
+		return errText(
+			"No focused window to drive. Focus the target app first (focus_window / hyprctl) or click it yourself.",
+			"no_focused_window",
+		);
+	}
+	const isPointer = action === "live_move" || action === "live_click" || action === "live_drag";
+	const kind: InputKind =
+		isPointer || action === "live_scroll" ? "pointer" : action === "live_type" ? "type" : "keyboard";
+	const backend = resolveBackend(probe, win.xwayland, kind);
+	if (backend === "no-daemon") {
+		return errText(
+			"ydotool is installed but ydotoold (its daemon) is not running. Start it with uinput access per the approved A1 design (udev rule + ydotoold) and retry.",
+			"no_daemon",
+		);
+	}
+	if (backend === "none") {
+		return errText(
+			`No input backend for a ${win.xwayland ? "XWayland" : "native-Wayland"} window: install ydotool + ydotoold (A1) or wtype (keyboard-only). Run live_backend_probe for the full picture.`,
+			"no_backend",
+		);
+	}
+
+	const verify = params.verify !== false;
+	const withVerify = async (lead: string): Promise<AgentToolResult> => {
+		if (!verify) return okText(lead);
+		const cap = await captureLiveFrame(lead);
+		if ("error" in cap) return okText(`${lead} (verify screenshot failed: ${cap.error})`);
+		const content: AgentToolResult["content"] = [{ type: "text", text: cap.text }];
+		if (cap.image) content.push({ type: "image", data: cap.image.data, mimeType: cap.image.mimeType });
+		return { content, details: { success: true, frame: cap.frame } };
+	};
+
+	if (isPointer) {
+		const frame = lastInputFrame;
+		if (!frame) {
+			return errText(
+				"No screenshot frame yet. Take a desktop_control screenshot of the target window (default active_window) first — live pointer coordinates are frame px of that image.",
+				"no_frame",
+			);
+		}
+		if (frame.kind === "window" && frame.address !== win.address) {
+			return errText(
+				`The focused window changed since the last screenshot (now "${win.title}"). Retake a screenshot of the target window, then retry.`,
+				"frame_stale",
+			);
+		}
+		if (params.x === undefined || params.y === undefined) {
+			return errText(`${action} requires x and y (frame px from the last screenshot).`, "missing_xy");
+		}
+		const pt = frameToPhysical(frame, params.x, params.y);
+		if (action === "live_move") {
+			const fail = await runSteps(backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)]);
+			if (fail) return errText(fail);
+			liveAuthorizedKinds.add(action);
+			return withVerify(`Moved pointer to frame (${params.x},${params.y}) → physical (${pt.x},${pt.y}).`);
+		}
+		if (action === "live_click") {
+			const button = params.button ?? "left";
+			const count = params.count ?? 1;
+			const code = button === "right" ? YDO_RIGHT : button === "middle" ? YDO_MIDDLE : YDO_LEFT;
+			const steps =
+				backend === "ydotool"
+					? [ydoMove(pt.x, pt.y), ydoClickButton(code, count)]
+					: [xdoClick(pt.x, pt.y, button, count)];
+			const fail = await runSteps(steps);
+			if (fail) return errText(fail);
+			liveAuthorizedKinds.add(action);
+			return withVerify(
+				`${count > 1 ? `${count}× ` : ""}${button} click at frame (${params.x},${params.y}) → physical (${pt.x},${pt.y}) on "${win.title}".`,
+			);
+		}
+		if (action === "live_drag") {
+			if (params.x2 === undefined || params.y2 === undefined)
+				return errText("live_drag requires x,y and x2,y2 (frame px).", "missing_xy2");
+			const end = frameToPhysical(frame, params.x2, params.y2);
+			let steps: string[][];
+			if (backend === "ydotool") {
+				steps = [ydoMove(pt.x, pt.y), ydoClickButton(YDO_DOWN)];
+				for (let i = 1; i <= 6; i++)
+					steps.push(ydoMove(pt.x + ((end.x - pt.x) * i) / 6, pt.y + ((end.y - pt.y) * i) / 6));
+				steps.push(ydoClickButton(YDO_UP));
+			} else {
+				steps = [xdoDrag(pt.x, pt.y, end.x, end.y)];
+			}
+			const fail = await runSteps(steps, 24);
+			if (fail) return errText(fail);
+			liveAuthorizedKinds.add(action);
+			return withVerify(`Dragged frame (${params.x},${params.y}) → (${params.x2},${params.y2}).`);
+		}
+	}
+
+	if (action === "live_type") {
+		const text = params.keys ?? "";
+		if (!text) return errText("live_type requires 'keys' (the text to type).", "missing_text");
+		const fail = await typeTextWith(backend, text);
+		if (fail) return errText(fail);
+		liveAuthorizedKinds.add(action);
+		return withVerify(`Typed ${text.length} chars into "${win.title}".`);
+	}
+
+	if (action === "live_key") {
+		const spec = params.keys ?? "";
+		if (!spec) return errText("live_key requires 'keys' (e.g. Return, ctrl+l, super+Return, space).", "missing_keys");
+		if (backend === "ydotool") {
+			const events = specToYdotoolEvents(spec);
+			if ("error" in events) return errText(events.error);
+			const fail = await runSteps([ydoKeyEvents(events)]);
+			if (fail) return errText(fail);
+		} else if (backend === "xdotool") {
+			const names = specToXdotoolArgs(spec);
+			if ("error" in names) return errText(names.error);
+			const fail = await runSteps([["xdotool", "key", "--clearmodifiers", ...names]]);
+			if (fail) return errText(fail);
+		} else {
+			for (const token of spec.trim().split(/\s+/)) {
+				const chord = wtypeChord(token);
+				if ("error" in chord) return errText(chord.error);
+				const fail = await runSteps([chord.argv]);
+				if (fail) return errText(fail);
+			}
+		}
+		liveAuthorizedKinds.add(action);
+		return withVerify(`Sent keys "${spec}" to "${win.title}".`);
+	}
+
+	if (action === "live_scroll") {
+		const dir = params.direction ?? "down";
+		const count = Math.min(params.count ?? 1, 20);
+		if (backend === "xdotool") {
+			const btn = dir === "up" ? "4" : "5";
+			const fail = await runSteps([["xdotool", "click", "--repeat", String(count), "--delay", "60", btn]]);
+			if (fail) return errText(fail);
+			liveAuthorizedKinds.add(action);
+			return withVerify(`Wheel-scrolled ${dir} ${count}× on XWayland window "${win.title}".`);
+		}
+		if (backend === "wtype")
+			return errText(
+				"wtype is keyboard-only and cannot scroll. Use live_key Page_Up/Page_Down on a native window, or install ydotool + a uinput wheel path.",
+				"no_scroll",
+			);
+		// ydotool: no REL_WHEEL in v1 — emulate Page_Up / Page_Down.
+		const token = dir === "up" ? "pageup" : "pagedown";
+		const chord = parseChord(token);
+		const events: string[] = [];
+		if (chord) for (let i = 0; i < count; i++) events.push(`${chord[0]}:1`, `${chord[0]}:0`);
+		const fail = await runSteps([ydoKeyEvents(events)]);
+		if (fail) return errText(fail);
+		liveAuthorizedKinds.add(action);
+		return withVerify(
+			`Scrolled ${dir} ${count}× (Page_${dir === "up" ? "Up" : "Down"} emulation — ydotool has no wheel).`,
+		);
+	}
+
+	return errText(`Unhandled live action "${action}".`, "unhandled");
+}
 
 export class DesktopControlTool implements AgentTool<typeof desktopControlSchema> {
 	readonly name = "desktop_control";
-	readonly approval = "read" as const;
+	readonly approval = liveApprovalDecision;
 	readonly label = "Desktop Control";
 	readonly description =
 		"Desktop screen vision and window manager tool. Takes full-screen or window-targeted screenshots with DPI scaling, lists open windows, focuses or closes applications, and manages workspaces.";
 	readonly parameters = desktopControlSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Desktop vision and window control (screenshots, window listing/focus/close, workspaces)";
+	readonly summary =
+		"Desktop vision + live app-control (screenshots, window mgmt, and live_* click/type/key/drag/scroll on the focused window via ydotool/wtype/xdotool; opt-in app-control mode)";
 
 	static createIf(_session: ToolSession): DesktopControlTool | null {
 		return new DesktopControlTool();
@@ -263,6 +700,17 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 
 	async execute(_id: string, params: DesktopControlParams): Promise<AgentToolResult> {
 		switch (params.action) {
+			case "live_mode_on":
+			case "live_mode_off":
+			case "live_mode_status":
+			case "live_backend_probe":
+			case "live_move":
+			case "live_click":
+			case "live_drag":
+			case "live_type":
+			case "live_key":
+			case "live_scroll":
+				return executeLiveAction(params.action, params);
 			case "list_windows": {
 				if (!isHyprland()) {
 					return {
@@ -292,7 +740,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "focus_window": {
 				if (!params.query) {
 					return {
-						content: [{ type: "text", text: "Error: 'query' (window title, class, or address) is required for focus_window." }],
+						content: [
+							{
+								type: "text",
+								text: "Error: 'query' (window title, class, or address) is required for focus_window.",
+							},
+						],
 						details: { error: "missing_query" },
 					};
 				}
@@ -332,7 +785,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "close_window": {
 				if (!params.query) {
 					return {
-						content: [{ type: "text", text: "Error: 'query' (window title, class, or address) is required for close_window." }],
+						content: [
+							{
+								type: "text",
+								text: "Error: 'query' (window title, class, or address) is required for close_window.",
+							},
+						],
 						details: { error: "missing_query" },
 					};
 				}
@@ -426,7 +884,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					let cmd = xvfbCommandFixup(params.command);
 					if (params.url) cmd += ` ${params.url}`;
 					// detached so the app outlives this call
-					const up = await runCmd("sh", ["-c", `nohup ${cmd} >/tmp/aerys-xvfb-app.log 2>&1 &`], {
+					await runCmd("sh", ["-c", `nohup ${cmd} >/tmp/aerys-xvfb-app.log 2>&1 &`], {
 						env: xvfbEnv(),
 						timeout: 12_000,
 					});
@@ -444,7 +902,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				} catch (err) {
 					return {
-						content: [{ type: "text", text: `xvfb_launch failed: ${String(err)}. Is xorg-server-xvfb installed?` }],
+						content: [
+							{ type: "text", text: `xvfb_launch failed: ${String(err)}. Is xorg-server-xvfb installed?` },
+						],
 						details: { error: "xvfb_launch_failed" },
 					};
 				}
@@ -454,11 +914,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				try {
 					await xvfbEnsureServer();
 					const outPath = `/tmp/aerys-xvfb-shot-${Date.now()}.png`;
-					const shot = await runCmd(
-						"import",
-						["-window", "root", outPath],
-						{ env: xvfbEnv(), timeout: 15_000 },
-					);
+					const shot = await runCmd("import", ["-window", "root", outPath], { env: xvfbEnv(), timeout: 15_000 });
 					if (shot.code !== 0 || !fs.existsSync(outPath)) {
 						return { content: [{ type: "text", text: `xvfb_screenshot failed: ${shot.stderr}` }] };
 					}
@@ -471,7 +927,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								? [{ type: "image" as const, data: buf.toString("base64"), mimeType: "image/png" }]
 								: []),
 							...(size <= 500
-								? [{ type: "text" as const, text: "Note: capture looks empty (no windows on the virtual display?)." }]
+								? [
+										{
+											type: "text" as const,
+											text: "Note: capture looks empty (no windows on the virtual display?).",
+										},
+									]
 								: []),
 						],
 						details: { file: outPath, bytes: size, headless: true },
@@ -499,7 +960,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 
 			case "xvfb_click": {
 				if (params.x === undefined || params.y === undefined) {
-					return { content: [{ type: "text", text: "Error: 'x' and 'y' pixel coordinates are required for xvfb_click (see the xvfb_screenshot image for where to click)." }] };
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Error: 'x' and 'y' pixel coordinates are required for xvfb_click (see the xvfb_screenshot image for where to click).",
+							},
+						],
+					};
 				}
 				await xvfbEnsureServer();
 				const btn = params.target && /right|middle/.test(params.target) ? params.target : "left";
@@ -507,13 +975,19 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					env: xvfbEnv(),
 				});
 				return res.code === 0
-					? { content: [{ type: "text", text: `Clicked ${btn} at ${params.x},${params.y} on the headless display.` }] }
+					? {
+							content: [
+								{ type: "text", text: `Clicked ${btn} at ${params.x},${params.y} on the headless display.` },
+							],
+						}
 					: { content: [{ type: "text", text: `xvfb_click failed: ${res.stderr}` }] };
 			}
 
 			case "xvfb_type": {
 				if (!params.keys) {
-					return { content: [{ type: "text", text: "Error: 'keys' (the text to type) is required for xvfb_type." }] };
+					return {
+						content: [{ type: "text", text: "Error: 'keys' (the text to type) is required for xvfb_type." }],
+					};
 				}
 				await xvfbEnsureServer();
 				const res = await runCmd("xdotool", ["type", "--delay", "40", params.keys], { env: xvfbEnv() });
@@ -524,7 +998,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 
 			case "xvfb_key": {
 				if (!params.keys) {
-					return { content: [{ type: "text", text: "Error: 'keys' (key names like Return, Tab, ctrl+l) is required for xvfb_key." }] };
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Error: 'keys' (key names like Return, Tab, ctrl+l) is required for xvfb_key.",
+							},
+						],
+					};
 				}
 				await xvfbEnsureServer();
 				const res = await runCmd("xdotool", ["key", params.keys], { env: xvfbEnv() });
@@ -543,7 +1024,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				await runCmd("sh", ["-c", `pkill -f "DISPLAY=${XVFB_DISPLAY}" 2>/dev/null; true`]);
 				await runCmd("pkill", ["Xvfb"]).catch?.(() => {});
 				return {
-					content: [{ type: "text", text: `Headless session closed (${wins.length} window(s) closed, virtual display stopped).` }],
+					content: [
+						{
+							type: "text",
+							text: `Headless session closed (${wins.length} window(s) closed, virtual display stopped).`,
+						},
+					],
 					details: { closed: wins.length, headless: true },
 				};
 			}
@@ -650,6 +1136,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						};
 					}
 				}
+				return {
+					content: [{ type: "text", text: "Unhandled system_control sub-action." }],
+					details: { error: "unhandled_sub_action" },
+				};
 			}
 
 			case "cursor_pos": {
@@ -719,14 +1209,22 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const maxHeight = params.maxHeight ?? 800;
 
 				let finalPath = tmpRaw;
-				const resizeRes = await runCmd("convert", [
-					tmpRaw,
-					"-resize",
-					`${maxWidth}x${maxHeight}>`,
-					tmpScaled,
-				]);
+				const resizeRes = await runCmd("convert", [tmpRaw, "-resize", `${maxWidth}x${maxHeight}>`, tmpScaled]);
 				if (resizeRes.code === 0 && fs.existsSync(tmpScaled)) {
 					finalPath = tmpScaled;
+				}
+
+				// Record the model-visible coordinate frame for live_* mapping (D002/D004).
+				let frameSize: { width: number; height: number } | undefined;
+				let frameNote = "";
+				if (isHyprland()) {
+					try {
+						const remembered = await rememberFrame(targetWindow, geometry, tmpRaw, finalPath);
+						if (remembered) {
+							frameSize = { width: remembered.scaledW, height: remembered.scaledH };
+							frameNote = ` Frame ${remembered.scaledW}x${remembered.scaledH}${remembered.kind === "window" ? ` (window @ ${remembered.atX},${remembered.atY})` : " (fullscreen)"} — live_* pointer coordinates are frame px of this image.`;
+						}
+					} catch {}
 				}
 
 				const includeBase64 = params.includeBase64 ?? true;
@@ -749,6 +1247,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					physicalDimensions: targetWindow
 						? { width: targetWindow.size[0], height: targetWindow.size[1] }
 						: { width: 1920, height: 1080 },
+					...(frameSize ? { scaledDimensions: frameSize } : {}),
 					target,
 					targetWindow: targetWindow
 						? { title: targetWindow.title, class: targetWindow.class, address: targetWindow.address }
@@ -759,7 +1258,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					content: [
 						{
 							type: "text",
-							text: `Captured screenshot of ${targetDesc} (saved to ${finalPath}).`,
+							text: `Captured screenshot of ${targetDesc} (saved to ${finalPath}).${frameNote}`,
 						},
 						...(base64
 							? [
