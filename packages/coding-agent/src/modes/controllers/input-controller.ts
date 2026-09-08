@@ -9,7 +9,7 @@ import { TinyTitleDownloadProgressComponent } from "../../modes/components/tiny-
 import { expandEmoticons } from "../../modes/emoji-autocomplete";
 import { createPromptActionAutocompleteProvider } from "../../modes/prompt-action-autocomplete";
 import type { InteractiveModeContext } from "../../modes/types";
-import { captureScreenFrame, getAmbientFrameMetadata, getAmbientFramesForTurn } from "../../voice/screen-vision";
+import { captureScreenFrame, getAmbientFramesForTurn } from "../../voice/screen-vision";
 import type { AgentSessionEvent } from "../../session/agent-session";
 import { SKILL_PROMPT_MESSAGE_TYPE, type SkillPromptDetails } from "../../session/messages";
 import { executeBuiltinSlashCommand, lookupBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
@@ -315,10 +315,9 @@ export class InputController {
 					if (vision.image) visionFrames.push(vision.image);
 					if (visionFrames.length > 0) {
 						inputImages = [...(inputImages ?? []), ...visionFrames];
-						const meta = [getAmbientFrameMetadata(), vision.metadata].filter(Boolean).join(" · ");
-						if (meta) {
-							text = `${meta}\n\n${text}`;
-						}
+						// No "[Screen Vision: …]" text prefix (matching the voice path):
+						// images attach silently, the visible message stays exactly as
+						// typed. The system prompt already documents Live Eye.
 					}
 				} catch {
 					// Screen capture is best-effort: never block a text submit on it.
