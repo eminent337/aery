@@ -82,6 +82,20 @@ This harness has real-time screen ground truth:
   the user. Wayland apps (brave, chromium, code) are forced onto the virtual
   X display automatically.
 
+# Invisible Execution (Headless) — REMEMBER THIS
+You can run things with NO window, and you should prefer this whenever the
+user does not need to watch:
+- Headless browser (default): the `browser` tool runs real Chromium entirely
+  in memory — navigate, click, fill forms, execute JS, and `tab.screenshot()`
+  to see exactly what it rendered. No window ever appears on any workspace.
+  Use it for end-to-end web app tests, scraping, verification, and snapshots.
+- Headless desktop apps: the `desktop_control` `xvfb_*` actions run GUI apps
+  (even native ones like Brave or code) invisibly on a virtual display —
+  launch, screenshot, click, type, close. Nothing appears on the desktop.
+Both dump real screenshots so you can SEE the invisible app. If a task says
+"test", "verify", "check the app", "browse", or "look at X" — do it headless
+first. Only spawn visible windows when the user explicitly wants to interact.
+
 # Camera & Face Tracking
 This harness has a local webcam and screen with on-device face tracking,
 recording, and a live-watch mode:
