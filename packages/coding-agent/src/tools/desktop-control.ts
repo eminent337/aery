@@ -40,10 +40,34 @@ export interface ScreenshotResultDetails {
 
 const desktopControlSchema = z.object({
 	action: z
-		.enum(["screenshot", "list_windows", "focus_window", "close_window", "switch_workspace", "launch_app", "cursor_pos", "system_control"])
+		.enum([
+			"screenshot",
+			"list_windows",
+			"focus_window",
+			"close_window",
+			"switch_workspace",
+			"launch_app",
+			"cursor_pos",
+			"system_control",
+			"xvfb_launch",
+			"xvfb_screenshot",
+			"xvfb_list_windows",
+			"xvfb_click",
+			"xvfb_type",
+			"xvfb_key",
+			"xvfb_close",
+		])
 		.describe(
-			"Action: 'screenshot' captures display/window, 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns an app, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume, media, brightness, screen lock, and web search.",
+			"Actions: 'screenshot' captures display/window, 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_close' ends it all.",
 		),
+	command: z
+		.string()
+		.optional()
+		.describe("Application command or desktop binary to run for 'launch_app' or 'xvfb_launch' (e.g. 'brave', 'code', 'pavucontrol'). For 'xvfb_launch' you may append args and a URL (e.g. 'flatpak run com.brave.Browser https://example.com')."),
+	url: z.string().optional().describe("URL to open with the app for 'xvfb_launch' (appended to command)."),
+	x: z.number().int().optional().describe("X pixel coordinate for 'xvfb_click' (virtual display origin top-left)."),
+	y: z.number().int().optional().describe("Y pixel coordinate for 'xvfb_click'."),
+	keys: z.string().optional().describe("Keys or text for 'xvfb_type' (literal text) or 'xvfb_key' (key names like Return, Tab, ctrl+l, space)."),
 	target: z
 		.string()
 		.optional()
@@ -58,10 +82,6 @@ const desktopControlSchema = z.object({
 		.string()
 		.optional()
 		.describe("Workspace identifier for 'switch_workspace' (e.g. '1', '2', 'special')."),
-	command: z
-		.string()
-		.optional()
-		.describe("Application command or desktop binary to run for 'launch_app' (e.g. 'brave', 'code', 'pavucontrol')."),
 	subAction: z
 		.enum([
 			"volume_up",
@@ -125,6 +145,53 @@ async function runCmd(
 /** Check if running inside a Hyprland Wayland compositor */
 function isHyprland(): boolean {
 	return Boolean(process.env.HYPRLAND_INSTANCE_SIGNATURE);
+}
+
+/** ---------- Headless desktop apps (Xvfb virtual display) ----------
+ * Runs GUI apps into an invisible virtual X display. Everything the agent
+ * needs is baked in: the display stays up across calls, Wayland-native apps
+ * are forced onto the virtual X server (ozone/GTK env), and interactions go
+ * through xdotool. Requires xorg-server-xvfb + xdotool (pacman).
+ */
+const XVFB_DISPLAY = ":99";
+const XVFB_GEOMETRY = "1600x900x24";
+
+function xvfbEnv(): NodeJS.ProcessEnv {
+	return {
+		DISPLAY: XVFB_DISPLAY,
+		XDG_SESSION_TYPE: "x11",
+		GDK_BACKEND: "x11",
+		QT_QPA_PLATFORM: "xcb",
+		// strip Wayland so apps cannot escape to the real desktop
+		WAYLAND_DISPLAY: "",
+		WAYLAND_SOCKET: "",
+	};
+}
+
+async function xvfbEnsureServer(): Promise<void> {
+	const probe = await runCmd("sh", ["-c", `DISPLAY=${XVFB_DISPLAY} xdotool getdisplaygeometry`]);
+	if (probe.code === 0) return;
+	const up = await runCmd("sh", ["-c", `nohup Xvfb ${XVFB_DISPLAY} -screen 0 ${XVFB_GEOMETRY} >/dev/null 2>&1 & sleep 1.5`]);
+	if (up.code !== 0) throw new Error(`Failed to start Xvfb: ${up.stderr}`);
+	const check = await runCmd("sh", ["-c", `DISPLAY=${XVFB_DISPLAY} xdotool getdisplaygeometry`]);
+	if (check.code !== 0) throw new Error("Xvfb started but not responding");
+}
+
+function xvfbCommandFixup(cmd: string): string {
+	// Wayland-native apps refuse to fall back to X11 silently — force it.
+	if (/\b(brave|chromium|google-chrome|msedge|electron|code)\b/.test(cmd) && !cmd.includes("--ozone-platform")) {
+		return cmd.replace(/^(flatpak run \S+|[^ ]+\.AppImage|\S+)/, "$& --ozone-platform=x11");
+	}
+	return cmd;
+}
+
+async function xvfbListWindows(): Promise<string[]> {
+	const res = await runCmd("xdotool", ["search", "--onlyvisible", "--name", ".", "getwindowname", "%@"], {
+		env: xvfbEnv(),
+	});
+	return res.code === 0
+		? res.stdout.split("\n").map(s => s.trim()).filter(Boolean)
+		: [];
 }
 
 /** Get list of all open GUI windows */
@@ -343,6 +410,141 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				return {
 					content: [{ type: "text", text: `Launched application: ${params.command}` }],
 					details: { command: params.command, success: true },
+				};
+			}
+
+			// ---- headless desktop app actions (Xvfb virtual display) ----
+			case "xvfb_launch": {
+				if (!params.command) {
+					return {
+						content: [{ type: "text", text: "Error: 'command' is required for xvfb_launch." }],
+						details: { error: "missing_command" },
+					};
+				}
+				try {
+					await xvfbEnsureServer();
+					let cmd = xvfbCommandFixup(params.command);
+					if (params.url) cmd += ` ${params.url}`;
+					// detached so the app outlives this call
+					const up = await runCmd("sh", ["-c", `nohup ${cmd} >/tmp/aerys-xvfb-app.log 2>&1 &`], {
+						env: xvfbEnv(),
+						timeout: 12_000,
+					});
+					// give GUI apps a beat to map their window, then report what's on the display
+					await new Promise(r => setTimeout(r, 4000));
+					const windows = await xvfbListWindows();
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Launched '${params.command}' invisibly on the virtual display.${windows.length ? ` Windows now present: ${windows.join(" | ")}` : " No window mapped yet (may still be loading) — check with xvfb_list_windows or xvfb_screenshot."}`,
+							},
+						],
+						details: { command: params.command, headless: true, windows },
+					};
+				} catch (err) {
+					return {
+						content: [{ type: "text", text: `xvfb_launch failed: ${String(err)}. Is xorg-server-xvfb installed?` }],
+						details: { error: "xvfb_launch_failed" },
+					};
+				}
+			}
+
+			case "xvfb_screenshot": {
+				try {
+					await xvfbEnsureServer();
+					const outPath = `/tmp/aerys-xvfb-shot-${Date.now()}.png`;
+					const shot = await runCmd(
+						"import",
+						["-window", "root", outPath],
+						{ env: xvfbEnv(), timeout: 15_000 },
+					);
+					if (shot.code !== 0 || !fs.existsSync(outPath)) {
+						return { content: [{ type: "text", text: `xvfb_screenshot failed: ${shot.stderr}` }] };
+					}
+					const buf = fs.readFileSync(outPath);
+					const size = buf.length;
+					return {
+						content: [
+							{ type: "text", text: `Captured the headless virtual display (${XVFB_GEOMETRY}) → ${outPath}.` },
+							...(size > 500 && (params.includeBase64 ?? true)
+								? [{ type: "image" as const, data: buf.toString("base64"), mimeType: "image/png" }]
+								: []),
+							...(size <= 500
+								? [{ type: "text" as const, text: "Note: capture looks empty (no windows on the virtual display?)." }]
+								: []),
+						],
+						details: { file: outPath, bytes: size, headless: true },
+					};
+				} catch (err) {
+					return { content: [{ type: "text", text: `xvfb_screenshot failed: ${String(err)}` }] };
+				}
+			}
+
+			case "xvfb_list_windows": {
+				await xvfbEnsureServer();
+				const windows = await xvfbListWindows();
+				return {
+					content: [
+						{
+							type: "text",
+							text: windows.length
+								? `Windows on the headless virtual display:\n${windows.map(w => `- ${w}`).join("\n")}`
+								: "No windows on the headless virtual display. Launch one with 'xvfb_launch'.",
+						},
+					],
+					details: { windows, headless: true },
+				};
+			}
+
+			case "xvfb_click": {
+				if (params.x === undefined || params.y === undefined) {
+					return { content: [{ type: "text", text: "Error: 'x' and 'y' pixel coordinates are required for xvfb_click (see the xvfb_screenshot image for where to click)." }] };
+				}
+				await xvfbEnsureServer();
+				const btn = params.target && /right|middle/.test(params.target) ? params.target : "left";
+				const res = await runCmd("xdotool", ["mousemove", String(params.x), String(params.y), "click", btn], {
+					env: xvfbEnv(),
+				});
+				return res.code === 0
+					? { content: [{ type: "text", text: `Clicked ${btn} at ${params.x},${params.y} on the headless display.` }] }
+					: { content: [{ type: "text", text: `xvfb_click failed: ${res.stderr}` }] };
+			}
+
+			case "xvfb_type": {
+				if (!params.keys) {
+					return { content: [{ type: "text", text: "Error: 'keys' (the text to type) is required for xvfb_type." }] };
+				}
+				await xvfbEnsureServer();
+				const res = await runCmd("xdotool", ["type", "--delay", "40", params.keys], { env: xvfbEnv() });
+				return res.code === 0
+					? { content: [{ type: "text", text: `Typed text into the focused headless window.` }] }
+					: { content: [{ type: "text", text: `xvfb_type failed: ${res.stderr}` }] };
+			}
+
+			case "xvfb_key": {
+				if (!params.keys) {
+					return { content: [{ type: "text", text: "Error: 'keys' (key names like Return, Tab, ctrl+l) is required for xvfb_key." }] };
+				}
+				await xvfbEnsureServer();
+				const res = await runCmd("xdotool", ["key", params.keys], { env: xvfbEnv() });
+				return res.code === 0
+					? { content: [{ type: "text", text: `Sent keys '${params.keys}' to the headless display.` }] }
+					: { content: [{ type: "text", text: `xvfb_key failed: ${res.stderr}` }] };
+			}
+
+			case "xvfb_close": {
+				// close all windows on the virtual display, then optionally kill apps
+				const wins = await xvfbListWindows();
+				const env = xvfbEnv();
+				for (const w of wins) {
+					await runCmd("xdotool", ["search", "--name", w, "windowclose"], { env });
+				}
+				await runCmd("sh", ["-c", `pkill -f "DISPLAY=${XVFB_DISPLAY}" 2>/dev/null; true`]);
+				await runCmd("pkill", ["Xvfb"]).catch?.(() => {});
+				return {
+					content: [{ type: "text", text: `Headless session closed (${wins.length} window(s) closed, virtual display stopped).` }],
+					details: { closed: wins.length, headless: true },
 				};
 			}
 

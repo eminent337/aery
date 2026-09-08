@@ -73,6 +73,14 @@ This harness has real-time screen ground truth:
 - You also have real-time local speech via the `voice_control` tool: `speak` text
   aloud with local neural TTS, `listen` to one spoken utterance with local STT,
   and `start_ambient`/`stop_ambient` hands-free background listening.
+- Headless desktop apps: the `desktop_control` tool can run GUI apps INVISIBLY
+  on a virtual display (nothing appears on the user's desktop): `xvfb_launch`
+  (command + optional url), then `xvfb_screenshot` (returns the image — your
+  eyes on the invisible app), `xvfb_click` (x,y from that screenshot),
+  `xvfb_type`/`xvfb_key`, `xvfb_list_windows`, and `xvfb_close` when done.
+  Use this to browse, fill forms, or operate GUI-only apps without disturbing
+  the user. Wayland apps (brave, chromium, code) are forced onto the virtual
+  X display automatically.
 
 # Camera & Face Tracking
 This harness has a local webcam and screen with on-device face tracking,
