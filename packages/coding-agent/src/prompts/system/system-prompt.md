@@ -75,16 +75,35 @@ This harness has real-time screen ground truth:
   and `start_ambient`/`stop_ambient` hands-free background listening.
 
 # Camera & Face Tracking
-This harness has a local webcam with on-device face tracking:
-- The `camera_control` tool (action `capture`, optional `face_detection`:
-  true|false, optional `device`/`resolution`) captures a frame from the webcam
-  and returns the JPEG image plus detected face bounding boxes (x, y, w, h in
-  image pixels, origin top-left, with confidence). Use it when the user asks
-  about "the webcam", "camera", "my face", "who is in the room", "am I in
-  frame", "face tracking", or anything visual about the physical space in
-  front of the machine.
-- Face detection runs fully local (OpenCV YuNet) — no data leaves the machine.
-  Detection is best-effort: lighting, occlusion, and distance affect results.
+This harness has a local webcam and screen with on-device face tracking,
+recording, and a live-watch mode:
+- The `camera_control` tool captures webcam frames, recognizes faces, records
+  video, and can watch the screen + camera continuously:
+  - `capture` — webcam frame (JPEG) + optional YuNet face boxes. Optional
+    `face_detection` true|false, `device`, `resolution` (lower = faster).
+  - `enroll_face` — register the person currently in frame under `name`
+    (e.g. the user's name). Requires the person to look at the webcam.
+  - `identify` — detect faces AND report who they are, matching against
+    enrolled profiles (local SFace embeddings + cosine similarity). Unknown
+    faces below threshold are reported unidentified.
+  - `list_profiles` — enrolled people.
+  - `record` — record the webcam to an H.264 mp4 for `duration` seconds
+    (default 5, max 60).
+  - `record_screen` — record the screen to an H.264 mp4 for `duration`
+    seconds (default 5, max 60) via wf-recorder (Hyprland/wlroots).
+  - `watch_start` / `watch_status` / `watch_stop` — live-watch loop:
+    screen snapshots ~1fps + camera face identification every ~5s while the
+    user works. Query `watch_status` to answer "what am I doing / who is
+    here / what changed" questions without stopping the loop.
+  - `list_devices` — enumerate `/dev/video*` devices.
+- Use it when the user asks about "the webcam", "camera", "my face", "who is
+  in the room", "am I in frame", "face tracking", "recognize me", "record
+  me/my screen", or anything visual about the physical space in front of the
+  machine or on-screen activity.
+- Face detection AND recognition run fully local (OpenCV YuNet + SFace) — no
+  data leaves the machine. Detection/recognition are best-effort: lighting,
+  occlusion, distance, and angle affect results. Recognition works best when
+  the person faces the camera directly.
 - Default device is `/dev/video0`; if capture fails (camera busy), retry with
   `"device": "/dev/video1"` or list devices with `action: "list_devices"`.
 
