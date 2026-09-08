@@ -82,6 +82,20 @@ function execAsync(
 	});
 }
 
+/** Normalize a window title: collapse whitespace, strip the Aery TUI self-title
+ * echo (e.g. `kitty — "Aery: [Screen Vision: ...] ·"` or `kitty — "Aery: ..."`)
+ * so capture metadata never contains a previous capture's metadata. */
+function normalizeWindowTitle(title: string | undefined): string | undefined {
+	if (!title) return undefined;
+	let t = title.replace(/\s+/g, " ").trim();
+	// Drop the "Aery:" TUI marker plus anything trailing after it — the harness
+	// status line and any embedded previous-capture metadata are never useful
+	// screen context and create a feedback loop if kept.
+	const selfIdx = t.indexOf("Aery:");
+	if (selfIdx >= 0) t = t.slice(0, selfIdx).trim();
+	return t.length > 0 ? t : undefined;
+}
+
 /** Get active window information using Hyprland IPC or xdotool fallback */
 export async function getActiveWindow(): Promise<ActiveWindowInfo | null> {
 	// 1. Wayland / Hyprland native check
@@ -92,7 +106,7 @@ export async function getActiveWindow(): Promise<ActiveWindowInfo | null> {
 				const data = JSON.parse(res.stdout);
 				if (data && (data.title || data.class)) {
 					return {
-						title: data.title,
+						title: normalizeWindowTitle(data.title),
 						class: data.class,
 						at: Array.isArray(data.at) ? [data.at[0], data.at[1]] : undefined,
 						size: Array.isArray(data.size) ? [data.size[0], data.size[1]] : undefined,
@@ -107,7 +121,7 @@ export async function getActiveWindow(): Promise<ActiveWindowInfo | null> {
 	if (process.env.DISPLAY) {
 		const res = await execAsync("xdotool", ["getactivewindow", "getwindowname"], 300);
 		if (res.code === 0 && res.stdout) {
-			return { title: res.stdout };
+			return { title: normalizeWindowTitle(res.stdout) };
 		}
 	}
 
