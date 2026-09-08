@@ -80,6 +80,7 @@ import { loadSshTool } from "./ssh";
 import { TerminalPaneTool } from "./terminal-pane";
 import { DesktopControlTool } from "./desktop-control";
 import { VoiceControlTool } from "./voice-control";
+import { CameraControlTool } from "./camera-control";
 import { TaskCreateTool, TaskGetTool, TaskListTool, TaskStopTool, TaskUpdateTool } from "./task-tracker";
 import { type TodoPhase, TodoWriteTool } from "./todo-write";
 import { WriteTool } from "./write";
@@ -199,6 +200,7 @@ export * from "./todo-write";
 export * from "./terminal-pane";
 export * from "./desktop-control";
 export * from "./voice-control";
+export * from "./camera-control";
 export * from "./tts";
 export * from "./write";
 export * from "./yield";
@@ -603,6 +605,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	terminal_pane: TerminalPaneTool.createIf,
 	desktop_control: DesktopControlTool.createIf,
 	voice_control: VoiceControlTool.createIf,
+	camera_control: CameraControlTool.createIf,
 	search_context: SearchContextTool.createIf,
 	shadow_watch: ShadowWatchTool.createIf,
 	task_create: () => new TaskCreateTool(),
@@ -788,6 +791,7 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 		if (name === "browser") return session.settings.get("browser.enabled");
 		if (name === "checkpoint" || name === "rewind") return session.settings.get("checkpoint.enabled");
 		if (name === "irc") return session.settings.get("irc.enabled");
+		if (name === "camera_control") return session.settings.get("camera.enabled") !== false;
 		if (name === "retain" || name === "recall" || name === "reflect") {
 			return ["hindsight", "mnemopi"].includes(session.settings.get("memory.backend") ?? "");
 		}

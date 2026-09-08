@@ -1246,6 +1246,40 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"camera.enabled": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "interaction",
+			group: "Camera",
+			label: "Camera Enabled",
+			description: "Allow the agent to capture webcam frames and run face detection via camera_control",
+		},
+	},
+
+	"camera.faceDetection": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "interaction",
+			group: "Camera",
+			label: "Face Detection",
+			description: "Run local YuNet face detection on captured webcam frames",
+		},
+	},
+
+	"camera.resolution": {
+		type: "enum",
+		values: ["640x480", "1280x720", "1920x1080"] as const,
+		default: "1280x720",
+		ui: {
+			tab: "interaction",
+			group: "Camera",
+			label: "Camera Resolution",
+			description: "Webcam capture resolution (lower is faster)",
+		},
+	},
+
 	"batchNudge.enabled": {
 		type: "boolean",
 		default: true,
