@@ -1608,9 +1608,20 @@ export function kiloModelManagerOptions(config?: KiloModelManagerConfig): ModelM
 				mapModel: (entry, defaults) => {
 					const topProvider = entry.top_provider as Record<string, unknown> | undefined;
 					const params = Array.isArray(entry.supported_parameters) ? (entry.supported_parameters as string[]) : [];
+					// Kilo declares per-model modalities under architecture.input_modalities
+					// (e.g. ["text","image"] for StepFun/Step-3.7 Flash). Without mapping
+					// this, every Kilo model defaults to text-only and the vision guard
+					// strips screenshots with "[image omitted: model does not support
+					// vision]" even for genuinely multimodal models.
+					const architecture = entry.architecture as Record<string, unknown> | undefined;
+					const inputModalities =
+						architecture && Array.isArray(architecture.input_modalities)
+							? architecture.input_modalities
+							: (entry.input_modalities as unknown);
 					return {
 						...defaults,
 						reasoning: params.includes("reasoning"),
+						input: toInputCapabilities(inputModalities),
 						contextWindow:
 							typeof entry.context_length === "number" ? entry.context_length : defaults.contextWindow,
 						maxTokens:

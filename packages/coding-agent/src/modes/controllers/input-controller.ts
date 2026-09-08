@@ -9,6 +9,7 @@ import { TinyTitleDownloadProgressComponent } from "../../modes/components/tiny-
 import { expandEmoticons } from "../../modes/emoji-autocomplete";
 import { createPromptActionAutocompleteProvider } from "../../modes/prompt-action-autocomplete";
 import type { InteractiveModeContext } from "../../modes/types";
+import { captureScreenFrame, getAmbientFrameMetadata, getAmbientFramesForTurn } from "../../voice/screen-vision";
 import type { AgentSessionEvent } from "../../session/agent-session";
 import { SKILL_PROMPT_MESSAGE_TYPE, type SkillPromptDetails } from "../../session/messages";
 import { executeBuiltinSlashCommand, lookupBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
@@ -294,6 +295,35 @@ export class InputController {
 
 			const runner = this.ctx.session.extensionRunner;
 			let inputImages = this.ctx.pendingImages.length > 0 ? [...this.ctx.pendingImages] : undefined;
+
+			// Live Eye Screen Vision on text turns (mirrors the voice-turn attach in
+			// interactive-mode): when enabled, attach ambient buffer bracket frames +
+			// an instant active-window capture so "what do you see" works in text
+			// mode too. Kept after pendingImages so explicit Ctrl+V images win.
+			if (
+				isSettingsInitialized() &&
+				settings.get("voice.screenVision") === true &&
+				!text.startsWith("/") &&
+				!text.startsWith("!") &&
+				!text.startsWith("$")
+			) {
+				try {
+					const visionFrames = [...getAmbientFramesForTurn()];
+					const vision = await captureScreenFrame({
+						target: (settings.get("voice.screenVisionTarget") as "active_window" | "fullscreen") || "active_window",
+					});
+					if (vision.image) visionFrames.push(vision.image);
+					if (visionFrames.length > 0) {
+						inputImages = [...(inputImages ?? []), ...visionFrames];
+						const meta = [getAmbientFrameMetadata(), vision.metadata].filter(Boolean).join(" · ");
+						if (meta) {
+							text = `${meta}\n\n${text}`;
+						}
+					}
+				} catch {
+					// Screen capture is best-effort: never block a text submit on it.
+				}
+			}
 
 			if (runner?.hasHandlers("input")) {
 				const result = await runner.emitInput(text, inputImages, "interactive");
