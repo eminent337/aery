@@ -45,7 +45,7 @@ import {
 	setProjectDir,
 } from "@aryee337/aery-utils";
 import chalk from "chalk";
-import { AMBIENT_DELIVER_CHANNEL, type AmbientDeliverEvent } from "../ambient/scheduler";
+import type { ScheduledItem } from "../ambient/scheduler";
 import { reset as resetCapabilities } from "../capability";
 import { KeybindingsManager } from "../config/keybindings";
 import { MODEL_ROLES, type ModelRole } from "../config/model-registry";
@@ -92,6 +92,7 @@ import type { LspStartupServerInfo } from "../tools";
 import { normalizeLocalScheme } from "../tools/path-utils";
 import { setAutoQaConsentHandler } from "../tools/report-tool-issue";
 import { type ResolveToolDetails, runResolveInvocation } from "../tools/resolve";
+import { registerAmbientDeliveryTarget } from "../tools/schedule";
 import { formatPhaseDisplayName, selectStickyTodoWindow, todoMatchesAnyDescription } from "../tools/todo-write";
 import { ToolError } from "../tools/tool-errors";
 import { getRecentPrompts } from "../utils/composer-cache";
@@ -401,12 +402,16 @@ export class InteractiveMode implements InteractiveModeContext {
 					this.#handleLspStartupEvent(data as LspStartupEvent);
 				}),
 			);
-			this.#eventBusUnsubscribers.push(
-				eventBus.on(AMBIENT_DELIVER_CHANNEL, data => {
-					this.#handleAmbientDeliver(data as AmbientDeliverEvent);
-				}),
-			);
 		}
+		// Register as this session's ambient-task delivery target: due scheduled
+		// items are injected as hidden turns once this session is idle. The
+		// returned disposer runs via stop()'s unsubscribe loop below.
+		this.#eventBusUnsubscribers.push(
+			registerAmbientDeliveryTarget(this.sessionManager.getSessionId(), {
+				canDeliver: () => this.#canAcceptAmbientDelivery(),
+				deliver: item => this.#deliverAmbientItem(item),
+			}),
+		);
 
 		this.ui = new TUI(new ProcessTerminal(), settings.get("showHardwareCursor"));
 		this.ui.setClearOnShrink(settings.get("clearOnShrink"));
@@ -2520,17 +2525,20 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.showWarning(`LSP startup failed for ${failedNames}. It will retry lazily on write.`);
 		}
 	}
-	#handleAmbientDeliver(event: AmbientDeliverEvent): void {
+	#canAcceptAmbientDelivery(): boolean {
 		// Only deliver into an idle, empty prompt: session awaiting input, not
 		// streaming/compacting, no pending submission, and the user is not
 		// mid-composing (injecting would clear their draft).
-		if (!this.onInputCallback) return;
-		if (this.#pendingSubmittedInput) return;
-		if (this.session.isStreaming || this.session.isCompacting || this.session.hasPostPromptWork) return;
-		if (this.editor.getText().trim().length > 0) return;
-		if ((this.pendingImages?.length ?? 0) > 0) return;
-		const item = event.item;
-		this.onInputCallback(
+		if (!this.onInputCallback) return false;
+		if (this.#pendingSubmittedInput) return false;
+		if (this.session.isStreaming || this.session.isCompacting || this.session.hasPostPromptWork) return false;
+		if (this.editor.getText().trim().length > 0) return false;
+		if ((this.pendingImages?.length ?? 0) > 0) return false;
+		return true;
+	}
+
+	#deliverAmbientItem(item: ScheduledItem): void {
+		this.onInputCallback?.(
 			this.startPendingSubmission({
 				text: item.message,
 				customType: "ambient",
