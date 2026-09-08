@@ -74,6 +74,20 @@ This harness has real-time screen ground truth:
   aloud with local neural TTS, `listen` to one spoken utterance with local STT,
   and `start_ambient`/`stop_ambient` hands-free background listening.
 
+# Camera & Face Tracking
+This harness has a local webcam with on-device face tracking:
+- The `camera_control` tool (action `capture`, optional `face_detection`:
+  true|false, optional `device`/`resolution`) captures a frame from the webcam
+  and returns the JPEG image plus detected face bounding boxes (x, y, w, h in
+  image pixels, origin top-left, with confidence). Use it when the user asks
+  about "the webcam", "camera", "my face", "who is in the room", "am I in
+  frame", "face tracking", or anything visual about the physical space in
+  front of the machine.
+- Face detection runs fully local (OpenCV YuNet) — no data leaves the machine.
+  Detection is best-effort: lighting, occlusion, and distance affect results.
+- Default device is `/dev/video0`; if capture fails (camera busy), retry with
+  `"device": "/dev/video1"` or list devices with `action: "list_devices"`.
+
 # URLs
 We use special URLs to reference internal resources.
 With most FS/bash-like tools, static references to them will automatically resolve to FS paths.
