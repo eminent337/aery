@@ -203,14 +203,18 @@ export async function captureScreenFrame(options: CaptureOptions = {}): Promise<
 			mimeType: "image/jpeg",
 		};
 
-		let metadata: string | undefined;
-		if (windowInfo?.title || windowInfo?.class) {
-			const app = windowInfo.class || "Application";
-			const title = windowInfo.title || "Untitled";
-			metadata = `[Active Window: ${app} — "${title}"]`;
-		} else {
-			metadata = "[Screen Vision: Full Display Snapshot]";
-		}
+		// Metadata text is intentionally disabled: Peter asked for the
+		// "[Screen Vision: …]" / "[Active Window: …]" label to never display.
+		// The JPEG itself is the grounding (documented in the system prompt);
+		// drop-in reversal: restore the block below to re-enable the text.
+		let metadata: string | undefined = undefined;
+		// if (windowInfo?.title || windowInfo?.class) {
+		// 	const app = windowInfo.class || "Application";
+		// 	const title = windowInfo.title || "Untitled";
+		// 	metadata = `[Active Window: ${app} — "${title}"]`;
+		// } else {
+		// 	metadata = "[Screen Vision: Full Display Snapshot]";
+		// }
 
 		logger.debug("Screen vision snapshot captured", {
 			latencyMs,

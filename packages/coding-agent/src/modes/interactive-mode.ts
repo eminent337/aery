@@ -83,7 +83,6 @@ import { STTController, type SttState, type ToggleOptions } from "../stt";
 import {
 	captureScreenFrame,
 	getAmbientFramesForTurn,
-	getAmbientFrameMetadata,
 	startAmbientScreenBuffer,
 	stopAmbientScreenBuffer,
 } from "../voice/screen-vision";
@@ -2839,12 +2838,9 @@ export class InteractiveMode implements InteractiveModeContext {
 						}
 						if (frames.length > 0) {
 							images = frames;
-							const ambientMeta = getAmbientFrameMetadata();
-							const liveMeta = vision.metadata;
-							const meta = [ambientMeta, liveMeta].filter(Boolean).join(" · ");
-							if (meta) {
-								promptText = `${meta}\n\n${trimmed}`;
-							}
+							// No "[Screen Vision: …]" text prefix: the images themselves are
+							// the grounding and the system prompt already tells the model these
+							// are Live Eye snapshots. Keeps the visible message clean.
 						}
 					} catch (err) {
 						logger.debug("Screen vision capture skipped", { error: err });
