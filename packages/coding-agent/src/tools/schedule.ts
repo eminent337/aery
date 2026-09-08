@@ -9,7 +9,7 @@
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import { untilAborted } from "@aryee337/aery-utils";
 import * as z from "zod/v4";
-import { AmbientScheduler, type SchedulePriority } from "../ambient/scheduler";
+import { AmbientScheduler, AMBIENT_DELIVER_CHANNEL, type SchedulePriority } from "../ambient/scheduler";
 import type { EventBus } from "../utils/event-bus";
 import type { ToolSession } from "./index";
 
@@ -38,7 +38,7 @@ function startPolling(sessionId: string, scheduler: AmbientScheduler, bus: Event
 	const interval = setInterval(() => {
 		const due = scheduler.collectDue();
 		for (const item of due) {
-			void bus.emit("ambient:deliver", {
+			void bus.emit(AMBIENT_DELIVER_CHANNEL, {
 				type: "ambient_deliver",
 				item,
 				sessionId,

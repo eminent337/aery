@@ -33,6 +33,16 @@ export type AmbientEvent =
 	| { type: "item_scheduled"; item: ScheduledItem }
 	| { type: "scheduler_tick"; itemsChecked: number; itemsExecuted: number };
 
+/** Bus channel for delivering a due ambient item to its target session. */
+export const AMBIENT_DELIVER_CHANNEL = "ambient:deliver";
+
+/** Event payload emitted on AMBIENT_DELIVER_CHANNEL when an item comes due. */
+export type AmbientDeliverEvent = {
+	type: "ambient_deliver";
+	item: ScheduledItem;
+	sessionId: string;
+};
+
 const PRIORITY_WEIGHT: Record<SchedulePriority, number> = {
 	low: 1,
 	normal: 2,

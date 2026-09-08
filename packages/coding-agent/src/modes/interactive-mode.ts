@@ -45,6 +45,7 @@ import {
 	setProjectDir,
 } from "@aryee337/aery-utils";
 import chalk from "chalk";
+import { AMBIENT_DELIVER_CHANNEL, type AmbientDeliverEvent } from "../ambient/scheduler";
 import { reset as resetCapabilities } from "../capability";
 import { KeybindingsManager } from "../config/keybindings";
 import { MODEL_ROLES, type ModelRole } from "../config/model-registry";
@@ -398,6 +399,11 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.#eventBusUnsubscribers.push(
 				eventBus.on(LSP_STARTUP_EVENT_CHANNEL, data => {
 					this.#handleLspStartupEvent(data as LspStartupEvent);
+				}),
+			);
+			this.#eventBusUnsubscribers.push(
+				eventBus.on(AMBIENT_DELIVER_CHANNEL, data => {
+					this.#handleAmbientDeliver(data as AmbientDeliverEvent);
 				}),
 			);
 		}
@@ -2513,6 +2519,24 @@ export class InteractiveMode implements InteractiveModeContext {
 			const failedNames = failedServers.map(server => server.name).join(", ");
 			this.showWarning(`LSP startup failed for ${failedNames}. It will retry lazily on write.`);
 		}
+	}
+	#handleAmbientDeliver(event: AmbientDeliverEvent): void {
+		// Only deliver into an idle, empty prompt: session awaiting input, not
+		// streaming/compacting, no pending submission, and the user is not
+		// mid-composing (injecting would clear their draft).
+		if (!this.onInputCallback) return;
+		if (this.#pendingSubmittedInput) return;
+		if (this.session.isStreaming || this.session.isCompacting || this.session.hasPostPromptWork) return;
+		if (this.editor.getText().trim().length > 0) return;
+		if ((this.pendingImages?.length ?? 0) > 0) return;
+		const item = event.item;
+		this.onInputCallback(
+			this.startPendingSubmission({
+				text: item.message,
+				customType: "ambient",
+				display: false,
+			}),
+		);
 	}
 
 	#getWelcomeLspServers(): WelcomeLspServerInfo[] {
