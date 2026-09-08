@@ -127,7 +127,7 @@ function findDeviceCandidates(): string[] {
 interface WatchFrame {
 	kind: "screen" | "camera";
 	at: number;
-	faces: number;
+	faces?: number;
 	note?: string;
 }
 
@@ -174,7 +174,6 @@ export class CameraWatchLoop {
 					CameraWatchLoop.#push({
 						kind: "screen",
 						at: Date.now(),
-						faces: -1,
 						note: v.image ? `screen ${v.image.data.length}B` : "screen capture empty",
 					});
 				})
