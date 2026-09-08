@@ -12,6 +12,7 @@ export function resolvePython(): string | null {
 	return null;
 }
 import { transcribeWithGroq } from "../voice/groq-whisper";
+import { reportAudioEnergy } from "../voice/aec-watchdog";
 
 export interface TranscribeOptions {
 	modelName?: string;
@@ -31,18 +32,29 @@ export async function transcribe(audioPath: string, options?: TranscribeOptions)
 
 	const buf = Buffer.from(await audioFile.arrayBuffer());
 
-	// Energy gate: Groq whisper-large-v3 hallucinates fluent phrases ("Thank you.",
-	// "I'm going to go ahead and do that.") from digital silence at temperature 0,
-	// and its no_speech_prob filter does not catch these. Confirmed experimentally:
-	// a 9.8s capture of ~RMS 14-20 (digital noise floor) transcribed as "Thank you."
-	// Rejected here before any network round-trip by measuring true AC RMS (DC mean
-	// subtracted per chunk) on 16-bit mono PCM. 350 is well above the observed
-	// digital floor (~20) and echo-cancel ambient (~20-30), and far below real
-	// speech (thousands).
+	// Energy gate, two tiers, calibrated on live evidence:
+	// - Groq whisper-large-v3 hallucinates fluent phrases ("Thank you.") from
+	//   digital silence at temperature 0; no_speech_prob does not catch it.
+	// - The echo-cancel source delivers real speech at a WIDE dynamic range:
+	//   healthy bench captures land at 500-5500 RMS, but when the WebRTC AEC's
+	//   adaptive filter mis-converges (CPU starvation), Peter's actual speech
+	//   arrives at 100-250 RMS — the old fixed 350 gate rejected it as silence
+	//   ("No speech detected" after the first turn).
+	// - Below 60 RMS it is digital floor (20-40): reject before network.
+	// - 60-350: whisper it to Groq anyway (better than dropping real speech),
+	//   but log it so AEC collapse is visible in the logs.
 	const speechRms = measureSpeechRms(buf);
-	if (speechRms < 350) {
+	if (speechRms < 60) {
 		logger.debug("Silence gate: rejecting near-silent audio before STT", { speechRms });
+		reportAudioEnergy(speechRms);
 		return "";
+	}
+	if (speechRms < 350) {
+		// Real speech arriving weak — likely echo-cancel mis-convergence. Feed the
+		// watchdog (3 consecutive weak recordings reload the AEC) but still try to
+		// transcribe: dropping Peter's speech is worse than a weak transcript.
+		logger.warn("Low audio energy on STT input (possible AEC mis-convergence)", { speechRms });
+		reportAudioEnergy(speechRms);
 	}
 
 	// 1. Fast path: Groq LPU Whisper (~150ms latency, checks env & agent.db)

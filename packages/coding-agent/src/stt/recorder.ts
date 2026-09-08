@@ -88,7 +88,7 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 				// TRUE BARGE-IN INTERRUPTION (Google Gemini Live / Grok style):
 				// If Aerys is speaking through speakers, detect user interruption and cut off speech instantly!
 				if (defaultVoiceEngine.isSpeaking) {
-					if (rms >= Math.max(2200, dynamicSpeechThreshold * 1.3)) {
+					if (rms >= Math.max(300, dynamicSpeechThreshold * 1.3)) {
 						if (!hasSpoken) {
 							// Fresh interrupt: stop TTS mid-word and start collecting user speech
 							defaultVoiceEngine.stopSpeaking();
@@ -117,8 +117,12 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 					ambientSum += rms;
 					ambientCount++;
 					const ambientAvg = ambientSum / ambientCount;
-					// Dynamic speech threshold: bounded between 1400 and 3200 RMS
-					dynamicSpeechThreshold = Math.max(1400, Math.min(3200, Math.round(ambientAvg * 1.8 + 350)));
+					// Dynamic speech threshold calibrated for the echo-cancel source:
+					// WebRTC AEC + noise suppression drops ambient to ~20-30 RMS and
+					// real speech to ~100-2500 RMS (live-session evidence). The old
+					// max(1400, ...) raw-mic floor rejected Peter's actual speech as
+					// silence. 4x ambient, floored at 120.
+					dynamicSpeechThreshold = Math.max(120, Math.min(3200, Math.round(ambientAvg * 4.0)));
 				}
 
 				if (rms >= dynamicSpeechThreshold) {
