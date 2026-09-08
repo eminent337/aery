@@ -1214,12 +1214,35 @@ export const SETTINGS_SCHEMA = {
 
 	"voice.autoSpeak": {
 		type: "boolean",
-		default: false,
+		default: true,
 		ui: {
 			tab: "interaction",
 			group: "Voice",
 			label: "Auto-Speak Responses",
 			description: "Speak concise conversational turn summaries out loud with Aerys's neural voice",
+		},
+	},
+
+	"voice.screenVision": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "interaction",
+			group: "Voice",
+			label: "Live Eye Screen Vision",
+			description: "Attach an instant snapshot of the active window to voice turns for Astra-style visual grounding",
+		},
+	},
+
+	"voice.screenVisionTarget": {
+		type: "enum",
+		values: ["active_window", "fullscreen"] as const,
+		default: "active_window",
+		ui: {
+			tab: "interaction",
+			group: "Voice",
+			label: "Screen Vision Target",
+			description: "Capture the focused active window or entire display",
 		},
 	},
 

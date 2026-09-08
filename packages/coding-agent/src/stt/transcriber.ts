@@ -12,6 +12,7 @@ export function resolvePython(): string | null {
 	return null;
 }
 import { transcribeWithGroq } from "../voice/groq-whisper";
+import { reportAudioEnergy } from "../voice/aec-watchdog";
 
 export interface TranscribeOptions {
 	modelName?: string;
@@ -30,6 +31,31 @@ export async function transcribe(audioPath: string, options?: TranscribeOptions)
 	}
 
 	const buf = Buffer.from(await audioFile.arrayBuffer());
+
+	// Energy gate, two tiers, calibrated on live evidence:
+	// - Groq whisper-large-v3 hallucinates fluent phrases ("Thank you.") from
+	//   digital silence at temperature 0; no_speech_prob does not catch it.
+	// - The echo-cancel source delivers real speech at a WIDE dynamic range:
+	//   healthy bench captures land at 500-5500 RMS, but when the WebRTC AEC's
+	//   adaptive filter mis-converges (CPU starvation), Peter's actual speech
+	//   arrives at 100-250 RMS — the old fixed 350 gate rejected it as silence
+	//   ("No speech detected" after the first turn).
+	// - Below 60 RMS it is digital floor (20-40): reject before network.
+	// - 60-350: whisper it to Groq anyway (better than dropping real speech),
+	//   but log it so AEC collapse is visible in the logs.
+	const speechRms = measureSpeechRms(buf);
+	if (speechRms < 60) {
+		logger.debug("Silence gate: rejecting near-silent audio before STT", { speechRms });
+		reportAudioEnergy(speechRms);
+		return "";
+	}
+	if (speechRms < 350) {
+		// Real speech arriving weak — likely echo-cancel mis-convergence. Feed the
+		// watchdog (3 consecutive weak recordings reload the AEC) but still try to
+		// transcribe: dropping Peter's speech is worse than a weak transcript.
+		logger.warn("Low audio energy on STT input (possible AEC mis-convergence)", { speechRms });
+		reportAudioEnergy(speechRms);
+	}
 
 	// 1. Fast path: Groq LPU Whisper (~150ms latency, checks env & agent.db)
 	try {
@@ -51,4 +77,47 @@ export async function transcribe(audioPath: string, options?: TranscribeOptions)
 	// spins the fans up to 5100 RPM, and the fan roar then drowns out the microphone.
 	// Groq LPU is the sole STT engine.
 	return "";
+}
+
+/**
+ * True AC RMS of a WAV buffer (16-bit PCM), matching the recorder's DC-subtraction
+ * approach: split into ~100ms chunks, subtract each chunk's mean (removes DC offset
+ * and low-frequency drift), then average per-chunk RMS across chunks. Chunk-local
+ * means keep drifting mic bias (ALC3235) from faking energy.
+ */
+export function measureSpeechRms(wav: Buffer): number {
+	// Locate PCM data via RIFF chunk walk (streaming headers may carry size 0).
+	let off = 12;
+	let dataStart = -1;
+	let dataLen = 0;
+	while (off + 8 <= wav.length) {
+		const id = wav.toString("ascii", off, off + 4);
+		const size = wav.readUInt32LE(off + 4);
+		if (id === "data") {
+			dataStart = off + 8;
+			dataLen = size && size !== 0xffffffff ? size : wav.length - dataStart;
+			break;
+		}
+		off += 8 + size + (size % 2);
+	}
+	if (dataStart < 0 || dataLen < 2) return 0;
+
+	const sampleCount = Math.floor(dataLen / 2);
+	const chunkSamples = 1600; // ~100ms @16kHz; exact rate is irrelevant for RMS
+	let sumSquares = 0;
+	let chunkCount = 0;
+	for (let start = 0; start < sampleCount; start += chunkSamples) {
+		const end = Math.min(start + chunkSamples, sampleCount);
+		let mean = 0;
+		for (let i = start; i < end; i++) mean += wav.readInt16LE(dataStart + i * 2);
+		mean /= end - start;
+		let rmsAcc = 0;
+		for (let i = start; i < end; i++) {
+			const v = wav.readInt16LE(dataStart + i * 2) - mean;
+			rmsAcc += v * v;
+		}
+		sumSquares += rmsAcc / (end - start);
+		chunkCount++;
+	}
+	return Math.sqrt(sumSquares / chunkCount);
 }

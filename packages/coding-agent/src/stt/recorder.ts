@@ -8,6 +8,12 @@ import { $ } from "bun";
 
 export interface RecordingHandle {
 	stop(): Promise<void>;
+	/**
+	 * Wall-clock timestamp (Date.now()) of detected speech onset, if speech was
+	 * detected. Consumers use it to fetch the visual context (Astra-style
+	 * ambient screen frame) from when the user BEGAN talking.
+	 */
+	speechStartedAt(): number | undefined;
 }
 
 const isWindows = process.platform === "win32";
@@ -53,6 +59,7 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 
 	const chunks: Buffer[] = [];
 	let hasSpoken = false;
+	let speechStartedAt: number | undefined;
 	let lastSpeechTime = 0;
 	let speechStartTime = 0;
 	const recordingStartTime = Date.now();
@@ -71,36 +78,57 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done || !value) break;
-
-				// HARD MUTE: Drop all microphone input while Aerys is speaking or echoing
-				if (defaultVoiceEngine.isSpeaking) {
-					chunks.length = 0;
-					hasSpoken = false;
-					ambientSum = 0;
-					ambientCount = 0;
-					continue;
-				}
 				chunkIndex++;
 				// Skip initial PipeWire audio stream open pop
 				if (chunkIndex <= 3) continue;
 
 				const chunk = Buffer.from(value);
-				chunks.push(chunk);
-
 				const rms = computeRms(chunk);
+
+				// TRUE BARGE-IN INTERRUPTION (Google Gemini Live / Grok style):
+				// If Aerys is speaking through speakers, detect user interruption and cut off speech instantly!
+				if (defaultVoiceEngine.isSpeaking) {
+					if (rms >= Math.max(300, dynamicSpeechThreshold * 1.3)) {
+						if (!hasSpoken) {
+							// Fresh interrupt: stop TTS mid-word and start collecting user speech
+							defaultVoiceEngine.stopSpeaking();
+							hasSpoken = true;
+							speechStartTime = Date.now();
+							speechStartedAt = speechStartTime;
+							chunks.length = 0;
+						}
+						lastSpeechTime = Date.now();
+						chunks.push(chunk);
+					} else if (!hasSpoken) {
+						// Speaker bleed before any interrupt: discard, keep calibrating fresh
+						chunks.length = 0;
+						ambientSum = 0;
+						ambientCount = 0;
+					}
+					// (hasSpoken && quiet) during the 500ms reverb window: keep collected
+					// interrupt speech, drop only this bleed chunk.
+					continue;
+				}
+
+				chunks.push(chunk);
 
 				// Calibrate ambient noise floor from the first ~300-500ms of pre-speech chunks
 				if (!hasSpoken && ambientCount < 15) {
 					ambientSum += rms;
 					ambientCount++;
 					const ambientAvg = ambientSum / ambientCount;
-					// Dynamic speech threshold: bounded between 1400 and 3200 RMS
-					dynamicSpeechThreshold = Math.max(1400, Math.min(3200, Math.round(ambientAvg * 1.8 + 350)));
+					// Dynamic speech threshold calibrated for the echo-cancel source:
+					// WebRTC AEC + noise suppression drops ambient to ~20-30 RMS and
+					// real speech to ~100-2500 RMS (live-session evidence). The old
+					// max(1400, ...) raw-mic floor rejected Peter's actual speech as
+					// silence. 4x ambient, floored at 120.
+					dynamicSpeechThreshold = Math.max(120, Math.min(3200, Math.round(ambientAvg * 4.0)));
 				}
 
 				if (rms >= dynamicSpeechThreshold) {
 					if (!hasSpoken) {
 						speechStartTime = Date.now();
+						speechStartedAt = speechStartTime;
 					}
 					hasSpoken = true;
 					lastSpeechTime = Date.now();
@@ -126,7 +154,6 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 			}
 		} catch {}
 	})();
-
 	return {
 		async stop() {
 			proc.kill("SIGTERM");
@@ -134,6 +161,9 @@ async function startPwRecordRecording(outputPath: string, onSilenceTimeout?: () 
 			const pcm = Buffer.concat(chunks);
 			const wav = pcmToWav(pcm);
 			await fs.writeFile(outputPath, wav);
+		},
+		speechStartedAt() {
+			return speechStartedAt;
 		},
 	};
 }
@@ -151,6 +181,9 @@ async function startSoxRecording(outputPath: string): Promise<RecordingHandle> {
 		async stop() {
 			proc.kill("SIGTERM");
 			await proc.exited;
+		},
+		speechStartedAt() {
+			return undefined;
 		},
 	};
 }
@@ -227,6 +260,9 @@ async function startFFmpegRecording(outputPath: string): Promise<RecordingHandle
 			await proc.exited;
 			clearTimeout(killTimer);
 		},
+		speechStartedAt() {
+			return undefined;
+		},
 	};
 }
 
@@ -240,6 +276,9 @@ async function startArecordRecording(outputPath: string): Promise<RecordingHandl
 		async stop() {
 			proc.kill("SIGTERM");
 			await proc.exited;
+		},
+		speechStartedAt() {
+			return undefined;
 		},
 	};
 }
@@ -368,6 +407,9 @@ async function startPowerShellRecording(outputPath: string): Promise<RecordingHa
 			clearTimeout(killTimer);
 			// Clean up temp script
 			fs.unlink(scriptPath).catch(() => {});
+		},
+		speechStartedAt() {
+			return undefined;
 		},
 	};
 }
