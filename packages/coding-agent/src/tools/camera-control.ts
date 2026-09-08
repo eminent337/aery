@@ -265,11 +265,12 @@ export class CameraWatchLoop {
 	readonly approval = "read" as const;
 	readonly label = "Camera Control";
 	readonly description =
-		"Webcam capture and face-tracking tool. Captures a frame from the local webcam and optionally runs on-device face detection (OpenCV YuNet), returning the JPEG image plus detected face bounding boxes.";
+		"Webcam and screen camera tool. Captures webcam frames with on-device face detection (YuNet) and face recognition (SFace), records webcam or screen video to mp4, and runs a live-watch loop (screen snapshots + camera face identification) while the user works. Fully local — no data leaves the machine.";
 	readonly parameters = cameraControlSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary = "Webcam capture and face tracking (capture frames, detect faces)";
+	readonly summary =
+		"Camera: webcam capture, face recognition (who), record webcam/screen video, live-watch mode";
 
 	static createIf(_session: ToolSession): CameraControlTool | null {
 		return new CameraControlTool();
