@@ -1,15 +1,19 @@
 /**
- * Schedule tool — queue a future ambient task in the priority scheduler.
+ * Schedule tool — queue a future ambient task delivered to the interactive
+ * session once it is idle.
  *
  * Ported from jcode upstream (crates/jcode-app-core/src/tool/ambient.rs
- * ScheduleTool). Creates a ScheduledItem with a future due time and
- * priority, delivered via the ambient event bus.
+ * ScheduleTool). Creates a ScheduledItem with a future due time and priority.
+ * A per-session poller holds due items until the session's delivery target
+ * reports that it can accept a hidden injected turn, then hands the item over.
+ * Items are never dropped just because the session was busy at the due instant
+ * — they stay queued and are retried on the next poll tick.
  */
 
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import { untilAborted } from "@aryee337/aery-utils";
 import * as z from "zod/v4";
-import { AmbientScheduler, AMBIENT_DELIVER_CHANNEL, type SchedulePriority } from "../ambient/scheduler";
+import { AmbientScheduler, type ScheduledItem, type SchedulePriority } from "../ambient/scheduler";
 import type { EventBus } from "../utils/event-bus";
 import type { ToolSession } from "./index";
 
@@ -26,26 +30,87 @@ const PRIORITY_SET: ReadonlySet<string> = new Set(["low", "normal", "high"]);
 
 type AmbientPollerHandle = ReturnType<typeof setInterval>;
 
-/** Global schedulers per session, persists across tool calls */
-const sessionSchedulers = new Map<string, AmbientScheduler>();
+/** Poll cadence for due items. */
+const POLL_INTERVAL_MS = 5_000;
 
-/** Polling intervals per session */
-const sessionPollers = new Map<string, AmbientPollerHandle>();
+/** How long a due item may wait for an idle session before being dropped. */
+const AMBIENT_STALE_AFTER_MS = 30 * 60 * 1000;
 
-/** Start polling for due items */
-function startPolling(sessionId: string, scheduler: AmbientScheduler, bus: EventBus): void {
-	if (sessionPollers.has(sessionId)) return;
-	const interval = setInterval(() => {
-		const due = scheduler.collectDue();
-		for (const item of due) {
-			void bus.emit(AMBIENT_DELIVER_CHANNEL, {
-				type: "ambient_deliver",
-				item,
-				sessionId,
-			});
+/**
+ * A delivery target (the interactive UI) attached to a session. The poller
+ * only hands a due item over when `canDeliver()` reports the session is ready.
+ */
+export interface AmbientDeliveryTarget {
+	/** Whether the session can accept a hidden injected turn right now. */
+	canDeliver(): boolean;
+	/** Deliver the due item as a hidden injected turn. */
+	deliver(item: ScheduledItem): void;
+}
+
+type SessionAmbientState = {
+	scheduler: AmbientScheduler;
+	poller: AmbientPollerHandle;
+};
+
+/** Global per-session scheduler state, persists across tool calls. */
+const sessionAmbient = new Map<string, SessionAmbientState>();
+
+/** Delivery targets registered by interactive UIs, keyed by session id. */
+const sessionTargets = new Map<string, AmbientDeliveryTarget>();
+
+/** Poll for due items and hand them to the session when it is idle. */
+function tick(sessionId: string): void {
+	const state = sessionAmbient.get(sessionId);
+	if (!state) return;
+	const target = sessionTargets.get(sessionId);
+	const now = Date.now();
+	for (const item of [...state.scheduler.items]) {
+		if (item.dueAt > now) continue;
+		if (!target || !target.canDeliver()) {
+			// Busy or unattached: keep the item queued and retry next tick,
+			// but do not hold a due item forever.
+			if (now - item.dueAt > AMBIENT_STALE_AFTER_MS) {
+				state.scheduler.cancel(item.id);
+				console.warn(`[ambient] dropped stale scheduled task ${item.id} (session never became idle)`);
+			}
+			continue;
 		}
-	}, 10_000);
-	sessionPollers.set(sessionId, interval);
+		state.scheduler.cancel(item.id);
+		try {
+			target.deliver(item);
+		} catch (error) {
+			console.error(`[ambient] delivery failed for scheduled task ${item.id}`, error);
+		}
+	}
+}
+
+/**
+ * Attach (or replace) the delivery target for a session. Returns a dispose
+ * function; call it when the session UI tears down.
+ */
+export function registerAmbientDeliveryTarget(
+	sessionId: string,
+	target: AmbientDeliveryTarget,
+): () => void {
+	sessionTargets.set(sessionId, target);
+	return () => {
+		if (sessionTargets.get(sessionId) === target) {
+			sessionTargets.delete(sessionId);
+		}
+	};
+}
+
+/** Ensure a scheduler + poller exist for the session and return its scheduler. */
+function getOrCreateState(sessionId: string, bus: EventBus): AmbientScheduler {
+	let state = sessionAmbient.get(sessionId);
+	if (!state) {
+		state = {
+			scheduler: new AmbientScheduler(sessionId, bus),
+			poller: setInterval(() => tick(sessionId), POLL_INTERVAL_MS),
+		};
+		sessionAmbient.set(sessionId, state);
+	}
+	return state.scheduler;
 }
 
 export class ScheduleTool implements AgentTool<typeof scheduleSchema> {
@@ -53,7 +118,7 @@ export class ScheduleTool implements AgentTool<typeof scheduleSchema> {
 	readonly approval = "read" as const;
 	readonly label = "Schedule";
 	readonly description =
-		"Queue a future ambient task. The task fires at `dueAt` (unix ms) and is delivered to this session via the ambient event bus. Use for deferred follow-ups, reminders, and proactive background work.";
+		"Queue a future ambient task. The task fires at `dueAt` (unix ms) and is delivered to this session as a hidden turn once the session is idle. Use for deferred follow-ups, reminders, and proactive background work.";
 	readonly parameters = scheduleSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
@@ -65,13 +130,7 @@ export class ScheduleTool implements AgentTool<typeof scheduleSchema> {
 		const bus = session.eventBus;
 		if (!bus) return null;
 		const sessionId = session.getSessionId?.() ?? "default";
-		let scheduler = sessionSchedulers.get(sessionId);
-		if (!scheduler) {
-			scheduler = new AmbientScheduler(sessionId, bus);
-			sessionSchedulers.set(sessionId, scheduler);
-			startPolling(sessionId, scheduler, bus);
-		}
-		return new ScheduleTool(scheduler);
+		return new ScheduleTool(getOrCreateState(sessionId, bus));
 	}
 
 	async execute(_id: string, params: ScheduleToolParams, signal?: AbortSignal): Promise<AgentToolResult> {
