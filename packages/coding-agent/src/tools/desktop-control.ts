@@ -1,3 +1,4 @@
+import { buildEyeGeometry, describeEyeTarget } from "./live-eye";
 /**
  * Desktop Control & Screen Vision Tool.
  *
@@ -72,6 +73,7 @@ const desktopControlSchema = z.object({
 		.enum([
 			"screenshot",
 			"list_windows",
+			"live_eye",
 			"focus_window",
 			"close_window",
 			"switch_workspace",
@@ -97,7 +99,18 @@ const desktopControlSchema = z.object({
 			"xvfb_close",
 		])
 		.describe(
-			"Actions: 'screenshot' captures display/window, 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window — take a 'screenshot' first (its downscaled image IS the coordinate frame) then give x,y (and x2,y2 for drag) as frame px; 'live_backend_probe'/'live_mode_status' report backend + gate state.",
+			"Actions: 'screenshot' captures display/window, 'live_eye' takes a fast glance (active window, fullscreen, a window by query, or a physical-px region) and marks it ephemeral so older eye views are swept from context at the next user prompt, 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
+		),
+	region: z
+		.object({
+			x: z.number().int().min(0).describe("Physical-screen X (top-left of crop)."),
+			y: z.number().int().min(0).describe("Physical-screen Y (top-left of crop)."),
+			w: z.number().int().min(1).describe("Crop width in physical px."),
+			h: z.number().int().min(1).describe("Crop height in physical px."),
+		})
+		.optional()
+		.describe(
+			"Physical-pixel rectangle for 'live_eye' — a crop of the ENTIRE desktop, independent of any window. The eye looks anywhere.",
 		),
 	command: z
 		.string()
@@ -328,7 +341,13 @@ async function getHyprlandActiveWindow(): Promise<DesktopWindowInfo | undefined>
 let liveModeEnabled = false;
 let lastInputFrame: InputFrame | null = null;
 
-const LIVE_GATE_ACTIONS = new Set<string>(["live_mode_on", "live_mode_off", "live_mode_status", "live_backend_probe"]);
+const LIVE_GATE_ACTIONS = new Set<string>([
+	"live_mode_on",
+	"live_mode_off",
+	"live_mode_status",
+	"live_backend_probe",
+	"live_eye", // read-tier glance: capture-only, marks itself ephemeral
+]);
 const liveAuthorizedKinds = new Set<string>();
 
 function liveApprovalDecision(args: unknown): ToolApprovalDecision {
@@ -704,8 +723,15 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 	readonly summary =
 		"Desktop vision + live app-control (screenshots, window mgmt, and live_* click/type/key/drag/scroll on the focused window via ydotool/wtype/xdotool; opt-in app-control mode)";
 
-	static createIf(_session: ToolSession): DesktopControlTool | null {
-		return new DesktopControlTool();
+	static createIf(session: ToolSession): DesktopControlTool | null {
+		return new DesktopControlTool(session);
+	}
+
+	/** Host session — optional so probes/tests can construct the tool standalone. */
+	private readonly session?: ToolSession;
+
+	constructor(session?: ToolSession) {
+		this.session = session;
 	}
 
 	async execute(_id: string, params: DesktopControlParams): Promise<AgentToolResult> {
@@ -1283,6 +1309,88 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					details: details as unknown as Record<string, unknown>,
 				};
 			}
+
+		case "live_eye": {
+			// Fast glance. Ephemeral by design: each eye view is marked
+			// details.liveEye so the session can sweep old eye images from
+			// context at the next user prompt (steady state: ~1 eye image).
+			const includeBase64 = params.includeBase64 ?? true;
+			const timestamp = Date.now();
+			const tmpRaw = path.join(os.tmpdir(), `aerys-eye-${timestamp}-raw.png`);
+			const tmpFinal = path.join(os.tmpdir(), `aerys-eye-${timestamp}.png`);
+
+			// Resolve what to look at: explicit region > window target > active window.
+			let geometry: string | undefined;
+			let targetWindow: DesktopWindowInfo | undefined;
+			let targetDesc: string;
+			if (params.region) {
+				geometry = buildEyeGeometry(params.region, undefined);
+				targetDesc = `region ${geometry}`;
+			} else {
+				const target = params.target ?? "active_window";
+				if (isHyprland()) {
+					if (target === "active_window") {
+						targetWindow = await getHyprlandActiveWindow();
+					} else if (target !== "fullscreen") {
+						const windows = await getHyprlandWindows();
+						const q = target.toLowerCase();
+						targetWindow =
+							windows.find(w => w.address.toLowerCase() === q) ||
+							windows.find(w => w.class.toLowerCase().includes(q)) ||
+							windows.find(w => w.title.toLowerCase().includes(q));
+					}
+					geometry = buildEyeGeometry(undefined, targetWindow);
+				}
+				targetDesc = describeEyeTarget(targetWindow, geometry, target);
+			}
+
+			// Ephemeral sweep: drop previous eye images from history BEFORE capturing
+			// the new one (best-effort; tolerated if the host lacks the hook).
+			let swept = 0;
+			try {
+				swept = (await this.session?.dropLiveEyeImages?.()) ?? 0;
+			} catch {}
+
+			const capRes = await runCmd("grim", geometry ? ["-g", geometry, tmpRaw] : [tmpRaw]);
+			if (capRes.code !== 0) {
+				return {
+					content: [{ type: "text", text: `live_eye capture failed: ${capRes.stderr}` }],
+					details: { error: capRes.stderr, swept },
+				};
+			}
+
+			const maxWidth = params.maxWidth ?? 1280;
+			const maxHeight = params.maxHeight ?? 800;
+			let finalPath = tmpRaw;
+			const resizeRes = await runCmd("convert", [tmpRaw, "-resize", `${maxWidth}x${maxHeight}>`, tmpFinal]);
+			if (resizeRes.code === 0 && fs.existsSync(tmpFinal)) {
+				finalPath = tmpFinal;
+			}
+
+			let base64 = "";
+			if (includeBase64) {
+				try {
+					base64 = (await fs.promises.readFile(finalPath)).toString("base64");
+				} catch {}
+			}
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,
+					},
+					...(base64 ? [{ type: "image" as const, data: base64, mimeType: "image/png" }] : []),
+				],
+				details: {
+					action: "live_eye",
+					liveEye: { at: timestamp },
+					filePath: finalPath,
+					targetDesc,
+					swept,
+				} as unknown as Record<string, unknown>,
+			};
 		}
 	}
+}
 }

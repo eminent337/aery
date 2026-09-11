@@ -1446,6 +1446,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		toolSession.retry = async () => (session ? await session.retry() : false);
 		toolSession.shake = async (mode, opts) =>
 			session ? await session.shake(mode, { signal: opts?.signal }) : undefined;
+		toolSession.dropLiveEyeImages = async () => (session ? await session.dropLiveEyeImages() : 0);
 		toolSession.exportToHtml = async outputPath => (session ? await session.exportToHtml(outputPath) : "");
 		toolSession.setPlanModeState = state => session?.setPlanModeState(state);
 		toolSession.setSessionName = async (name, source) =>
