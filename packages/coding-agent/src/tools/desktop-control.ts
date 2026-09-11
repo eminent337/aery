@@ -31,6 +31,7 @@ import {
 	wtypeChord,
 	xdoClick,
 	xdoDrag,
+	hyprMoveCursor,
 	xdoMove,
 	YDO_CTRL_V,
 	YDO_DOWN,
@@ -558,6 +559,18 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 		return { content, details: { success: true, frame: cap.frame } };
 	};
 
+	// Stale-frame guard — applies to pointer AND keyboard alike: if the last
+	// window-scoped screenshot was of another window than the currently focused
+	// one, refuse. Injection must land in the intended window, not whatever
+	// grabbed focus since the screenshot.
+	const staleFrame = lastInputFrame;
+	if (staleFrame?.kind === "window" && staleFrame.address !== win.address) {
+		return errText(
+			`The focused window changed since the last screenshot (now "${win.title}"). Retake a screenshot of the target window, then retry.`,
+			"frame_stale",
+		);
+	}
+
 	if (isPointer) {
 		const frame = lastInputFrame;
 		if (!frame) {
@@ -566,18 +579,15 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 				"no_frame",
 			);
 		}
-		if (frame.kind === "window" && frame.address !== win.address) {
-			return errText(
-				`The focused window changed since the last screenshot (now "${win.title}"). Retake a screenshot of the target window, then retry.`,
-				"frame_stale",
-			);
-		}
 		if (params.x === undefined || params.y === undefined) {
 			return errText(`${action} requires x and y (frame px from the last screenshot).`, "missing_xy");
 		}
 		const pt = frameToPhysical(frame, params.x, params.y);
+		// Aim with the compositor (exact); ydotool absolute moves are unreliable on
+		// Hyprland (no ABS cap on the virtual device — relative deltas + accel skew).
+		const aim = isHyprland() ? hyprMoveCursor(pt.x, pt.y) : null;
 		if (action === "live_move") {
-			const fail = await runSteps(backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)]);
+			const fail = await runSteps(aim ? [aim] : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)]);
 			if (fail) return errText(fail);
 			liveAuthorizedKinds.add(action);
 			return withVerify(`Moved pointer to frame (${params.x},${params.y}) → physical (${pt.x},${pt.y}).`);
@@ -586,10 +596,7 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 			const button = params.button ?? "left";
 			const count = params.count ?? 1;
 			const code = button === "right" ? YDO_RIGHT : button === "middle" ? YDO_MIDDLE : YDO_LEFT;
-			const steps =
-				backend === "ydotool"
-					? [ydoMove(pt.x, pt.y), ydoClickButton(code, count)]
-					: [xdoClick(pt.x, pt.y, button, count)];
+			const steps = backend === "ydotool" ? (aim ? [aim, ydoClickButton(code, count)] : [ydoMove(pt.x, pt.y), ydoClickButton(code, count)]) : [xdoClick(pt.x, pt.y, button, count)];
 			const fail = await runSteps(steps);
 			if (fail) return errText(fail);
 			liveAuthorizedKinds.add(action);
@@ -603,9 +610,12 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 			const end = frameToPhysical(frame, params.x2, params.y2);
 			let steps: string[][];
 			if (backend === "ydotool") {
-				steps = [ydoMove(pt.x, pt.y), ydoClickButton(YDO_DOWN)];
-				for (let i = 1; i <= 6; i++)
-					steps.push(ydoMove(pt.x + ((end.x - pt.x) * i) / 6, pt.y + ((end.y - pt.y) * i) / 6));
+				steps = aim ? [aim, ydoClickButton(YDO_DOWN)] : [ydoMove(pt.x, pt.y), ydoClickButton(YDO_DOWN)];
+				for (let i = 1; i <= 6; i++) {
+					const mx = pt.x + ((end.x - pt.x) * i) / 6;
+					const my = pt.y + ((end.y - pt.y) * i) / 6;
+					steps.push(aim ? hyprMoveCursor(mx, my) : ydoMove(mx, my));
+				}
 				steps.push(ydoClickButton(YDO_UP));
 			} else {
 				steps = [xdoDrag(pt.x, pt.y, end.x, end.y)];
