@@ -6322,6 +6322,42 @@ export class AgentSession {
 		return { removed };
 	}
 	/**
+	 * Sweep ephemeral live_eye images from history (all eye-marked tool results).
+	 * Same rewrite contract as dropImages — persisted state and provider-side
+	 * caches stay aligned. Returns the number of image blocks removed.
+	 */
+	async dropLiveEyeImages(): Promise<number> {
+		const branchEntries = this.sessionManager.getBranch();
+		let removed = 0;
+		for (const entry of branchEntries) {
+			if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
+			const details = entry.message.details as { liveEye?: { at?: number }; images?: unknown[] } | null | undefined;
+			if (!details || !details.liveEye) continue;
+			const content = entry.message.content as Array<{ type: string }>;
+			if (!Array.isArray(content)) continue;
+			const kept = content.filter(p => p.type !== "image");
+			const dropped = content.length - kept.length;
+			if (dropped > 0) {
+				entry.message.content = kept as typeof entry.message.content;
+				removed += dropped;
+			}
+			if (Array.isArray(details.images)) {
+				const before = details.images.length;
+				details.images = details.images.filter(
+					(p: unknown) => !((p as { type?: string }).type === "image"),
+				);
+				removed += before - details.images.length;
+			}
+		}
+		if (removed === 0) return 0;
+		await this.sessionManager.rewriteEntries();
+		const sessionContext = this.buildDisplaySessionContext();
+		this.agent.replaceMessages(sessionContext.messages);
+		this.#advisorRuntime?.reset();
+		this.#closeCodexProviderSessionsForHistoryRewrite();
+		return removed;
+	}
+	/**
 	 * Drop all thinking blocks from the branch's assistant messages.
 	 * Mutates entries in place, then rewrites and replays through the agent.
 	 */
