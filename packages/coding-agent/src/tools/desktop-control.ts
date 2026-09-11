@@ -193,6 +193,16 @@ const desktopControlSchema = z.object({
 		.boolean()
 		.optional()
 		.describe("Whether to return base64 encoded image in result for inline model vision (default: true)."),
+	ocr: z
+		.boolean()
+		.optional()
+		.describe(
+			"Extract on-screen text with tesseract OCR and return it as text (default: false). Use this when the model cannot see images — the glance then reads the frame's text content. Adds ~0.3-2s.",
+		),
+	ocrLang: z
+		.string()
+		.optional()
+		.describe("Tesseract language for 'ocr' (default: 'eng'; requires the language pack in /usr/share/tessdata)."),
 });
 
 export type DesktopControlParams = z.infer<typeof desktopControlSchema>;
@@ -1374,12 +1384,54 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				} catch {}
 			}
 
+			// OCR text extraction (opt-in): lets a visionless model read the frame.
+			// Runs on the resized frame (smaller = faster); tiny crops are upscaled
+			// first because tesseract loses small text below ~1200px wide.
+			let ocrText = "";
+			let ocrError: string | undefined;
+			let ocrMs0 = 0;
+			if (params.ocr) {
+				let ocrPath = finalPath;
+				const dims = await identifyDims(finalPath);
+				if (dims && dims[0] > 0 && dims[0] < 1200) {
+					const upscale = path.join(os.tmpdir(), `aerys-eye-${timestamp}-ocr2x.png`);
+					const up = await runCmd("convert", [finalPath, "-resize", "200%", upscale]);
+					if (up.code === 0 && fs.existsSync(upscale)) ocrPath = upscale;
+				}
+				ocrMs0 = Date.now();
+				// OMP_THREAD_LIMIT=1 is decisive on this box: tesseract's OpenMP
+				// thread contention hangs multi-threaded runs on big PNGs (30s+
+				// timeouts); single-threaded LSTM finishes in ~1-2s. OEM 1 keeps
+				// the accurate LSTM engine; PSM 6 assumes a uniform text block.
+				const ocrRes = await runCmd(
+					"tesseract",
+					[ocrPath, "stdout", "--oem", "1", "-l", params.ocrLang ?? "eng", "--psm", "6"],
+					{ timeout: 30_000, env: { OMP_THREAD_LIMIT: "1" } },
+				);
+				if (ocrRes.code === 0) {
+					ocrText = ocrRes.stdout.trim();
+				} else {
+					ocrError = ocrRes.stderr || `tesseract exit ${ocrRes.code}`;
+				}
+			}
+
+			const parts: string[] = [
+				`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,
+			];
+			if (ocrText) {
+				parts.push(
+					`On-screen text (${ocrText.length} chars, tesseract psm6):`,
+					ocrText.length > 8000 ? `${ocrText.slice(0, 8000)}\n…[truncated]` : ocrText,
+				);
+			} else if (params.ocr && ocrError) {
+				parts.push(`OCR failed: ${ocrError}`);
+			} else if (params.ocr) {
+				parts.push("OCR produced no text (frame may contain no readable text).");
+			}
+
 			return {
 				content: [
-					{
-						type: "text",
-						text: `Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,
-					},
+					{ type: "text", text: parts.join("\n") },
 					...(base64 ? [{ type: "image" as const, data: base64, mimeType: "image/png" }] : []),
 				],
 				details: {
@@ -1388,6 +1440,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					filePath: finalPath,
 					targetDesc,
 					swept,
+					...(params.ocr ? { ocrText, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) } : {}),
 				} as unknown as Record<string, unknown>,
 			};
 		}
