@@ -1385,33 +1385,45 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			}
 
 			// OCR text extraction (opt-in): lets a visionless model read the frame.
-			// Runs on the resized frame (smaller = faster); tiny crops are upscaled
-			// first because tesseract loses small text below ~1200px wide.
+			// Adaptive: run tesseract at native size first (fast path ~1s); only
+			// pay for a 2x upscale + retry when the first pass comes back sparse
+			// (<20 chars), which is how small-text frames fail.
 			let ocrText = "";
 			let ocrError: string | undefined;
 			let ocrMs0 = 0;
+			let ocrMode: "native" | "upscaled" | undefined;
 			if (params.ocr) {
-				let ocrPath = finalPath;
+				const runTess = (imgPath: string): Promise<{ stdout: string; stderr: string; code: number }> =>
+					runCmd(
+						"tesseract",
+						[imgPath, "stdout", "--oem", "1", "-l", params.ocrLang ?? "eng", "--psm", "6"],
+						// OMP_THREAD_LIMIT=1 is decisive on this box: tesseract's OpenMP
+						// thread contention hangs multi-threaded runs on big PNGs (30s+
+						// timeouts); single-threaded LSTM finishes in ~1-2s. OEM 1 keeps
+						// the accurate LSTM engine; PSM 6 assumes a uniform text block.
+						{ timeout: 30_000, env: { OMP_THREAD_LIMIT: "1" } },
+					);
+				ocrMs0 = Date.now();
+				let res = await runTess(finalPath);
+				ocrMode = "native";
+				if (res.code === 0) {
+					ocrText = res.stdout.trim();
+				} else {
+					ocrError = res.stderr || `tesseract exit ${res.code}`;
+				}
+				const sparse = ocrText.replace(/\s/g, "").length < 20;
 				const dims = await identifyDims(finalPath);
-				if (dims && dims[0] > 0 && dims[0] < 1200) {
+				if (sparse && dims && dims[0] > 0 && dims[0] < 1200) {
 					const upscale = path.join(os.tmpdir(), `aerys-eye-${timestamp}-ocr2x.png`);
 					const up = await runCmd("convert", [finalPath, "-resize", "200%", upscale]);
-					if (up.code === 0 && fs.existsSync(upscale)) ocrPath = upscale;
-				}
-				ocrMs0 = Date.now();
-				// OMP_THREAD_LIMIT=1 is decisive on this box: tesseract's OpenMP
-				// thread contention hangs multi-threaded runs on big PNGs (30s+
-				// timeouts); single-threaded LSTM finishes in ~1-2s. OEM 1 keeps
-				// the accurate LSTM engine; PSM 6 assumes a uniform text block.
-				const ocrRes = await runCmd(
-					"tesseract",
-					[ocrPath, "stdout", "--oem", "1", "-l", params.ocrLang ?? "eng", "--psm", "6"],
-					{ timeout: 30_000, env: { OMP_THREAD_LIMIT: "1" } },
-				);
-				if (ocrRes.code === 0) {
-					ocrText = ocrRes.stdout.trim();
-				} else {
-					ocrError = ocrRes.stderr || `tesseract exit ${ocrRes.code}`;
+					if (up.code === 0 && fs.existsSync(upscale)) {
+						const upRes = await runTess(upscale);
+						if (upRes.code === 0 && upRes.stdout.trim().replace(/\s/g, "").length > ocrText.replace(/\s/g, "").length) {
+							ocrText = upRes.stdout.trim();
+							ocrError = undefined;
+							ocrMode = "upscaled";
+						}
+					}
 				}
 			}
 
@@ -1420,7 +1432,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			];
 			if (ocrText) {
 				parts.push(
-					`On-screen text (${ocrText.length} chars, tesseract psm6):`,
+					`On-screen text (${ocrText.length} chars, tesseract ${ocrMode ?? "native"}):`,
 					ocrText.length > 8000 ? `${ocrText.slice(0, 8000)}\n…[truncated]` : ocrText,
 				);
 			} else if (params.ocr && ocrError) {
@@ -1440,7 +1452,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					filePath: finalPath,
 					targetDesc,
 					swept,
-					...(params.ocr ? { ocrText, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) } : {}),
+					...(params.ocr ? { ocrText, ocrMode, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) } : {}),
 				} as unknown as Record<string, unknown>,
 			};
 		}
