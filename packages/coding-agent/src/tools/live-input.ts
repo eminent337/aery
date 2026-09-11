@@ -43,7 +43,12 @@ async function hasBin(name: string): Promise<boolean> {
 export async function probeBackends(): Promise<BackendProbe> {
 	const [ydotool, xdotool, wtype] = await Promise.all([hasBin("ydotool"), hasBin("xdotool"), hasBin("wtype")]);
 	// ydotoold (the daemon) exposes a unix socket; absent socket ⇒ no daemon.
-	const ydotoold = ydotool && fs.existsSync("/tmp/.ydotool_socket");
+	// Modern builds (e.g. Arch ydotool 1.0.4) put it at $XDG_RUNTIME_DIR/.ydotool_socket;
+	// older builds used /tmp/.ydotool_socket. Probe both.
+	const runtimeDir = process.env.XDG_RUNTIME_DIR || (typeof process.getuid === "function" ? `/run/user/${process.getuid()}` : "");
+	const ydotoold =
+		ydotool &&
+		(fs.existsSync("/tmp/.ydotool_socket") || (runtimeDir.length > 0 && fs.existsSync(`${runtimeDir}/.ydotool_socket`)));
 	return { ydotool, ydotoold, xdotool, wtype };
 }
 
@@ -343,6 +348,13 @@ export function ydoKeyEvents(events: string[]): string[] {
 /** xdotool (XWayland) builders. */
 export function xdoMove(x: number, y: number): string[] {
 	return ["xdotool", "mousemove", "--sync", String(Math.round(x)), String(Math.round(y))];
+}
+/** Exact pointer warp via the compositor (Hyprland). ydotool's virtual device has no
+ * ABS_X/ABS_Y capability — "absolute" moves are relative-delta accumulations that
+ * pointer-accel skew, so never use them to aim; position with movecursor, inject
+ * buttons/keys with ydotool. */
+export function hyprMoveCursor(x: number, y: number): string[] {
+	return ["hyprctl", "dispatch", "movecursor", String(Math.round(x)), String(Math.round(y))];
 }
 
 export function xdoClick(x: number, y: number, button: "left" | "right" | "middle", count = 1): string[] {

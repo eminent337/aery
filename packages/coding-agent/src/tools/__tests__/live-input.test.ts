@@ -3,12 +3,19 @@ import {
 	frameScaleX,
 	frameScaleY,
 	frameToPhysical,
+	hyprMoveCursor,
 	isDirectTypeable,
 	parseChord,
 	resolveBackend,
 	specToXdotoolArgs,
 	specToYdotoolEvents,
 } from "../live-input";
+
+describe("pointer aiming (hyprMoveCursor)", () => {
+	test("hyprctl dispatch movecursor args are exact, rounded", () => {
+		expect(hyprMoveCursor(123.6, 87.2)).toEqual(["hyprctl", "dispatch", "movecursor", "124", "87"]);
+	});
+});
 
 describe("frame coordinate mapping (TARS-style round-trip)", () => {
 	const windowFrame = {
