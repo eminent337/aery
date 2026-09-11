@@ -33,6 +33,7 @@ export interface DetectedFace {
 	w: number;
 	h: number;
 	confidence: number;
+	identity?: IdentityMatch | null;
 }
 
 const cameraControlSchema = z.object({
@@ -83,15 +84,6 @@ export type CameraControlParams = z.infer<typeof cameraControlSchema>;
 interface IdentityMatch {
 	name: string;
 	similarity: number;
-}
-
-interface DetectedFace {
-	x: number;
-	y: number;
-	w: number;
-	h: number;
-	confidence: number;
-	identity?: IdentityMatch | null;
 }
 
 interface EnrollResult {
@@ -189,7 +181,7 @@ export class CameraWatchLoop {
 				const { stdout } = await execFileAsync(
 					DEFAULT_VENV_PYTHON,
 					[DEFAULT_WORKER, "--device", "/dev/video0", "--resolution", "640x480", "--identify", "--score-threshold", "0.2"],
-					{ timeoutMs: 15_000 },
+					{ timeout: 15_000 },
 				);
 				const parsed = JSON.parse(stdout) as WorkerResult;
 				const idents = (parsed.faces ?? []).map(f => f.identity?.name ?? "face").join(", ");
@@ -243,7 +235,7 @@ export class CameraWatchLoop {
 		}
 		const frames = CameraWatchLoop.#frames;
 		const screens = frames.filter(f => f.kind === "screen").length;
-		const cams = frames.filter(f => f.kind === "camera" && f.faces > 0);
+		const cams = frames.filter(f => f.kind === "camera" && (f.faces ?? 0) > 0);
 		const lastCam = cams[cams.length - 1];
 		const secs = Math.round((Date.now() - (CameraWatchLoop.#startedAt ?? Date.now())) / 1000);
 		const who = lastCam?.note ?? "no face seen yet";
@@ -332,7 +324,7 @@ export class CameraWatchLoop {
 	async #runWorker(args: string[]): Promise<WorkerResult> {
 		const venvPython = DEFAULT_VENV_PYTHON;
 		try {
-			const { stdout } = await execFileAsync(venvPython, args, { timeoutMs: 30_000 });
+			const { stdout } = await execFileAsync(venvPython, args, { timeout: 30_000 });
 			return JSON.parse(stdout) as WorkerResult;
 		} catch (err) {
 			throw new Error(
@@ -512,7 +504,7 @@ export class CameraWatchLoop {
 					"-c:v", "libx264", "-preset", "ultrafast", "-y",
 					outPath,
 				],
-				{ timeoutMs: (duration + 15) * 1000 },
+				{ timeout: (duration + 15) * 1000 },
 			);
 		} catch (err) {
 			return { content: [{ type: "text", text: `Webcam recording failed: ${String(err)}` }] };
