@@ -181,7 +181,6 @@ export async function submitInteractiveInput(
 		} else {
 			await session.prompt(input.text, {
 				images: input.images,
-				screenVisionText: input.screenVisionText,
 				hiddenPasteText: input.hiddenPasteText,
 			});
 		}

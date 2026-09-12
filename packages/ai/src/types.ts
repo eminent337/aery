@@ -486,6 +486,13 @@ export interface TextContent {
 	type: "text";
 	text: string;
 	textSignature?: string; // e.g., for OpenAI responses, message metadata (legacy id string or TextSignatureV1 JSON)
+	/**
+	 * Model-only text: true when this block must never be shown in the user's
+	 * transcript (hidden paste payloads, OCR companion text). The provider
+	 * payload builders drop this field before sending; display code filters
+	 * blocks with hidden === true out of rendered user-message text.
+	 */
+	hidden?: boolean;
 }
 
 export interface ThinkingContent {

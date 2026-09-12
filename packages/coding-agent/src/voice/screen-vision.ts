@@ -1,10 +1,10 @@
 /**
- * Aerys "Live Eye" Screen Vision & Ambient Context.
+ * Aerys "Live Eye" Screen Vision (on-demand capture).
  *
- * Implements real-time screen grounding inspired by Google Project Astra,
- * Gemini Live, and Screenpipe. Captures lightweight JPEG snapshots of the
- * user's active window or display in ~180ms to provide visual situational
- * awareness during voice and interactive turns.
+ * The agent looks when it wants to (like a human): a sub-second capture of the
+ * user's active window or display. Nothing here is auto-attached to prompts —
+ * the session-wide ambient buffer was removed; perception is a deliberate
+ * glance via desktop_control live_eye / camera_control.
  */
 
 import { spawn } from "node:child_process";
@@ -13,7 +13,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ImageContent } from "@aryee337/aery-ai";
 import { logger, Snowflake } from "@aryee337/aery-utils";
-import { ocrFrame } from "../tools/screen-ocr";
 
 export interface ActiveWindowInfo {
 	title?: string;
@@ -236,175 +235,5 @@ export async function captureScreenFrame(options: CaptureOptions = {}): Promise<
 	} catch {
 		await fs.rm(tmpPath, { force: true }).catch(() => {});
 		return { latencyMs };
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Astra-style Ambient Screen Buffer
-// ---------------------------------------------------------------------------
-// Project Astra / Gemini Live keep a continuous low-fps visual memory so the
-// assistant can see what the user was looking at BEFORE they finished speaking.
-// Ported as a rolling JPEG ring buffer: a background loop captures a cheap
-// downscaled frame every second into memory; at speech onset the turn attaches
-// the frame from when the user BEGAN talking plus the freshest one. No video
-// stream, no new dependencies — same grim/hyprctl stack as Live Eye.
-
-interface AmbientFrame {
-	/** Full-resolution base64 JPEG (for attachment to turns). */
-	image: ImageContent;
-	/** Capture timestamp (Date.now()). */
-	at: number;
-	/** Active window metadata at capture time. */
-	window?: ActiveWindowInfo;
-	/** Metadata line, e.g. [Active Window: kitty — "…"]. */
-	metadata?: string;
-}
-
-const AMBIENT_MAX_FRAMES = 12; // ~12s of memory at 1fps
-const AMBIENT_INTERVAL_MS = 1000;
-
-const ambientFrames: AmbientFrame[] = [];
-let ambientTimer: ReturnType<typeof setInterval> | undefined;
-let ambientBusy = false;
-
-/** Start the background 1fps ambient capture loop (idempotent). */
-export function startAmbientScreenBuffer(): void {
-	if (ambientTimer || process.env.WAYLAND_DISPLAY === undefined) return;
-	ambientTimer = setInterval(() => {
-		if (ambientBusy) return; // never stack captures
-		ambientBusy = true;
-		void captureScreenFrame({ target: "fullscreen", quality: 70, timeoutMs: 900 })
-			.then(async vision => {
-				if (vision.image) {
-					ambientFrames.push({
-						image: vision.image,
-						at: Date.now(),
-						window: vision.window,
-						metadata: vision.metadata,
-					});
-					while (ambientFrames.length > AMBIENT_MAX_FRAMES) ambientFrames.shift();
-				}
-			})
-			.finally(() => {
-				ambientBusy = false;
-			});
-	}, AMBIENT_INTERVAL_MS);
-}
-
-/** Stop the ambient loop and drop buffered frames. */
-export function stopAmbientScreenBuffer(): void {
-	if (ambientTimer) {
-		clearInterval(ambientTimer);
-		ambientTimer = undefined;
-	}
-	ambientFrames.length = 0;
-}
-
-/** Test/diagnostic handle: whether the loop is running. */
-export function isAmbientScreenBufferRunning(): boolean {
-	return ambientTimer !== undefined;
-}
-
-/**
- * Astra-style retrieval: frames bracketing the user's utterance — the visual
- * context at speech onset plus the freshest frame at transcription. Falls back
- * to whatever the buffer holds. Returns [] when the buffer is empty.
- */
-export function getAmbientFramesForTurn(speechStartedAt?: number): ImageContent[] {
-	if (ambientFrames.length === 0) return [];
-	const picked: AmbientFrame[] = [];
-	if (speechStartedAt !== undefined) {
-		// Frame at (or just before) speech onset
-		let onset: AmbientFrame | undefined;
-		for (const f of ambientFrames) {
-			if (f.at <= speechStartedAt) onset = f;
-		}
-		if (onset) picked.push(onset);
-	}
-	const freshest = ambientFrames[ambientFrames.length - 1];
-	if (!picked.includes(freshest)) picked.push(freshest);
-	return picked.map(f => f.image);
-}
-
-/** Newest buffered frame's metadata line, if any. */
-export function getAmbientFrameMetadata(): string | undefined {
-	return ambientFrames.length ? ambientFrames[ambientFrames.length - 1].metadata : undefined;
-}
-
-/** Ambient buffer stats for diagnostics. */
-export function getAmbientBufferStats(): { frames: number; running: boolean; newestAgeMs?: number } {
-	const newest = ambientFrames[ambientFrames.length - 1];
-	return {
-		frames: ambientFrames.length,
-		running: ambientTimer !== undefined,
-		newestAgeMs: newest ? Date.now() - newest.at : undefined,
-	};
-}
-// ---------------------------------------------------------------------------
-// Environment-aware Screen Vision grounding (shared by voice & text turns)
-// ---------------------------------------------------------------------------
-// A turn that attaches a screen capture becomes ENVIRONMENT-AWARE: the model
-// learns what the frame is (window, size, why it's attached) via a short
-// caption, and — for models that cannot see images — receives the OCR text of
-// the frame so it can genuinely READ its environment instead of a dead
-// "[image omitted]" placeholder. Nothing here is shown to the user: the caption
-// rides inside the model's user content, never on the screen.
-
-export interface ScreenVisionContext {
-	/** Environment caption, e.g. `[Screen Vision: kitty — "Aery" (environment · active window · 1200x800)]`. */
-	caption: string;
-	/** JPEG/PNG frame for vision-capable models. */
-	image?: ImageContent;
-	/** OCR text for visionless models (empty when OCR unavailable/none). */
-	ocrText?: string;
-	/** Which mode OCR ran in, if it ran. */
-	ocrMode?: "native" | "upscaled";
-	/** Window info captured with the frame. */
-	window?: ActiveWindowInfo;
-}
-
-function formatSize(size?: [number, number]): string {
-	return size && size[0] > 0 && size[1] > 0 ? ` · ${size[0]}x${size[1]}` : "";
-}
-
-/**
- * Capture the active window (or fullscreen) and build the environment-aware
- * context for a turn:
- *   - caption: always, so the model knows WHAT the frame is and WHY it's attached.
- *   - image: when `supportsImages` (vision-capable) — the JPEG itself.
- *   - ocrText: when NOT `supportsImages` — OCR of the retained file so a
- *     visionless model can read the screen as text.
- * Returns `null` when capture failed (callers should just skip grounding).
- */
-export async function buildScreenVisionContext(options: {
-	target?: "active_window" | "fullscreen";
-	supportsImages: boolean;
-	ocrLang?: string;
-}): Promise<ScreenVisionContext | null> {
-	const { target = "active_window", supportsImages } = options;
-	const vision = await captureScreenFrame({ target, keepFile: !supportsImages });
-	if (!vision.image && !vision.filePath) return null;
-
-	const win = vision.window;
-	const app = target === "fullscreen" ? "Full Display" : win?.class || "Application";
-	const title = target === "fullscreen" ? "your entire desktop" : win?.title || "(untitled window)";
-	const caption = `[Screen Vision: ${app} — "${title}" (environment${target === "fullscreen" ? " · entire display" : " · active window"}${formatSize(win?.size)})]`;
-
-	if (supportsImages) {
-		return { caption, image: vision.image, window: win ?? undefined };
-	}
-
-	// Visionless: OCR the retained frame so the model can READ its environment.
-	if (!vision.filePath) return { caption, window: win ?? undefined };
-	try {
-		const ocr = await ocrFrame(vision.filePath, { lang: options.ocrLang });
-		return {
-			caption,
-			ocrText: ocr.text || undefined,
-			ocrMode: ocr.mode,
-			window: win ?? undefined,
-		};
-	} finally {
-		await fs.rm(vision.filePath, { force: true }).catch(() => {});
 	}
 }

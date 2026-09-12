@@ -113,7 +113,7 @@ describe("Two-Stage QA Review Loops", () => {
 		assignment: "Implement feature X",
 		index: 0,
 		id: "subagent-1",
-		settings: Settings.isolated(),
+		settings: Settings.isolated({ "task.autoReview": true }),
 		modelRegistry: {
 			refresh: async () => {},
 		} as unknown as import("../../src/config/model-registry").ModelRegistry,

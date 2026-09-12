@@ -1223,29 +1223,6 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
-	"voice.screenVision": {
-		type: "boolean",
-		default: true,
-		ui: {
-			tab: "interaction",
-			group: "Voice",
-			label: "Live Eye Screen Vision",
-			description: "Attach an instant snapshot of the active window to voice turns for Astra-style visual grounding",
-		},
-	},
-
-	"voice.screenVisionTarget": {
-		type: "enum",
-		values: ["active_window", "fullscreen"] as const,
-		default: "active_window",
-		ui: {
-			tab: "interaction",
-			group: "Voice",
-			label: "Screen Vision Target",
-			description: "Capture the focused active window or entire display",
-		},
-	},
-
 	"camera.enabled": {
 		type: "boolean",
 		default: true,
@@ -3124,6 +3101,18 @@ export const SETTINGS_SCHEMA = {
 	"task.agentModelOverrides": {
 		type: "record",
 		default: {} as Record<string, string>,
+	},
+
+	"task.autoReview": {
+		type: "boolean",
+		default: false,
+		ui: {
+			tab: "tasks",
+			group: "Quality",
+			label: "Automatic QA Review",
+			description:
+				"After a subagent task modifies code, run the spec-reviewer and quality-reviewer agents on the diff and retry the implementer when they reject it",
+		},
 	},
 
 	"tasks.todoClearDelay": {

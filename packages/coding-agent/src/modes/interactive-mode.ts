@@ -94,12 +94,6 @@ import type { EventBus } from "../utils/event-bus";
 import { detectMultiplexer, getEditorCommand, openInEditor } from "../utils/external-editor";
 import { getSessionAccentAnsi, getSessionAccentHex } from "../utils/session-color";
 import { popTerminalTitle, pushTerminalTitle, setSessionTerminalTitle } from "../utils/title-generator";
-import {
-	buildScreenVisionContext,
-	getAmbientFramesForTurn,
-	startAmbientScreenBuffer,
-	stopAmbientScreenBuffer,
-} from "../voice/screen-vision";
 import type { AssistantMessageComponent } from "./components/assistant-message";
 import type { BashExecutionComponent } from "./components/bash-execution";
 import { CustomEditor } from "./components/custom-editor";
@@ -621,13 +615,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
 		this.updateEditorBorderColor();
 		this.#syncEditorMaxHeight();
-		// Ambient visual memory runs for the whole TUI session (not just Speech
-		// Mode) so TEXT turns also see what Peter was looking at before typing —
-		// Live Eye works in both modes. Idempotent: safe if Speech Mode later
-		// re-attempts to start it.
-		if (isSettingsInitialized() && settings.get("voice.screenVision") === true) {
-			startAmbientScreenBuffer();
-		}
+		// Ambient visual memory removed: Live Eye is on-demand only — the agent
+		// glances at the environment via the desktop_control live_eye tool when
+		// it decides it needs to see, like a human looking. No per-prompt or
+		// session-wide screen feed is attached automatically.
 
 		this.isInitialized = true;
 		this.ui.requestRender(true);
@@ -929,7 +920,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		images?: ImageContent[];
 		customType?: string;
 		display?: boolean;
-		screenVisionText?: string;
 		hiddenPasteText?: string;
 	}): SubmittedUserInput {
 		const submission: SubmittedUserInput = {
@@ -937,7 +927,6 @@ export class InteractiveMode implements InteractiveModeContext {
 			images: input.images,
 			customType: input.customType,
 			display: input.display,
-			screenVisionText: input.screenVisionText,
 			hiddenPasteText: input.hiddenPasteText,
 			cancelled: false,
 			started: false,
@@ -2345,7 +2334,6 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.loadingAnimation = undefined;
 		}
 		this.#cleanupMicAnimation();
-		stopAmbientScreenBuffer(); // session-wide Live Eye loop; tear down with the TUI
 		this.#cancelTodoAutoClearTimer();
 		this.#cancelGoalContinuation();
 		if (this.#sttController) {
@@ -2862,62 +2850,9 @@ export class InteractiveMode implements InteractiveModeContext {
 
 				const promptText = trimmed;
 				let images: ImageContent[] | undefined;
-
-				// Project Astra / Gemini Live style Screen Grounding:
-				// 1. Instant snapshot of the active window (Live Eye, ~180ms).
-				// 2. Ambient buffer frames bracketing the utterance: the screen as it
-				//    was when the user BEGAN speaking, plus the freshest frame — so
-				//    mid-speech window switches are visible, not just the final state.
-				let screenVisionText: string | undefined;
-				if (settings.get("voice.screenVision") === true) {
-					try {
-						const speechOnset = this.#sttController?.lastSpeechStartedAt;
-						const ambientFrames = [...getAmbientFramesForTurn(speechOnset)];
-						// Environment-aware (Screen Vision grounding): the capture also carries a
-						// HIDDEN caption into the model's user content — what the frame is
-						// (window/class/size) and why it's attached. Visionless models get the
-						// frame's OCR text instead of a dead "[image omitted]" placeholder, so
-						// they can actually READ the screen. Nothing shows on Peter's screen;
-						// the visible message stays exactly what was spoken.
-						const supportsImages = this.session.model?.input?.includes("image") ?? true;
-						const ctx = await buildScreenVisionContext({
-							target:
-								(settings.get("voice.screenVisionTarget") as "active_window" | "fullscreen") || "active_window",
-							supportsImages,
-						});
-						if (ctx) {
-							if (ctx.image) {
-								// Vision-capable: ambient bracket frames (speech-onset bracketing)
-								// + the instant capture. No "[Screen Vision: …]" text prefix: the
-								// images themselves are the grounding.
-								const frames = [...ambientFrames, ctx.image];
-								if (frames.length > 0) {
-									images = frames;
-								}
-							}
-							// Hidden model-only grounding text (caption + OCR for visionless).
-							const parts = [ctx.caption];
-							if (ctx.ocrText) {
-								parts.push(
-									`On-screen text (OCR, ${ctx.ocrText.length} chars${ctx.ocrMode ? `, tesseract ${ctx.ocrMode}` : ""}):`,
-									ctx.ocrText.length > 8000 ? `${ctx.ocrText.slice(0, 8000)}\n…[truncated]` : ctx.ocrText,
-								);
-							}
-							screenVisionText = parts.join("\n");
-						} else if (ambientFrames.length > 0) {
-							// Instant capture failed but ambient bracketing frames exist — attach them.
-							images = ambientFrames;
-						}
-					} catch (err) {
-						logger.debug("Screen vision capture skipped", { error: err });
-					}
-				}
-
-				await this.withLocalSubmission(
-					trimmed,
-					() => this.session.prompt(promptText, { images, screenVisionText }),
-					{ imageCount: images?.length ?? 0 },
-				);
+				await this.withLocalSubmission(trimmed, () => this.session.prompt(promptText, { images }), {
+					imageCount: images?.length ?? 0,
+				});
 			},
 			onStateChange: (state: SttState) => {
 				if (state === "recording") {
@@ -2978,11 +2913,6 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		// Activate Speech Mode!
 		this.#continuousSpeechMode = true;
-		// Astra-style ambient visual memory: rolling 1fps screen buffer for the
-		// duration of Speech Mode so turns see what Peter was looking at mid-speech.
-		if (settings.get("voice.screenVision") === true) {
-			startAmbientScreenBuffer();
-		}
 		this.showStatus("Speech Mode active. Speak freely; press Alt+H to return to text mode.");
 		await this.startContinuousSpeechTurn();
 	}

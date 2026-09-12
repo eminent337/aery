@@ -2039,7 +2039,7 @@ describe("Editor component", () => {
 			expect(editor.getExpandedText()).toBe(pastedText);
 		});
 
-		it("submits marker in text + full paste in second arg (hidden like screenVisionText)", () => {
+		it("submits marker in text + full paste in second arg (hidden model-only)", () => {
 			const editor = new Editor(defaultEditorTheme);
 			const pastedText = [
 				"line 1",

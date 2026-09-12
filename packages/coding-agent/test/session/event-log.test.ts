@@ -6,10 +6,13 @@ import { EventStore } from "@aryee337/aery/session/event-store";
 
 let store: EventStore;
 let testDir: string;
+let dirSeq = 0;
 
 describe("event store", () => {
 	beforeEach(() => {
-		testDir = path.join("/tmp", "aery-events-test", Date.now().toString());
+		// Unique-per-test dir: Date.now() alone can collide when fast tests run
+		// in the same millisecond, cross-contaminating sess-1 across tests.
+		testDir = path.join("/tmp", "aery-events-test", `${Date.now()}-${++dirSeq}`);
 		store = new EventStore({ dir: testDir });
 	});
 

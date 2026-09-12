@@ -1839,8 +1839,8 @@ export class Editor implements Component, Focusable {
 		// Capture BOTH representations before state reset:
 		// - markerText: what the user sees in the prompt ("[paste #N +X lines]")
 		// - payloadText: the full pasted content, delivered to the harness as a
-		//   hidden extra argument (like screenVisionText) so the transcript shows
-		//   only the marker while the model still receives everything.
+		//   hidden extra argument so the model still receives everything while
+		//   the transcript/UI shows only the user's typed text.
 		const markerText = this.#state.lines.join("\n").trim();
 		const payloadText = this.#expandPasteMarkers(this.#state.lines.join("\n")).trim();
 		const hasPastes = this.#pastes.size > 0 && markerText.length > 0;

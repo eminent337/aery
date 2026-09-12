@@ -445,17 +445,10 @@ export interface PromptOptions {
 	/** Skip pre-send compaction checks for this prompt (internal use for maintenance flows). */
 	skipCompactionCheck?: boolean;
 	/**
-	 * Hidden environment caption for Screen Vision grounding (e.g.
-	 * `[Screen Vision: kitty — "Aery" (active window · 1200x800)]` plus, for
-	 * visionless models, the OCR'd frame text). Merged into the model's user
-	 * content as an additional text block — NEVER shown on the user's screen.
-	 */
-	screenVisionText?: string;
-	/**
 	 * Hidden full text of collapsed large pastes ("[paste #N +X lines]" markers
 	 * stay visible in the transcript; the actual content rides here). Merged
-	 * into the model's user content as an additional text block — mirrors
-	 * screenVisionText. NEVER shown on the user's screen.
+	 * into the model's user content as an additional text block. NEVER shown on
+	 * the user's screen.
 	 */
 	hiddenPasteText?: string;
 }
@@ -2757,12 +2750,14 @@ export class AgentSession {
 
 		return Array.from(candidates);
 	}
-	/** Extract text content from a message */
+	/** Extract the VISIBLE text of a user message (hidden model-only blocks —
+	 * paste payloads, OCR companions — are excluded). Marker text is kept so
+	 * message_start signatures match the optimistic submission text. */
 	#getUserMessageText(message: Message): string {
 		if (message.role !== "user") return "";
 		const content = message.content;
 		if (typeof content === "string") return content;
-		const textBlocks = content.filter(c => c.type === "text");
+		const textBlocks = content.filter(c => c.type === "text" && !(c as TextContent).hidden);
 		const text = textBlocks.map(c => (c as TextContent).text).join("");
 		if (text.length > 0) return text;
 		const hasImages = content.some(c => c.type === "image");
@@ -4747,9 +4742,9 @@ export class AgentSession {
 				throw new AgentBusyError();
 			}
 			if (options.streamingBehavior === "followUp") {
-				await this.#queueFollowUp(expandedText, options?.images, options?.screenVisionText, options?.hiddenPasteText);
+				await this.#queueFollowUp(expandedText, options?.images, options?.hiddenPasteText);
 			} else {
-				await this.#queueSteer(expandedText, options?.images, options?.screenVisionText, options?.hiddenPasteText);
+				await this.#queueSteer(expandedText, options?.images, options?.hiddenPasteText);
 			}
 			// Steer/follow-up the keyword notices alongside the queued user message.
 			for (const notice of keywordNotices) {
@@ -4770,22 +4765,18 @@ export class AgentSession {
 		// Visionless models cannot see attached images: OCR each one and append a
 		// hidden TEXT block so the agent can actually READ what Peter attached,
 		// instead of the provider later dropping it for "[image omitted]".
+		// hidden:true keeps it out of the UI transcript; providers drop the flag
+		// on the wire (blocks are remapped to {type,text} explicitly).
 		const attachedOcr = await this.#ocrAttachedImages(options?.images);
 		if (attachedOcr) {
-			userContent.push(attachedOcr);
+			userContent.push({ ...attachedOcr, hidden: true });
 		}
-		// Hidden Screen Vision grounding rides as an extra TEXT block (not part of
-		// the visible message): the model sees the environment caption / OCR text,
-		// Peter sees only what he typed. Mirrors the display:false keyword notices.
-		if (options?.screenVisionText) {
-			userContent.push({ type: "text", text: options.screenVisionText });
-		}
-		// Hidden collapsed-paste payload rides as model-only text (same seam as
-		// screenVisionText): the transcript keeps the "[paste #N]" marker only.
+		// Hidden collapsed-paste payload rides as model-only text: the visible
+		// message keeps the user's typed text; the full paste content rides here,
+		// never shown in the UI (hidden:true, stripped by display extractors).
 		if (options?.hiddenPasteText) {
-			userContent.push({ type: "text", text: options.hiddenPasteText });
+			userContent.push({ type: "text", text: options.hiddenPasteText, hidden: true });
 		}
-
 		const promptAttribution = options?.attribution ?? (options?.synthetic ? "agent" : "user");
 		const message = options?.synthetic
 			? { role: "developer" as const, content: userContent, attribution: promptAttribution, timestamp: Date.now() }
@@ -5263,7 +5254,7 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
-	async #queueSteer(text: string, images?: ImageContent[], screenVisionText?: string, hiddenPasteText?: string): Promise<void> {
+	async #queueSteer(text: string, images?: ImageContent[], hiddenPasteText?: string): Promise<void> {
 		const displayText = text || (images && images.length > 0 ? "[Image]" : "");
 		this.#steeringMessages.push({ text: displayText });
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
@@ -5271,15 +5262,13 @@ export class AgentSession {
 			content.push(...images);
 		}
 		// Visionless: OCR attached images so the queued steer can be READ too.
+		// hidden:true keeps OCR + paste payload out of the UI transcript.
 		const attachedOcr = await this.#ocrAttachedImages(images);
 		if (attachedOcr) {
-			content.push(attachedOcr);
-		}
-		if (screenVisionText) {
-			content.push({ type: "text", text: screenVisionText });
+			content.push({ ...attachedOcr, hidden: true });
 		}
 		if (hiddenPasteText) {
-			content.push({ type: "text", text: hiddenPasteText });
+			content.push({ type: "text", text: hiddenPasteText, hidden: true });
 		}
 		this.agent.steer({
 			role: "user",
@@ -5292,7 +5281,7 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
 	 */
-	async #queueFollowUp(text: string, images?: ImageContent[], screenVisionText?: string, hiddenPasteText?: string): Promise<void> {
+	async #queueFollowUp(text: string, images?: ImageContent[], hiddenPasteText?: string): Promise<void> {
 		const displayText = text || (images && images.length > 0 ? "[Image]" : "");
 		this.#followUpMessages.push({ text: displayText });
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
@@ -5300,15 +5289,13 @@ export class AgentSession {
 			content.push(...images);
 		}
 		// Visionless: OCR attached images so the queued follow-up can be READ too.
+		// hidden:true keeps OCR + paste payload out of the UI transcript.
 		const attachedOcr = await this.#ocrAttachedImages(images);
 		if (attachedOcr) {
-			content.push(attachedOcr);
-		}
-		if (screenVisionText) {
-			content.push({ type: "text", text: screenVisionText });
+			content.push({ ...attachedOcr, hidden: true });
 		}
 		if (hiddenPasteText) {
-			content.push({ type: "text", text: hiddenPasteText });
+			content.push({ type: "text", text: hiddenPasteText, hidden: true });
 		}
 		this.agent.followUp({
 			role: "user",

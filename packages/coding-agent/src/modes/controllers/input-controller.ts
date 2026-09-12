@@ -23,7 +23,6 @@ import { detectMultiplexer, getEditorCommand, openInEditor } from "../../utils/e
 import { ensureSupportedImageInput } from "../../utils/image-loading";
 import { resizeImage } from "../../utils/image-resize";
 import { generateSessionTitle, setSessionTerminalTitle } from "../../utils/title-generator";
-import { buildScreenVisionContext, getAmbientFramesForTurn } from "../../voice/screen-vision";
 
 interface Expandable {
 	setExpanded(expanded: boolean): void;
@@ -296,53 +295,6 @@ export class InputController {
 			const runner = this.ctx.session.extensionRunner;
 			let inputImages = this.ctx.pendingImages.length > 0 ? [...this.ctx.pendingImages] : undefined;
 
-			// Live Eye Screen Vision on text turns (mirrors the voice-turn attach in
-			// interactive-mode): when enabled, attach ambient buffer bracket frames +
-			// an instant active-window capture so "what do you see" works in text
-			// mode too. Kept after pendingImages so explicit Ctrl+V images win.
-			//
-			// Environment-aware (Screen Vision grounding): the capture also carries a
-			// HIDDEN caption into the model's user content — what the frame is
-			// (window/class/size) and why it's attached. Visionless models get the
-			// frame's OCR text instead of a dead "[image omitted]" placeholder, so
-			// they can actually READ the screen. Nothing of this shows on Peter's
-			// screen; the visible message stays exactly as typed.
-			let screenVisionText: string | undefined;
-			if (
-				isSettingsInitialized() &&
-				settings.get("voice.screenVision") === true &&
-				!text.startsWith("/") &&
-				!text.startsWith("!") &&
-				!text.startsWith("$")
-			) {
-				try {
-					const supportsImages = this.ctx.session.model?.input?.includes("image") ?? true;
-					const ctx = await buildScreenVisionContext({
-						target:
-							(settings.get("voice.screenVisionTarget") as "active_window" | "fullscreen") || "active_window",
-						supportsImages,
-					});
-					if (ctx) {
-						if (ctx.image) {
-							// Vision-capable: ambient bracket frames + the instant capture.
-							const visionFrames = [...getAmbientFramesForTurn(), ctx.image];
-							inputImages = [...(inputImages ?? []), ...visionFrames];
-						}
-						// Hidden model-only grounding text (caption + OCR for visionless).
-						const parts = [ctx.caption];
-						if (ctx.ocrText) {
-							parts.push(
-								`On-screen text (OCR, ${ctx.ocrText.length} chars${ctx.ocrMode ? `, tesseract ${ctx.ocrMode}` : ""}):`,
-								ctx.ocrText.length > 8000 ? `${ctx.ocrText.slice(0, 8000)}\n…[truncated]` : ctx.ocrText,
-							);
-						}
-						screenVisionText = parts.join("\n");
-					}
-				} catch {
-					// Screen capture is best-effort: never block a text submit on it.
-				}
-			}
-
 			if (runner?.hasHandlers("input")) {
 				const result = await runner.emitInput(text, inputImages, "interactive");
 				if (result?.handled) {
@@ -451,7 +403,6 @@ export class InputController {
 						this.ctx.session.prompt(text, {
 							streamingBehavior: "steer",
 							images,
-							screenVisionText,
 							hiddenPasteText: hiddenPaste,
 						}),
 					{ imageCount: images?.length ?? 0 },
@@ -500,8 +451,7 @@ export class InputController {
 				const images = inputImages && inputImages.length > 0 ? [...inputImages] : undefined;
 				this.ctx.pendingImages = [];
 
-				// Render user message immediately, then let session events catch up
-				const submission = this.ctx.startPendingSubmission({ text, images, screenVisionText, hiddenPasteText: hiddenPaste });
+				const submission = this.ctx.startPendingSubmission({ text, images, hiddenPasteText: hiddenPaste });
 
 				this.ctx.onInputCallback(submission);
 			}
