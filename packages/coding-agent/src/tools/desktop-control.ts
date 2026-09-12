@@ -1329,13 +1329,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				} else if (shotWantOcr) {
 					shotTextParts.push("OCR produced no text (frame may contain no readable text).");
 				}
-				// Pixels + OCR together: the image block carries the frame (vision
-				// models see it; visionless harnesses may drop it), the OCR text
-				// rides in the message body so a visionless model still reads the
-				// screen, and filePath in details is the fallback any caller can
-				// `read` to get the pixels through a file channel. Never strip the
-				// image here — the model boundary (convertToLlm seam) decides what
-				// a visionless model keeps.
+				// Text-first for visionless callers: omit the embedded base64 so a
+				// heavy image block can't trigger harness compaction of the OCR.
+				const shotTextOnly = !shotModelSeesImages || params.ocr === true;
 
 				const details: ScreenshotResultDetails = {
 					filePath: finalPath,
@@ -1363,15 +1359,17 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							type: "text",
 							text: shotTextParts.join("\n"),
 						},
-						...(base64
-							? [
-									{
-										type: "image" as const,
-										data: base64,
-										mimeType: "image/png",
-									},
-								]
-							: []),
+						...(shotTextOnly
+							? []
+							: base64
+								? [
+										{
+											type: "image" as const,
+											data: base64,
+											mimeType: "image/png",
+										},
+									]
+								: []),
 					],
 					details: details as unknown as Record<string, unknown>,
 				};
@@ -1476,18 +1474,22 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					parts.push("OCR produced no text (frame may contain no readable text).");
 				}
 
-				// Pixels + OCR together: the image block carries the frame, the OCR
-				// text rides in the message body, and filePath in details is the
-				// fallback any caller can `read` to get the pixels through a file
-				// channel. Never strip the image here — the model boundary
-				// (convertToLlm seam) decides what a visionless model keeps.
+				// Text-first (shotport pattern): a visionless caller reads the frame
+				// as OCR text, so omit the embedded base64 image — the model can't
+				// see it, and a heavy image block in the tool result triggers the
+				// harness output minimizer, which compacts the WHOLE result (OCR
+				// text included) down to a stub. Text-only results stay small and
+				// never get compacted. Vision-capable callers keep pixels + OCR.
+				const textOnly = !modelSeesImages || params.ocr === true;
 
 				return {
 					content: [
 						{ type: "text", text: parts.join("\n") },
-						...(base64
-							? [{ type: "image" as const, data: base64, mimeType: "image/png" }]
-							: []),
+						...(textOnly
+							? []
+							: base64
+								? [{ type: "image" as const, data: base64, mimeType: "image/png" }]
+								: []),
 					],
 					details: {
 						action: "live_eye",
