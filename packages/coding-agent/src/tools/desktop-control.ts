@@ -1477,14 +1477,15 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// The tool result stays small & human-friendly: the scanning model
 				// gets the full picture (pixels + OCR text) through the hidden
 				// steer below, and the visible call bar shows only a one-liner.
-				// Pixels always ride in the steer so vision-capable models see
-				// the real frame; visionless models get it OCR'd at the central
-				// seam as hidden text.
+				// Pixels ride ONLY for vision-capable models — a visionless
+				// model can't see them, and the harness mangles the block into
+				// "[image omitted: model does not support vision]". A visionless
+				// caller gets the OCR text layer and nothing else.
 				const reading = parts.join("\n");
 				const steerContent: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
 					{ type: "text", text: reading },
 				];
-				if (base64) {
+				if (modelSeesImages && base64) {
 					steerContent.push({ type: "image", data: base64, mimeType: "image/png" });
 				}
 
