@@ -37,6 +37,39 @@ describe("live_eye geometry + targeting (pure logic)", () => {
 	});
 });
 
+describe("live_eye vision auto-detection (pure logic)", () => {
+	// Mirrors the decision logic in desktop-control live_eye:
+	//   modelSeesImages = session?.supportsVision?.() ?? true
+	//   wantOcr = params.ocr ?? !modelSeesImages
+	//   textOnly = !modelSeesImages || params.ocr === true
+	function decide(supportsVision: (() => boolean | undefined) | undefined, ocr?: boolean) {
+		const modelSeesImages = supportsVision?.() ?? true;
+		const wantOcr = ocr ?? !modelSeesImages;
+		const textOnly = !modelSeesImages || ocr === true;
+		return { modelSeesImages, wantOcr, textOnly };
+	}
+
+	test("visionless model auto-OCRs and goes text-only", () => {
+		expect(decide(() => false, undefined)).toEqual({ modelSeesImages: false, wantOcr: true, textOnly: true });
+	});
+
+	test("vision model keeps pixels, skips OCR by default", () => {
+		expect(decide(() => true, undefined)).toEqual({ modelSeesImages: true, wantOcr: false, textOnly: false });
+	});
+
+	test("explicit ocr:true forces OCR + text-only even for vision", () => {
+		expect(decide(() => true, true)).toEqual({ modelSeesImages: true, wantOcr: true, textOnly: true });
+	});
+
+	test("explicit ocr:false skips OCR even for visionless", () => {
+		expect(decide(() => false, false)).toEqual({ modelSeesImages: false, wantOcr: false, textOnly: true });
+	});
+
+	test("unknown capability defaults to vision-keeping behavior", () => {
+		expect(decide(undefined, undefined)).toEqual({ modelSeesImages: true, wantOcr: false, textOnly: false });
+	});
+});
+
 describe("live_eye marker contract", () => {
 	test("eyeMarkPresent detects the details marker", () => {
 		expect(eyeMarkPresent({ liveEye: { at: 123 } })).toBe(true);

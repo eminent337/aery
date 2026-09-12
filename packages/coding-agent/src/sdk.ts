@@ -1,4 +1,6 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
 	type CredentialDisabledEvent,
 	isUsageLimitError,
@@ -172,6 +174,7 @@ import {
 import { ToolContextStore } from "./tools/context";
 import { getImageGenTools } from "./tools/image-gen";
 import { wrapToolWithMetaNotice } from "./tools/output-meta";
+import { ocrFrame } from "./tools/screen-ocr";
 import { queueResolveHandler } from "./tools/resolve";
 import { ToolError } from "./tools/tool-errors";
 import { ttsTool } from "./tools/tts";
@@ -1360,6 +1363,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			getSessionSpawns: () => options.spawns ?? "*",
 			getModelString: () => (hasExplicitModel && model ? formatModelString(model) : undefined),
 			getActiveModelString,
+			supportsVision: () => (session?.model?.input ?? []).includes("image"),
 			getPlanModeState: () => session?.getPlanModeState(),
 			getGoalModeState: () => session?.getGoalModeState(),
 			getGoalRuntime: () => session?.goalRuntime,
@@ -2232,41 +2236,84 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 		const slashCommands = await slashCommandsPromise;
 
-		// Create convertToLlm wrapper that filters images if blockImages is enabled (defense-in-depth)
-		const convertToLlmWithBlockImages = (messages: AgentMessage[]): Message[] => {
-			const converted = convertToLlm(messages);
-			// Check setting dynamically so mid-session changes take effect
-			if (!settings.get("images.blockImages")) {
-				return converted;
+		// ConvertToLlm wrapper: central image-vision seam.
+		//
+		// Two branches here guarantee the model only ever receives content it can
+		// actually use, in ONE place — so tool screenshots, live_eye glances,
+		// attached photos, and pasted images all behave identically instead of
+		// each provider silently dropping pixels for a "[image omitted]" stub:
+		//   - `images.blockImages` (privacy): images are replaced with a text
+		//     placeholder. Defense-in-depth — providers also enforce this.
+		//   - visionLESS model: every image block is OCR'd to a TEXT block so the
+		//     model can READ what was captured (the old attached-image path did
+		//     this per-image; doing it here covers tool results + eye glances too).
+		const modelSupportsImages = (model?.input ?? []).includes("image");
+
+		const ocrImageToText = async (
+			image: { data: string; mimeType?: string },
+		): Promise<string | null> => {
+			try {
+				const filePath = path.join(
+					os.tmpdir(),
+					`aery-ocr-visionless-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`,
+				);
+				await fs.promises.writeFile(filePath, Buffer.from(image.data, "base64"));
+				const ocr = await ocrFrame(filePath);
+				await fs.promises.rm(filePath, { force: true }).catch(() => {});
+				return ocr.text || null;
+			} catch {
+				return null;
 			}
-			// Filter out ImageContent from all messages, replacing with text placeholder
-			return converted.map(msg => {
-				if (msg.role === "user" || msg.role === "toolResult") {
-					const content = msg.content;
-					if (Array.isArray(content)) {
-						const hasImages = content.some(c => c.type === "image");
-						if (hasImages) {
-							const filteredContent = content
-								.map(c =>
-									c.type === "image" ? { type: "text" as const, text: "Image reading is disabled." } : c,
-								)
-								.filter((c, i, arr) => {
-									// Dedupe consecutive "Image reading is disabled." texts
-									if (!(c.type === "text" && c.text === "Image reading is disabled." && i > 0)) return true;
-									const prev = arr[i - 1];
-									return !(prev.type === "text" && prev.text === "Image reading is disabled.");
-								});
-							return { ...msg, content: filteredContent };
-						}
-					}
-				}
-				return msg;
-			});
 		};
 
-		// Final convertToLlm: chain block-images filter with secret obfuscation
-		const convertToLlmFinal = (messages: AgentMessage[]): Message[] => {
-			const converted = convertToLlmWithBlockImages(messages);
+		const convertToLlmWithBlockImages = async (messages: AgentMessage[]): Promise<Message[]> => {
+			const converted = await convertToLlm(messages);
+			const blockImages = settings.get("images.blockImages");
+			if (modelSupportsImages && !blockImages) {
+				return converted;
+			}
+			return Promise.all(
+				converted.map(async msg => {
+					if (msg.role !== "user" && msg.role !== "toolResult") return msg;
+					const content = msg.content;
+					if (!Array.isArray(content)) return msg;
+					const hasImages = content.some(c => c.type === "image");
+					if (!hasImages) return msg;
+
+
+					// Resolve every image block to its replacement text (OCR/placeholder).
+					// Promise.all keeps OCR time parallel across the turn's images.
+					const resolved = await Promise.all(
+						content.map(async c => {
+							if (c.type !== "image") return [c];
+							let replacement: string;
+							if (blockImages) {
+								replacement = "Image reading is disabled.";
+							} else {
+								// visionless model: OCR the image so it can READ what
+								// was captured (attached photo, tool screenshot, eye
+								// glance). hidden:true keeps it out of the transcript.
+								replacement = (await ocrImageToText(c)) ?? "Unreadable image.";
+							}
+							return [{ type: "text" as const, text: replacement, hidden: true }];
+						}),
+					);
+					const filteredContent = resolved
+						.flat()
+						.filter((c, i, arr) => {
+							// Dedupe consecutive "Image reading is disabled." texts
+							if (!(c.type === "text" && c.text === "Image reading is disabled." && i > 0)) return true;
+							const prev = arr[i - 1];
+							return !(prev.type === "text" && prev.text === "Image reading is disabled.");
+						});
+					return { ...msg, content: filteredContent };
+				}),
+			);
+		};
+
+		// Final convertToLlm: chain image-vision handling with secret obfuscation
+		const convertToLlmFinal = async (messages: AgentMessage[]): Promise<Message[]> => {
+			const converted = await convertToLlmWithBlockImages(messages);
 			if (!obfuscator?.hasSecrets()) return converted;
 			return obfuscateMessages(obfuscator, converted);
 		};

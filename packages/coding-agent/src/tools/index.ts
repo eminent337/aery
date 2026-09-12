@@ -373,6 +373,8 @@ export interface ToolSession {
 	getModelString?: () => string | undefined;
 	/** Get the current session model string, regardless of how it was chosen */
 	getActiveModelString?: () => string | undefined;
+	/** Whether the active model can see images (vision-capable). Undefined when unknown. */
+	supportsVision?: () => boolean | undefined;
 	/** Auth storage for passing to subagents (avoids re-discovery) */
 	authStorage?: import("../session/auth-storage").AuthStorage;
 	/** Model registry for passing to subagents (avoids re-discovery) */

@@ -198,7 +198,7 @@ const desktopControlSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			"Extract on-screen text with tesseract OCR and return it as text (default: false). Use this when the model cannot see images — the glance then reads the frame's text content. Adds ~0.3-2s.",
+			"Extract on-screen text with tesseract OCR and return it as text. Defaults to true when the active model cannot see images (the glance then reads the frame's text content and the pixels are omitted), false otherwise. Pass false explicitly to skip the ~0.3-2s OCR cost.",
 		),
 	ocrLang: z
 		.string()
@@ -1392,15 +1392,20 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					} catch {}
 				}
 
-				// OCR text extraction (opt-in): lets a visionless model read the frame.
+				// OCR text extraction: automatic for a visionless model (it reads the
+				// frame as text instead of receiving pixels it can't see), opt-out
+				// via ocr:false. Vision-capable callers get OCR text alongside the
+				// image — or can skip the ~1s OCR cost with ocr:false.
 				// Adaptive: run tesseract at native size first (fast path ~1s); only
 				// pay for a 2x upscale + retry when the first pass comes back sparse
 				// (<20 chars), which is how small-text frames fail.
+				const modelSeesImages = this.session?.supportsVision?.() ?? true;
+				const wantOcr = params.ocr ?? !modelSeesImages;
 				let ocrText = "";
 				let ocrError: string | undefined;
 				let ocrMs0 = 0;
 				let ocrMode: "native" | "upscaled" | undefined;
-				if (params.ocr) {
+				if (wantOcr) {
 					ocrMs0 = Date.now();
 					const ocr = await ocrFrame(finalPath, { lang: params.ocrLang });
 					ocrText = ocr.text;
@@ -1416,16 +1421,28 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						`On-screen text (${ocrText.length} chars, tesseract ${ocrMode ?? "native"}):`,
 						ocrText.length > 8000 ? `${ocrText.slice(0, 8000)}\n…[truncated]` : ocrText,
 					);
-				} else if (params.ocr && ocrError) {
+				} else if (wantOcr && ocrError) {
 					parts.push(`OCR failed: ${ocrError}`);
-				} else if (params.ocr) {
+				} else if (wantOcr) {
 					parts.push("OCR produced no text (frame may contain no readable text).");
 				}
+
+				// Text-first (shotport pattern): a visionless caller reads the frame
+				// as OCR text, so omit the embedded base64 image — the model can't
+				// see it, and a heavy image block in the tool result triggers the
+				// harness output minimizer, which compacts the WHOLE result (OCR
+				// text included) down to a stub. Text-only results stay small and
+				// never get compacted. Vision-capable callers keep pixels + OCR.
+				const textOnly = !modelSeesImages || params.ocr === true;
 
 				return {
 					content: [
 						{ type: "text", text: parts.join("\n") },
-						...(base64 ? [{ type: "image" as const, data: base64, mimeType: "image/png" }] : []),
+						...(textOnly
+							? []
+							: base64
+								? [{ type: "image" as const, data: base64, mimeType: "image/png" }]
+								: []),
 					],
 					details: {
 						action: "live_eye",
@@ -1433,9 +1450,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						filePath: finalPath,
 						targetDesc,
 						swept,
-						...(params.ocr
-							? { ocrText, ocrMode, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) }
-							: {}),
+					...(wantOcr
+						? { ocrText, ocrMode, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) }
+						: {}),
 					} as unknown as Record<string, unknown>,
 				};
 			}
