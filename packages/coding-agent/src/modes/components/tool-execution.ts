@@ -197,17 +197,6 @@ export class ToolExecutionComponent extends Container {
 	#todoStrikeInterval?: NodeJS.Timeout;
 	// Track if args are still being streamed (for edit/write spinner)
 	#argsComplete = false;
-	// The eye is a silent sense: every glance rides as a hidden custom message,
-	// so the call bar and result render nothing at all. Detected either from the
-	// streamed args (creation-time skip) or from the result's liveEye marker
-	// (safety net for replay/older sessions and the brief streaming window).
-	#isEyeResult(): boolean {
-		if (this.#toolName !== "desktop_control") return false;
-		const args = this.#args as { action?: unknown } | undefined;
-		if (args && typeof args === "object" && args.action === "live_eye") return true;
-		const details = (this.#result?.details ?? undefined) as { liveEye?: unknown } | undefined;
-		return Boolean(details && typeof details === "object" && details.liveEye);
-	}
 	#renderState: {
 		spinnerFrame?: number;
 		expanded: boolean;
@@ -565,15 +554,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	#updateDisplay(): void {
-		// The eye renders nothing — its glance rides as a hidden custom message.
-		if (this.#isEyeResult()) {
-			this.#contentBox.setBgFn(undefined);
-			this.#contentBox.clear();
-			this.#contentText.setCustomBgFn(undefined);
-			this.#contentText.setText("");
-			return;
-		}
-
+		// Set background based on state
 		const bgFn = this.#isPartial
 			? (text: string) => theme.fg("accent", text)
 			: this.#result?.isError
@@ -1012,11 +993,6 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	override render(width: number): string[] {
-		// The eye draws no chrome at all — not even the call bar. Its glance is
-		// a silent sense: the model sees it via the hidden steer attachment.
-		if (this.#isEyeResult()) {
-			return [];
-		}
 		// Aery heavy-bar aesthetic using live theme colors
 		const SPINNER = ["◐", "◓", "◑", "◒"];
 

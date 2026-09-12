@@ -1460,12 +1460,6 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					ocrError = ocr.error;
 					ocrMode = ocr.mode;
 				}
-
-				// Text-first (shotport pattern): a visionless caller reads the frame
-				// as OCR text, so omit the embedded base64 image — the model can't
-				// see it. Vision-capable callers keep pixels alongside the reading.
-				const textOnly = !modelSeesImages || params.ocr === true;
-
 				const parts: string[] = [
 					`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,
 				];
@@ -1480,25 +1474,20 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					parts.push("OCR produced no text (frame may contain no readable text).");
 				}
 
-				// Eye results are ephemeral & hidden-by-default: the full reading
-				// and (for vision-capable callers) the pixel frame ride out as a
-				// hidden custom message steered into the conversation — exactly
-				// like a paste attachment: the model sees it, the transcript UI
-				// never renders it. The tool result itself stays tiny so it is
-				// never hit by the harness output minimizer (which is what ate
-				// the earlier long OCR dump). Old glances are swept on the next
-				// glance (details.liveEye) keeping context at ~1 eye image.
+				// The tool result stays small & human-friendly: the scanning model
+				// gets the full picture (pixels + OCR text) through the hidden
+				// steer below, and the visible call bar shows only a one-liner.
+				// Pixels always ride in the steer so vision-capable models see
+				// the real frame; visionless models get it OCR'd at the central
+				// seam as hidden text.
 				const reading = parts.join("\n");
 				const steerContent: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
 					{ type: "text", text: reading },
 				];
-				if (!textOnly && base64) {
-					// Vision-capable caller: attach the pixel frame too. The
-					// center convertToLlm seam OCRs it to hidden text for
-					// visionless models anyway, so sending pixels alongside is
-					// always safe and gives vision models the real frame.
+				if (base64) {
 					steerContent.push({ type: "image", data: base64, mimeType: "image/png" });
 				}
+
 
 				let attached = false;
 				const eyeSession = this.session;

@@ -384,12 +384,6 @@ export class UiHelpers {
 						continue;
 					}
 
-					// The eye is a silent sense: its glance rides as a hidden
-					// custom message (see desktop-control live_eye), so the call
-					// and its tiny result never render in the transcript.
-					if (content.name === "desktop_control" && content.arguments?.action === "live_eye") {
-						continue;
-					}
 					if (
 						content.name === "read" &&
 						readArgsHaveTarget(content.arguments) &&
@@ -456,12 +450,6 @@ export class UiHelpers {
 					}
 				}
 			} else if (message.role === "toolResult") {
-				// The eye's result is silent — its glance already rode as a hidden
-				// custom message, so no trace renders here either.
-				if (message.toolName === "desktop_control" && (message.details as { liveEye?: unknown } | undefined)?.liveEye) {
-					this.ctx.pendingTools.delete(message.toolCallId);
-					continue;
-				}
 				const pendingReadComponent = this.ctx.pendingTools.get(message.toolCallId);
 				const isReadGroupResult =
 					message.toolName === "read" &&
