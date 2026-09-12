@@ -104,7 +104,7 @@ const desktopControlSchema = z.object({
 			"xvfb_close",
 		])
 		.describe(
-			"Actions: 'live_eye' is your own eyes, exactly like a human's — look whenever you want to look, any time, any reason, no permission needed. A fast sub-second glance at the environment: active window, fullscreen, a window by name, or a physical-pixel region, with OCR text alongside the image so visionless models can read the screen too. Eye views are ephemeral — each glance sweeps the previous one from context, so glance freely and as often as you want. Other actions: 'screenshot' captures display/window, 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
+			"Actions: 'live_eye' is your own eyes, exactly like a human's — look whenever you want to look, any time, any reason, no permission needed. A fast sub-second glance at the environment: active window, fullscreen, a window by name, or a physical-pixel region. The glance attaches to your context as a hidden reading — OCR text on every visionless model, pixels + OCR on vision-capable models — and never renders in the transcript. Eye views are ephemeral: each glance sweeps the previous one from context, so glance freely and as often as you want. Other actions: 'screenshot' captures display/window and returns the frame inline in the result (visible), 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
 		),
 	region: z
 		.object({
@@ -202,7 +202,7 @@ const desktopControlSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			"Extract on-screen text with tesseract OCR and return it as text. Defaults to true when the active model cannot see images (the glance then reads the frame's text content and the pixels are omitted), false otherwise. Pass false explicitly to skip the ~0.3-2s OCR cost.",
+			"Extract on-screen text with tesseract OCR and attach it as the hidden reading (text-only on visionless models, alongside pixels on vision-capable ones). Defaults to true when the active model cannot see images, false otherwise. Pass false explicitly to skip the ~0.3-2s OCR cost (visionless models then get no reading).",
 		),
 	ocrLang: z
 		.string()
@@ -1461,6 +1461,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					ocrMode = ocr.mode;
 				}
 
+				// Text-first (shotport pattern): a visionless caller reads the frame
+				// as OCR text, so omit the embedded base64 image — the model can't
+				// see it. Vision-capable callers keep pixels alongside the reading.
+				const textOnly = !modelSeesImages || params.ocr === true;
+
 				const parts: string[] = [
 					`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,
 				];
@@ -1475,22 +1480,59 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					parts.push("OCR produced no text (frame may contain no readable text).");
 				}
 
-				// Text-first (shotport pattern): a visionless caller reads the frame
-				// as OCR text, so omit the embedded base64 image — the model can't
-				// see it, and a heavy image block in the tool result triggers the
-				// harness output minimizer, which compacts the WHOLE result (OCR
-				// text included) down to a stub. Text-only results stay small and
-				// never get compacted. Vision-capable callers keep pixels + OCR.
-				const textOnly = !modelSeesImages || params.ocr === true;
+				// Eye results are ephemeral & hidden-by-default: the full reading
+				// and (for vision-capable callers) the pixel frame ride out as a
+				// hidden custom message steered into the conversation — exactly
+				// like a paste attachment: the model sees it, the transcript UI
+				// never renders it. The tool result itself stays tiny so it is
+				// never hit by the harness output minimizer (which is what ate
+				// the earlier long OCR dump). Old glances are swept on the next
+				// glance (details.liveEye) keeping context at ~1 eye image.
+				const reading = parts.join("\n");
+				const steerContent: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
+					{ type: "text", text: reading },
+				];
+				if (!textOnly && base64) {
+					// Vision-capable caller: attach the pixel frame too. The
+					// center convertToLlm seam OCRs it to hidden text for
+					// visionless models anyway, so sending pixels alongside is
+					// always safe and gives vision models the real frame.
+					steerContent.push({ type: "image", data: base64, mimeType: "image/png" });
+				}
+
+				let attached = false;
+				const eyeSession = this.session;
+				if (eyeSession && "sendCustomMessage" in eyeSession) {
+					try {
+						await eyeSession.sendCustomMessage?.(
+							{
+								customType: "eye-glance",
+								content: steerContent,
+								display: false,
+								details: {
+									liveEye: { at: timestamp },
+									filePath: finalPath,
+									targetDesc,
+								},
+								attribution: "agent",
+							},
+							{ deliverAs: "steer", triggerTurn: false },
+						);
+						attached = true;
+					} catch {
+						// Fire-and-forget; if the session is shutting down we
+						// just fall back to returning the text inline below.
+					}
+				}
 
 				return {
 					content: [
-						{ type: "text", text: parts.join("\n") },
-						...(textOnly
-							? []
-							: base64
-								? [{ type: "image" as const, data: base64, mimeType: "image/png" }]
-								: []),
+						{
+							type: "text",
+							text: attached
+								? `Eye glance at ${targetDesc} — reading attached for the model (ephemeral — replaced next glance; swept ${swept}).`
+								: reading,
+						},
 					],
 					details: {
 						action: "live_eye",
@@ -1498,9 +1540,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						filePath: finalPath,
 						targetDesc,
 						swept,
-					...(wantOcr
-						? { ocrText, ocrMode, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) }
-						: {}),
+						...(wantOcr
+							? { ocrText, ocrMode, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) }
+							: {}),
 					} as unknown as Record<string, unknown>,
 				};
 			}

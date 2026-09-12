@@ -428,7 +428,7 @@ export interface ToolSession {
 	activateDiscoveredTools?: (toolNames: string[]) => Promise<string[]>;
 	/** Send a custom message into the session's conversation (e.g. a steer message from a tool). */
 	sendCustomMessage?: (
-		message: { customType: string; content: unknown; display?: boolean; attribution?: string },
+		message: { customType: string; content: unknown; display?: boolean; details?: unknown; attribution?: string },
 		options?: { deliverAs?: "steer" | "followUp" | "nextTurn"; triggerTurn?: boolean },
 	) => Promise<void>;
 	/** The tool-choice queue used to force forthcoming tool invocations and carry invocation handlers. */

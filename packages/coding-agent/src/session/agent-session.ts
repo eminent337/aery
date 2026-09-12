@@ -6356,6 +6356,27 @@ export class AgentSession {
 		const branchEntries = this.sessionManager.getBranch();
 		let removed = 0;
 		for (const entry of branchEntries) {
+			if (entry.type === "custom_message") {
+				// Steered eye glances ride as hidden custom messages (customType
+				// "eye-glance"). Each new glance supersedes the old: drop the
+				// previous glance's pixels (and its reading, which is stale) so
+				// context stays at ~1 eye image — the eye is ephemeral by design.
+				const meta = entry as { customType?: unknown; content?: unknown; details?: unknown };
+				if (meta.customType !== "eye-glance") continue;
+				const content = meta.content as Array<{ type?: string }> | undefined;
+				if (!Array.isArray(content)) continue;
+				const kept = content.filter(p => p.type !== "image");
+				const dropped = content.length - kept.length;
+				if (dropped > 0) {
+					// The glance reading is now stale too — collapse to a marker
+					// so the old text doesn't linger as noise in context.
+					(entry as { content?: unknown }).content = kept.length > 0
+						? kept
+						: [{ type: "text", text: "[eye glance superseded]" }];
+					removed += dropped;
+				}
+				continue;
+			}
 			if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
 			const details = entry.message.details as { liveEye?: { at?: number }; images?: unknown[] } | null | undefined;
 			if (!details || !details.liveEye) continue;
