@@ -67,6 +67,10 @@ export interface ScreenshotResultDetails {
 	scaledDimensions?: { width: number; height: number };
 	target: string;
 	targetWindow?: { title: string; class: string; address: string };
+	ocrText?: string;
+	ocrMode?: "native" | "upscaled";
+	ocrMs?: number;
+	ocrError?: string;
 }
 
 const desktopControlSchema = z.object({
@@ -1290,11 +1294,44 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					} catch {}
 				}
 
-				const targetDesc = targetWindow
+				// OCR layer (mirrors live_eye): automatic for a visionless model so
+				// a captured screenshot reads as text instead of dead pixels;
+				// opt-out via ocr:false. Vision-capable callers keep the
+				// pixel-first result unless they pass ocr:true.
+				const shotModelSeesImages = this.session?.supportsVision?.() ?? true;
+				const shotWantOcr = params.ocr ?? !shotModelSeesImages;
+				let shotOcrText = "";
+				let shotOcrError: string | undefined;
+				let shotOcrMode: "native" | "upscaled" | undefined;
+				let shotOcrMs0 = 0;
+				if (shotWantOcr) {
+					shotOcrMs0 = Date.now();
+					const shotOcr = await ocrFrame(finalPath, { lang: params.ocrLang });
+					shotOcrText = shotOcr.text;
+					shotOcrError = shotOcr.error;
+					shotOcrMode = shotOcr.mode;
+				}
+				const shotTargetDesc = targetWindow
 					? `window "${targetWindow.title}" (${targetWindow.class}) [${targetWindow.size[0]}x${targetWindow.size[1]}]`
 					: geometry
 						? `geometry ${geometry}`
 						: "fullscreen display";
+				const shotTextParts = [
+					`Captured screenshot of ${shotTargetDesc} (saved to ${finalPath}).${frameNote}`,
+				];
+				if (shotOcrText) {
+					shotTextParts.push(
+						`On-screen text (${shotOcrText.length} chars, tesseract ${shotOcrMode ?? "native"}):`,
+						shotOcrText.length > 8000 ? `${shotOcrText.slice(0, 8000)}\n…[truncated]` : shotOcrText,
+					);
+				} else if (shotWantOcr && shotOcrError) {
+					shotTextParts.push(`OCR failed: ${shotOcrError}`);
+				} else if (shotWantOcr) {
+					shotTextParts.push("OCR produced no text (frame may contain no readable text).");
+				}
+				// Text-first for visionless callers: omit the embedded base64 so a
+				// heavy image block can't trigger harness compaction of the OCR.
+				const shotTextOnly = !shotModelSeesImages || params.ocr === true;
 
 				const details: ScreenshotResultDetails = {
 					filePath: finalPath,
@@ -1306,23 +1343,33 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					targetWindow: targetWindow
 						? { title: targetWindow.title, class: targetWindow.class, address: targetWindow.address }
 						: undefined,
+					...(shotWantOcr
+						? {
+								ocrText: shotOcrText,
+								ocrMode: shotOcrMode,
+								ocrMs: Date.now() - shotOcrMs0,
+								...(shotOcrError ? { ocrError: shotOcrError } : {}),
+							}
+						: {}),
 				};
 
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Captured screenshot of ${targetDesc} (saved to ${finalPath}).${frameNote}`,
+							text: shotTextParts.join("\n"),
 						},
-						...(base64
-							? [
-									{
-										type: "image" as const,
-										data: base64,
-										mimeType: "image/png",
-									},
-								]
-							: []),
+						...(shotTextOnly
+							? []
+							: base64
+								? [
+										{
+											type: "image" as const,
+											data: base64,
+											mimeType: "image/png",
+										},
+									]
+								: []),
 					],
 					details: details as unknown as Record<string, unknown>,
 				};
