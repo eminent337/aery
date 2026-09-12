@@ -9,7 +9,6 @@ import { TinyTitleDownloadProgressComponent } from "../../modes/components/tiny-
 import { expandEmoticons } from "../../modes/emoji-autocomplete";
 import { createPromptActionAutocompleteProvider } from "../../modes/prompt-action-autocomplete";
 import type { InteractiveModeContext } from "../../modes/types";
-import { captureScreenFrame, getAmbientFramesForTurn } from "../../voice/screen-vision";
 import type { AgentSessionEvent } from "../../session/agent-session";
 import { SKILL_PROMPT_MESSAGE_TYPE, type SkillPromptDetails } from "../../session/messages";
 import { executeBuiltinSlashCommand, lookupBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
@@ -24,6 +23,7 @@ import { detectMultiplexer, getEditorCommand, openInEditor } from "../../utils/e
 import { ensureSupportedImageInput } from "../../utils/image-loading";
 import { resizeImage } from "../../utils/image-resize";
 import { generateSessionTitle, setSessionTerminalTitle } from "../../utils/title-generator";
+import { buildScreenVisionContext, getAmbientFramesForTurn } from "../../voice/screen-vision";
 
 interface Expandable {
 	setExpanded(expanded: boolean): void;
@@ -300,6 +300,14 @@ export class InputController {
 			// interactive-mode): when enabled, attach ambient buffer bracket frames +
 			// an instant active-window capture so "what do you see" works in text
 			// mode too. Kept after pendingImages so explicit Ctrl+V images win.
+			//
+			// Environment-aware (Screen Vision grounding): the capture also carries a
+			// HIDDEN caption into the model's user content — what the frame is
+			// (window/class/size) and why it's attached. Visionless models get the
+			// frame's OCR text instead of a dead "[image omitted]" placeholder, so
+			// they can actually READ the screen. Nothing of this shows on Peter's
+			// screen; the visible message stays exactly as typed.
+			let screenVisionText: string | undefined;
 			if (
 				isSettingsInitialized() &&
 				settings.get("voice.screenVision") === true &&
@@ -308,16 +316,27 @@ export class InputController {
 				!text.startsWith("$")
 			) {
 				try {
-					const visionFrames = [...getAmbientFramesForTurn()];
-					const vision = await captureScreenFrame({
-						target: (settings.get("voice.screenVisionTarget") as "active_window" | "fullscreen") || "active_window",
+					const supportsImages = this.ctx.session.model?.input?.includes("image") ?? true;
+					const ctx = await buildScreenVisionContext({
+						target:
+							(settings.get("voice.screenVisionTarget") as "active_window" | "fullscreen") || "active_window",
+						supportsImages,
 					});
-					if (vision.image) visionFrames.push(vision.image);
-					if (visionFrames.length > 0) {
-						inputImages = [...(inputImages ?? []), ...visionFrames];
-						// No "[Screen Vision: …]" text prefix (matching the voice path):
-						// images attach silently, the visible message stays exactly as
-						// typed. The system prompt already documents Live Eye.
+					if (ctx) {
+						if (ctx.image) {
+							// Vision-capable: ambient bracket frames + the instant capture.
+							const visionFrames = [...getAmbientFramesForTurn(), ctx.image];
+							inputImages = [...(inputImages ?? []), ...visionFrames];
+						}
+						// Hidden model-only grounding text (caption + OCR for visionless).
+						const parts = [ctx.caption];
+						if (ctx.ocrText) {
+							parts.push(
+								`On-screen text (OCR, ${ctx.ocrText.length} chars${ctx.ocrMode ? `, tesseract ${ctx.ocrMode}` : ""}):`,
+								ctx.ocrText.length > 8000 ? `${ctx.ocrText.slice(0, 8000)}\n…[truncated]` : ctx.ocrText,
+							);
+						}
+						screenVisionText = parts.join("\n");
 					}
 				} catch {
 					// Screen capture is best-effort: never block a text submit on it.
@@ -428,7 +447,7 @@ export class InputController {
 				// the streaming/queue path.
 				await this.ctx.withLocalSubmission(
 					text,
-					() => this.ctx.session.prompt(text, { streamingBehavior: "steer", images }),
+					() => this.ctx.session.prompt(text, { streamingBehavior: "steer", images, screenVisionText }),
 					{ imageCount: images?.length ?? 0 },
 				);
 				this.ctx.updatePendingMessagesDisplay();
@@ -476,7 +495,7 @@ export class InputController {
 				this.ctx.pendingImages = [];
 
 				// Render user message immediately, then let session events catch up
-				const submission = this.ctx.startPendingSubmission({ text, images });
+				const submission = this.ctx.startPendingSubmission({ text, images, screenVisionText });
 
 				this.ctx.onInputCallback(submission);
 			}

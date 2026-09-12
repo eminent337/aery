@@ -13,6 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ImageContent } from "@aryee337/aery-ai";
 import { logger, Snowflake } from "@aryee337/aery-utils";
+import { ocrFrame } from "../tools/screen-ocr";
 
 export interface ActiveWindowInfo {
 	title?: string;
@@ -27,12 +28,15 @@ export interface ScreenVisionResult {
 	metadata?: string;
 	window?: ActiveWindowInfo;
 	latencyMs: number;
+	/** Path of the retained capture file when `keepFile` was requested (for OCR). */
+	filePath?: string;
 }
-
 export interface CaptureOptions {
 	target?: "active_window" | "fullscreen";
 	quality?: number; // JPEG quality (1-100, default: 75)
 	timeoutMs?: number; // Capture timeout (default: 800ms)
+	/** Keep the temp capture file on disk (returned as `filePath`) so callers can OCR it. */
+	keepFile?: boolean;
 }
 
 /** Helper to run a command with strict timeout and stdout capture */
@@ -147,12 +151,7 @@ export async function captureScreenFrame(options: CaptureOptions = {}): Promise<
 	// Query active window if requested
 	if (target === "active_window") {
 		windowInfo = await getActiveWindow();
-		if (
-			windowInfo?.at &&
-			windowInfo?.size &&
-			windowInfo.size[0] > 0 &&
-			windowInfo.size[1] > 0
-		) {
+		if (windowInfo?.at && windowInfo?.size && windowInfo.size[0] > 0 && windowInfo.size[1] > 0) {
 			geometry = `${windowInfo.at[0]},${windowInfo.at[1]} ${windowInfo.size[0]}x${windowInfo.size[1]}`;
 		}
 	}
@@ -173,7 +172,11 @@ export async function captureScreenFrame(options: CaptureOptions = {}): Promise<
 	// 2. X11 fallback (scrot or import)
 	if (!captured && process.env.DISPLAY) {
 		if (geometry) {
-			const res = await execAsync("import", ["-window", "root", "-crop", geometry.replace(" ", "+"), tmpPath], timeoutMs);
+			const res = await execAsync(
+				"import",
+				["-window", "root", "-crop", geometry.replace(" ", "+"), tmpPath],
+				timeoutMs,
+			);
 			captured = res.code === 0;
 		} else {
 			const res = await execAsync("scrot", ["-z", "-q", String(quality), tmpPath], timeoutMs);
@@ -194,9 +197,9 @@ export async function captureScreenFrame(options: CaptureOptions = {}): Promise<
 	}
 
 	try {
+		const keep = options.keepFile === true;
 		const buf = await fs.readFile(tmpPath);
-		await fs.rm(tmpPath, { force: true });
-
+		if (!keep) await fs.rm(tmpPath, { force: true });
 		const image: ImageContent = {
 			type: "image",
 			data: buf.toString("base64"),
@@ -207,7 +210,7 @@ export async function captureScreenFrame(options: CaptureOptions = {}): Promise<
 		// "[Screen Vision: …]" / "[Active Window: …]" label to never display.
 		// The JPEG itself is the grounding (documented in the system prompt);
 		// drop-in reversal: restore the block below to re-enable the text.
-		let metadata: string | undefined = undefined;
+		let metadata: string | undefined;
 		// if (windowInfo?.title || windowInfo?.class) {
 		// 	const app = windowInfo.class || "Application";
 		// 	const title = windowInfo.title || "Untitled";
@@ -228,8 +231,9 @@ export async function captureScreenFrame(options: CaptureOptions = {}): Promise<
 			metadata,
 			window: windowInfo ?? undefined,
 			latencyMs,
+			...(keep ? { filePath: tmpPath } : {}),
 		};
-	} catch (err) {
+	} catch {
 		await fs.rm(tmpPath, { force: true }).catch(() => {});
 		return { latencyMs };
 	}
@@ -270,20 +274,20 @@ export function startAmbientScreenBuffer(): void {
 		if (ambientBusy) return; // never stack captures
 		ambientBusy = true;
 		void captureScreenFrame({ target: "fullscreen", quality: 70, timeoutMs: 900 })
-		.then(async vision => {
-			if (vision.image) {
-				ambientFrames.push({
-					image: vision.image,
-					at: Date.now(),
-					window: vision.window,
-					metadata: vision.metadata,
-				});
-				while (ambientFrames.length > AMBIENT_MAX_FRAMES) ambientFrames.shift();
-			}
-		})
-		.finally(() => {
-			ambientBusy = false;
-		});
+			.then(async vision => {
+				if (vision.image) {
+					ambientFrames.push({
+						image: vision.image,
+						at: Date.now(),
+						window: vision.window,
+						metadata: vision.metadata,
+					});
+					while (ambientFrames.length > AMBIENT_MAX_FRAMES) ambientFrames.shift();
+				}
+			})
+			.finally(() => {
+				ambientBusy = false;
+			});
 	}, AMBIENT_INTERVAL_MS);
 }
 
@@ -335,4 +339,72 @@ export function getAmbientBufferStats(): { frames: number; running: boolean; new
 		running: ambientTimer !== undefined,
 		newestAgeMs: newest ? Date.now() - newest.at : undefined,
 	};
+}
+// ---------------------------------------------------------------------------
+// Environment-aware Screen Vision grounding (shared by voice & text turns)
+// ---------------------------------------------------------------------------
+// A turn that attaches a screen capture becomes ENVIRONMENT-AWARE: the model
+// learns what the frame is (window, size, why it's attached) via a short
+// caption, and — for models that cannot see images — receives the OCR text of
+// the frame so it can genuinely READ its environment instead of a dead
+// "[image omitted]" placeholder. Nothing here is shown to the user: the caption
+// rides inside the model's user content, never on the screen.
+
+export interface ScreenVisionContext {
+	/** Environment caption, e.g. `[Screen Vision: kitty — "Aery" (environment · active window · 1200x800)]`. */
+	caption: string;
+	/** JPEG/PNG frame for vision-capable models. */
+	image?: ImageContent;
+	/** OCR text for visionless models (empty when OCR unavailable/none). */
+	ocrText?: string;
+	/** Which mode OCR ran in, if it ran. */
+	ocrMode?: "native" | "upscaled";
+	/** Window info captured with the frame. */
+	window?: ActiveWindowInfo;
+}
+
+function formatSize(size?: [number, number]): string {
+	return size && size[0] > 0 && size[1] > 0 ? ` · ${size[0]}x${size[1]}` : "";
+}
+
+/**
+ * Capture the active window (or fullscreen) and build the environment-aware
+ * context for a turn:
+ *   - caption: always, so the model knows WHAT the frame is and WHY it's attached.
+ *   - image: when `supportsImages` (vision-capable) — the JPEG itself.
+ *   - ocrText: when NOT `supportsImages` — OCR of the retained file so a
+ *     visionless model can read the screen as text.
+ * Returns `null` when capture failed (callers should just skip grounding).
+ */
+export async function buildScreenVisionContext(options: {
+	target?: "active_window" | "fullscreen";
+	supportsImages: boolean;
+	ocrLang?: string;
+}): Promise<ScreenVisionContext | null> {
+	const { target = "active_window", supportsImages } = options;
+	const vision = await captureScreenFrame({ target, keepFile: !supportsImages });
+	if (!vision.image && !vision.filePath) return null;
+
+	const win = vision.window;
+	const app = target === "fullscreen" ? "Full Display" : win?.class || "Application";
+	const title = target === "fullscreen" ? "your entire desktop" : win?.title || "(untitled window)";
+	const caption = `[Screen Vision: ${app} — "${title}" (environment${target === "fullscreen" ? " · entire display" : " · active window"}${formatSize(win?.size)})]`;
+
+	if (supportsImages) {
+		return { caption, image: vision.image, window: win ?? undefined };
+	}
+
+	// Visionless: OCR the retained frame so the model can READ its environment.
+	if (!vision.filePath) return { caption, window: win ?? undefined };
+	try {
+		const ocr = await ocrFrame(vision.filePath, { lang: options.ocrLang });
+		return {
+			caption,
+			ocrText: ocr.text || undefined,
+			ocrMode: ocr.mode,
+			window: win ?? undefined,
+		};
+	} finally {
+		await fs.rm(vision.filePath, { force: true }).catch(() => {});
+	}
 }

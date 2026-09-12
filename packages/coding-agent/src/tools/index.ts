@@ -37,12 +37,14 @@ import { BashTool } from "./bash";
 import { BashOutputTool } from "./bash-output";
 import { BestOfNTool } from "./best-of-n";
 import { BrowserTool } from "./browser";
+import { CameraControlTool } from "./camera-control";
 import { type CheckpointState, CheckpointTool, RewindTool } from "./checkpoint";
 import { ContextUsageTool } from "./context-usage";
 import { ConversationSearchTool } from "./conversation-search";
 import { DaemonTool } from "./daemon";
 import { DaemonControlTool } from "./daemon-control";
 import { DebugTool } from "./debug";
+import { DesktopControlTool } from "./desktop-control";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
 import { ExploreTool } from "./explore";
@@ -63,6 +65,7 @@ import { MultiPromptReviewTool } from "./multi-prompt-review";
 import { wrapToolWithMetaNotice } from "./output-meta";
 import { EnterPlanModeTool, ExitPlanModeTool } from "./plan-mode";
 import { ReadTool } from "./read";
+import { ReadDocTool } from "./read-doc";
 import { RenderMermaidTool } from "./render-mermaid";
 import { createReportToolIssueTool, isAutoQaEnabled } from "./report-tool-issue";
 import { ResolveTool } from "./resolve";
@@ -76,13 +79,10 @@ import { SetFastTool } from "./set-fast";
 import { SetModelTool } from "./set-model";
 import { ShadowWatchTool } from "./shadow";
 import { loadSshTool } from "./ssh";
-
-import { TerminalPaneTool } from "./terminal-pane";
-import { DesktopControlTool } from "./desktop-control";
-import { VoiceControlTool } from "./voice-control";
-import { CameraControlTool } from "./camera-control";
 import { TaskCreateTool, TaskGetTool, TaskListTool, TaskStopTool, TaskUpdateTool } from "./task-tracker";
+import { TerminalPaneTool } from "./terminal-pane";
 import { type TodoPhase, TodoWriteTool } from "./todo-write";
+import { VoiceControlTool } from "./voice-control";
 import { WriteTool } from "./write";
 import { YieldTool } from "./yield";
 
@@ -159,9 +159,11 @@ export * from "./bash";
 export * from "./bash-output";
 export * from "./best-of-n";
 export * from "./browser";
+export * from "./camera-control";
 export * from "./checkpoint";
 export * from "./conversation-search";
 export * from "./debug";
+export * from "./desktop-control";
 export * from "./eval";
 export * from "./eval-backends";
 export * from "./explore";
@@ -196,12 +198,10 @@ export * from "./set-model";
 export * from "./shadow";
 export * from "./ssh";
 export * from "./task-tracker";
-export * from "./todo-write";
 export * from "./terminal-pane";
-export * from "./desktop-control";
-export * from "./voice-control";
-export * from "./camera-control";
+export * from "./todo-write";
 export * from "./tts";
+export * from "./voice-control";
 export * from "./write";
 export * from "./yield";
 
@@ -584,6 +584,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	lsp: LspTool.createIf,
 	graph: () => new GraphTool(),
 	inspect_image: s => new InspectImageTool(s),
+	read_doc: s => new ReadDocTool(s),
 	browser: s => new BrowserTool(s),
 	checkpoint: CheckpointTool.createIf,
 	rewind: RewindTool.createIf,
