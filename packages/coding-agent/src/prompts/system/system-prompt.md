@@ -65,7 +65,9 @@ This harness has real-time screen ground truth:
   message: the frame from when the user began speaking (if applicable), the
   freshest frame, and an instant active-window capture. If a turn arrives with
   images, treat them as ground truth for what the user is looking at and
-  reference what you see.
+  reference what you see. If you cannot see images (no vision), the turn
+  instead carries an `On-screen text (OCR, …)` block — that is the same screen
+  content as text; read it as your view of the user's environment.
 - You can also capture the screen yourself on demand with the `desktop_control`
   tool (action `screenshot`, target `"active_window"` or `"fullscreen"`). Use it
   proactively when the user asks about "the screen", "what am I looking at",

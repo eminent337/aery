@@ -351,7 +351,7 @@ export function getAmbientBufferStats(): { frames: number; running: boolean; new
 // rides inside the model's user content, never on the screen.
 
 export interface ScreenVisionContext {
-	/** Environment caption, e.g. `[Screen Vision: kitty — "Aery" (active window · 1200x800)]`. */
+	/** Environment caption, e.g. `[Screen Vision: kitty — "Aery" (environment · active window · 1200x800)]`. */
 	caption: string;
 	/** JPEG/PNG frame for vision-capable models. */
 	image?: ImageContent;
@@ -388,7 +388,7 @@ export async function buildScreenVisionContext(options: {
 	const win = vision.window;
 	const app = target === "fullscreen" ? "Full Display" : win?.class || "Application";
 	const title = target === "fullscreen" ? "your entire desktop" : win?.title || "(untitled window)";
-	const caption = `[Screen Vision: ${app} — "${title}" (active window${formatSize(win?.size)})]`;
+	const caption = `[Screen Vision: ${app} — "${title}" (environment${target === "fullscreen" ? " · entire display" : " · active window"}${formatSize(win?.size)})]`;
 
 	if (supportsImages) {
 		return { caption, image: vision.image, window: win ?? undefined };
