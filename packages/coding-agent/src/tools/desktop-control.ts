@@ -1,4 +1,5 @@
 import { buildEyeGeometry, describeEyeTarget } from "./live-eye";
+import { ocrFrame } from "./screen-ocr";
 /**
  * Desktop Control & Screen Vision Tool.
  *
@@ -19,6 +20,7 @@ import * as z from "zod/v4";
 import type { ToolSession } from "./index";
 import {
 	frameToPhysical,
+	hyprMoveCursor,
 	type InputFrame,
 	type InputKind,
 	isDirectTypeable,
@@ -32,7 +34,6 @@ import {
 	wtypeChord,
 	xdoClick,
 	xdoDrag,
-	hyprMoveCursor,
 	xdoMove,
 	YDO_CTRL_V,
 	YDO_DOWN,
@@ -616,7 +617,9 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 		// Hyprland (no ABS cap on the virtual device — relative deltas + accel skew).
 		const aim = isHyprland() ? hyprMoveCursor(pt.x, pt.y) : null;
 		if (action === "live_move") {
-			const fail = await runSteps(aim ? [aim] : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)]);
+			const fail = await runSteps(
+				aim ? [aim] : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
+			);
 			if (fail) return errText(fail);
 			liveAuthorizedKinds.add(action);
 			return withVerify(`Moved pointer to frame (${params.x},${params.y}) → physical (${pt.x},${pt.y}).`);
@@ -625,7 +628,12 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 			const button = params.button ?? "left";
 			const count = params.count ?? 1;
 			const code = button === "right" ? YDO_RIGHT : button === "middle" ? YDO_MIDDLE : YDO_LEFT;
-			const steps = backend === "ydotool" ? (aim ? [aim, ydoClickButton(code, count)] : [ydoMove(pt.x, pt.y), ydoClickButton(code, count)]) : [xdoClick(pt.x, pt.y, button, count)];
+			const steps =
+				backend === "ydotool"
+					? aim
+						? [aim, ydoClickButton(code, count)]
+						: [ydoMove(pt.x, pt.y), ydoClickButton(code, count)]
+					: [xdoClick(pt.x, pt.y, button, count)];
 			const fail = await runSteps(steps);
 			if (fail) return errText(fail);
 			liveAuthorizedKinds.add(action);
@@ -1320,142 +1328,117 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				};
 			}
 
-		case "live_eye": {
-			// Fast glance. Ephemeral by design: each eye view is marked
-			// details.liveEye so the session can sweep old eye images from
-			// context at the next user prompt (steady state: ~1 eye image).
-			const includeBase64 = params.includeBase64 ?? true;
-			const timestamp = Date.now();
-			const tmpRaw = path.join(os.tmpdir(), `aerys-eye-${timestamp}-raw.png`);
-			const tmpFinal = path.join(os.tmpdir(), `aerys-eye-${timestamp}.png`);
+			case "live_eye": {
+				// Fast glance. Ephemeral by design: each eye view is marked
+				// details.liveEye so the session can sweep old eye images from
+				// context at the next user prompt (steady state: ~1 eye image).
+				const includeBase64 = params.includeBase64 ?? true;
+				const timestamp = Date.now();
+				const tmpRaw = path.join(os.tmpdir(), `aerys-eye-${timestamp}-raw.png`);
+				const tmpFinal = path.join(os.tmpdir(), `aerys-eye-${timestamp}.png`);
 
-			// Resolve what to look at: explicit region > window target > active window.
-			let geometry: string | undefined;
-			let targetWindow: DesktopWindowInfo | undefined;
-			let targetDesc: string;
-			if (params.region) {
-				geometry = buildEyeGeometry(params.region, undefined);
-				targetDesc = `region ${geometry}`;
-			} else {
-				const target = params.target ?? "active_window";
-				if (isHyprland()) {
-					if (target === "active_window") {
-						targetWindow = await getHyprlandActiveWindow();
-					} else if (target !== "fullscreen") {
-						const windows = await getHyprlandWindows();
-						const q = target.toLowerCase();
-						targetWindow =
-							windows.find(w => w.address.toLowerCase() === q) ||
-							windows.find(w => w.class.toLowerCase().includes(q)) ||
-							windows.find(w => w.title.toLowerCase().includes(q));
+				// Resolve what to look at: explicit region > window target > active window.
+				let geometry: string | undefined;
+				let targetWindow: DesktopWindowInfo | undefined;
+				let targetDesc: string;
+				if (params.region) {
+					geometry = buildEyeGeometry(params.region, undefined);
+					targetDesc = `region ${geometry}`;
+				} else {
+					const target = params.target ?? "active_window";
+					if (isHyprland()) {
+						if (target === "active_window") {
+							targetWindow = await getHyprlandActiveWindow();
+						} else if (target !== "fullscreen") {
+							const windows = await getHyprlandWindows();
+							const q = target.toLowerCase();
+							targetWindow =
+								windows.find(w => w.address.toLowerCase() === q) ||
+								windows.find(w => w.class.toLowerCase().includes(q)) ||
+								windows.find(w => w.title.toLowerCase().includes(q));
+						}
+						geometry = buildEyeGeometry(undefined, targetWindow);
 					}
-					geometry = buildEyeGeometry(undefined, targetWindow);
+					targetDesc = describeEyeTarget(targetWindow, geometry, target);
 				}
-				targetDesc = describeEyeTarget(targetWindow, geometry, target);
-			}
 
-			// Ephemeral sweep: drop previous eye images from history BEFORE capturing
-			// the new one (best-effort; tolerated if the host lacks the hook).
-			let swept = 0;
-			try {
-				swept = (await this.session?.dropLiveEyeImages?.()) ?? 0;
-			} catch {}
+				// Ephemeral sweep: drop previous eye images from history BEFORE capturing
+				// the new one (best-effort; tolerated if the host lacks the hook).
+				let swept = 0;
+				try {
+					swept = (await this.session?.dropLiveEyeImages?.()) ?? 0;
+				} catch {}
 
-			const capRes = await runCmd("grim", geometry ? ["-g", geometry, tmpRaw] : [tmpRaw]);
-			if (capRes.code !== 0) {
+				const capRes = await runCmd("grim", geometry ? ["-g", geometry, tmpRaw] : [tmpRaw]);
+				if (capRes.code !== 0) {
+					return {
+						content: [{ type: "text", text: `live_eye capture failed: ${capRes.stderr}` }],
+						details: { error: capRes.stderr, swept },
+					};
+				}
+
+				const maxWidth = params.maxWidth ?? 1280;
+				const maxHeight = params.maxHeight ?? 800;
+				let finalPath = tmpRaw;
+				const resizeRes = await runCmd("convert", [tmpRaw, "-resize", `${maxWidth}x${maxHeight}>`, tmpFinal]);
+				if (resizeRes.code === 0 && fs.existsSync(tmpFinal)) {
+					finalPath = tmpFinal;
+				}
+
+				let base64 = "";
+				if (includeBase64) {
+					try {
+						base64 = (await fs.promises.readFile(finalPath)).toString("base64");
+					} catch {}
+				}
+
+				// OCR text extraction (opt-in): lets a visionless model read the frame.
+				// Adaptive: run tesseract at native size first (fast path ~1s); only
+				// pay for a 2x upscale + retry when the first pass comes back sparse
+				// (<20 chars), which is how small-text frames fail.
+				let ocrText = "";
+				let ocrError: string | undefined;
+				let ocrMs0 = 0;
+				let ocrMode: "native" | "upscaled" | undefined;
+				if (params.ocr) {
+					ocrMs0 = Date.now();
+					const ocr = await ocrFrame(finalPath, { lang: params.ocrLang });
+					ocrText = ocr.text;
+					ocrError = ocr.error;
+					ocrMode = ocr.mode;
+				}
+
+				const parts: string[] = [
+					`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,
+				];
+				if (ocrText) {
+					parts.push(
+						`On-screen text (${ocrText.length} chars, tesseract ${ocrMode ?? "native"}):`,
+						ocrText.length > 8000 ? `${ocrText.slice(0, 8000)}\n…[truncated]` : ocrText,
+					);
+				} else if (params.ocr && ocrError) {
+					parts.push(`OCR failed: ${ocrError}`);
+				} else if (params.ocr) {
+					parts.push("OCR produced no text (frame may contain no readable text).");
+				}
+
 				return {
-					content: [{ type: "text", text: `live_eye capture failed: ${capRes.stderr}` }],
-					details: { error: capRes.stderr, swept },
+					content: [
+						{ type: "text", text: parts.join("\n") },
+						...(base64 ? [{ type: "image" as const, data: base64, mimeType: "image/png" }] : []),
+					],
+					details: {
+						action: "live_eye",
+						liveEye: { at: timestamp },
+						filePath: finalPath,
+						targetDesc,
+						swept,
+						...(params.ocr
+							? { ocrText, ocrMode, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) }
+							: {}),
+					} as unknown as Record<string, unknown>,
 				};
 			}
-
-			const maxWidth = params.maxWidth ?? 1280;
-			const maxHeight = params.maxHeight ?? 800;
-			let finalPath = tmpRaw;
-			const resizeRes = await runCmd("convert", [tmpRaw, "-resize", `${maxWidth}x${maxHeight}>`, tmpFinal]);
-			if (resizeRes.code === 0 && fs.existsSync(tmpFinal)) {
-				finalPath = tmpFinal;
-			}
-
-			let base64 = "";
-			if (includeBase64) {
-				try {
-					base64 = (await fs.promises.readFile(finalPath)).toString("base64");
-				} catch {}
-			}
-
-			// OCR text extraction (opt-in): lets a visionless model read the frame.
-			// Adaptive: run tesseract at native size first (fast path ~1s); only
-			// pay for a 2x upscale + retry when the first pass comes back sparse
-			// (<20 chars), which is how small-text frames fail.
-			let ocrText = "";
-			let ocrError: string | undefined;
-			let ocrMs0 = 0;
-			let ocrMode: "native" | "upscaled" | undefined;
-			if (params.ocr) {
-				const runTess = (imgPath: string): Promise<{ stdout: string; stderr: string; code: number }> =>
-					runCmd(
-						"tesseract",
-						[imgPath, "stdout", "--oem", "1", "-l", params.ocrLang ?? "eng", "--psm", "6"],
-						// OMP_THREAD_LIMIT=1 is decisive on this box: tesseract's OpenMP
-						// thread contention hangs multi-threaded runs on big PNGs (30s+
-						// timeouts); single-threaded LSTM finishes in ~1-2s. OEM 1 keeps
-						// the accurate LSTM engine; PSM 6 assumes a uniform text block.
-						{ timeout: 30_000, env: { OMP_THREAD_LIMIT: "1" } },
-					);
-				ocrMs0 = Date.now();
-				let res = await runTess(finalPath);
-				ocrMode = "native";
-				if (res.code === 0) {
-					ocrText = res.stdout.trim();
-				} else {
-					ocrError = res.stderr || `tesseract exit ${res.code}`;
-				}
-				const sparse = ocrText.replace(/\s/g, "").length < 20;
-				const dims = await identifyDims(finalPath);
-				if (sparse && dims && dims[0] > 0 && dims[0] < 1200) {
-					const upscale = path.join(os.tmpdir(), `aerys-eye-${timestamp}-ocr2x.png`);
-					const up = await runCmd("convert", [finalPath, "-resize", "200%", upscale]);
-					if (up.code === 0 && fs.existsSync(upscale)) {
-						const upRes = await runTess(upscale);
-						if (upRes.code === 0 && upRes.stdout.trim().replace(/\s/g, "").length > ocrText.replace(/\s/g, "").length) {
-							ocrText = upRes.stdout.trim();
-							ocrError = undefined;
-							ocrMode = "upscaled";
-						}
-					}
-				}
-			}
-
-			const parts: string[] = [
-				`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,
-			];
-			if (ocrText) {
-				parts.push(
-					`On-screen text (${ocrText.length} chars, tesseract ${ocrMode ?? "native"}):`,
-					ocrText.length > 8000 ? `${ocrText.slice(0, 8000)}\n…[truncated]` : ocrText,
-				);
-			} else if (params.ocr && ocrError) {
-				parts.push(`OCR failed: ${ocrError}`);
-			} else if (params.ocr) {
-				parts.push("OCR produced no text (frame may contain no readable text).");
-			}
-
-			return {
-				content: [
-					{ type: "text", text: parts.join("\n") },
-					...(base64 ? [{ type: "image" as const, data: base64, mimeType: "image/png" }] : []),
-				],
-				details: {
-					action: "live_eye",
-					liveEye: { at: timestamp },
-					filePath: finalPath,
-					targetDesc,
-					swept,
-					...(params.ocr ? { ocrText, ocrMode, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) } : {}),
-				} as unknown as Record<string, unknown>,
-			};
 		}
 	}
-}
 }

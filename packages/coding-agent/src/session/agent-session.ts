@@ -229,6 +229,7 @@ import type { CheckpointState } from "../tools/checkpoint";
 import { outputMeta } from "../tools/output-meta";
 import { normalizeLocalScheme, resolveToCwd } from "../tools/path-utils";
 import { isAutoQaEnabled } from "../tools/report-tool-issue";
+import { ocrFrame } from "../tools/screen-ocr";
 import { getLatestTodoPhasesFromEntries, type TodoItem, type TodoPhase } from "../tools/todo-write";
 import { ToolAbortError, ToolError } from "../tools/tool-errors";
 import { clampTimeout } from "../tools/tool-timeouts";
@@ -443,6 +444,13 @@ export interface PromptOptions {
 	attribution?: MessageAttribution;
 	/** Skip pre-send compaction checks for this prompt (internal use for maintenance flows). */
 	skipCompactionCheck?: boolean;
+	/**
+	 * Hidden environment caption for Screen Vision grounding (e.g.
+	 * `[Screen Vision: kitty — "Aery" (active window · 1200x800)]` plus, for
+	 * visionless models, the OCR'd frame text). Merged into the model's user
+	 * content as an additional text block — NEVER shown on the user's screen.
+	 */
+	screenVisionText?: string;
 }
 
 /** Result from a handoff operation. */
@@ -4732,9 +4740,9 @@ export class AgentSession {
 				throw new AgentBusyError();
 			}
 			if (options.streamingBehavior === "followUp") {
-				await this.#queueFollowUp(expandedText, options?.images);
+				await this.#queueFollowUp(expandedText, options?.images, options?.screenVisionText);
 			} else {
-				await this.#queueSteer(expandedText, options?.images);
+				await this.#queueSteer(expandedText, options?.images, options?.screenVisionText);
 			}
 			// Steer/follow-up the keyword notices alongside the queued user message.
 			for (const notice of keywordNotices) {
@@ -4751,6 +4759,19 @@ export class AgentSession {
 		const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: expandedText }];
 		if (options?.images) {
 			userContent.push(...options.images);
+		}
+		// Visionless models cannot see attached images: OCR each one and append a
+		// hidden TEXT block so the agent can actually READ what Peter attached,
+		// instead of the provider later dropping it for "[image omitted]".
+		const attachedOcr = await this.#ocrAttachedImages(options?.images);
+		if (attachedOcr) {
+			userContent.push(attachedOcr);
+		}
+		// Hidden Screen Vision grounding rides as an extra TEXT block (not part of
+		// the visible message): the model sees the environment caption / OCR text,
+		// Peter sees only what he typed. Mirrors the display:false keyword notices.
+		if (options?.screenVisionText) {
+			userContent.push({ type: "text", text: options.screenVisionText });
 		}
 
 		const promptAttribution = options?.attribution ?? (options?.synthetic ? "agent" : "user");
@@ -5200,14 +5221,50 @@ export class AgentSession {
 	}
 
 	/**
+	 * Internal: For visionless models, OCR attached images into a hidden TEXT
+	 * block so the agent can READ what was attached (the provider would otherwise
+	 * drop the image for "[image omitted]"). Returns null when there's nothing to
+	 * add (vision-capable model, no images, or OCR all failed).
+	 */
+	async #ocrAttachedImages(images?: ImageContent[]): Promise<TextContent | null> {
+		if (this.model?.input.includes("image") ?? true) return null;
+		if (!images || images.length === 0) return null;
+		const ocrParts: string[] = [];
+		for (const img of images) {
+			try {
+				const filePath = path.join(
+					os.tmpdir(),
+					`aerys-attached-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`,
+				);
+				await fs.promises.writeFile(filePath, Buffer.from(img.data, "base64"));
+				const ocr = await ocrFrame(filePath);
+				await fs.promises.rm(filePath, { force: true }).catch(() => {});
+				if (ocr.text) ocrParts.push(ocr.text);
+			} catch {
+				// Attached-image OCR is best-effort: never block a turn on it.
+			}
+		}
+		if (ocrParts.length === 0) return null;
+		return { type: "text", text: `Attached image (OCR, ${ocrParts.length}):\n${ocrParts.join("\n---\n")}` };
+	}
+
+	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
-	async #queueSteer(text: string, images?: ImageContent[]): Promise<void> {
+	async #queueSteer(text: string, images?: ImageContent[], screenVisionText?: string): Promise<void> {
 		const displayText = text || (images && images.length > 0 ? "[Image]" : "");
 		this.#steeringMessages.push({ text: displayText });
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images && images.length > 0) {
 			content.push(...images);
+		}
+		// Visionless: OCR attached images so the queued steer can be READ too.
+		const attachedOcr = await this.#ocrAttachedImages(images);
+		if (attachedOcr) {
+			content.push(attachedOcr);
+		}
+		if (screenVisionText) {
+			content.push({ type: "text", text: screenVisionText });
 		}
 		this.agent.steer({
 			role: "user",
@@ -5220,12 +5277,20 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
 	 */
-	async #queueFollowUp(text: string, images?: ImageContent[]): Promise<void> {
+	async #queueFollowUp(text: string, images?: ImageContent[], screenVisionText?: string): Promise<void> {
 		const displayText = text || (images && images.length > 0 ? "[Image]" : "");
 		this.#followUpMessages.push({ text: displayText });
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images && images.length > 0) {
 			content.push(...images);
+		}
+		// Visionless: OCR attached images so the queued follow-up can be READ too.
+		const attachedOcr = await this.#ocrAttachedImages(images);
+		if (attachedOcr) {
+			content.push(attachedOcr);
+		}
+		if (screenVisionText) {
+			content.push({ type: "text", text: screenVisionText });
 		}
 		this.agent.followUp({
 			role: "user",
@@ -6343,9 +6408,7 @@ export class AgentSession {
 			}
 			if (Array.isArray(details.images)) {
 				const before = details.images.length;
-				details.images = details.images.filter(
-					(p: unknown) => !((p as { type?: string }).type === "image"),
-				);
+				details.images = details.images.filter((p: unknown) => !((p as { type?: string }).type === "image"));
 				removed += before - details.images.length;
 			}
 		}

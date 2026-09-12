@@ -43,6 +43,8 @@ export type SubmittedUserInput = {
 	images?: ImageContent[];
 	customType?: string;
 	display?: boolean;
+	/** Hidden Screen Vision caption/OCR text for the model (never shown on screen). */
+	screenVisionText?: string;
 	cancelled: boolean;
 	started: boolean;
 };
@@ -176,6 +178,7 @@ export interface InteractiveModeContext {
 		images?: ImageContent[];
 		customType?: string;
 		display?: boolean;
+		screenVisionText?: string;
 	}): SubmittedUserInput;
 	cancelPendingSubmission(): boolean;
 	markPendingSubmissionStarted(input: SubmittedUserInput): boolean;

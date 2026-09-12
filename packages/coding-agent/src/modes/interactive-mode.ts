@@ -81,12 +81,6 @@ import { getRecentSessions } from "../session/session-manager";
 import type { ShakeMode } from "../session/shake-types";
 import { formatDuration } from "../slash-commands/helpers/format";
 import { STTController, type SttState, type ToggleOptions } from "../stt";
-import {
-	captureScreenFrame,
-	getAmbientFramesForTurn,
-	startAmbientScreenBuffer,
-	stopAmbientScreenBuffer,
-} from "../voice/screen-vision";
 import { discoverTitleSystemPromptFile, resolvePromptInput } from "../system-prompt";
 import type { LspStartupServerInfo } from "../tools";
 import { normalizeLocalScheme } from "../tools/path-utils";
@@ -100,6 +94,12 @@ import type { EventBus } from "../utils/event-bus";
 import { detectMultiplexer, getEditorCommand, openInEditor } from "../utils/external-editor";
 import { getSessionAccentAnsi, getSessionAccentHex } from "../utils/session-color";
 import { popTerminalTitle, pushTerminalTitle, setSessionTerminalTitle } from "../utils/title-generator";
+import {
+	buildScreenVisionContext,
+	getAmbientFramesForTurn,
+	startAmbientScreenBuffer,
+	stopAmbientScreenBuffer,
+} from "../voice/screen-vision";
 import type { AssistantMessageComponent } from "./components/assistant-message";
 import type { BashExecutionComponent } from "./components/bash-execution";
 import { CustomEditor } from "./components/custom-editor";
@@ -929,12 +929,14 @@ export class InteractiveMode implements InteractiveModeContext {
 		images?: ImageContent[];
 		customType?: string;
 		display?: boolean;
+		screenVisionText?: string;
 	}): SubmittedUserInput {
 		const submission: SubmittedUserInput = {
 			text: input.text,
 			images: input.images,
 			customType: input.customType,
 			display: input.display,
+			screenVisionText: input.screenVisionText,
 			cancelled: false,
 			started: false,
 		};
@@ -2807,9 +2809,12 @@ export class InteractiveMode implements InteractiveModeContext {
 			},
 			onSubmit: async (text: string) => {
 				const trimmed = text.trim();
-				const cleaned = trimmed.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+				const cleaned = trimmed
+					.toLowerCase()
+					.replace(/[^a-z0-9 ]/g, "")
+					.trim();
 				// Filter out silence hallucinations so they never trigger prompts
-				if (Boolean(GHOSTS[cleaned]) || trimmed.length < 3) {
+				if (GHOSTS[cleaned] || trimmed.length < 3) {
 					if (this.#continuousSpeechMode) {
 						setTimeout(() => void this.startContinuousSpeechTurn(), 300);
 					}
@@ -2827,7 +2832,12 @@ export class InteractiveMode implements InteractiveModeContext {
 						.trim();
 					if (assistantText.length > 0) {
 						const userWords = cleaned.split(/\s+/).filter(w => w.length > 2);
-						const asstWords = new Set(assistantText.replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(w => w.length > 2));
+						const asstWords = new Set(
+							assistantText
+								.replace(/[^a-z0-9 ]/g, " ")
+								.split(/\s+/)
+								.filter(w => w.length > 2),
+						);
 						if (userWords.length > 0) {
 							let matches = 0;
 							for (const w of userWords) {
@@ -2848,7 +2858,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				this.editor.addToHistory(trimmed);
 				this.editor.setText("");
 
-				let promptText = trimmed;
+				const promptText = trimmed;
 				let images: ImageContent[] | undefined;
 
 				// Project Astra / Gemini Live style Screen Grounding:
@@ -2856,32 +2866,56 @@ export class InteractiveMode implements InteractiveModeContext {
 				// 2. Ambient buffer frames bracketing the utterance: the screen as it
 				//    was when the user BEGAN speaking, plus the freshest frame — so
 				//    mid-speech window switches are visible, not just the final state.
+				let screenVisionText: string | undefined;
 				if (settings.get("voice.screenVision") === true) {
 					try {
-						const frames: ImageContent[] = [];
 						const speechOnset = this.#sttController?.lastSpeechStartedAt;
-						for (const frame of getAmbientFramesForTurn(speechOnset)) {
-							frames.push(frame);
-						}
-						const target = (settings.get("voice.screenVisionTarget") as "active_window" | "fullscreen") || "active_window";
-						const vision = await captureScreenFrame({ target });
-						if (vision.image) {
-							frames.push(vision.image);
-						}
-						if (frames.length > 0) {
-							images = frames;
-							// No "[Screen Vision: …]" text prefix: the images themselves are
-							// the grounding and the system prompt already tells the model these
-							// are Live Eye snapshots. Keeps the visible message clean.
+						const ambientFrames = [...getAmbientFramesForTurn(speechOnset)];
+						// Environment-aware (Screen Vision grounding): the capture also carries a
+						// HIDDEN caption into the model's user content — what the frame is
+						// (window/class/size) and why it's attached. Visionless models get the
+						// frame's OCR text instead of a dead "[image omitted]" placeholder, so
+						// they can actually READ the screen. Nothing shows on Peter's screen;
+						// the visible message stays exactly what was spoken.
+						const supportsImages = this.session.model?.input?.includes("image") ?? true;
+						const ctx = await buildScreenVisionContext({
+							target:
+								(settings.get("voice.screenVisionTarget") as "active_window" | "fullscreen") || "active_window",
+							supportsImages,
+						});
+						if (ctx) {
+							if (ctx.image) {
+								// Vision-capable: ambient bracket frames (speech-onset bracketing)
+								// + the instant capture. No "[Screen Vision: …]" text prefix: the
+								// images themselves are the grounding.
+								const frames = [...ambientFrames, ctx.image];
+								if (frames.length > 0) {
+									images = frames;
+								}
+							}
+							// Hidden model-only grounding text (caption + OCR for visionless).
+							const parts = [ctx.caption];
+							if (ctx.ocrText) {
+								parts.push(
+									`On-screen text (OCR, ${ctx.ocrText.length} chars${ctx.ocrMode ? `, tesseract ${ctx.ocrMode}` : ""}):`,
+									ctx.ocrText.length > 8000 ? `${ctx.ocrText.slice(0, 8000)}\n…[truncated]` : ctx.ocrText,
+								);
+							}
+							screenVisionText = parts.join("\n");
+						} else if (ambientFrames.length > 0) {
+							// Instant capture failed but ambient bracketing frames exist — attach them.
+							images = ambientFrames;
 						}
 					} catch (err) {
 						logger.debug("Screen vision capture skipped", { error: err });
 					}
 				}
 
-				await this.withLocalSubmission(trimmed, () => this.session.prompt(promptText, { images }), {
-					imageCount: images?.length ?? 0,
-				});
+				await this.withLocalSubmission(
+					trimmed,
+					() => this.session.prompt(promptText, { images, screenVisionText }),
+					{ imageCount: images?.length ?? 0 },
+				);
 			},
 			onStateChange: (state: SttState) => {
 				if (state === "recording") {
@@ -2950,7 +2984,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.showStatus("Speech Mode active. Speak freely; press Alt+H to return to text mode.");
 		await this.startContinuousSpeechTurn();
 	}
-
 
 	#setMicCursor(color: { r: number; g: number; b: number }): void {
 		this.editor.cursorOverride = `\x1b[38;2;${color.r};${color.g};${color.b}m${theme.icon.mic}\x1b[0m`;

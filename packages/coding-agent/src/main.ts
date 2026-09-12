@@ -179,7 +179,10 @@ export async function submitInteractiveInput(
 				attribution: "agent",
 			});
 		} else {
-			await session.prompt(input.text, { images: input.images });
+			await session.prompt(input.text, {
+				images: input.images,
+				screenVisionText: input.screenVisionText,
+			});
 		}
 	} catch (error: unknown) {
 		const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
