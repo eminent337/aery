@@ -6363,18 +6363,21 @@ export class AgentSession {
 				// context stays at ~1 eye image — the eye is ephemeral by design.
 				const meta = entry as { customType?: unknown; content?: unknown; details?: unknown };
 				if (meta.customType !== "eye-glance") continue;
-				const content = meta.content as Array<{ type?: string }> | undefined;
-				if (!Array.isArray(content)) continue;
-				const kept = content.filter(p => p.type !== "image");
-				const dropped = content.length - kept.length;
-				if (dropped > 0) {
-					// The glance reading is now stale too — collapse to a marker
-					// so the old text doesn't linger as noise in context.
-					(entry as { content?: unknown }).content = kept.length > 0
-						? kept
-						: [{ type: "text", text: "[eye glance superseded]" }];
-					removed += dropped;
+				const content = meta.content as Array<{ type?: string; text?: string }> | undefined;
+				if (!Array.isArray(content) || content.length === 0) continue;
+				// Already swept — nothing to do.
+				if (
+					content.length === 1 &&
+					content[0].type === "text" &&
+					content[0].text === "[eye glance superseded]"
+				) {
+					continue;
 				}
+				// The glance is ephemeral by design: the reading is stale the
+				// moment the next glance lands, text or image alike (visionless
+				// models steer text-only readings — they must be swept too).
+				(entry as { content?: unknown }).content = [{ type: "text", text: "[eye glance superseded]" }];
+				removed += 1;
 				continue;
 			}
 			if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
