@@ -451,6 +451,13 @@ export interface PromptOptions {
 	 * content as an additional text block — NEVER shown on the user's screen.
 	 */
 	screenVisionText?: string;
+	/**
+	 * Hidden full text of collapsed large pastes ("[paste #N +X lines]" markers
+	 * stay visible in the transcript; the actual content rides here). Merged
+	 * into the model's user content as an additional text block — mirrors
+	 * screenVisionText. NEVER shown on the user's screen.
+	 */
+	hiddenPasteText?: string;
 }
 
 /** Result from a handoff operation. */
@@ -4740,9 +4747,9 @@ export class AgentSession {
 				throw new AgentBusyError();
 			}
 			if (options.streamingBehavior === "followUp") {
-				await this.#queueFollowUp(expandedText, options?.images, options?.screenVisionText);
+				await this.#queueFollowUp(expandedText, options?.images, options?.screenVisionText, options?.hiddenPasteText);
 			} else {
-				await this.#queueSteer(expandedText, options?.images, options?.screenVisionText);
+				await this.#queueSteer(expandedText, options?.images, options?.screenVisionText, options?.hiddenPasteText);
 			}
 			// Steer/follow-up the keyword notices alongside the queued user message.
 			for (const notice of keywordNotices) {
@@ -4772,6 +4779,11 @@ export class AgentSession {
 		// Peter sees only what he typed. Mirrors the display:false keyword notices.
 		if (options?.screenVisionText) {
 			userContent.push({ type: "text", text: options.screenVisionText });
+		}
+		// Hidden collapsed-paste payload rides as model-only text (same seam as
+		// screenVisionText): the transcript keeps the "[paste #N]" marker only.
+		if (options?.hiddenPasteText) {
+			userContent.push({ type: "text", text: options.hiddenPasteText });
 		}
 
 		const promptAttribution = options?.attribution ?? (options?.synthetic ? "agent" : "user");
@@ -5251,7 +5263,7 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
-	async #queueSteer(text: string, images?: ImageContent[], screenVisionText?: string): Promise<void> {
+	async #queueSteer(text: string, images?: ImageContent[], screenVisionText?: string, hiddenPasteText?: string): Promise<void> {
 		const displayText = text || (images && images.length > 0 ? "[Image]" : "");
 		this.#steeringMessages.push({ text: displayText });
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
@@ -5266,6 +5278,9 @@ export class AgentSession {
 		if (screenVisionText) {
 			content.push({ type: "text", text: screenVisionText });
 		}
+		if (hiddenPasteText) {
+			content.push({ type: "text", text: hiddenPasteText });
+		}
 		this.agent.steer({
 			role: "user",
 			content,
@@ -5277,7 +5292,7 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
 	 */
-	async #queueFollowUp(text: string, images?: ImageContent[], screenVisionText?: string): Promise<void> {
+	async #queueFollowUp(text: string, images?: ImageContent[], screenVisionText?: string, hiddenPasteText?: string): Promise<void> {
 		const displayText = text || (images && images.length > 0 ? "[Image]" : "");
 		this.#followUpMessages.push({ text: displayText });
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
@@ -5291,6 +5306,9 @@ export class AgentSession {
 		}
 		if (screenVisionText) {
 			content.push({ type: "text", text: screenVisionText });
+		}
+		if (hiddenPasteText) {
+			content.push({ type: "text", text: hiddenPasteText });
 		}
 		this.agent.followUp({
 			role: "user",

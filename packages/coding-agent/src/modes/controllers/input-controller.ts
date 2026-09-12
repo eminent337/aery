@@ -270,7 +270,7 @@ export class InputController {
 	}
 
 	setupEditorSubmitHandler(): void {
-		this.ctx.editor.onSubmit = async (text: string) => {
+		this.ctx.editor.onSubmit = async (text: string, hiddenPaste?: string) => {
 			text = text.trim();
 			if ((!isSettingsInitialized() || settings.get("emojiAutocomplete")) && text) text = expandEmoticons(text);
 
@@ -447,7 +447,13 @@ export class InputController {
 				// the streaming/queue path.
 				await this.ctx.withLocalSubmission(
 					text,
-					() => this.ctx.session.prompt(text, { streamingBehavior: "steer", images, screenVisionText }),
+					() =>
+						this.ctx.session.prompt(text, {
+							streamingBehavior: "steer",
+							images,
+							screenVisionText,
+							hiddenPasteText: hiddenPaste,
+						}),
 					{ imageCount: images?.length ?? 0 },
 				);
 				this.ctx.updatePendingMessagesDisplay();
@@ -495,7 +501,7 @@ export class InputController {
 				this.ctx.pendingImages = [];
 
 				// Render user message immediately, then let session events catch up
-				const submission = this.ctx.startPendingSubmission({ text, images, screenVisionText });
+				const submission = this.ctx.startPendingSubmission({ text, images, screenVisionText, hiddenPasteText: hiddenPaste });
 
 				this.ctx.onInputCallback(submission);
 			}
