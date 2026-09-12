@@ -42,14 +42,39 @@ async function hasBin(name: string): Promise<boolean> {
 
 export async function probeBackends(): Promise<BackendProbe> {
 	const [ydotool, xdotool, wtype] = await Promise.all([hasBin("ydotool"), hasBin("xdotool"), hasBin("wtype")]);
-	// ydotoold (the daemon) exposes a unix socket; absent socket ⇒ no daemon.
-	// Modern builds (e.g. Arch ydotool 1.0.4) put it at $XDG_RUNTIME_DIR/.ydotool_socket;
-	// older builds used /tmp/.ydotool_socket. Probe both.
+	return { ydotool, ydotoold: await hasYdotooldSocket(), xdotool, wtype };
+}
+
+async function hasYdotooldSocket(): Promise<boolean> {
 	const runtimeDir = process.env.XDG_RUNTIME_DIR || (typeof process.getuid === "function" ? `/run/user/${process.getuid()}` : "");
-	const ydotoold =
-		ydotool &&
-		(fs.existsSync("/tmp/.ydotool_socket") || (runtimeDir.length > 0 && fs.existsSync(`${runtimeDir}/.ydotool_socket`)));
-	return { ydotool, ydotoold, xdotool, wtype };
+	return fs.existsSync("/tmp/.ydotool_socket") || (runtimeDir.length > 0 && fs.existsSync(`${runtimeDir}/.ydotool_socket`));
+}
+
+/**
+ * Start the ydotool daemon if it is installed but not running. ydotoold is a
+ * foreground daemon: it binds /dev/uinput and serves the ydotool CLI over a
+ * unix socket. Without it, every live input action fails with "no-daemon".
+ * We launch it detached (setsid + nohup, stdin from /dev/null) so it survives
+ * this process and keeps running until logout/reboot. Best-effort: never
+ * throws; callers fall back to the "no-daemon" error if the socket is still
+ * absent afterwards. Returns true when the daemon socket is up.
+ */
+export async function ensureYdotoold(signal?: AbortSignal): Promise<boolean> {
+	if (await hasYdotooldSocket()) return true;
+	const present = await hasBin("ydotool");
+	if (!present) return false;
+	const started = await execFileAsync(
+		"setsid",
+		["sh", "-c", "nohup ydotoold >/dev/null 2>&1 </dev/null & sleep 0.4"],
+		{ timeout: 8000, signal },
+	).then(() => true).catch(() => false);
+	if (!started) return false;
+	// Give the daemon a moment to open /dev/uinput and bind the socket.
+	for (let i = 0; i < 5; i++) {
+		if (await hasYdotooldSocket()) return true;
+		await new Promise(r => setTimeout(r, 200));
+	}
+	return hasYdotooldSocket();
 }
 
 /** What kind of device an input action needs. */
@@ -69,6 +94,30 @@ export function resolveBackend(
 	if (windowXwayland && probe.xdotool) return "xdotool";
 	if (kind !== "pointer" && probe.wtype) return "wtype";
 	return "none";
+}
+
+/**
+ * Every viable backend for an action kind, best first. Used as an execution
+ * fallback chain: if the primary backend's command fails at runtime (glitch,
+ * dropped chord, unsupported glyph), the tool retries down this list.
+ * Priority: ydotool (uinput — works native Wayland + XWayland) → xdotool
+ * (XTest — XWayland only) → wtype (virtual-keyboard protocol — keyboard/type
+ * only, no pointer).
+ */
+export function resolveBackendChain(
+	probe: BackendProbe,
+	windowXwayland: boolean | undefined,
+	kind: InputKind,
+): LiveBackend[] {
+	const chain: LiveBackend[] = [];
+	if (probe.ydotool && probe.ydotoold) chain.push("ydotool");
+	if (kind !== "pointer") {
+		if (windowXwayland && probe.xdotool) chain.push("xdotool");
+		if (probe.wtype) chain.push("wtype");
+	} else if (windowXwayland && probe.xdotool) {
+		chain.push("xdotool");
+	}
+	return chain;
 }
 
 /** --- Coordinate frame (TARS-style round-trip) ------------------------- */

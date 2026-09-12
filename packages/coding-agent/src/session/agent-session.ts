@@ -6405,6 +6405,37 @@ export class AgentSession {
 		this.#closeCodexProviderSessionsForHistoryRewrite();
 		return removed;
 	}
+
+	/**
+	 * Sweep older live-verify frames (hidden steers, customType "live-verify").
+	 * Each new verify capture supersedes the previous one — same ephemerality
+	 * contract as the eye glance — so context stays at ~1 verify frame no
+	 * matter how many live_* steps run in a row. Call before attaching a new
+	 * verify steer; returns the number of superseded entries.
+	 */
+	async dropLiveVerifyImages(): Promise<number> {
+		const branchEntries = this.sessionManager.getBranch();
+		let removed = 0;
+		for (const entry of branchEntries) {
+			if (entry.type !== "custom_message") continue;
+			const meta = entry as { customType?: unknown; content?: unknown };
+			if (meta.customType !== "live-verify") continue;
+			const content = meta.content as Array<{ type?: string; text?: string }> | undefined;
+			if (!Array.isArray(content) || content.length === 0) continue;
+			if (content.length === 1 && content[0].type === "text" && content[0].text === "[verify frame superseded]") {
+				continue;
+			}
+			(entry as { content?: unknown }).content = [{ type: "text", text: "[verify frame superseded]" }];
+			removed += 1;
+		}
+		if (removed === 0) return 0;
+		await this.sessionManager.rewriteEntries();
+		const sessionContext = this.buildDisplaySessionContext();
+		this.agent.replaceMessages(sessionContext.messages);
+		this.#advisorRuntime?.reset();
+		this.#closeCodexProviderSessionsForHistoryRewrite();
+		return removed;
+	}
 	/**
 	 * Drop all thinking blocks from the branch's assistant messages.
 	 * Mutates entries in place, then rewrites and replays through the agent.

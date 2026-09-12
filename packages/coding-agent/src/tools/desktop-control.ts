@@ -24,9 +24,11 @@ import {
 	type InputFrame,
 	type InputKind,
 	isDirectTypeable,
+	ensureYdotoold,
 	type LiveBackend,
 	parseChord,
 	probeBackends,
+	resolveBackendChain,
 	resolveBackend,
 	specToXdotoolArgs,
 	specToYdotoolEvents,
@@ -161,7 +163,13 @@ const desktopControlSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			"Take and return a follow-up screenshot after the live action (default: true) so the model self-corrects.",
+			"Take a follow-up screenshot after the live action (default: true) so the model self-corrects. The capture is delivered to the model as a hidden attachment (OCR text for visionless models, pixels+OCR for vision-capable ones) — the visible tool result stays a one-liner. Set false to skip the extra capture.",
+		),
+	preAuthorize: z
+		.array(z.enum(["live_move", "live_click", "live_drag", "live_type", "live_key", "live_scroll"]))
+		.optional()
+		.describe(
+			"For 'live_mode_on': pre-authorize these live input kinds NOW (skip the first-use approval prompt for them this session). Use when you know the automation flow ahead (e.g. [\"live_click\",\"live_type\",\"live_key\"]) so multi-step app driving doesn't deadlock on a mid-flow prompt. Only these six injection kinds are accepted.",
 		),
 	target: z
 		.string()
@@ -429,6 +437,8 @@ interface LiveCapture {
 	text: string;
 	image?: LiveImageBlock;
 	frame: InputFrame | null;
+	/** Scaled frame image on disk (for late OCR in hidden steers). */
+	framePath: string;
 }
 
 /** grim the focused window (or full display) and downscale to the vision frame. */
@@ -460,6 +470,7 @@ async function captureLiveFrame(lead: string): Promise<LiveCapture | { error: st
 		text: `${lead} Screenshot of ${where}${frame ? ` — frame ${frame.scaledW}x${frame.scaledH} (from ${frame.physW}x${frame.physH}px) — subsequent live_* coordinates use this frame.` : ""}.`,
 		image: base64 ? { type: "image" as const, data: base64, mimeType: "image/png" as const } : undefined,
 		frame,
+		framePath: finalPath,
 	};
 }
 
@@ -473,39 +484,117 @@ async function runSteps(steps: string[][], interStepMs = 30): Promise<string | n
 	return null;
 }
 
-/** Type text with the chosen backend. Newlines become Enter; non-ASCII uses wl-copy paste. */
-async function typeTextWith(backend: LiveBackend, text: string): Promise<string | null> {
-	if (backend === "ydotool") {
-		if (isDirectTypeable(text)) {
-			const res = await runCmd("ydotool", ["type", text]);
-			return res.code === 0 ? null : `ydotool type failed: ${res.stderr}`;
+/**
+ * Type text trying backends in chain order until one succeeds.
+ * ASCII goes direct (ydotool type / wtype text / xdotool type); non-ASCII
+ * pastes via wl-copy + Ctrl+V (ydotool) or wl-copy + Ctrl+V via backend keys.
+ * Returns null on success, else the last error.
+ */
+async function typeTextWith(chain: LiveBackend[], text: string): Promise<string | null> {
+	let lastErr: string | null = null;
+	for (const backend of chain) {
+		if (backend === "ydotool") {
+			if (isDirectTypeable(text)) {
+				const res = await runCmd("ydotool", ["type", text]);
+				if (res.code === 0) return null;
+				lastErr = `ydotool type failed: ${res.stderr}`;
+				continue;
+			}
+			const copy = await runCmd("wl-copy", [text]);
+			if (copy.code !== 0) {
+				lastErr = `wl-copy failed: ${copy.stderr}`;
+				continue;
+			}
+			const paste = await runCmd("ydotool", ["key", "-d", "24", ...YDO_CTRL_V]);
+			if (paste.code === 0) return null;
+			lastErr = `paste (Ctrl+V) failed: ${paste.stderr}`;
+			continue;
 		}
-		const copy = await runCmd("wl-copy", [text]);
-		if (copy.code !== 0) return `wl-copy failed: ${copy.stderr}`;
-		const paste = await runCmd("ydotool", ["key", "-d", "24", ...YDO_CTRL_V]);
-		return paste.code === 0 ? null : `paste (Ctrl+V) failed: ${paste.stderr}`;
+		const lines = splitForEnterTyping(text);
+		let ok = true;
+		let err: string | null = null;
+		for (let i = 0; i < lines.length && ok; i++) {
+			if (lines[i]) {
+				const res =
+					backend === "xdotool"
+						? await runCmd("xdotool", ["type", "--delay", "40", lines[i]])
+						: await runCmd("wtype", [lines[i]]);
+				if (res.code !== 0) {
+					ok = false;
+					err = `${backend} type failed: ${res.stderr}`;
+				}
+			}
+			if (ok && i < lines.length - 1) {
+				const res =
+					backend === "xdotool"
+						? await runCmd("xdotool", ["key", "--clearmodifiers", "Return"])
+						: await runCmd("wtype", ["-k", "Return"]);
+				if (res.code !== 0) {
+					ok = false;
+					err = `${backend} Enter failed: ${res.stderr}`;
+				}
+			}
+		}
+		if (ok) return null;
+		lastErr = err;
 	}
-	const lines = splitForEnterTyping(text);
-	for (let i = 0; i < lines.length; i++) {
-		if (lines[i]) {
-			const res =
-				backend === "xdotool"
-					? await runCmd("xdotool", ["type", "--delay", "40", lines[i]])
-					: await runCmd("wtype", [lines[i]]);
-			if (res.code !== 0) return `${backend} type failed: ${res.stderr}`;
-		}
-		if (i < lines.length - 1) {
-			const res =
-				backend === "xdotool"
-					? await runCmd("xdotool", ["key", "--clearmodifiers", "Return"])
-					: await runCmd("wtype", ["-k", "Return"]);
-			if (res.code !== 0) return `${backend} Enter failed: ${res.stderr}`;
+	return lastErr;
+}
+
+/**
+ * Send a key chord spec ("Return", "ctrl+l", "super+Return") trying backends
+ * in chain order until one succeeds. Returns null on success, else last error.
+ */
+async function keyTextWith(chain: LiveBackend[], spec: string): Promise<string | null> {
+	let lastErr: string | null = null;
+	for (const backend of chain) {
+		if (backend === "ydotool") {
+			const events = specToYdotoolEvents(spec);
+			if ("error" in events) {
+				lastErr = events.error;
+				continue;
+			}
+			const fail = await runSteps([ydoKeyEvents(events)]);
+			if (!fail) return null;
+			lastErr = fail;
+		} else if (backend === "xdotool") {
+			const names = specToXdotoolArgs(spec);
+			if ("error" in names) {
+				lastErr = names.error;
+			continue;
+			}
+			const fail = await runSteps([["xdotool", "key", "--clearmodifiers", ...names]]);
+			if (!fail) return null;
+			lastErr = fail;
+		} else {
+			let ok = true;
+			let err: string | null = null;
+			for (const token of spec.trim().split(/\s+/)) {
+				const chord = wtypeChord(token);
+				if ("error" in chord) {
+					ok = false;
+					err = chord.error;
+					break;
+				}
+				const fail = await runSteps([chord.argv]);
+				if (fail) {
+					ok = false;
+					err = fail;
+					break;
+				}
+			}
+			if (ok) return null;
+			lastErr = err;
 		}
 	}
-	return null;
+	return lastErr;
 }
 /** Execute one live_* action (module-level so the execute() switch stays tiny). */
-async function executeLiveAction(action: string, params: DesktopControlParams): Promise<AgentToolResult> {
+async function executeLiveAction(
+	action: string,
+	params: DesktopControlParams,
+	session?: ToolSession,
+): Promise<AgentToolResult> {
 	const okText = (text: string, extra?: Record<string, unknown>): AgentToolResult => ({
 		content: [{ type: "text", text }],
 		details: extra ?? {},
@@ -515,12 +604,25 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 		details: code ? { error: code } : {},
 	});
 
-	// ---- mode / probe actions (harmless — never require opt-in) ----
 	if (action === "live_mode_on") {
 		liveModeEnabled = true;
+		// Preauthorization: the model may ask to have specific injection kinds
+		// approved up-front (D004 per-kind gate, satisfied in advance) so a
+		// multi-step automation flow doesn't deadlock on a mid-flow prompt.
+		// Only the six injection kinds are accepted — mode toggles, probe and
+		// live_eye stay read-tier and unrelated.
+		if (params.preAuthorize?.length) {
+			for (const k of params.preAuthorize) liveAuthorizedKinds.add(k);
+		}
+		// Enabling app-control is the natural moment to make sure the input
+		// daemon is actually up — otherwise every live_* action fails with a
+		// "no-daemon" error until someone starts ydotoold by hand. Best-effort:
+		// if it can't start (no uinput/udev), the probe/actions will say so.
+		const daemonUp = await ensureYdotoold();
+		const pre = params.preAuthorize?.length ? ` Pre-authorized: ${params.preAuthorize.join(", ")}.` : "";
 		return okText(
-			"App-control mode is ON. live_* actions may drive the focused window on your real desktop. Peter stays in control: the first use of each action kind prompts for approval.",
-			{ liveMode: true },
+			`App-control mode is ON. live_* actions may drive the focused window on your real desktop. Peter stays in control: the first use of each action kind prompts for approval.${pre}${daemonUp ? "" : " Warning: ydotool input daemon could not be started — injection may fail (see live_backend_probe)."}`,
+			{ liveMode: true, ydotoold: daemonUp, preAuthorized: params.preAuthorize ?? [] },
 		);
 	}
 	if (action === "live_mode_off") {
@@ -569,12 +671,25 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 	const isPointer = action === "live_move" || action === "live_click" || action === "live_drag";
 	const kind: InputKind =
 		isPointer || action === "live_scroll" ? "pointer" : action === "live_type" ? "type" : "keyboard";
-	const backend = resolveBackend(probe, win.xwayland, kind);
+	let backend = resolveBackend(probe, win.xwayland, kind);
+	let chain = resolveBackendChain(probe, win.xwayland, kind);
 	if (backend === "no-daemon") {
-		return errText(
-			"ydotool is installed but ydotoold (its daemon) is not running. Start it with uinput access per the approved A1 design (udev rule + ydotoold) and retry.",
-			"no_daemon",
-		);
+		// One-shot recovery: bring the daemon up on demand so the first
+		// injection works without Peter having to start ydotoold by hand.
+		const daemonUp = await ensureYdotoold();
+		if (!daemonUp) {
+			return errText(
+				"ydotool is installed but ydotoold (its daemon) could not be started. Check the uinput udev rule and that you're in the 'input' group, then retry.",
+				"no_daemon",
+			);
+		}
+		// Daemon came up: re-resolve the backend with fresh probe data.
+		const reProbe = await probeBackends();
+		backend = resolveBackend(reProbe, win.xwayland, kind);
+		chain = resolveBackendChain(reProbe, win.xwayland, kind);
+		if (backend === "no-daemon" || backend === "none") {
+			return errText("Input backend unavailable even after starting ydotoold.", "no_daemon");
+		}
 	}
 	if (backend === "none") {
 		return errText(
@@ -586,11 +701,65 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 	const verify = params.verify !== false;
 	const withVerify = async (lead: string): Promise<AgentToolResult> => {
 		if (!verify) return okText(lead);
+		// Sweep the previous verify frame first (same ephemerality contract as
+		// the eye glance — context keeps ~1 verify frame across a flow).
+		const swept = (await session?.dropLiveVerifyImages?.()) ?? 0;
 		const cap = await captureLiveFrame(lead);
 		if ("error" in cap) return okText(`${lead} (verify screenshot failed: ${cap.error})`);
-		const content: AgentToolResult["content"] = [{ type: "text", text: cap.text }];
-		if (cap.image) content.push({ type: "image", data: cap.image.data, mimeType: cap.image.mimeType });
-		return { content, details: { success: true, frame: cap.frame } };
+		// Like live_eye: deliver the full verify capture (OCR text for a
+		// visionless model, pixels+OCR for a vision-capable one) as a hidden
+		// steer; the tool result stays a tiny one-liner.
+		const steerParts: string[] = [
+			cap.text,
+			`Verify frame after the live input action (ephemeral — replaced next verify;${swept > 0 ? ` swept ${swept} older verify frame(s)` : " no older verify frames in context"}).`,
+		];
+		const modelSeesImages = session?.supportsVision?.() ?? true;
+		if (!modelSeesImages) {
+			// The visionless model can't see pixels at all — give it the OCR
+			// text layer so it can still confirm the effect of the action.
+			const ocrPath = cap.framePath;
+			if (ocrPath) {
+				const ocr = await ocrFrame(ocrPath, {});
+				steerParts.unshift(
+					ocr.text
+						? `On-screen text after the action (${ocr.text.length} chars, tesseract ${ocr.mode ?? "native"}):`
+						: "OCR produced no text after the action (frame may contain no readable text).",
+				);
+				if (ocr.text) {
+					steerParts.push(ocr.text.length > 8000 ? `${ocr.text.slice(0, 8000)}\n…[truncated]` : ocr.text);
+				}
+			}
+		}
+		const steerContent: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
+			{ type: "text", text: steerParts.join("\n") },
+		];
+		if (modelSeesImages && cap.image) {
+			steerContent.push({ type: "image", data: cap.image.data, mimeType: cap.image.mimeType });
+		}
+		let attached = false;
+		if (session && "sendCustomMessage" in session) {
+			try {
+				await session.sendCustomMessage?.(
+					{
+						// Same mechanism as eye-glance: hidden steer, no turn trigger.
+						customType: "live-verify",
+						content: steerContent,
+						display: false,
+						details: { liveVerify: { at: Date.now() }, frame: cap.frame },
+						attribution: "agent",
+					},
+					{ deliverAs: "steer", triggerTurn: false },
+		);
+				attached = true;
+			} catch {
+				// Fire-and-forget; fall back to inline below if the session is
+				// shutting down.
+			}
+		}
+		return okText(
+			`${lead}${attached ? " — verify frame attached for the model." : " (verify frame could not be attached; verify:false to skip)"}`,
+			{ success: true, frame: cap.frame, steerAttached: attached, swept },
+		);
 	};
 
 	// Stale-frame guard — applies to pointer AND keyboard alike: if the last
@@ -671,35 +840,31 @@ async function executeLiveAction(action: string, params: DesktopControlParams): 
 	if (action === "live_type") {
 		const text = params.keys ?? "";
 		if (!text) return errText("live_type requires 'keys' (the text to type).", "missing_text");
-		const fail = await typeTextWith(backend, text);
+		if (chain.length === 0) {
+			return errText(
+				`No typing backend available (need ydotool+daemon, wtype, or xdotool on XWayland). Probe: ydotool=${probe.ydotool}/${probe.ydotoold ? "up" : "down"}, wtype=${probe.wtype}, xdotool=${probe.xdotool}.`,
+				"no_backend",
+			);
+		}
+		const fail = await typeTextWith(chain, text);
 		if (fail) return errText(fail);
 		liveAuthorizedKinds.add(action);
-		return withVerify(`Typed ${text.length} chars into "${win.title}".`);
+		return withVerify(`Typed ${text.length} chars into "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`);
 	}
 
 	if (action === "live_key") {
 		const spec = params.keys ?? "";
 		if (!spec) return errText("live_key requires 'keys' (e.g. Return, ctrl+l, super+Return, space).", "missing_keys");
-		if (backend === "ydotool") {
-			const events = specToYdotoolEvents(spec);
-			if ("error" in events) return errText(events.error);
-			const fail = await runSteps([ydoKeyEvents(events)]);
-			if (fail) return errText(fail);
-		} else if (backend === "xdotool") {
-			const names = specToXdotoolArgs(spec);
-			if ("error" in names) return errText(names.error);
-			const fail = await runSteps([["xdotool", "key", "--clearmodifiers", ...names]]);
-			if (fail) return errText(fail);
-		} else {
-			for (const token of spec.trim().split(/\s+/)) {
-				const chord = wtypeChord(token);
-				if ("error" in chord) return errText(chord.error);
-				const fail = await runSteps([chord.argv]);
-				if (fail) return errText(fail);
-			}
+		if (chain.length === 0) {
+			return errText(
+				`No keyboard backend available (need ydotool+daemon, wtype, or xdotool on XWayland). Probe: ydotool=${probe.ydotool}/${probe.ydotoold ? "up" : "down"}, wtype=${probe.wtype}, xdotool=${probe.xdotool}.`,
+				"no_backend",
+			);
 		}
+		const fail = await keyTextWith(chain, spec);
+		if (fail) return errText(fail);
 		liveAuthorizedKinds.add(action);
-		return withVerify(`Sent keys "${spec}" to "${win.title}".`);
+		return withVerify(`Sent keys "${spec}" to "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`);
 	}
 
 	if (action === "live_scroll") {
@@ -768,7 +933,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "live_type":
 			case "live_key":
 			case "live_scroll":
-				return executeLiveAction(params.action, params);
+				return executeLiveAction(params.action, params, this.session);
 			case "list_windows": {
 				if (!isHyprland()) {
 					return {

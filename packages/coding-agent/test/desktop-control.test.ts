@@ -67,3 +67,24 @@ describe("DesktopControlTool", () => {
 		}
 	});
 });
+
+describe("live preauthorization", () => {
+	it("live_mode_on with preAuthorize marks those kinds pre-approved (write tier)", async () => {
+		const tool = new DesktopControlTool();
+		const decide = tool.approval as (args: unknown) => { tier?: string } | string;
+		const res = await tool.execute("pa_1", {
+			action: "live_mode_on",
+			preAuthorize: ["live_click", "live_type"],
+		});
+		const text = (res.content[0] as { text: string }).text;
+		expect(text).toContain("Pre-authorized: live_click, live_type");
+		// First-use exec-tier prompt is gone for the pre-authorized kinds.
+		const click = decide({ action: "live_click" });
+		expect(click).toBe("write");
+		const type = decide({ action: "live_type" });
+		expect(type).toBe("write");
+		// Other kinds still prompt on first use.
+		const drag = decide({ action: "live_drag" }) as { tier: string; reason: string };
+		expect(drag.tier).toBe("exec");
+	});
+});

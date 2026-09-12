@@ -7,6 +7,7 @@ import {
 	isDirectTypeable,
 	parseChord,
 	resolveBackend,
+	resolveBackendChain,
 	specToXdotoolArgs,
 	specToYdotoolEvents,
 } from "../live-input";
@@ -125,5 +126,26 @@ describe("backend resolution", () => {
 		expect(resolveBackend(minimal, false, "keyboard")).toBe("wtype");
 		expect(resolveBackend(minimal, false, "type")).toBe("wtype");
 		expect(resolveBackend(minimal, false, "pointer")).toBe("none");
+	});
+});
+
+describe("backend fallback chain", () => {
+	const full = { ydotool: true, ydotoold: true, xdotool: true, wtype: true };
+	const noDaemon = { ydotool: true, ydotoold: false, xdotool: true, wtype: true };
+	const minimal = { ydotool: false, ydotoold: false, xdotool: false, wtype: true };
+
+	test("ydotool first, then xdotool (XWayland only) then wtype for keyboard kinds", () => {
+		expect(resolveBackendChain(full, false, "keyboard")).toEqual(["ydotool", "wtype"]);
+		expect(resolveBackendChain(full, true, "type")).toEqual(["ydotool", "xdotool", "wtype"]);
+	});
+
+	test("no-daemon chain skips ydotool and falls through to the others", () => {
+		expect(resolveBackendChain(noDaemon, true, "type")).toEqual(["xdotool", "wtype"]);
+		expect(resolveBackendChain(noDaemon, false, "type")).toEqual(["wtype"]);
+	});
+
+	test("pointer chain is ydotool / xdotool(XWayland) only — wtype can't point", () => {
+		expect(resolveBackendChain(full, true, "pointer")).toEqual(["ydotool", "xdotool"]);
+		expect(resolveBackendChain(minimal, false, "pointer")).toEqual([]);
 	});
 });
