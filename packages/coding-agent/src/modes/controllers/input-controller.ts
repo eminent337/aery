@@ -790,11 +790,16 @@ export class InputController {
 	async handleClipboardTextRawPaste(): Promise<void> {
 		try {
 			const text = await readTextFromClipboard();
-			if (text) {
-				this.ctx.editor.insertText(text);
-				this.ctx.ui.requestRender();
+			if (!text) {
 				this.ctx.showStatus("No text in clipboard to paste raw");
+				return;
 			}
+			// Route through the editor's bracketed-paste path so large pastes
+			// collapse to a "[paste #N +X lines]" marker (expanded on submit)
+			// instead of flooding the prompt raw — same envelope the terminal
+			// uses for real pastes (see extension-ui-controller).
+			this.ctx.editor.handleInput(`\x1b[200~${text}\x1b[201~`);
+			this.ctx.ui.requestRender();
 		} catch {
 			this.ctx.showStatus("Failed to paste raw text from clipboard");
 		}
