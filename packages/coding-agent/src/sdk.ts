@@ -1451,6 +1451,13 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		toolSession.shake = async (mode, opts) =>
 			session ? await session.shake(mode, { signal: opts?.signal }) : undefined;
 		toolSession.dropLiveEyeImages = async () => (session ? await session.dropLiveEyeImages() : 0);
+		// The eye (and any tool) can inject hidden, model-only messages — e.g. the
+		// eye glance rides as a display:false custom message instead of a fat tool
+		// result that the harness output minimizer would compact away.
+		toolSession.sendCustomMessage = async (message, sendOptions) => {
+			if (!session) return;
+			await session.sendCustomMessage(message as Parameters<typeof session.sendCustomMessage>[0], sendOptions);
+		};
 		toolSession.exportToHtml = async outputPath => (session ? await session.exportToHtml(outputPath) : "");
 		toolSession.setPlanModeState = state => session?.setPlanModeState(state);
 		toolSession.setSessionName = async (name, source) =>
