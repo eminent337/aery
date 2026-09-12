@@ -1,3 +1,4 @@
+import { detectPlatformDriver } from "./desktop-drivers";
 import { buildEyeGeometry, describeEyeTarget } from "./live-eye";
 import { ocrFrame } from "./screen-ocr";
 /**
@@ -6,8 +7,11 @@ import { ocrFrame } from "./screen-ocr";
  * Provides desktop window awareness, screen capture, DPI-aware scaling,
  * window focus/lifecycle, and workspace management.
  *
- * Designed for Wayland (Hyprland native via grim & hyprctl) with fallbacks
- * for X11 (scrot/import/xdotool) and macOS (screencapture).
+ * Cross-platform (ferment D001): every OS/compositor-specific call lives in
+ * the DesktopDriver behind detectPlatformDriver() (Hyprland native via grim
+ * & hyprctl; X11 via import/scrot & xdotool; macOS/Windows report honest
+ * capability gaps until implemented). Everything above the driver — verify
+ * steers, fallback chains, preAuthorize, frame math — is driver-agnostic.
  */
 
 import { execFile } from "node:child_process";
@@ -49,7 +53,6 @@ import {
 } from "./live-input";
 
 const execFileAsync = promisify(execFile);
-
 export interface DesktopWindowInfo {
 	address: string;
 	title: string;
@@ -241,9 +244,10 @@ async function runCmd(
 	}
 }
 
-/** Check if running inside a Hyprland Wayland compositor */
-function isHyprland(): boolean {
-	return Boolean(process.env.HYPRLAND_INSTANCE_SIGNATURE);
+/** True on the actively-supported desktop drivers (hyprland native, x11). */
+function isSupportedDriver(): boolean {
+	const id = detectPlatformDriver().id;
+	return id === "hyprland" || id === "x11";
 }
 
 /** ---------- Headless desktop apps (Xvfb virtual display) ----------
@@ -299,59 +303,14 @@ async function xvfbListWindows(): Promise<string[]> {
 		: [];
 }
 
-/** Get list of all open GUI windows */
-async function getHyprlandWindows(): Promise<DesktopWindowInfo[]> {
-	const res = await runCmd("hyprctl", ["clients", "-j"]);
-	if (res.code !== 0) return [];
-	try {
-		const raw = JSON.parse(res.stdout) as Array<{
-			address: string;
-			title: string;
-			class: string;
-			workspace?: { id: number; name: string };
-			at: [number, number];
-			size: [number, number];
-			focusHistoryID: number;
-			xwayland?: boolean;
-			pid?: number;
-		}>;
-		return raw.map(w => ({
-			address: w.address,
-			title: w.title || "(untitled)",
-			class: w.class || "(unknown)",
-			workspace: w.workspace?.name || w.workspace?.id || 1,
-			at: w.at || [0, 0],
-			size: w.size || [0, 0],
-			focused: w.focusHistoryID === 0,
-			pid: w.pid,
-			xwayland: w.xwayland === true,
-		}));
-	} catch {
-		return [];
-	}
+/** Window listing via the platform driver (Hyprland native, X11, …). */
+async function getDriverWindows(): Promise<DesktopWindowInfo[]> {
+	return detectPlatformDriver().windows.listWindows();
 }
 
-/** Get active focused window info */
-async function getHyprlandActiveWindow(): Promise<DesktopWindowInfo | undefined> {
-	const res = await runCmd("hyprctl", ["activewindow", "-j"]);
-	if (res.code !== 0) return undefined;
-	try {
-		const w = JSON.parse(res.stdout);
-		if (!w || !w.address) return undefined;
-		return {
-			address: w.address,
-			title: w.title || "(untitled)",
-			class: w.class || "(unknown)",
-			workspace: w.workspace?.name || w.workspace?.id || 1,
-			at: w.at || [0, 0],
-			size: w.size || [0, 0],
-			focused: true,
-			pid: w.pid,
-			xwayland: w.xwayland === true,
-		};
-	} catch {
-		return undefined;
-	}
+/** Active focused window via the platform driver. */
+async function getDriverActiveWindow(): Promise<DesktopWindowInfo | undefined> {
+	return detectPlatformDriver().windows.activeWindow();
 }
 /* ================= Live desktop app-control (D002/D004) =================
  * Model-visible coordinate frame = the last screenshot this tool returned (a window
@@ -441,19 +400,18 @@ interface LiveCapture {
 	framePath: string;
 }
 
-/** grim the focused window (or full display) and downscale to the vision frame. */
+/** Capture the focused window (or full display) and downscale to the vision frame. */
 async function captureLiveFrame(lead: string): Promise<LiveCapture | { error: string }> {
-	if (!isHyprland()) return { error: "live input requires the Hyprland/Wayland session." };
-	const win = await getHyprlandActiveWindow();
+	const driver = detectPlatformDriver();
+	if (!isSupportedDriver()) return { error: `live input is not supported on this platform yet (${driver.label}).` };
+	const win = await getDriverActiveWindow();
 	const geometry =
 		win && win.size[0] > 0 && win.size[1] > 0 ? `${win.at[0]},${win.at[1]} ${win.size[0]}x${win.size[1]}` : undefined;
 	const stamp = Date.now();
 	const rawPath = path.join(os.tmpdir(), `aerys-live-${stamp}-raw.png`);
 	const scaledPath = path.join(os.tmpdir(), `aerys-live-${stamp}.png`);
-	const args: string[] = geometry ? ["-g", geometry] : [];
-	args.push(rawPath);
-	const cap = await runCmd("grim", args);
-	if (cap.code !== 0) return { error: `grim capture failed: ${cap.stderr}` };
+	const cap = await driver.capture.capture(rawPath, geometry);
+	if (cap.code !== 0) return { error: `capture failed (${driver.id}): ${cap.stderr}` };
 	const conv = await runCmd("convert", [rawPath, "-resize", "1280x800>", scaledPath]);
 	const finalPath = conv.code === 0 && fs.existsSync(scaledPath) ? scaledPath : rawPath;
 	const frame = await rememberFrame(win, geometry, rawPath, finalPath);
@@ -631,12 +589,14 @@ async function executeLiveAction(
 	}
 	if (action === "live_mode_status" || action === "live_backend_probe") {
 		const probe = await probeBackends();
-		const win = await getHyprlandActiveWindow();
+		const driver = detectPlatformDriver();
+		const win = await getDriverActiveWindow().catch(() => undefined);
 		const pointer = resolveBackend(probe, win?.xwayland, "pointer");
 		const keyboard = resolveBackend(probe, win?.xwayland, "keyboard");
 		const frame = lastInputFrame;
 		const lines = [
 			`App-control mode: ${liveModeEnabled ? "ON" : "OFF"}`,
+			`Platform: ${driver.label} (driver: ${driver.id})`,
 			`Backends: ydotool=${probe.ydotool} (daemon: ${probe.ydotoold ? "up" : "DOWN"}) | xdotool=${probe.xdotool} | wtype=${probe.wtype}`,
 			`Focused window: ${win ? `"${win.title}" (${win.class}) — ${win.xwayland ? "XWayland" : "native Wayland"}` : "none (focus one first)"}`,
 			`Resolved backend → pointer: ${pointer}${pointer === "no-daemon" ? " — start ydotoold / add the uinput udev rule" : ""}; keyboard/type: ${keyboard}`,
@@ -645,6 +605,7 @@ async function executeLiveAction(
 		];
 		return okText(lines.join("\n"), {
 			liveMode: liveModeEnabled,
+			platform: driver.id,
 			probe,
 			focused: win,
 			resolvedPointer: pointer,
@@ -661,7 +622,7 @@ async function executeLiveAction(
 		);
 	}
 	const probe = await probeBackends();
-	const win = await getHyprlandActiveWindow();
+	const win = await getDriverActiveWindow();
 	if (!win || !win.address) {
 		return errText(
 			"No focused window to drive. Focus the target app first (focus_window / hyprctl) or click it yourself.",
@@ -749,7 +710,7 @@ async function executeLiveAction(
 						attribution: "agent",
 					},
 					{ deliverAs: "steer", triggerTurn: false },
-		);
+				);
 				attached = true;
 			} catch {
 				// Fire-and-forget; fall back to inline below if the session is
@@ -788,7 +749,7 @@ async function executeLiveAction(
 		const pt = frameToPhysical(frame, params.x, params.y);
 		// Aim with the compositor (exact); ydotool absolute moves are unreliable on
 		// Hyprland (no ABS cap on the virtual device — relative deltas + accel skew).
-		const aim = isHyprland() ? hyprMoveCursor(pt.x, pt.y) : null;
+		const aim = detectPlatformDriver().id === "hyprland" ? hyprMoveCursor(pt.x, pt.y) : null;
 		if (action === "live_move") {
 			const fail = await runSteps(
 				aim ? [aim] : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
@@ -935,13 +896,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "live_scroll":
 				return executeLiveAction(params.action, params, this.session);
 			case "list_windows": {
-				if (!isHyprland()) {
+				const listDriver = detectPlatformDriver();
+				if (listDriver.id !== "hyprland" && listDriver.id !== "x11") {
 					return {
-						content: [{ type: "text", text: "Window listing is currently supported on Hyprland/Wayland." }],
-						details: { windows: [] },
+						content: [{ type: "text", text: `Window listing is not supported on this platform yet (${listDriver.label}).` }],
+						details: { windows: [], driver: listDriver.id },
 					};
 				}
-				const windows = await getHyprlandWindows();
+				const windows = await getDriverWindows();
 				if (windows.length === 0) {
 					return {
 						content: [{ type: "text", text: "No open GUI windows found." }],
@@ -972,13 +934,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						details: { error: "missing_query" },
 					};
 				}
-				if (!isHyprland()) {
+				const driver = detectPlatformDriver();
+				if (driver.id !== "hyprland" && driver.id !== "x11") {
 					return {
-						content: [{ type: "text", text: "Window focus is currently supported on Hyprland/Wayland." }],
-						details: { error: "unsupported_compositor" },
+						content: [{ type: "text", text: `Window focus is not supported on this platform yet (${driver.label}).` }],
+						details: { error: "unsupported_platform", driver: driver.id },
 					};
 				}
-				const windows = await getHyprlandWindows();
+				const windows = await getDriverWindows();
 				const queryLower = params.query.toLowerCase();
 				const match =
 					windows.find(w => w.address.toLowerCase() === queryLower) ||
@@ -992,11 +955,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 
-				const res = await runCmd("hyprctl", ["dispatch", "focuswindow", `address:${match.address}`]);
-				if (res.code !== 0) {
+				const fail = await driver.windows.focusWindow(match.address);
+				if (fail) {
 					return {
-						content: [{ type: "text", text: `Failed to focus window [${match.title}]: ${res.stderr}` }],
-						details: { error: res.stderr },
+						content: [{ type: "text", text: `Failed to focus window [${match.title}]: ${fail}` }],
+						details: { error: fail },
 					};
 				}
 				return {
@@ -1017,13 +980,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						details: { error: "missing_query" },
 					};
 				}
-				if (!isHyprland()) {
+				const closeDriver = detectPlatformDriver();
+				if (closeDriver.id !== "hyprland" && closeDriver.id !== "x11") {
 					return {
-						content: [{ type: "text", text: "Window close is currently supported on Hyprland/Wayland." }],
-						details: { error: "unsupported_compositor" },
+						content: [{ type: "text", text: `Window close is not supported on this platform yet (${closeDriver.label}).` }],
+						details: { error: "unsupported_platform", driver: closeDriver.id },
 					};
 				}
-				const windows = await getHyprlandWindows();
+				const windows = await getDriverWindows();
 				const queryLower = params.query.toLowerCase();
 				const match =
 					windows.find(w => w.address.toLowerCase() === queryLower) ||
@@ -1037,11 +1001,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 
-				const res = await runCmd("hyprctl", ["dispatch", "closewindow", `address:${match.address}`]);
-				if (res.code !== 0) {
+				const closeFail = await closeDriver.windows.closeWindow(match.address);
+				if (closeFail) {
 					return {
-						content: [{ type: "text", text: `Failed to close window [${match.title}]: ${res.stderr}` }],
-						details: { error: res.stderr },
+						content: [{ type: "text", text: `Failed to close window [${match.title}]: ${closeFail}` }],
+						details: { error: closeFail },
 					};
 				}
 				return {
@@ -1057,17 +1021,18 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						details: { error: "missing_workspace" },
 					};
 				}
-				if (!isHyprland()) {
+				const wsDriver = detectPlatformDriver();
+				if (wsDriver.id !== "hyprland" && wsDriver.id !== "x11") {
 					return {
-						content: [{ type: "text", text: "Workspace switching is supported on Hyprland/Wayland." }],
-						details: { error: "unsupported_compositor" },
+						content: [{ type: "text", text: `Workspace switching is not supported on this platform yet (${wsDriver.label}).` }],
+						details: { error: "unsupported_platform", driver: wsDriver.id },
 					};
 				}
-				const res = await runCmd("hyprctl", ["dispatch", "workspace", params.workspace]);
-				if (res.code !== 0) {
+				const wsFail = await wsDriver.windows.switchWorkspace(params.workspace);
+				if (wsFail) {
 					return {
-						content: [{ type: "text", text: `Failed to switch workspace: ${res.stderr}` }],
-						details: { error: res.stderr },
+						content: [{ type: "text", text: `Failed to switch workspace: ${wsFail}` }],
+						details: { error: wsFail },
 					};
 				}
 				return {
@@ -1083,8 +1048,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						details: { error: "missing_command" },
 					};
 				}
-				if (isHyprland()) {
-					await runCmd("hyprctl", ["dispatch", "exec", params.command]);
+				const launchDriver = detectPlatformDriver();
+				if (launchDriver.id === "hyprland") {
+					await launchDriver.run("hyprctl", ["dispatch", "exec", params.command]);
 				} else {
 					await runCmd("sh", ["-c", `${params.command} &`]);
 				}
@@ -1366,17 +1332,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			}
 
 			case "cursor_pos": {
-				if (isHyprland()) {
-					const res = await runCmd("hyprctl", ["cursorpos", "-j"]);
-					if (res.code === 0) {
-						try {
-							const pos = JSON.parse(res.stdout) as { x: number; y: number };
-							return {
-								content: [{ type: "text", text: `Cursor position: X=${pos.x}, Y=${pos.y}` }],
-								details: pos,
-							};
-						} catch {}
-					}
+				const pos = await detectPlatformDriver().capture.cursorPos().catch(() => null);
+				if (pos) {
+					return {
+						content: [{ type: "text", text: `Cursor position: X=${pos.x}, Y=${pos.y}` }],
+						details: pos,
+					};
 				}
 				return {
 					content: [{ type: "text", text: "Could not retrieve cursor position." }],
@@ -1393,14 +1354,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				let geometry: string | undefined;
 				let targetWindow: DesktopWindowInfo | undefined;
 
-				if (isHyprland()) {
+				if (isSupportedDriver()) {
 					if (target === "active_window") {
-						targetWindow = await getHyprlandActiveWindow();
+						targetWindow = await getDriverActiveWindow();
 						if (targetWindow && targetWindow.size[0] > 0 && targetWindow.size[1] > 0) {
 							geometry = `${targetWindow.at[0]},${targetWindow.at[1]} ${targetWindow.size[0]}x${targetWindow.size[1]}`;
 						}
 					} else if (target !== "fullscreen") {
-						const windows = await getHyprlandWindows();
+						const windows = await getDriverWindows();
 						const q = target.toLowerCase();
 						targetWindow =
 							windows.find(w => w.address.toLowerCase() === q) ||
@@ -1412,18 +1373,13 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					}
 				}
 
-				// Capture using grim on Wayland
-				const captureArgs: string[] = [];
-				if (geometry) {
-					captureArgs.push("-g", geometry);
-				}
-				captureArgs.push(tmpRaw);
-
-				const capRes = await runCmd("grim", captureArgs);
+				// Capture via the platform driver (grim on Hyprland, import/scrot on X11).
+				const shotDriver = detectPlatformDriver();
+				const capRes = await shotDriver.capture.capture(tmpRaw, geometry).catch((e: unknown) => ({ code: 1, stderr: String(e) }));
 				if (capRes.code !== 0) {
 					return {
-						content: [{ type: "text", text: `Failed to capture screenshot with grim: ${capRes.stderr}` }],
-						details: { error: capRes.stderr },
+						content: [{ type: "text", text: `Failed to capture screenshot (${shotDriver.id}): ${capRes.stderr}` }],
+						details: { error: capRes.stderr, driver: shotDriver.id },
 					};
 				}
 
@@ -1440,7 +1396,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// Record the model-visible coordinate frame for live_* mapping (D002/D004).
 				let frameSize: { width: number; height: number } | undefined;
 				let frameNote = "";
-				if (isHyprland()) {
+				if (isSupportedDriver()) {
 					try {
 						const remembered = await rememberFrame(targetWindow, geometry, tmpRaw, finalPath);
 						if (remembered) {
@@ -1559,11 +1515,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					targetDesc = `region ${geometry}`;
 				} else {
 					const target = params.target ?? "fullscreen";
-					if (isHyprland()) {
+					if (isSupportedDriver()) {
 						if (target === "active_window") {
-							targetWindow = await getHyprlandActiveWindow();
+							targetWindow = await getDriverActiveWindow();
 						} else if (target !== "fullscreen") {
-							const windows = await getHyprlandWindows();
+							const windows = await getDriverWindows();
 							const q = target.toLowerCase();
 							targetWindow =
 								windows.find(w => w.address.toLowerCase() === q) ||
@@ -1582,11 +1538,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					swept = (await this.session?.dropLiveEyeImages?.()) ?? 0;
 				} catch {}
 
-				const capRes = await runCmd("grim", geometry ? ["-g", geometry, tmpRaw] : [tmpRaw]);
+				const eyeDriver = detectPlatformDriver();
+				const capRes = await eyeDriver.capture.capture(tmpRaw, geometry).catch((e: unknown) => ({ code: 1, stderr: String(e) }));
 				if (capRes.code !== 0) {
 					return {
-						content: [{ type: "text", text: `live_eye capture failed: ${capRes.stderr}` }],
-						details: { error: capRes.stderr, swept },
+						content: [{ type: "text", text: `live_eye capture failed (${eyeDriver.id}): ${capRes.stderr}` }],
+						details: { error: capRes.stderr, swept, driver: eyeDriver.id },
 					};
 				}
 
