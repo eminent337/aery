@@ -1329,9 +1329,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				} else if (shotWantOcr) {
 					shotTextParts.push("OCR produced no text (frame may contain no readable text).");
 				}
-				// Text-first for visionless callers: omit the embedded base64 so a
-				// heavy image block can't trigger harness compaction of the OCR.
-				const shotTextOnly = !shotModelSeesImages || params.ocr === true;
+				// Screenshot keeps its pixels: the user asked to SEE the frame, so
+				// the image block always rides along (OCR text sits beside it for
+				// visionless readers). Only the eye's ambient glances go text-only.
+				const shotTextOnly = false;
 
 				const details: ScreenshotResultDetails = {
 					filePath: finalPath,
