@@ -103,6 +103,8 @@ export interface ThinkingLevelChangeEntry extends SessionEntryBase {
 	thinkingLevel?: string | null;
 }
 
+export const EPHEMERAL_MODEL_CHANGE_ROLE = "fallback";
+
 export interface ModelChangeEntry extends SessionEntryBase {
 	type: "model_change";
 	/** Model in "provider/modelId" format */
@@ -272,7 +274,11 @@ export function getRestorableSessionModels(
 	lastModelChangeRole: string | undefined,
 ): string[] {
 	const defaultModel = models.default;
-	if (!lastModelChangeRole || lastModelChangeRole === "default" || lastModelChangeRole === "temporary") {
+	if (
+		!lastModelChangeRole ||
+		lastModelChangeRole === "default" ||
+		lastModelChangeRole === EPHEMERAL_MODEL_CHANGE_ROLE
+	) {
 		return defaultModel ? [defaultModel] : [];
 	}
 

@@ -276,7 +276,7 @@ import type {
 	SessionContext,
 	SessionManager,
 } from "./session-manager";
-import { getLatestCompactionEntry, getRestorableSessionModels } from "./session-manager";
+import { EPHEMERAL_MODEL_CHANGE_ROLE, getLatestCompactionEntry, getRestorableSessionModels } from "./session-manager";
 import type { ShakeMode, ShakeResult } from "./shake-types";
 import { SessionStateStore } from "./state-store.js";
 import { ToolChoiceQueue } from "./tool-choice-queue";
@@ -5829,7 +5829,11 @@ export class AgentSession {
 	 * Validates API key, saves to session log but NOT to settings.
 	 * @throws Error if no API key available for the model
 	 */
-	async setModelTemporary(model: Model, thinkingLevel?: ThinkingLevel): Promise<void> {
+	async setModelTemporary(
+		model: Model,
+		thinkingLevel?: ThinkingLevel,
+		options?: { ephemeral?: boolean },
+	): Promise<void> {
 		const previousEditMode = this.#resolveActiveEditMode();
 		const apiKey = await this.#modelRegistry.getApiKey(model, this.sessionId);
 		if (!apiKey) {
@@ -5838,7 +5842,10 @@ export class AgentSession {
 
 		this.#clearActiveRetryFallback();
 		this.#setModelWithProviderSessionReset(model);
-		this.sessionManager.appendModelChange(`${model.provider}/${model.id}`, "temporary");
+		this.sessionManager.appendModelChange(
+			`${model.provider}/${model.id}`,
+			options?.ephemeral ? EPHEMERAL_MODEL_CHANGE_ROLE : "temporary",
+		);
 		this.settings.getStorage()?.recordModelUsage(`${model.provider}/${model.id}`);
 
 		// Apply explicit thinking level if given; otherwise prefer the model's
@@ -7381,7 +7388,7 @@ export class AgentSession {
 		if (!targetModel) return false;
 
 		try {
-			await this.setModelTemporary(targetModel);
+			await this.setModelTemporary(targetModel, undefined, { ephemeral: true });
 			logger.debug("Context promotion switched model on overflow", {
 				from: `${currentModel.provider}/${currentModel.id}`,
 				to: `${targetModel.provider}/${targetModel.id}`,
@@ -9508,6 +9515,7 @@ export class AgentSession {
 		this.#pendingNextTurnMessages = [];
 		this.#scheduledHiddenNextTurnGeneration = undefined;
 
+		let restoredSessionContext: SessionContext | undefined;
 		try {
 			await this.sessionManager.setSessionFile(sessionPath);
 			this.#syncAgentSessionId();
@@ -9568,6 +9576,45 @@ export class AgentSession {
 						this.agent.setModel(match);
 						this.#syncToolCallBatchCap(match);
 					}
+				}
+			}
+
+			// Abort marker: when the last branch entry is a dangling assistant
+			// toolCall (process exited mid-turn, no toolResult followed), append
+			// an aborted assistant marker so the resumed conversation explains
+			// the gap instead of silently continuing as if the interrupted call
+			// had completed. Mirrors omp's createInterruptedTurnAbortMessage at
+			// the session-restore seam.
+			const branchEntries = this.sessionManager.getBranch();
+			const lastEntry = branchEntries[branchEntries.length - 1];
+			if (
+				lastEntry?.type === "message" &&
+				lastEntry.message.role === "assistant" &&
+				Array.isArray(lastEntry.message.content) &&
+				lastEntry.message.content.some(c => c.type === "toolCall")
+			) {
+				const model = this.model;
+				if (model) {
+					this.sessionManager.appendMessage({
+						role: "assistant",
+						content: [],
+						api: model.api,
+						provider: model.provider,
+						model: model.id,
+						usage: {
+							input: 0,
+							output: 0,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 0,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						},
+						stopReason: "aborted",
+						errorMessage: "Previous process exited before completing the turn.",
+						timestamp: Date.now(),
+					});
+					restoredSessionContext = this.buildDisplaySessionContext();
+					this.agent.replaceMessages(restoredSessionContext.messages);
 				}
 			}
 
