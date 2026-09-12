@@ -167,7 +167,7 @@ const desktopControlSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			"Target for 'screenshot' ('fullscreen', 'active_window', or substring of window title/class). Default: 'active_window'.",
+			"Target for the glance/screenshot ('fullscreen' — whole screen, the default — 'active_window', or substring of window title/class).",
 		),
 	query: z.string().optional().describe("Window address, title, or class query for 'focus_window' or 'close_window'."),
 	workspace: z.string().optional().describe("Workspace identifier for 'switch_workspace' (e.g. '1', '2', 'special')."),
@@ -1393,7 +1393,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					geometry = buildEyeGeometry(params.region, undefined);
 					targetDesc = `region ${geometry}`;
 				} else {
-					const target = params.target ?? "active_window";
+					const target = params.target ?? "fullscreen";
 					if (isHyprland()) {
 						if (target === "active_window") {
 							targetWindow = await getHyprlandActiveWindow();
