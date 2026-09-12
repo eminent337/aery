@@ -19,6 +19,7 @@ import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import * as z from "zod/v4";
 import type { ToolSession } from "./index";
 import { captureScreenFrame } from "../voice/screen-vision";
+import { ocrFrame } from "./screen-ocr";
 
 const execFileAsync = promisify(execFile);
 
@@ -77,6 +78,16 @@ const cameraControlSchema = z.object({
 		.boolean()
 		.optional()
 		.describe("Whether to return the JPEG image content block (default: true)."),
+	ocr: z
+		.boolean()
+		.optional()
+		.describe(
+			"Extract in-frame text with tesseract OCR and return it as text (default: false). Use this when you cannot see images — the capture then reads the frame's text content. Adds ~0.3-2s.",
+		),
+	ocrLang: z
+		.string()
+		.optional()
+		.describe("Tesseract language for 'ocr' (default: 'eng'; requires the language pack in /usr/share/tessdata)."),
 });
 
 export type CameraControlParams = z.infer<typeof cameraControlSchema>;
@@ -428,6 +439,9 @@ export class CameraWatchLoop {
 		const faceDetection = params.face_detection ?? true;
 		const includeImage = params.include_image ?? true;
 		const args = this.#workerArgs(params, "detect");
+		let ocrText = "";
+		let ocrError: string | undefined;
+		let ocrMode: "native" | "upscaled" | undefined;
 		let result: WorkerResult;
 		try {
 			result = await this.#runWorker(args);
@@ -448,6 +462,22 @@ export class CameraWatchLoop {
 		if (!capture) {
 			return { content: [{ type: "text", text: "Webcam capture returned no frame." }] };
 		}
+		if (params.ocr) {
+			// OCR runs on the captured frame via ocrFrame (single-threaded tesseract:
+			// OMP_THREAD_LIMIT=1 — multi-threaded hangs 30s+ on this box).
+			const framePath = `/tmp/aerys-cam-frame-${Date.now()}.jpg`;
+			fs.writeFileSync(framePath, Buffer.from(capture.jpeg, "base64"));
+			try {
+				const ocr = await ocrFrame(framePath, { lang: params.ocrLang });
+				ocrText = ocr.text;
+				ocrError = ocr.error;
+				ocrMode = ocr.mode;
+			} catch (err) {
+				ocrError = String(err);
+			} finally {
+				fs.rmSync(framePath, { force: true });
+			}
+		}
 		const [width, height] = capture.size;
 		const faces = result.faces ?? [];
 		let text = `Captured webcam frame from ${capture.device} (${width}x${height}) in ${capture.latencyMs}ms.`;
@@ -464,6 +494,14 @@ export class CameraWatchLoop {
 			}
 		} else {
 			text += " Face detection was skipped.";
+		}
+		if (ocrText) {
+			text += `\n\nIn-frame text (${ocrText.length} chars, tesseract ${ocrMode ?? "native"}):\n`;
+			text += ocrText.length > 8000 ? `${ocrText.slice(0, 8000)}\n…[truncated]` : ocrText;
+		} else if (params.ocr && ocrError) {
+			text += `\n\nOCR failed: ${ocrError}`;
+		} else if (params.ocr) {
+			text += "\n\nOCR produced no text (frame may contain no readable text).";
 		}
 		return {
 			content: [
