@@ -380,6 +380,14 @@ export class EventController {
 
 			for (const content of this.ctx.streamingMessage.content) {
 				if (content.type !== "toolCall") continue;
+				// The eye is a silent sense: never mount a component for it —
+				// the glance rides as a hidden custom message instead.
+				if (
+					content.name === "desktop_control" &&
+					(content.arguments as { action?: unknown } | undefined)?.action === "live_eye"
+				) {
+					continue;
+				}
 				if (content.name === "read") {
 					if (!readArgsHaveTarget(content.arguments)) {
 						// Args still streaming — defer until path is parseable so we can route to the
@@ -556,6 +564,12 @@ export class EventController {
 	): Promise<void> {
 		const component = this.ctx.pendingTools.get(event.toolCallId);
 		if (component) {
+			// The eye renders nothing — skip any partial updates for it too.
+			if (
+				(event.partialResult.details as { liveEye?: unknown } | undefined)?.liveEye
+			) {
+				return;
+			}
 			const asyncState = (event.partialResult.details as { async?: { state?: string } } | undefined)?.async?.state;
 			const isFinalAsyncState = asyncState === "completed" || asyncState === "failed";
 			component.updateResult(
@@ -611,6 +625,14 @@ export class EventController {
 				this.ctx.ui.requestRender();
 			}
 		} else {
+			// The eye's result renders nothing — the glance rode as a hidden
+			// custom message; no component should be mounted or updated.
+			const eyeDetails = (event.result?.details ?? undefined) as { liveEye?: unknown } | undefined;
+			if (event.toolName === "desktop_control" && eyeDetails?.liveEye) {
+				this.ctx.pendingTools.delete(event.toolCallId);
+				this.ctx.ui.requestRender();
+				return;
+			}
 			const component = this.ctx.pendingTools.get(event.toolCallId);
 			if (component) {
 				const asyncState = (event.result.details as { async?: { state?: string } } | undefined)?.async?.state;
