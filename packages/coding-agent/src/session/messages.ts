@@ -47,13 +47,15 @@ export interface SkillPromptDetails {
 	path: string;
 	args?: string;
 	lineCount: number;
-	/** Internal: tag used by AgentSession to remove the pending-display chip
-	 *  from `#steeringMessages` / `#followUpMessages` when the agent consumes
-	 *  this message. Not surfaced to renderers; the `__` prefix signals
-	 *  "private". Optional — non-streaming skill prompts never set it. Stripped
-	 *  from persisted `details` by `SessionManager.appendCustomMessageEntry`
-	 *  via the `INTERNAL_DETAILS_FIELDS` allowlist below. */
-	__pendingDisplayTag?: string;
+	/** Internal: compact text shown in the queued-message chip while this
+	 *  skill prompt sits in the agent's steering/follow-up queue (e.g.
+	 *  `/skill:foo arg1 arg2`). Stored on `details` so the chip can be derived
+	 *  live from the queued message itself — no separate display mirror that
+	 *  can desync when the agent drains the queue. Not surfaced to renderers;
+	 *  the `__` prefix signals "private". Stripped from persisted `details` by
+	 *  `SessionManager.appendCustomMessageEntry` via the
+	 *  `INTERNAL_DETAILS_FIELDS` allowlist below. */
+	__queueChipText?: string;
 }
 
 /** Sentinel value for `AssistantMessage.errorMessage` indicating that the abort
@@ -69,7 +71,6 @@ export interface SkillPromptDetails {
  *  #buildTranscriptLines`, `runPrintMode`, and `AcpAgent#replayAssistantMessage`
  *  (fallback error emission) read it via `isSilentAbort`. */
 export const SILENT_ABORT_MARKER = "__aery.silent_abort__";
-
 /** Type-guard for `SILENT_ABORT_MARKER`. Renderers MUST branch on this rather
  *  than string-comparing inline so refactors to the marker constant (e.g.,
  *  namespacing changes) propagate through every consumer in lockstep. */
@@ -77,12 +78,12 @@ export function isSilentAbort(errorMessage: string | undefined): boolean {
 	return errorMessage === SILENT_ABORT_MARKER;
 }
 
-/** Extract the optional `__pendingDisplayTag` field from a CustomMessage's
+/** Extract the optional `__queueChipText` field from a CustomMessage's
  *  `details` blob. Safe over `unknown`; returns undefined when the field is
  *  absent or non-string. */
-export function readPendingDisplayTag(details: unknown): string | undefined {
+export function readQueueChipText(details: unknown): string | undefined {
 	if (typeof details !== "object" || details === null) return undefined;
-	const candidate = (details as { __pendingDisplayTag?: unknown }).__pendingDisplayTag;
+	const candidate = (details as { __queueChipText?: unknown }).__queueChipText;
 	return typeof candidate === "string" ? candidate : undefined;
 }
 
@@ -91,7 +92,7 @@ export function readPendingDisplayTag(details: unknown): string | undefined {
  *  the CustomMessageEntry to disk. Scoped intentionally narrow: only fields
  *  declared here are stripped. Adding a new entry is a deliberate, reviewed
  *  change — unrelated future payload fields are never silently dropped. */
-export const INTERNAL_DETAILS_FIELDS = ["__pendingDisplayTag"] as const;
+export const INTERNAL_DETAILS_FIELDS = ["__queueChipText"] as const;
 
 /** Return a `details` copy with every key in `INTERNAL_DETAILS_FIELDS`
  *  removed. Returns the input unchanged when there is nothing to strip

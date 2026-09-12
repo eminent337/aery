@@ -255,11 +255,16 @@ import {
 	convertToLlm,
 	type FileMentionMessage,
 	type PythonExecutionMessage,
-	readPendingDisplayTag,
+	readQueueChipText,
 	SILENT_ABORT_MARKER,
 	stripImagesFromMessage,
 } from "./messages";
 import { buildPrivacyPolicy } from "./privacy-policy-builder";
+import {
+	isDisplayableQueuedMessage,
+	isUserQueuedMessage,
+	queueChipText,
+} from "./queued-messages";
 import { formatSessionDumpText } from "./session-dump-format";
 import { formatSessionHistoryMarkdown } from "./session-history-format";
 import type {
@@ -873,14 +878,7 @@ function extractPermissionLocations(
 
 // ============================================================================
 // AgentSession Class
-// ============================================================================
 
-/** Internal record stored in the steering/followUp display queues. The optional
- *  `tag` is set only by `enqueueCustomMessageDisplay` (used for skill-prompt
- *  custom messages queued during streaming) and is matched by the custom-role
- *  `message_start` dequeue branch; user-message pushes leave it undefined and
- *  rely on the existing text-equality match. */
-type QueuedDisplayEntry = { text: string; tag?: string };
 
 export class AgentSession {
 	readonly agent: Agent;
@@ -912,15 +910,6 @@ export class AgentSession {
 	#lastAppendOnlyResolution?: { enable: boolean; providerId: string | undefined };
 	#eventListeners: AgentSessionEventListener[] = [];
 
-	/** Tracks pending steering messages for UI display. Removed when delivered.
-	 *  Entry shape: `{ text }` for plain-text steers (user-message dequeue
-	 *  matches by `.text`); `{ text, tag }` for queued custom messages (skill
-	 *  invocations dispatched while streaming) — the custom-role dequeue
-	 *  matches by `.tag` so duplicate-args queued skills cannot collide. */
-	#steeringMessages: QueuedDisplayEntry[] = [];
-	/** Tracks pending follow-up messages for UI display. Removed when delivered.
-	 *  See `#steeringMessages` for entry shape. */
-	#followUpMessages: QueuedDisplayEntry[] = [];
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
 	#pendingNextTurnMessages: CustomMessage[] = [];
 	#scheduledHiddenNextTurnGeneration: number | undefined = undefined;
@@ -1070,10 +1059,6 @@ export class AgentSession {
 	 *  without producing an aborted message_end). */
 	#planCompactAbortPending = false;
 
-	/** Monotonic counter for `enqueueCustomMessageDisplay` tag generation;
-	 *  combined with `Date.now()` so tags stay unique even across rapid
-	 *  same-tick enqueues. */
-	#customDisplayTagCounter = 0;
 	#postPromptTasks = new Set<Promise<unknown>>();
 	#postPromptTasksPromise: Promise<void> | undefined = undefined;
 	#postPromptTasksResolve: (() => void) | undefined = undefined;
@@ -1678,27 +1663,6 @@ export class AgentSession {
 		this.#planCompactAbortPending = false;
 	}
 
-	/** Register a compact display string for a custom message that the caller is
-	 *  about to dispatch via `promptCustomMessage` / `sendCustomMessage`.
-	 *  Returns a stable tag the caller MUST embed in
-	 *  `CustomMessage.details.__pendingDisplayTag` so the agent-side
-	 *  `message_start` handler can remove the matching display entry when the
-	 *  queued message is consumed.
-	 *
-	 *  Does NOT push to the agent's steering/followUp queue — that happens
-	 *  separately inside `sendCustomMessage`. */
-	enqueueCustomMessageDisplay(text: string, mode: "steer" | "followUp"): string {
-		const tag = `aery-cmd-${Date.now()}-${++this.#customDisplayTagCounter}`;
-		const displayText = text.trim();
-		if (!displayText) return tag;
-		const entry: QueuedDisplayEntry = { text: displayText, tag };
-		if (mode === "steer") {
-			this.#steeringMessages.push(entry);
-		} else {
-			this.#followUpMessages.push(entry);
-		}
-		return tag;
-	}
 
 	getAsyncJobSnapshot(options?: { recentLimit?: number }): AsyncJobSnapshot | null {
 		const manager = AsyncJobManager.instance();
@@ -1812,44 +1776,11 @@ export class AgentSession {
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	#handleAgentEvent = async (event: AgentEvent): Promise<void> => {
-		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
-		// This ensures the UI sees the updated queue state
-		if (event.type === "message_start" && event.message.role === "user") {
-			const messageText = this.#getUserMessageText(event.message);
-			if (messageText) {
-				// Check steering queue first (match by .text on tagged records)
-				const steeringIndex = this.#steeringMessages.findIndex(e => e.text === messageText);
-				if (steeringIndex !== -1) {
-					this.#steeringMessages.splice(steeringIndex, 1);
-				} else {
-					// Check follow-up queue
-					const followUpIndex = this.#followUpMessages.findIndex(e => e.text === messageText);
-					if (followUpIndex !== -1) {
-						this.#followUpMessages.splice(followUpIndex, 1);
-					}
-				}
-			}
-		}
-
-		// Tag-based dequeue for custom messages (skills queued via promptCustomMessage).
-		// The InputController attached a stable tag via CustomMessage.details when it
-		// registered the display chip; pull it back here to remove the matching entry
-		// from the pending bar atomically with the agent's queue consumption. Match by
-		// tag (not text) — two queued skills with identical args cannot collide.
-		if (event.type === "message_start" && event.message.role === "custom") {
-			const tag = readPendingDisplayTag(event.message.details);
-			if (tag) {
-				const steerIdx = this.#steeringMessages.findIndex(e => e.tag === tag);
-				if (steerIdx !== -1) {
-					this.#steeringMessages.splice(steerIdx, 1);
-				} else {
-					const followUpIdx = this.#followUpMessages.findIndex(e => e.tag === tag);
-					if (followUpIdx !== -1) {
-						this.#followUpMessages.splice(followUpIdx, 1);
-					}
-				}
-			}
-		}
+		// NOTE: queued-message chips are derived LIVE from the agent's
+		// steering/follow-up queues (getQueuedMessages), so there is no mirror
+		// array to splice here when a queued user/custom message starts — the
+		// loop draining the queue is the single source of truth and the chip
+		// disappears on the next updatePendingMessagesDisplay render.
 
 		// Plan-mode → compaction transition: stamp `SILENT_ABORT_MARKER` on the
 		// persisted message BEFORE the obfuscator's display-side copy below.
@@ -5255,8 +5186,6 @@ export class AgentSession {
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
 	async #queueSteer(text: string, images?: ImageContent[], hiddenPasteText?: string): Promise<void> {
-		const displayText = text || (images && images.length > 0 ? "[Image]" : "");
-		this.#steeringMessages.push({ text: displayText });
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images && images.length > 0) {
 			content.push(...images);
@@ -5282,8 +5211,6 @@ export class AgentSession {
 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
 	 */
 	async #queueFollowUp(text: string, images?: ImageContent[], hiddenPasteText?: string): Promise<void> {
-		const displayText = text || (images && images.length > 0 ? "[Image]" : "");
-		this.#followUpMessages.push({ text: displayText });
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images && images.length > 0) {
 			content.push(...images);
@@ -5540,52 +5467,75 @@ export class AgentSession {
 	}
 
 	/**
-	 * Clear queued messages and return them.
+	 * Clear queued messages and return them (user-attributed subset).
 	 * Useful for restoring to editor when user aborts.
+	 *
+	 * The display/count/restore views are all derived LIVE from the agent's
+	 * actual steering/follow-up queues (single source of truth), so a queued
+	 * message that the loop has already drained can never leave a stale chip
+	 * behind (the fork's old `#steeringMessages` mirror desynced exactly
+	 * there). `clearQueue` empties the underlying queues; non-user entries
+	 * (hidden/internal steers) are preserved like omp's `forInterrupt:false`.
 	 */
 	clearQueue(): { steering: string[]; followUp: string[] } {
-		const steering = this.#steeringMessages.map(e => e.text);
-		const followUp = this.#followUpMessages.map(e => e.text);
-		this.#steeringMessages = [];
-		this.#followUpMessages = [];
-		this.agent.clearAllQueues();
+		const steeringAll = this.agent.peekSteeringQueue();
+		const followUpAll = this.agent.peekFollowUpQueue();
+		const steering = steeringAll.filter(isUserQueuedMessage).map(queueChipText);
+		const followUp = followUpAll.filter(isUserQueuedMessage).map(queueChipText);
+		const keep = (m: AgentMessage) => !isUserQueuedMessage(m);
+		this.agent.replaceQueues(steeringAll.filter(keep), followUpAll.filter(keep));
 		return { steering, followUp };
 	}
 
-	/** Number of pending messages (includes steering, follow-up, and next-turn messages) */
+	/** Number of pending displayable messages (steering + follow-up + next-turn). */
 	get queuedMessageCount(): number {
-		return this.#steeringMessages.length + this.#followUpMessages.length + this.#pendingNextTurnMessages.length;
+		return (
+			this.agent.peekSteeringQueue().filter(isDisplayableQueuedMessage).length +
+			this.agent.peekFollowUpQueue().filter(isDisplayableQueuedMessage).length +
+			this.#pendingNextTurnMessages.length
+		);
 	}
 
-	/** Get pending messages (read-only). Returns the public text-only view;
-	 *  internal `{text, tag?}` records are mapped to `.text` so callers
-	 *  (`updatePendingMessagesDisplay`, `restoreQueuedMessagesToEditor`) see
-	 *  the unchanged historical shape. */
+	/** Get pending messages (read-only), derived LIVE from the agent queues so
+	 *  the pending bar always reflects what the loop has actually drained. */
 	getQueuedMessages(): { steering: readonly string[]; followUp: readonly string[] } {
 		return {
-			steering: this.#steeringMessages.map(e => e.text),
-			followUp: this.#followUpMessages.map(e => e.text),
+			steering: this.agent.peekSteeringQueue().filter(isUserQueuedMessage).map(queueChipText),
+			followUp: this.agent.peekFollowUpQueue().filter(isUserQueuedMessage).map(queueChipText),
 		};
 	}
 
 	/**
 	 * Pop the last queued message (steering first, then follow-up).
 	 * Used by dequeue keybinding to restore messages to editor one at a time.
-	 * Returns the popped entry's `.text`; the tag (if any) dies with the
-	 * record — no orphan state can outlive the queue entry.
+	 * Returns the popped entry's chip text; the underlying agent-queue entry is
+	 * removed atomically so no stale display state can outlive the dequeue.
 	 */
 	popLastQueuedMessage(): string | undefined {
 		// Pop from steering first (LIFO)
-		if (this.#steeringMessages.length > 0) {
-			const entry = this.#steeringMessages.pop();
-			this.agent.popLastSteer();
-			return entry?.text;
+		const steering = this.agent.peekSteeringQueue();
+		const followUp = this.agent.peekFollowUpQueue();
+		const lastUserIndex = (queue: readonly AgentMessage[]): number => {
+			for (let i = queue.length - 1; i >= 0; i--) {
+				if (isUserQueuedMessage(queue[i])) return i;
+			}
+			return -1;
+		};
+		const steerIndex = lastUserIndex(steering);
+		if (steerIndex >= 0) {
+			const removed = steering[steerIndex];
+			const next = steering.slice();
+			next.splice(steerIndex, 1);
+			this.agent.replaceQueues(next, followUp.slice());
+			return queueChipText(removed);
 		}
-		// Then from follow-up
-		if (this.#followUpMessages.length > 0) {
-			const entry = this.#followUpMessages.pop();
-			this.agent.popLastFollowUp();
-			return entry?.text;
+		const followUpIndex = lastUserIndex(followUp);
+		if (followUpIndex >= 0) {
+			const removed = followUp[followUpIndex];
+			const next = followUp.slice();
+			next.splice(followUpIndex, 1);
+			this.agent.replaceQueues(steering.slice(), next);
+			return queueChipText(removed);
 		}
 		return undefined;
 	}
@@ -5717,8 +5667,7 @@ export class AgentSession {
 		this.#rekeyMnemopiMemoryForCurrentSessionId();
 		this.#resetHindsightConversationTrackingIfHindsight();
 		this.#resetMnemopiConversationTrackingIfMnemopi();
-		this.#steeringMessages = [];
-		this.#followUpMessages = [];
+		this.agent.clearAllQueues();
 		this.#pendingNextTurnMessages = [];
 		this.#scheduledHiddenNextTurnGeneration = undefined;
 
@@ -6885,8 +6834,6 @@ export class AgentSession {
 			this.#rekeyMnemopiMemoryForCurrentSessionId();
 			this.#resetHindsightConversationTrackingIfHindsight();
 			this.#resetMnemopiConversationTrackingIfMnemopi();
-			this.#steeringMessages = [];
-			this.#followUpMessages = [];
 			this.#pendingNextTurnMessages = [];
 			this.#scheduledHiddenNextTurnGeneration = undefined;
 			this.#todoReminderCount = 0;
@@ -9540,8 +9487,8 @@ export class AgentSession {
 		// the existing message objects is sufficient and avoids structured-clone failures for
 		// extension/custom metadata that is valid to persist but not cloneable.
 		const previousAgentMessages = [...this.agent.state.messages];
-		const previousSteeringMessages = [...this.#steeringMessages];
-		const previousFollowUpMessages = [...this.#followUpMessages];
+		const previousSteeringMessages = [...this.agent.peekSteeringQueue()];
+		const previousFollowUpMessages = [...this.agent.peekFollowUpQueue()];
 		const previousPendingNextTurnMessages = [...this.#pendingNextTurnMessages];
 		const previousScheduledHiddenNextTurnGeneration = this.#scheduledHiddenNextTurnGeneration;
 		const previousModel = this.model;
@@ -9557,8 +9504,7 @@ export class AgentSession {
 			? this.#getSessionDefaultSelectedMCPToolNames(previousSessionFile)
 			: undefined;
 
-		this.#steeringMessages = [];
-		this.#followUpMessages = [];
+		this.agent.replaceQueues([], []);
 		this.#pendingNextTurnMessages = [];
 		this.#scheduledHiddenNextTurnGeneration = undefined;
 
@@ -9688,8 +9634,7 @@ export class AgentSession {
 			this.#baseSystemPrompt = previousBaseSystemPrompt;
 			this.agent.setSystemPrompt(previousSystemPrompt);
 			this.agent.replaceMessages(previousAgentMessages);
-			this.#steeringMessages = previousSteeringMessages;
-			this.#followUpMessages = previousFollowUpMessages;
+			this.agent.replaceQueues(previousSteeringMessages, previousFollowUpMessages);
 			this.#pendingNextTurnMessages = previousPendingNextTurnMessages;
 			this.#scheduledHiddenNextTurnGeneration = previousScheduledHiddenNextTurnGeneration;
 			if (previousModel) {

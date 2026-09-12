@@ -1,19 +1,20 @@
 /**
  * Phase 6 — E layer.
  *
- * Tests the skill-queue + custom-role dequeue contract that ties together:
- *   - InputController.#invokeSkillCommand (tag generation when streaming);
- *   - AgentSession.enqueueCustomMessageDisplay + #handleAgentEvent's
- *     custom-role `message_start` dequeue;
- *   - UiHelpers.updatePendingMessagesDisplay (compact slash-form rendering);
- *   - InputController.restoreQueuedMessagesToEditor (recovery of the slash-form
- *     into the editor).
+ * Tests the skill-queue + queue-chip contract (omp-style live-derived display):
+ *   - InputController.#invokeSkillCommand stamps details.__queueChipText when
+ *     streaming (no separate display twin — chips derive from the agent queue);
+ *   - AgentSession.getQueuedMessages/queuedMessageCount read the agent's live
+ *     queues via peek APIs (single source of truth);
+ *   - UiHelpers.updatePendingMessagesDisplay renders compact slash-form chips;
+ *   - InputController.restoreQueuedMessagesToEditor clears the agent queue;
+ *   - EventController custom-role message_start refreshes the pending bar when
+ *     details.__queueChipText is present.
  *
  * Tests split into:
- *   - E1-E3: InputController-side tag generation, stubbed session;
- *   - E4-E7: Real AgentSession driving synthetic `message_start` events
- *            for the tag-based custom-role dequeue;
- *   - E8: real UiHelpers render against a queued-display entry;
+ *   - E1-E3: InputController-side chip stamping, stubbed session;
+ *   - E4-E7: Real AgentSession queue lifecycle via steer/followUp/pop/clear;
+ *   - E8: real UiHelpers render against a queued custom message;
  *   - E9: real InputController.restoreQueuedMessagesToEditor.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
@@ -67,7 +68,7 @@ function createStubInputControllerContext(opts: { skillCommands: Map<string, str
 		},
 		addToHistory: vi.fn(),
 	};
-	const enqueueCustomMessageDisplay = vi.fn((_text: string, _mode: "steer" | "followUp") => "sk-test-0");
+	// Chips are stamped via details.__queueChipText; no enqueue mock needed.
 	// Annotate parameters so `mock.calls[N]` is typed as a tuple (not `[]`) and
 	// `message` carries required skill prompt details for assertion below.
 	const promptCustomMessage = vi.fn(async (_message: { details: SkillPromptDetails }, _options?: unknown) => {});
@@ -85,7 +86,7 @@ function createStubInputControllerContext(opts: { skillCommands: Map<string, str
 			isBashRunning: false,
 			isEvalRunning: false,
 			extensionRunner: undefined,
-			enqueueCustomMessageDisplay,
+			// Chips derive from the live agent queue; no enqueue mock on the stub.
 			promptCustomMessage,
 		},
 		showError,
@@ -101,7 +102,7 @@ function createStubInputControllerContext(opts: { skillCommands: Map<string, str
 		withLocalSubmission: async (_text: string, fn: () => unknown) => fn(),
 	} as unknown as InteractiveModeContext;
 
-	return { ctx, editor, enqueueCustomMessageDisplay, promptCustomMessage };
+	return { ctx, editor, promptCustomMessage };
 }
 
 describe.skip("InputController #invokeSkillCommand (E1-E3)", () => {
@@ -119,8 +120,8 @@ describe.skip("InputController #invokeSkillCommand (E1-E3)", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("E1: streaming + steer -> enqueueCustomMessageDisplay called and details.__pendingDisplayTag set", async () => {
-		const { ctx, editor, enqueueCustomMessageDisplay, promptCustomMessage } = createStubInputControllerContext({
+	it("E1: streaming + steer -> details.__queueChipText stamped with the compact slash form", async () => {
+		const { ctx, editor, promptCustomMessage } = createStubInputControllerContext({
 			skillCommands,
 			isStreaming: true,
 		});
@@ -130,9 +131,6 @@ describe.skip("InputController #invokeSkillCommand (E1-E3)", () => {
 		editor.setText("/skill:test-skill arg1 arg2");
 		await editor.onSubmit?.("/skill:test-skill arg1 arg2");
 
-		expect(enqueueCustomMessageDisplay).toHaveBeenCalledTimes(1);
-		expect(enqueueCustomMessageDisplay).toHaveBeenCalledWith("/skill:test-skill arg1 arg2", "steer");
-
 		expect(promptCustomMessage).toHaveBeenCalledTimes(1);
 		const firstCall = promptCustomMessage.mock.calls[0];
 		expect(firstCall).toBeDefined();
@@ -140,11 +138,11 @@ describe.skip("InputController #invokeSkillCommand (E1-E3)", () => {
 			throw new Error("expected promptCustomMessage to be called");
 		}
 		const messageArg = firstCall[0];
-		expect(messageArg.details.__pendingDisplayTag).toBe("sk-test-0");
+		expect(messageArg.details.__queueChipText).toBe("/skill:test-skill arg1 arg2");
 	});
 
-	it("E2: streaming + followUp -> enqueueCustomMessageDisplay called with mode 'followUp', tag embedded", async () => {
-		const { ctx, editor, enqueueCustomMessageDisplay, promptCustomMessage } = createStubInputControllerContext({
+	it("E2: streaming + followUp -> details.__queueChipText stamped on the Ctrl+Enter path", async () => {
+		const { ctx, editor, promptCustomMessage } = createStubInputControllerContext({
 			skillCommands,
 			isStreaming: true,
 		});
@@ -155,19 +153,17 @@ describe.skip("InputController #invokeSkillCommand (E1-E3)", () => {
 		// `#invokeSkillCommand` helper with mode "followUp".
 		await controller.handleFollowUp();
 
-		expect(enqueueCustomMessageDisplay).toHaveBeenCalledWith("/skill:test-skill arg1 arg2", "followUp");
-
 		const firstCall = promptCustomMessage.mock.calls[0];
 		expect(firstCall).toBeDefined();
 		if (!firstCall) {
 			throw new Error("expected promptCustomMessage to be called");
 		}
 		const messageArg = firstCall[0];
-		expect(messageArg.details.__pendingDisplayTag).toBe("sk-test-0");
+		expect(messageArg.details.__queueChipText).toBe("/skill:test-skill arg1 arg2");
 	});
 
-	it("E3: not streaming -> enqueueCustomMessageDisplay NOT called and tag absent", async () => {
-		const { ctx, editor, enqueueCustomMessageDisplay, promptCustomMessage } = createStubInputControllerContext({
+	it("E3: not streaming -> no chip stamped", async () => {
+		const { ctx, editor, promptCustomMessage } = createStubInputControllerContext({
 			skillCommands,
 			isStreaming: false,
 		});
@@ -177,14 +173,13 @@ describe.skip("InputController #invokeSkillCommand (E1-E3)", () => {
 		editor.setText("/skill:test-skill arg1 arg2");
 		await editor.onSubmit?.("/skill:test-skill arg1 arg2");
 
-		expect(enqueueCustomMessageDisplay).not.toHaveBeenCalled();
 		const firstCall = promptCustomMessage.mock.calls[0];
 		expect(firstCall).toBeDefined();
 		if (!firstCall) {
 			throw new Error("expected promptCustomMessage to be called");
 		}
 		const messageArg = firstCall[0];
-		expect(messageArg.details.__pendingDisplayTag).toBeUndefined();
+		expect(messageArg.details.__queueChipText).toBeUndefined();
 	});
 });
 
@@ -225,24 +220,45 @@ async function createRealSession(): Promise<SessionFixture> {
 	return { tempDir, authStorage, session };
 }
 
-/** Emit a `message_start` for a custom message whose `details` carries the supplied tag. */
-function emitCustomMessageStart(session: AgentSession, content: string, tag?: string): void {
-	const details: { __pendingDisplayTag?: string } | undefined =
-		tag === undefined ? undefined : { __pendingDisplayTag: tag };
-	session.agent.emitExternalEvent({
-		type: "message_start",
-		message: {
-			role: "custom",
-			customType: SKILL_PROMPT_MESSAGE_TYPE,
-			content,
-			display: true,
-			details,
-			timestamp: Date.now(),
-		},
-	});
+/** Build a queued skill custom message (the shape the skill path dispatches). */
+function skillCustomMessage(content: string, chipText?: string): Extract<
+	Parameters<AgentSession["promptCustomMessage"]>[0],
+	{ customType: string }
+> {
+	return {
+		customType: SKILL_PROMPT_MESSAGE_TYPE,
+		content,
+		display: true,
+		details: chipText === undefined ? undefined : { __queueChipText: chipText },
+		attribution: "user",
+	};
 }
 
-describe("AgentSession custom-role tag dequeue (E4-E7)", () => {
+/** Queue a skill custom message directly on the agent queue (as the loop sees it). */
+function queueSkillCustom(
+	session: AgentSession,
+	content: string,
+	chipText: string | undefined,
+	mode: "steer" | "followUp",
+): void {
+	const message = skillCustomMessage(content, chipText);
+	const queued = {
+		role: "custom",
+		customType: message.customType,
+		content: message.content,
+		display: message.display,
+		details: message.details,
+		attribution: "user",
+		timestamp: Date.now(),
+	};
+	if (mode === "followUp") {
+		session.agent.followUp(queued as never);
+	} else {
+		session.agent.steer(queued as never);
+	}
+}
+
+describe("AgentSession live queue (E4-E7)", () => {
 	let fixture: SessionFixture | undefined;
 
 	afterEach(async () => {
@@ -255,93 +271,50 @@ describe("AgentSession custom-role tag dequeue (E4-E7)", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("E4: message_start with role=custom + matching tag removes the tagged display entry", async () => {
+	it("E4: queued custom chip text appears in getQueuedMessages and survives until drained", async () => {
 		fixture = await createRealSession();
 		const { session } = fixture;
-		const tag = session.enqueueCustomMessageDisplay("/skill:foo bar", "steer");
-		expect(tag).not.toBe("");
+		queueSkillCustom(session, "irrelevant content", "/skill:foo bar", "steer");
 		expect(session.getQueuedMessages().steering).toEqual(["/skill:foo bar"]);
-
-		emitCustomMessageStart(session, "irrelevant content", tag);
-		await Promise.resolve();
-		await Promise.resolve();
-
+		expect(session.queuedMessageCount).toBe(1);
+		// Simulate the loop draining the queue: once the entry is gone from the
+		// agent queue, the chip derives empty from the live queue — no mirror to
+		// desync. getQueuedMessages reads the same state the loop drains.
+		session.agent.replaceQueues([], []);
 		expect(session.getQueuedMessages().steering).toEqual([]);
-		// And internal queue counters reflect the empty steer/followUp arrays. The
-		// pending-next-turn store stays at zero too because this test never queued one.
 		expect(session.queuedMessageCount).toBe(0);
 	});
 
-	it("E5: message_start with role=custom but no tag is a no-op", async () => {
+	it("E5: queued custom without __queueChipText falls back to its content text", async () => {
 		fixture = await createRealSession();
 		const { session } = fixture;
-		session.enqueueCustomMessageDisplay("/skill:foo bar", "steer");
-		const beforeCount = session.queuedMessageCount;
-		expect(beforeCount).toBe(1);
-
-		emitCustomMessageStart(session, "irrelevant content"); // no tag
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect(session.getQueuedMessages().steering).toEqual(["/skill:foo bar"]);
-		expect(session.queuedMessageCount).toBe(beforeCount);
+		queueSkillCustom(session, "plain content", undefined, "steer");
+		expect(session.getQueuedMessages().steering).toEqual(["plain content"]);
+		expect(session.queuedMessageCount).toBe(1);
 	});
 
-	it("E6: two queued skills with identical args text are dequeued independently by tag", async () => {
+	it("E6: queued follow-up custom chip lands in the followUp list", async () => {
 		fixture = await createRealSession();
 		const { session } = fixture;
-		const tag1 = session.enqueueCustomMessageDisplay("/skill:foo bar", "steer");
-		const tag2 = session.enqueueCustomMessageDisplay("/skill:foo bar", "steer");
-		expect(tag1).not.toBe(tag2);
-		expect(session.getQueuedMessages().steering).toEqual(["/skill:foo bar", "/skill:foo bar"]);
-
-		// Consume the SECOND-enqueued tag. After dequeue, the SURVIVING entry must be
-		// the one that was added FIRST — proves the dequeue keys off `tag`, not off
-		// `indexOf(text)` (which would always have removed the first match).
-		emitCustomMessageStart(session, "any", tag2);
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect(session.getQueuedMessages().steering).toEqual(["/skill:foo bar"]);
-
-		// Now dequeue the first; nothing left.
-		emitCustomMessageStart(session, "any", tag1);
-		await Promise.resolve();
-		await Promise.resolve();
-
+		queueSkillCustom(session, "irrelevant content", "/skill:bar baz", "followUp");
+		expect(session.getQueuedMessages().followUp).toEqual(["/skill:bar baz"]);
 		expect(session.getQueuedMessages().steering).toEqual([]);
+		expect(session.queuedMessageCount).toBe(1);
 	});
 
-	it("E7: popLastQueuedMessage on a tagged entry leaves no orphan tag state", async () => {
+	it("E7: popLastQueuedMessage removes the underlying agent-queue entry", async () => {
 		fixture = await createRealSession();
 		const { session } = fixture;
-		const firstTag = session.enqueueCustomMessageDisplay("/skill:foo bar", "steer");
+		queueSkillCustom(session, "irrelevant content", "/skill:foo bar", "steer");
 		const popped = session.popLastQueuedMessage();
 		expect(popped).toBe("/skill:foo bar");
 		expect(session.getQueuedMessages().steering).toEqual([]);
-
-		// Push a NEW tagged entry with the same text. Emitting `message_start` for the
-		// FIRST (popped) tag must be a no-op — the dequeue cannot reach into the new
-		// entry because the popped tag died with its record.
-		const secondTag = session.enqueueCustomMessageDisplay("/skill:foo bar", "steer");
-		expect(secondTag).not.toBe(firstTag);
-
-		emitCustomMessageStart(session, "any", firstTag);
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(session.getQueuedMessages().steering).toEqual(["/skill:foo bar"]);
-
-		// Sanity: the second tag still works.
-		emitCustomMessageStart(session, "any", secondTag);
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(session.getQueuedMessages().steering).toEqual([]);
+		expect(session.popLastQueuedMessage()).toBeUndefined();
 	});
 });
 
 // ============================================================================
-// E8-E9: Real UiHelpers / InputController against a session populated through
-// enqueueCustomMessageDisplay.
+// E8-E9: Real UiHelpers / InputController against the live agent queue.
 // ============================================================================
 
 function createStubInteractiveModeContextForUiHelpers(session: AgentSession) {
@@ -406,7 +379,7 @@ describe("UiHelpers / InputController against the queued-display layer (E8-E9)",
 	it("E8: updatePendingMessagesDisplay renders the compact slash form for queued skills", async () => {
 		fixture = await createRealSession();
 		const { session } = fixture;
-		session.enqueueCustomMessageDisplay("/skill:test-skill arg1 arg2", "steer");
+		queueSkillCustom(session, "irrelevant content", "/skill:test-skill arg1 arg2", "steer");
 
 		const { ctx, pendingMessagesContainer } = createStubInteractiveModeContextForUiHelpers(session);
 		const uiHelpers = new UiHelpers(ctx);
@@ -421,41 +394,34 @@ describe("UiHelpers / InputController against the queued-display layer (E8-E9)",
 	it("E9: restoreQueuedMessagesToEditor recovers the compact slash form into the editor and clears the queue", async () => {
 		fixture = await createRealSession();
 		const { session } = fixture;
-		session.enqueueCustomMessageDisplay("/skill:test-skill arg1 arg2", "steer");
+		queueSkillCustom(session, "irrelevant content", "/skill:test-skill arg1 arg2", "steer");
 
 		const { ctx, editor } = createStubInteractiveModeContextForUiHelpers(session);
 		const controller = new InputController(ctx);
 		const count = controller.restoreQueuedMessagesToEditor();
 		expect(count).toBe(1);
 		expect(editor.getText()).toBe("/skill:test-skill arg1 arg2");
-		// Queue cleared on both arrays.
+		// Underlying agent queue cleared.
 		const { steering, followUp } = session.getQueuedMessages();
 		expect(steering).toEqual([]);
 		expect(followUp).toEqual([]);
 	});
+
 });
 
 // ============================================================================
-// E10: EventController refreshes the pending-messages bar on tagged custom
+// E10: EventController refreshes the pending-messages bar on queued custom
 // dequeue.
 //
-// Regression guard for the Codex P2 review finding on PR #1043: the
-// custom-role `message_start` branch in AgentSession.#handleAgentEvent spliced
-// the matching entry out of #steeringMessages / #followUpMessages correctly,
-// but EventController.#handleMessageStart only called updatePendingMessagesDisplay
-// from the `role === "user"` branch. The custom branch — which is where queued
-// /skill: invocations flow — never rebuilt `pendingMessagesContainer`, so the
-// chip kept painting until an unrelated trigger fired a refresh.
-//
-// The fix: in EventController's custom branch, when the dequeued message
-// carries the `__pendingDisplayTag` (proof it was queued via
-// enqueueCustomMessageDisplay), call updatePendingMessagesDisplay() before
-// requestRender(). E10 covers both gate branches:
-//   - positive: tagged custom -> refresh fires once
+// Regression guard: the custom-role `message_start` branch in
+// EventController.#handleMessageStart must call updatePendingMessagesDisplay
+// when the dequeued custom message carries details.__queueChipText (proof it
+// was queued via the skill path and shown as a pending chip). Covers both gate
+// branches:
+//   - positive: chip-tagged custom -> refresh fires once
 //   - negative: untagged custom (ttsr-injection, irc:*, async-result, hookMessage)
 //     -> refresh NOT fired (over-refresh guard)
 // ============================================================================
-
 function createEventControllerFixtureForE10() {
 	const updatePendingMessagesDisplay = vi.fn();
 	const addMessageToChat = vi.fn();
@@ -481,14 +447,13 @@ describe("EventController custom-role dequeue refresh (E10)", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("E10: message_start with role=custom refreshes pending bar ONLY when __pendingDisplayTag is present", async () => {
+	it("E10: message_start with role=custom refreshes pending bar ONLY when __queueChipText is present", async () => {
 		const { controller, updatePendingMessagesDisplay, addMessageToChat } = createEventControllerFixtureForE10();
 
-		// Positive case: tagged custom => refresh fires exactly once. The tag is the
-		// unambiguous signal "this message was queued via enqueueCustomMessageDisplay";
-		// AgentSession.#handleAgentEvent has already spliced the matching entry out of
-		// the display arrays (ran before this emit), so the rebuild repaints the now-
-		// correct queue state.
+		// Positive case: chip-stamped custom => refresh fires exactly once. The chip
+		// is the unambiguous signal "this message was queued via the skill path";
+		// the rebuild repaints the now-correct queue state derived from the live
+		// agent queue.
 		const taggedEvent: Extract<AgentSessionEvent, { type: "message_start" }> = {
 			type: "message_start",
 			message: {
@@ -497,7 +462,7 @@ describe("EventController custom-role dequeue refresh (E10)", () => {
 				content: "first",
 				display: true,
 				details: {
-					__pendingDisplayTag: "sk-test-0",
+					__queueChipText: "/skill:foo bar",
 					name: "foo",
 					path: "/s.md",
 					args: "bar",

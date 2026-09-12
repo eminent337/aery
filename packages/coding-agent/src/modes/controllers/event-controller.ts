@@ -17,7 +17,7 @@ import { getSymbolTheme, theme } from "../../modes/theme/theme";
 import type { InteractiveModeContext, TodoPhase } from "../../modes/types";
 import type { PlanApprovalDetails } from "../../plan-mode/approved-plan";
 import type { AgentSessionEvent } from "../../session/agent-session";
-import { isSilentAbort, readPendingDisplayTag } from "../../session/messages";
+import { isSilentAbort, readQueueChipText } from "../../session/messages";
 import type { ResolveToolDetails } from "../../tools/resolve";
 import { buildTurnNotification, detectTerminalKind, sendTurnNotification } from "../../utils/turn-notifier";
 import { defaultVoiceEngine } from "../../voice/voice-engine";
@@ -251,15 +251,14 @@ export class EventController {
 			this.#renderedCustomMessages.add(signature);
 			this.#resetReadGroup();
 			this.ctx.addMessageToChat(event.message);
-			// Tag-keyed pending-bar refresh: when AgentSession.#handleAgentEvent
-			// spliced this dequeued custom message out of #steeringMessages /
-			// #followUpMessages (it ran before this emit), the array state is
-			// already correct — pendingMessagesContainer just needs to be
-			// re-rendered to match. Gated on tag presence so non-queued customs
-			// (ttsr-injection, irc:*, async-result, hookMessage) skip the
-			// rebuild; their dispatch path never registered a pending chip.
+			// Chip-based pending-bar refresh: when the agent dequeues this custom
+			// message into the loop, its queue entry is gone; the chip therefore
+			// derives empty from the live queue (queued-messages.ts). Only queued
+			// customs carry __queueChipText in details, so non-queued customs
+			// (ttsr-injection, irc:*, async-result, hookMessage) skip the rebuild;
+			// their dispatch path never showed a chip.
 			// Mirrors the user-role refresh at the bottom of this function.
-			if (event.message.role === "custom" && readPendingDisplayTag(event.message.details)) {
+			if (event.message.role === "custom" && readQueueChipText(event.message.details)) {
 				this.ctx.updatePendingMessagesDisplay();
 			}
 			this.ctx.ui.requestRender();

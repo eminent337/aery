@@ -715,6 +715,30 @@ export class Agent {
 	hasQueuedMessages(): boolean {
 		return this.#steeringQueue.length > 0 || this.#followUpQueue.length > 0;
 	}
+	/**
+	 * Non-consuming view of the pending steering queue (insertion order, newest
+	 * last). The session layer derives its queued-message display/count from
+	 * this live view instead of a mirror array, so the agent-core queue stays
+	 * the single source of truth and the UI chip cannot go stale when a queued
+	 * message is drained into the loop.
+	 */
+	peekSteeringQueue(): readonly AgentMessage[] {
+		return this.#steeringQueue;
+	}
+
+	/** Non-consuming view of the pending follow-up queue. See
+	 *  {@link peekSteeringQueue}. */
+	peekFollowUpQueue(): readonly AgentMessage[] {
+		return this.#followUpQueue;
+	}
+
+	/** Atomically replace both queues. Used by the dequeue keybinding and
+	 *  abort() to remove user-restorable entries while preserving others
+	 *  (advisor cards, hidden/internal steers). */
+	replaceQueues(steering: AgentMessage[], followUp: AgentMessage[]) {
+		this.#steeringQueue = steering.slice();
+		this.#followUpQueue = followUp.slice();
+	}
 
 	#dequeueSteeringMessages(): AgentMessage[] {
 		if (this.#steeringMode === "one-at-a-time") {
