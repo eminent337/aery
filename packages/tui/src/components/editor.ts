@@ -430,7 +430,7 @@ export class Editor implements Component, Focusable {
 	// Debounce timer for autocomplete updates
 	#autocompleteTimeout?: NodeJS.Timeout;
 
-	onSubmit?: (text: string) => void;
+	onSubmit?: (text: string, pasteText?: string) => void;
 	onAltEnter?: (text: string) => void;
 	onChange?: (text: string) => void;
 	onAutocompleteCancel?: () => void;
@@ -1836,7 +1836,14 @@ export class Editor implements Component, Focusable {
 	#submitValue(): void {
 		this.#resetKillSequence();
 
-		const result = this.#expandPasteMarkers(this.#state.lines.join("\n")).trim();
+		// Capture BOTH representations before state reset:
+		// - markerText: what the user sees in the prompt ("[paste #N +X lines]")
+		// - payloadText: the full pasted content, delivered to the harness as a
+		//   hidden extra argument (like screenVisionText) so the transcript shows
+		//   only the marker while the model still receives everything.
+		const markerText = this.#state.lines.join("\n").trim();
+		const payloadText = this.#expandPasteMarkers(this.#state.lines.join("\n")).trim();
+		const hasPastes = this.#pastes.size > 0 && markerText.length > 0;
 
 		this.#state = { lines: [""], cursorLine: 0, cursorCol: 0 };
 		this.#pastes.clear();
@@ -1846,7 +1853,7 @@ export class Editor implements Component, Focusable {
 		this.#undoStack.length = 0;
 
 		if (this.onChange) this.onChange("");
-		if (this.onSubmit) this.onSubmit(result);
+		if (this.onSubmit) this.onSubmit(hasPastes ? markerText : payloadText, hasPastes ? payloadText : undefined);
 	}
 
 	#handleBackspace(): void {

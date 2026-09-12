@@ -182,6 +182,7 @@ export async function submitInteractiveInput(
 			await session.prompt(input.text, {
 				images: input.images,
 				screenVisionText: input.screenVisionText,
+				hiddenPasteText: input.hiddenPasteText,
 			});
 		}
 	} catch (error: unknown) {

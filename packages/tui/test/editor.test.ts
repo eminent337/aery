@@ -2039,7 +2039,7 @@ describe("Editor component", () => {
 			expect(editor.getExpandedText()).toBe(pastedText);
 		});
 
-		it("submits large pasted content literally", () => {
+		it("submits marker in text + full paste in second arg (hidden like screenVisionText)", () => {
 			const editor = new Editor(defaultEditorTheme);
 			const pastedText = [
 				"line 1",
@@ -2055,14 +2055,33 @@ describe("Editor component", () => {
 				"tokens $1 $2 $& $$ $` $' end",
 			].join("\n");
 			let submitted = "";
-			editor.onSubmit = text => {
+			let pasteArg: string | undefined;
+			editor.onSubmit = (text, pasteText) => {
 				submitted = text;
+				pasteArg = pasteText;
 			};
 
 			editor.handleInput(`\x1b[200~${pastedText}\x1b[201~`);
 			editor.handleInput("\r");
 
-			expect(submitted).toBe(pastedText);
+			expect(submitted).toMatch(/\[paste #\d+ \+\d+ lines\]/);
+			expect(pasteArg).toBe(pastedText);
+		});
+
+		it("small pastes still submit literally with no paste arg", () => {
+			const editor = new Editor(defaultEditorTheme);
+			let submitted = "";
+			let pasteArg: string | undefined;
+			editor.onSubmit = (text, pasteText) => {
+				submitted = text;
+				pasteArg = pasteText;
+			};
+
+			editor.handleInput(`\x1b[200~hello world\x1b[201~`);
+			editor.handleInput("\r");
+
+			expect(submitted).toBe("hello world");
+			expect(pasteArg).toBeUndefined();
 		});
 	});
 

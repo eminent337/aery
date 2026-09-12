@@ -45,6 +45,8 @@ export type SubmittedUserInput = {
 	display?: boolean;
 	/** Hidden Screen Vision caption/OCR text for the model (never shown on screen). */
 	screenVisionText?: string;
+	/** Hidden full text of collapsed pastes ([paste #N] markers) — model-only. */
+	hiddenPasteText?: string;
 	cancelled: boolean;
 	started: boolean;
 };
@@ -179,6 +181,7 @@ export interface InteractiveModeContext {
 		customType?: string;
 		display?: boolean;
 		screenVisionText?: string;
+		hiddenPasteText?: string;
 	}): SubmittedUserInput;
 	cancelPendingSubmission(): boolean;
 	markPendingSubmissionStarted(input: SubmittedUserInput): boolean;

@@ -930,6 +930,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		customType?: string;
 		display?: boolean;
 		screenVisionText?: string;
+		hiddenPasteText?: string;
 	}): SubmittedUserInput {
 		const submission: SubmittedUserInput = {
 			text: input.text,
@@ -937,6 +938,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			customType: input.customType,
 			display: input.display,
 			screenVisionText: input.screenVisionText,
+			hiddenPasteText: input.hiddenPasteText,
 			cancelled: false,
 			started: false,
 		};
