@@ -385,9 +385,17 @@ export class CameraWatchLoop {
 						CameraWatchLoop.#push({ kind: "screen", at: stamp, note: "screen capture empty" });
 						return;
 					}
+					// keepFile:true retains the capture at v.filePath; the locally
+					// constructed keepPath was never written by screen-vision.
+					const ocrPath = v.filePath ?? keepPath;
 					const digest = CameraWatchLoop.#digestOf(Buffer.from(v.image.data, "base64"));
 					const at = Date.now();
-					const ocrText = await CameraWatchLoop.#maybeOcr(keepPath, digest);
+					const ocrText = await CameraWatchLoop.#maybeOcr(ocrPath, digest);
+					if (v.filePath) {
+						try {
+							fs.rmSync(v.filePath, { force: true });
+						} catch {}
+					}
 					CameraWatchLoop.#push({
 						kind: "screen",
 						at,
