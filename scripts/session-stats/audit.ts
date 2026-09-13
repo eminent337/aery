@@ -40,8 +40,8 @@ import {
 	type Tool,
 	type ToolCall,
 } from "@aryee337/aery-ai";
-import { type GeneratedProvider, getBundledModel } from "@aery/aery-catalog/models";
-import { getAgentDbPath, isEnoent } from "@aery/aery-utils";
+import { type GeneratedProvider, getBundledModel } from "@aryee337/aery-ai";
+import { getAgentDbPath, isEnoent } from "@aryee337/aery-utils";
 import SYSTEM_PROMPT from "./audit-prompt.md" with { type: "text" };
 
 const SESSIONS_ROOT = path.join(os.homedir(), ".omp", "agent", "sessions");

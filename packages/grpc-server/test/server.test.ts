@@ -18,9 +18,10 @@ mock.module("@aryee337/aery/sdk", () => {
 					prompt: async (text: string) => {
 						// Stream back the chunk event
 						if (listener) {
-							listener({ type: "chunk", text: `Echo: ${text}`, isFinal: true });
+							listener({ type: "text_delta", text: `Echo: ${text}`, delta: `Echo: ${text}` });
 						}
 					},
+					abort: () => {},
 					dispose: () => {},
 				},
 			};

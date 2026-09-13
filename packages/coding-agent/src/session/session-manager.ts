@@ -274,11 +274,7 @@ export function getRestorableSessionModels(
 	lastModelChangeRole: string | undefined,
 ): string[] {
 	const defaultModel = models.default;
-	if (
-		!lastModelChangeRole ||
-		lastModelChangeRole === "default" ||
-		lastModelChangeRole === EPHEMERAL_MODEL_CHANGE_ROLE
-	) {
+	if (!lastModelChangeRole || lastModelChangeRole === "default" || lastModelChangeRole === EPHEMERAL_MODEL_CHANGE_ROLE) {
 		return defaultModel ? [defaultModel] : [];
 	}
 

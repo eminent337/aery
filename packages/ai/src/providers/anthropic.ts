@@ -247,7 +247,7 @@ export function buildAnthropicHeaders(options: AnthropicHeaderOptions): Record<s
 			: `claude-cli/${claudeCodeVersion} (external, cli)`;
 		return {
 			...modelHeaders,
-			...claudeCodeHeaders,
+			...claudeCodeHeaders(),
 			Accept: acceptHeader,
 			Authorization: `Bearer ${options.apiKey}`,
 			...sharedHeaders,
@@ -454,20 +454,22 @@ export function mapStainlessArch(arch: string): "x64" | "arm64" | "x86" | `other
 	}
 }
 
-export const claudeCodeHeaders = {
-	"X-Stainless-Retry-Count": "0",
-	"X-Stainless-Runtime-Version": "v24.3.0",
-	"X-Stainless-Package-Version": "0.94.0",
-	"X-Stainless-Runtime": "node",
-	"X-Stainless-Lang": "js",
-	"X-Stainless-Arch": mapStainlessArch(process.arch),
-	"X-Stainless-OS": mapStainlessOs(process.platform),
-	"X-Stainless-Timeout": "600",
-};
+export function claudeCodeHeaders(): Record<string, string> {
+	return {
+		"X-Stainless-Retry-Count": "0",
+		"X-Stainless-Runtime-Version": `v${process.versions.node}`,
+		"X-Stainless-Package-Version": "0.94.0",
+		"X-Stainless-Runtime": "node",
+		"X-Stainless-Lang": "js",
+		"X-Stainless-Arch": mapStainlessArch(process.arch),
+		"X-Stainless-OS": mapStainlessOs(process.platform),
+		"X-Stainless-Timeout": "600",
+	};
+}
 
 const enforcedHeaderKeys = new Set(
 	[
-		...Object.keys(claudeCodeHeaders),
+		...Object.keys(claudeCodeHeaders()),
 		"Accept",
 		"Accept-Encoding",
 		"Connection",

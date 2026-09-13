@@ -14,7 +14,7 @@ export class AgentBridge {
 		const cleanup = () => {
 			for (const wrap of streamSessions.values()) {
 				wrap.unsubscribe();
-				wrap.session.abort();
+				void wrap.session.abort();
 				void wrap.session.dispose?.();
 			}
 			streamSessions.clear();

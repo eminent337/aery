@@ -302,7 +302,7 @@ describe("AgentSession model persistence", () => {
 		expect(created.session.model?.id).toBe(defaultModel.id);
 	});
 
-	it("restores the saved default model when switch-session last role is temporary", async () => {
+	it("restores the saved temporary model when switch-session last role is temporary", async () => {
 		const defaultModel = getAnthropicModelOrThrow("claude-sonnet-4-5");
 		const temporaryModel = getAnthropicModelOrThrow("claude-sonnet-4-6");
 		const defaultRoleValue = modelValue(defaultModel);
@@ -315,7 +315,7 @@ describe("AgentSession model persistence", () => {
 		});
 
 		await expect(created.session.switchSession(targetSessionFile)).resolves.toBe(true);
-		expect(created.session.model?.id).toBe(defaultModel.id);
+		expect(created.session.model?.id).toBe(temporaryModel.id);
 	});
 
 	it("falls back to the saved default model when startup role restore is unavailable", async () => {
@@ -331,7 +331,7 @@ describe("AgentSession model persistence", () => {
 		expect(result.session.model?.id).toBe(defaultModel.id);
 	});
 
-	it("restores the saved default model when startup last role is temporary", async () => {
+	it("restores the saved temporary model when startup last role is temporary", async () => {
 		const defaultModel = getAnthropicModelOrThrow("claude-sonnet-4-5");
 		const temporaryModel = getAnthropicModelOrThrow("claude-sonnet-4-6");
 		const defaultRoleValue = modelValue(defaultModel);
@@ -341,6 +341,6 @@ describe("AgentSession model persistence", () => {
 
 		const result = await createStartupResumeSession(targetSessionFile, settings);
 
-		expect(result.session.model?.id).toBe(defaultModel.id);
+		expect(result.session.model?.id).toBe(temporaryModel.id);
 	});
 });

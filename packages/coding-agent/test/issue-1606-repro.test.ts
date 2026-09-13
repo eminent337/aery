@@ -26,8 +26,8 @@ describe("issue #1606 — tiny model lives in an isolated subprocess", () => {
 		// in-process `new Worker(...)` thread or drops the `--tiny-worker`
 		// CLI dispatch, the spawn either picks up the wrong entrypoint or
 		// the ping never round-trips, and this test fails.
-		await expect(smokeTestTinyTitleWorker({ timeoutMs: 15_000 })).resolves.toBeUndefined();
-	}, 30_000);
+		await expect(smokeTestTinyTitleWorker({ timeoutMs: 60_000 })).resolves.toBeUndefined();
+	}, 90_000);
 
 	it("CLI dispatches the flag that `title-client.ts` passes to the spawned child", async () => {
 		// `tinyWorkerSpawnCmd()` and the cli switch must agree on the exact

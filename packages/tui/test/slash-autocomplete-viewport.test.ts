@@ -36,7 +36,10 @@ class UnknownViewportTerminal extends VirtualTerminal {
 
 async function settle(term: VirtualTerminal): Promise<void> {
 	await new Promise<void>(resolve => process.nextTick(resolve));
-	await Bun.sleep(120);
+	// Editor autocomplete updates are debounced by 100ms plus async provider
+	// resolution and frame scheduling; sleep past the debounce window so the
+	// viewport assertion observes the settled state even under full-suite load.
+	await Bun.sleep(350);
 	await term.flush();
 }
 
