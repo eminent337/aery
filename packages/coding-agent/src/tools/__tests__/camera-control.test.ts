@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { watchDigestOf, watchDiffFloor, watchShouldOcr } from "../camera-control";
+import { CameraWatchLoop, watchDigestOf, watchDiffFloor, watchShouldOcr } from "../camera-control";
 
 // Throttle + change-gating contract for the watch-loop screen lane.
 // watchShouldOcr(lastOcrAt, now, lastDigest, digest) is the pure decision
@@ -62,5 +62,24 @@ describe("watch digest stability", () => {
 	});
 	test("digest is a short hex string", () => {
 		expect(watchDigestOf(Buffer.from("x"))).toMatch(/^[0-9a-f]+$/);
+	});
+});
+
+describe("watch transcript actions (append mode)", () => {
+	test("watch_transcript on empty transcript guides the model", () => {
+		const res = CameraWatchLoop.handle("watch_transcript");
+		expect((res.content[0] as { text: string }).text).toMatch(/Transcript is empty/);
+	});
+	test("watch_clear resets the transcript", () => {
+		const res = CameraWatchLoop.handle("watch_clear");
+		expect((res.content[0] as { text: string }).text).toMatch(/cleared/);
+		const res2 = CameraWatchLoop.handle("watch_transcript");
+		expect((res2.content[0] as { text: string }).text).toMatch(/Transcript is empty/);
+	});
+	test("watch_start dispatch wires append flag (no session → no steers)", () => {
+		CameraWatchLoop.handle("watch_clear");
+		const started = CameraWatchLoop.handle("watch_start", false);
+		expect((started.content[0] as { text: string }).text).toMatch(/Live watch started/);
+		CameraWatchLoop.handle("watch_stop");
 	});
 });

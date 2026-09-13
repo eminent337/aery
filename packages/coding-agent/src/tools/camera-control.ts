@@ -50,14 +50,20 @@ const cameraControlSchema = z.object({
 			"watch_start",
 			"watch_stop",
 			"watch_status",
+			"watch_transcript",
+			"watch_clear",
 		])
 		.describe(
-			"Actions: 'capture' (frame + face detection), 'identify' (detect + WHO is in frame via enrolled face profiles), 'enroll_face' (register the person currently in frame under 'name'), 'list_profiles' (enrolled people), 'record' (webcam video mp4), 'record_screen' (screen video mp4, Hyprland/wf-recorder), 'watch_start'/'watch_stop'/'watch_status' (live-watch loop: screen OCR reads on change at a throttled cadence + camera face snapshots while you work — watch_status returns the latest on-screen text), 'list_devices'.",
+			"Actions: 'capture' (frame + face detection), 'identify' (detect + WHO is in frame via enrolled face profiles), 'enroll_face' (register the person currently in frame under 'name'), 'list_profiles' (enrolled people), 'record' (webcam video mp4), 'record_screen' (screen video mp4, Hyprland/wf-recorder), 'watch_start'/'watch_stop'/'watch_status' (live-watch loop: screen OCR reads on change at a throttled cadence + camera face snapshots while you work — watch_status returns the latest on-screen text), 'watch_transcript' (append mode: return the accumulated OCR transcript for summarize/narrate — pair watch_start with append:true), 'watch_clear' (wipe the transcript), 'list_devices'.",
 		),
 	name: z
 		.string()
 		.optional()
 		.describe("Identity name for 'enroll_face' (e.g. the user's name)."),
+	append: z
+		.boolean()
+		.optional()
+		.describe("watch_start with append:true accumulates every OCR reading into a persistent transcript (a ~'book' the model can later summarize/narrate via 'watch_transcript'). Default false (latest-only, context-bounded)."),
 	duration: z
 		.number()
 		.optional()
@@ -143,11 +149,14 @@ const WATCH_CAMERA_INTERVAL_MS = 5000;
 const WATCH_MAX_FRAMES = 60;
 /** Never OCR faster than this even if the screen churns (tesseract cost + context budget). */
 const WATCH_OCR_MIN_INTERVAL_MS = 4000;
-/** How different (0..1) two wire-frame digests must be before we bother re-OCR. */
-const WATCH_OCR_DIFF_THRESHOLD = 0.12;
 /** Hidden-steer delivery is capped: after this many substantive deltas we stop
  *  spamming the model; status still reflects the latest OCR text. */
 const WATCH_STEER_MAX_PER_MINUTE = 6;
+/** Append-mode transcript cap (chars). Oldest entries trimmed first — keeps a
+ *  2h movie or a long book inside a readable budget (~50k chars ≈ 12k tokens). */
+const WATCH_TRANSCRIPT_MAX_CHARS = 50_000;
+/** How different (0..1) two wire-frame digests must be before we bother re-OCR. */
+const WATCH_OCR_DIFF_THRESHOLD = 0.12;
 
 /** Cheap content digest: sample a sparse grid of pixel bytes from the JPEG.
  *  Deterministic (stable across runs) + O(1) — good enough to gate OCR. */
@@ -190,7 +199,14 @@ export class CameraWatchLoop {
 	static #ocrSwept = 0;
 	static #steerCount = 0;
 	static #steerWindowStart = Date.now();
-	/** Documented via the camera_control schema; the watch loop owns its own
+	/** Append mode: accumulate every distinct reading into the transcript (a
+	 *  "book") instead of keeping latest-only. Set via watch_start {append:true}. */
+	static #appendMode = false;
+	/** Append-mode transcript: every distinct OCR reading, timestamped, in order.
+	 *  This is the "book" — the model reads it via watch_transcript to summarize
+	 *  or narrate. Bounded by WATCH_TRANSCRIPT_MAX_CHARS (oldest entries trimmed). */
+	static #transcript: Array<{ at: number; text: string }> = [];
+	/** Documented via the camera_control schema; the loop owns its own
 	 *  steering capability (hook-free, sandboxed, cap-bounded). */
 	static #session?: ToolSession;
 
@@ -198,21 +214,24 @@ export class CameraWatchLoop {
 	static attachSession(session: ToolSession | undefined): void {
 		CameraWatchLoop.#session = session;
 	}
-
-	static get running(): boolean {
-		return CameraWatchLoop.#timer !== undefined;
-	}
-
-	static start(): void {
+	static start(append = false): void {
 		if (CameraWatchLoop.#timer !== undefined) return; // idempotent
 		CameraWatchLoop.#startedAt = Date.now();
 		CameraWatchLoop.#steerWindowStart = Date.now();
 		CameraWatchLoop.#steerCount = 0;
 		CameraWatchLoop.#lastOcrAt = 0;
 		CameraWatchLoop.#lastDigest = undefined;
+		CameraWatchLoop.#appendMode = append;
+		if (append && CameraWatchLoop.#transcript.length > 0) {
+			CameraWatchLoop.#transcript.push({ at: Date.now(), text: `— watch session started ${new Date().toLocaleTimeString()} —` });
+		}
 		CameraWatchLoop.#timer = setInterval(() => {
 			void CameraWatchLoop.#tick();
 		}, WATCH_SCREEN_INTERVAL_MS);
+	}
+
+	static get running(): boolean {
+		return CameraWatchLoop.#timer !== undefined;
 	}
 
 	static stop(): void {
@@ -223,7 +242,6 @@ export class CameraWatchLoop {
 		}
 	}
 	static #tickNumber = 0;
-
 	/** Cheap content digest via the exported gate helpers. */
 	static #digestOf(jpeg: Buffer): string {
 		return watchDigestOf(jpeg);
@@ -308,6 +326,9 @@ export class CameraWatchLoop {
 						digest,
 					});
 					if (ocrText) {
+						if (CameraWatchLoop.#appendMode) {
+							CameraWatchLoop.#appendTranscript(ocrText);
+						}
 						await CameraWatchLoop.#steerOcr(ocrText, at);
 					}
 				})
@@ -347,33 +368,85 @@ export class CameraWatchLoop {
 		}
 	}
 
-	static handle(action: string): AgentToolResult {
+	/** Append a distinct OCR reading to the transcript (deduped against the
+	 *  previous entry — scrolling a book re-reads the same page several times).
+	 *  Oldest entries are trimmed once the char budget is exceeded. */
+	static #appendTranscript(text: string): boolean {
+		const trimmed = text.trim();
+		if (trimmed.length < 3) return false;
+		const prev = CameraWatchLoop.#transcript[CameraWatchLoop.#transcript.length - 1];
+		if (prev && prev.text === trimmed) return false;
+		// Also skip if this reading is contained in the previous one (partial scroll overlap).
+		if (prev && prev.text.includes(trimmed)) {
+			return false;
+		}
+		CameraWatchLoop.#transcript.push({ at: Date.now(), text: trimmed });
+		let total = CameraWatchLoop.#transcript.reduce((n, e) => n + e.text.length + 1, 0);
+		while (total > WATCH_TRANSCRIPT_MAX_CHARS && CameraWatchLoop.#transcript.length > 1) {
+			const oldest = CameraWatchLoop.#transcript.shift();
+			if (oldest) total -= oldest.text.length + 1;
+		}
+		return true;
+	}
+
+	static handle(action: string, append?: boolean): AgentToolResult {
 		if (action === "watch_start") {
-			CameraWatchLoop.start();
+			CameraWatchLoop.start(append ?? false);
+			const mode = append ? " + APPEND mode (every distinct reading joins the transcript)" : "";
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Live watch started (screen ~1fps + OCR on change + camera face snapshots every ${WATCH_CAMERA_INTERVAL_MS / 1000}s). Use 'watch_status' to summarize, 'watch_stop' to end.`,
+						text: `Live watch started (screen ~1fps + OCR on change + camera face snapshots every ${WATCH_CAMERA_INTERVAL_MS / 1000}s)${mode}. Use 'watch_status' to summarize, 'watch_transcript' to read the accumulated book, 'watch_stop' to end.`,
 					},
 				],
 			};
 		}
 		if (action === "watch_stop") {
 			const frames = CameraWatchLoop.#frames.length;
+			const entries = CameraWatchLoop.#transcript.length;
+			const chars = CameraWatchLoop.#transcript.reduce((n, e) => n + e.text.length, 0);
 			CameraWatchLoop.stop();
 			return {
-				content: [{ type: "text", text: `Live watch stopped (${frames} frame(s) observed this session).` }],
-			};
-		}
-		// watch_status
-		if (!CameraWatchLoop.running) {
-			return {
 				content: [
-					{ type: "text", text: "Live watch is not running. Start it with 'watch_start'." },
+					{
+						type: "text",
+						text: `Live watch stopped (${frames} frame(s), transcript: ${entries} reading(s) / ${chars} chars — read via 'watch_transcript').`,
+					},
 				],
 			};
 		}
+		if (action === "watch_transcript") {
+			if (CameraWatchLoop.#transcript.length === 0) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "Transcript is empty. Start a watch with append:true ('watch_start' + append=true), let it read while you scroll or watch, then call 'watch_transcript'.",
+						},
+					],
+				};
+			}
+			const chars = CameraWatchLoop.#transcript.reduce((n, e) => n + e.text.length, 0);
+			const body = CameraWatchLoop.#transcript.map(e => `[${new Date(e.at).toLocaleTimeString()}] ${e.text}`).join("\n\n");
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Accumulated watch transcript — ${CameraWatchLoop.#transcript.length} reading(s), ${chars} chars (cap ${WATCH_TRANSCRIPT_MAX_CHARS}, oldest trimmed):\n\n${body}`,
+					},
+				],
+				details: { entries: CameraWatchLoop.#transcript.length, chars },
+			};
+		}
+		if (action === "watch_clear") {
+			const had = CameraWatchLoop.#transcript.length;
+			CameraWatchLoop.#transcript = [];
+			return {
+				content: [{ type: "text", text: `Transcript cleared (${had} reading(s) discarded).` }],
+			};
+		}
+		// watch_status
 		const frames = CameraWatchLoop.#frames;
 		const screens = frames.filter(f => f.kind === "screen").length;
 		const ocrFrames = frames.filter(f => f.kind === "screen" && f.ocr);
@@ -468,7 +541,7 @@ export class CameraWatchLoop {
 		}
 		// watch actions — the loop steers via the session's hidden steer sink.
 		CameraWatchLoop.attachSession(this.#session);
-		return CameraWatchLoop.handle(action);
+		return CameraWatchLoop.handle(action, params.append);
 	}
 
 	/** Build worker args for a standard capture. */
