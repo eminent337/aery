@@ -52,7 +52,7 @@ const cameraControlSchema = z.object({
 			"watch_status",
 		])
 		.describe(
-			"Actions: 'capture' (frame + face detection), 'identify' (detect + WHO is in frame via enrolled face profiles), 'enroll_face' (register the person currently in frame under 'name'), 'list_profiles' (enrolled people), 'record' (webcam video mp4), 'record_screen' (screen video mp4, Hyprland/wf-recorder), 'watch_start'/'watch_stop'/'watch_status' (live-watch loop: periodic screen + camera snapshots while the user works), 'list_devices'.",
+			"Actions: 'capture' (frame + face detection), 'identify' (detect + WHO is in frame via enrolled face profiles), 'enroll_face' (register the person currently in frame under 'name'), 'list_profiles' (enrolled people), 'record' (webcam video mp4), 'record_screen' (screen video mp4, Hyprland/wf-recorder), 'watch_start'/'watch_stop'/'watch_status' (live-watch loop: screen OCR reads on change at a throttled cadence + camera face snapshots while you work — watch_status returns the latest on-screen text), 'list_devices'.",
 		),
 	name: z
 		.string()
@@ -132,11 +132,52 @@ interface WatchFrame {
 	at: number;
 	faces?: number;
 	note?: string;
+	/** OCR text of the screen frame (only set when the lane actually read it). */
+	ocr?: string;
+	/** Cheap pixel digest used to skip re-OCR when the screen hasn't meaningfully changed. */
+	digest?: string;
 }
 
 const WATCH_SCREEN_INTERVAL_MS = 1000;
 const WATCH_CAMERA_INTERVAL_MS = 5000;
 const WATCH_MAX_FRAMES = 60;
+/** Never OCR faster than this even if the screen churns (tesseract cost + context budget). */
+const WATCH_OCR_MIN_INTERVAL_MS = 4000;
+/** How different (0..1) two wire-frame digests must be before we bother re-OCR. */
+const WATCH_OCR_DIFF_THRESHOLD = 0.12;
+/** Hidden-steer delivery is capped: after this many substantive deltas we stop
+ *  spamming the model; status still reflects the latest OCR text. */
+const WATCH_STEER_MAX_PER_MINUTE = 6;
+
+/** Cheap content digest: sample a sparse grid of pixel bytes from the JPEG.
+ *  Deterministic (stable across runs) + O(1) — good enough to gate OCR. */
+export function watchDigestOf(jpeg: Buffer): string {
+	const step = Math.max(16, Math.floor(jpeg.length / 512));
+	let h = 2166136261;
+	for (let i = 0; i < jpeg.length; i += step) {
+		h ^= jpeg[i];
+		h = (h * 16777619) & 0xffffffff;
+	}
+	return (h >>> 0).toString(16);
+}
+
+export function watchDiffFloor(a: string | undefined, b: string | undefined): number {
+	if (!a || !b) return 1;
+	// Cheap hamming-ish proxy: count differing nibbles (hex digests).
+	let d = 0;
+	const n = Math.min(a.length, b.length);
+	for (let i = 0; i < n; i++) d += a[i] !== b[i] ? 1 : 0;
+	const norm = d / Math.max(n, 1);
+	return Math.min(1, norm * 8); // amplify so small pixel shifts read as real change
+}
+
+/** Decision function backing #maybeOcr — exported so the gate is unit-testable
+ *  without a display or tesseract. True when (a) enough time has passed since the
+ *  last OCR (throttle) AND (b) the screen digest moved past WATCH_OCR_DIFF_THRESHOLD. */
+export function watchShouldOcr(lastOcrAt: number, now: number, lastDigest: string | undefined, digest: string): boolean {
+	if (now - lastOcrAt < WATCH_OCR_MIN_INTERVAL_MS) return false;
+	return watchDiffFloor(lastDigest, digest) >= WATCH_OCR_DIFF_THRESHOLD;
+}
 
 export class CameraWatchLoop {
 	static #timer: ReturnType<typeof setInterval> | undefined;
@@ -144,6 +185,19 @@ export class CameraWatchLoop {
 	static #cameraBusy = false;
 	static #frames: WatchFrame[] = [];
 	static #startedAt: number | undefined;
+	static #lastOcrAt = 0;
+	static #lastDigest: string | undefined;
+	static #ocrSwept = 0;
+	static #steerCount = 0;
+	static #steerWindowStart = Date.now();
+	/** Documented via the camera_control schema; the watch loop owns its own
+	 *  steering capability (hook-free, sandboxed, cap-bounded). */
+	static #session?: ToolSession;
+
+	/** Configure the hidden-steer sink used for substantive OCR deltas. */
+	static attachSession(session: ToolSession | undefined): void {
+		CameraWatchLoop.#session = session;
+	}
 
 	static get running(): boolean {
 		return CameraWatchLoop.#timer !== undefined;
@@ -152,6 +206,10 @@ export class CameraWatchLoop {
 	static start(): void {
 		if (CameraWatchLoop.#timer !== undefined) return; // idempotent
 		CameraWatchLoop.#startedAt = Date.now();
+		CameraWatchLoop.#steerWindowStart = Date.now();
+		CameraWatchLoop.#steerCount = 0;
+		CameraWatchLoop.#lastOcrAt = 0;
+		CameraWatchLoop.#lastDigest = undefined;
 		CameraWatchLoop.#timer = setInterval(() => {
 			void CameraWatchLoop.#tick();
 		}, WATCH_SCREEN_INTERVAL_MS);
@@ -164,24 +222,98 @@ export class CameraWatchLoop {
 			CameraWatchLoop.#startedAt = undefined;
 		}
 	}
-
 	static #tickNumber = 0;
+
+	/** Cheap content digest via the exported gate helpers. */
+	static #digestOf(jpeg: Buffer): string {
+		return watchDigestOf(jpeg);
+	}
+
+	static #diffFloor(a: string | undefined, b: string | undefined): number {
+		return watchDiffFloor(a, b);
+	}
+
+	static async #maybeOcr(keepPath: string, digest: string): Promise<string | undefined> {
+		const now = Date.now();
+		if (!watchShouldOcr(CameraWatchLoop.#lastOcrAt, now, CameraWatchLoop.#lastDigest, digest)) {
+			return undefined;
+		}
+		CameraWatchLoop.#lastOcrAt = now;
+		CameraWatchLoop.#lastDigest = digest;
+		try {
+			const ocr = await ocrFrame(keepPath, { lang: "eng" });
+			return ocr.text || undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/** Sweep older live-watch steers so a long watch stays at ~1 OCR steer in context. */
+	static async #sweepSteers(): Promise<void> {
+		try {
+			CameraWatchLoop.#ocrSwept += (await CameraWatchLoop.#session?.dropLiveWatchImages?.()) ?? 0;
+		} catch {}
+	}
+
+	static async #steerOcr(text: string, at: number): Promise<void> {
+		// Rolling 60s cap on hidden steer spam.
+		const now = Date.now();
+		if (now - CameraWatchLoop.#steerWindowStart > 60_000) {
+			CameraWatchLoop.#steerWindowStart = now;
+			CameraWatchLoop.#steerCount = 0;
+		}
+		if (CameraWatchLoop.#steerCount >= WATCH_STEER_MAX_PER_MINUTE) return;
+		CameraWatchLoop.#steerCount++;
+		const trimmed = text.length > 2400 ? `${text.slice(0, 2400)}…` : text;
+		await CameraWatchLoop.#sweepSteers();
+		const content = [
+			{ type: "text", text: `[watch] screen now reads (${text.length} chars):\n${trimmed}` },
+		];
+		try {
+			await CameraWatchLoop.#session?.sendCustomMessage?.(
+				{
+					customType: "live-watch",
+					content,
+					display: false,
+					details: { watchOcr: { at, chars: text.length } },
+					attribution: "agent",
+				},
+				{ deliverAs: "steer", triggerTurn: false },
+			);
+		} catch {}
+	}
 
 	static async #tick(): Promise<void> {
 		CameraWatchLoop.#tickNumber++;
-		// Screen lane — reuse the existing screen-vision capture (cheap, grim/hyprctl).
+		// Screen lane — capture to a keep-file so OCR can read it, with a cheap
+		// digest gate so a static screen (idle desktop, paused video) costs ~0.
 		if (!CameraWatchLoop.#screenBusy) {
 			CameraWatchLoop.#screenBusy = true;
-			void captureScreenFrame({ target: "fullscreen", quality: 60, timeoutMs: 800 })
-				.then(v => {
+			const stamp = Date.now();
+			const keepPath = path.join(os.tmpdir(), `aerys-watch-${stamp}.jpg`);
+			void captureScreenFrame({ target: "fullscreen", quality: 60, timeoutMs: 800, keepFile: true })
+				.then(async v => {
+					if (!v.image) {
+						CameraWatchLoop.#push({ kind: "screen", at: stamp, note: "screen capture empty" });
+						return;
+					}
+					const digest = CameraWatchLoop.#digestOf(Buffer.from(v.image.data, "base64"));
+					const at = Date.now();
+					const ocrText = await CameraWatchLoop.#maybeOcr(keepPath, digest);
 					CameraWatchLoop.#push({
 						kind: "screen",
-						at: Date.now(),
-						note: v.image ? `screen ${v.image.data.length}B` : "screen capture empty",
+						at,
+						note: ocrText ? `screen ${v.image.data.length}B · ocr ${ocrText.length} chars` : `screen ${v.image.data.length}B`,
+						ocr: ocrText,
+						digest,
 					});
+					if (ocrText) {
+						await CameraWatchLoop.#steerOcr(ocrText, at);
+					}
 				})
 				.catch(() => {})
 				.finally(() => {
+					fs.rmSync(keepPath, { force: true });
 					CameraWatchLoop.#screenBusy = false;
 				});
 		}
@@ -202,8 +334,6 @@ export class CameraWatchLoop {
 					faces: parsed.faces?.length ?? 0,
 					note: idents || undefined,
 				});
-			} catch {
-				CameraWatchLoop.#push({ kind: "camera", at: Date.now(), faces: -1, note: "camera busy/absent" });
 			} finally {
 				CameraWatchLoop.#cameraBusy = false;
 			}
@@ -224,7 +354,7 @@ export class CameraWatchLoop {
 				content: [
 					{
 						type: "text",
-						text: `Live watch started (screen ~1fps + camera face snapshots every ${WATCH_CAMERA_INTERVAL_MS / 1000}s). Use 'watch_status' to summarize, 'watch_stop' to end.`,
+						text: `Live watch started (screen ~1fps + OCR on change + camera face snapshots every ${WATCH_CAMERA_INTERVAL_MS / 1000}s). Use 'watch_status' to summarize, 'watch_stop' to end.`,
 					},
 				],
 			};
@@ -246,18 +376,35 @@ export class CameraWatchLoop {
 		}
 		const frames = CameraWatchLoop.#frames;
 		const screens = frames.filter(f => f.kind === "screen").length;
+		const ocrFrames = frames.filter(f => f.kind === "screen" && f.ocr);
+		const lastOcr = ocrFrames[ocrFrames.length - 1];
 		const cams = frames.filter(f => f.kind === "camera" && (f.faces ?? 0) > 0);
 		const lastCam = cams[cams.length - 1];
 		const secs = Math.round((Date.now() - (CameraWatchLoop.#startedAt ?? Date.now())) / 1000);
 		const who = lastCam?.note ?? "no face seen yet";
+		const lines = [
+			`Live watch running for ${secs}s — ${screens} screen frame(s), ${ocrFrames.length} OCR read(s)` +
+				` (swept ${CameraWatchLoop.#ocrSwept}), camera: ${lastCam ? `${lastCam.faces} face(s) [${who}]` : "none yet"}.`,
+		];
+		if (lastOcr?.ocr) {
+			lines.push(`Latest on-screen text (${lastOcr.ocr.length} chars):`);
+			lines.push(lastOcr.ocr.length > 1200 ? `${lastOcr.ocr.slice(0, 1200)}…` : lastOcr.ocr);
+		} else {
+			lines.push("No screen text read yet (screen unchanged since start, or OCR pending).");
+		}
 		return {
-			content: [
-				{
-					type: "text",
-					text: `Live watch running for ${secs}s — ${screens} screen frame(s), last camera snapshot: ${lastCam ? `${lastCam.faces} face(s) [${who}]` : "none yet"}.`,
-				},
-			],
-			details: { frames: frames.slice(-12) },
+			content: [{ type: "text", text: lines.join("\n") }],
+			details: {
+				running: true,
+				secs,
+				screenFrames: screens,
+				ocrFrames: ocrFrames.length,
+				ocrSwept: CameraWatchLoop.#ocrSwept,
+				cameraFrames: cams.length,
+				lastCamera: lastCam ? { faces: lastCam.faces, note: lastCam.note } : undefined,
+				lastOcr: lastOcr?.ocr,
+				lastOcrAt: lastOcr?.at,
+			},
 		};
 	}
 }
@@ -267,15 +414,21 @@ export class CameraWatchLoop {
 	readonly approval = "read" as const;
 	readonly label = "Camera Control";
 	readonly description =
-		"Webcam and screen camera tool. Captures webcam frames with on-device face detection (YuNet) and face recognition (SFace), records webcam or screen video to mp4, and runs a live-watch loop (screen snapshots + camera face identification) while the user works. Fully local — no data leaves the machine.";
+		"Webcam and screen camera tool. Captures webcam frames with on-device face detection (YuNet) and face recognition (SFace), records webcam or screen video to mp4, and runs a live-watch loop (screen OCR reads on change while you work + camera face snapshots). Fully local — no data leaves the machine.";
 	readonly parameters = cameraControlSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
 	readonly summary =
 		"Camera: webcam capture, face recognition (who), record webcam/screen video, live-watch mode";
 
-	static createIf(_session: ToolSession): CameraControlTool | null {
-		return new CameraControlTool();
+	static createIf(session: ToolSession): CameraControlTool | null {
+		return new CameraControlTool(session);
+	}
+
+	#session?: ToolSession;
+
+	constructor(session?: ToolSession) {
+		this.#session = session;
 	}
 
 	async execute(_id: string, params: CameraControlParams): Promise<AgentToolResult> {
@@ -313,7 +466,8 @@ export class CameraWatchLoop {
 		if (action === "record_screen") {
 			return this.#recordScreen(params);
 		}
-		// watch actions
+		// watch actions — the loop steers via the session's hidden steer sink.
+		CameraWatchLoop.attachSession(this.#session);
 		return CameraWatchLoop.handle(action);
 	}
 

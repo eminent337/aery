@@ -484,9 +484,12 @@ export interface ToolSession {
 	/** Drop heavy content from context (mode: elide|images|thinking). */
 	shake?: (mode: ShakeMode, opts?: { signal?: AbortSignal }) => Promise<ShakeResult | undefined>;
 	/** Sweep ephemeral live_eye images from history (kept: newest glance only semantics live in the session). */
+	/** Sweep ephemeral live_eye images from history (kept: newest glance only semantics live in the session). */
 	dropLiveEyeImages?: () => Promise<number>;
 	/** Sweep superseded live-verify frames from history (newest verify frame only). */
 	dropLiveVerifyImages?: () => Promise<number>;
+	/** Sweep superseded live-watch OCR steers (keep ~latest watch read only). */
+	dropLiveWatchImages?: () => Promise<number>;
 	/** Export session to HTML. Returns output path. */
 	exportToHtml?: (outputPath?: string) => Promise<string>;
 	/** Get the autonomous execution runtime for this session. */
