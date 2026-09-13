@@ -63,7 +63,7 @@ const cameraControlSchema = z.object({
 	append: z
 		.boolean()
 		.optional()
-		.describe("watch_start with append:true accumulates every OCR reading into a persistent transcript (a ~'book' the model can later summarize/narrate via 'watch_transcript'). Default false (latest-only, context-bounded)."),
+		.describe("watch_start with append:true accumulates every distinct OCR reading into a session transcript (a ~'book' the model can summarize/narrate via 'watch_transcript'); append deltas stream into context within the 50k budget. Default false (latest-only, context-bounded)."),
 	duration: z
 		.number()
 		.optional()
@@ -155,6 +155,9 @@ const WATCH_STEER_MAX_PER_MINUTE = 6;
 /** Append-mode transcript cap (chars). Oldest entries trimmed first — keeps a
  *  2h movie or a long book inside a readable budget (~50k chars ≈ 12k tokens). */
 const WATCH_TRANSCRIPT_MAX_CHARS = 50_000;
+/** Per-reading append steer cap (chars): a single OCR delta is clipped before
+ *  it is hidden-steered, so one giant frame can't blow the context budget. */
+const WATCH_APPEND_STEER_MAX_CHARS = 2400;
 /** How different (0..1) two wire-frame digests must be before we bother re-OCR. */
 const WATCH_OCR_DIFF_THRESHOLD = 0.12;
 
@@ -187,6 +190,31 @@ export function watchShouldOcr(lastOcrAt: number, now: number, lastDigest: strin
 	if (now - lastOcrAt < WATCH_OCR_MIN_INTERVAL_MS) return false;
 	return watchDiffFloor(lastDigest, digest) >= WATCH_OCR_DIFF_THRESHOLD;
 }
+/** Normalize one OCR line for overlap detection (collapse whitespace). */
+function normalizeWatchLine(line: string): string {
+	return line.trim().replace(/\s+/g, " ");
+}
+
+/** Newly-visible lines in `next` relative to `previous` (exact normalized-line
+ *  match). The append mode streams only these deltas as hidden steers — scrolling
+ *  a book re-reads most of the same page, so the delta is the new content. */
+export function watchLineDelta(previous: string | undefined, next: string): string {
+	const seen = new Set(
+		(previous ?? "")
+			.split(/\r?\n/)
+			.map(normalizeWatchLine)
+			.filter(line => line.length >= 3),
+	);
+	return next
+		.split(/\r?\n/)
+		.map(line => line.trim())
+		.filter(line => line.length >= 3)
+		.filter(line => {
+			const norm = normalizeWatchLine(line);
+			return !seen.has(norm);
+		})
+		.join("\n");
+}
 
 export class CameraWatchLoop {
 	static #timer: ReturnType<typeof setInterval> | undefined;
@@ -206,6 +234,14 @@ export class CameraWatchLoop {
 	 *  This is the "book" — the model reads it via watch_transcript to summarize
 	 *  or narrate. Bounded by WATCH_TRANSCRIPT_MAX_CHARS (oldest entries trimmed). */
 	static #transcript: Array<{ at: number; text: string }> = [];
+	/** Most recent OCR reading — basis for "newly visible" line deltas. */
+	static #lastReadText: string | undefined;
+	/** Chars of append steers already delivered to the model (context budget). */
+	static #appendStreamChars = 0;
+	/** True once the append stream hit the 50k context budget. */
+	static #appendStreamOverflow = false;
+	/** Append deltas skipped after the stream budget was exhausted. */
+	static #appendStreamDropped = 0;
 	/** Documented via the camera_control schema; the loop owns its own
 	 *  steering capability (hook-free, sandboxed, cap-bounded). */
 	static #session?: ToolSession;
@@ -222,6 +258,10 @@ export class CameraWatchLoop {
 		CameraWatchLoop.#lastOcrAt = 0;
 		CameraWatchLoop.#lastDigest = undefined;
 		CameraWatchLoop.#appendMode = append;
+		CameraWatchLoop.#lastReadText = undefined;
+		CameraWatchLoop.#appendStreamChars = 0;
+		CameraWatchLoop.#appendStreamOverflow = false;
+		CameraWatchLoop.#appendStreamDropped = 0;
 		if (append && CameraWatchLoop.#transcript.length > 0) {
 			CameraWatchLoop.#transcript.push({ at: Date.now(), text: `— watch session started ${new Date().toLocaleTimeString()} —` });
 		}
@@ -300,6 +340,36 @@ export class CameraWatchLoop {
 			);
 		} catch {}
 	}
+	/** Append-mode stream: hidden steer carrying only the newly-visible OCR
+	 *  delta, delivered unswept (customType live-watch-append so the latest-only
+	 *  sweep in dropLiveWatchImages never removes accumulated readings). Bounded
+	 *  by the same WATCH_TRANSCRIPT_MAX_CHARS budget as the in-memory book. */
+	static async #steerAppendOcr(text: string, at: number): Promise<void> {
+		const trimmed = text.trim();
+		if (!trimmed) return;
+		const clipped = trimmed.length > WATCH_APPEND_STEER_MAX_CHARS ? `${trimmed.slice(0, WATCH_APPEND_STEER_MAX_CHARS)}…` : trimmed;
+		if (CameraWatchLoop.#appendStreamChars + clipped.length > WATCH_TRANSCRIPT_MAX_CHARS) {
+			CameraWatchLoop.#appendStreamOverflow = true;
+			CameraWatchLoop.#appendStreamDropped++;
+			return;
+		}
+		const content = [{ type: "text", text: `[watch append] newly visible (${text.length} chars):\n${clipped}` }];
+		const session = CameraWatchLoop.#session;
+		if (!session?.sendCustomMessage) return;
+		try {
+			await session.sendCustomMessage(
+				{
+					customType: "live-watch-append",
+					content,
+					display: false,
+					details: { watchAppend: { at, chars: text.length } },
+					attribution: "agent",
+				},
+				{ deliverAs: "steer", triggerTurn: false },
+			);
+			CameraWatchLoop.#appendStreamChars += clipped.length;
+	} catch {}
+	}
 
 	static async #tick(): Promise<void> {
 		CameraWatchLoop.#tickNumber++;
@@ -328,6 +398,9 @@ export class CameraWatchLoop {
 					if (ocrText) {
 						if (CameraWatchLoop.#appendMode) {
 							CameraWatchLoop.#appendTranscript(ocrText);
+							const delta = watchLineDelta(CameraWatchLoop.#lastReadText, ocrText);
+							CameraWatchLoop.#lastReadText = ocrText;
+							if (delta) await CameraWatchLoop.#steerAppendOcr(delta, at);
 						}
 						await CameraWatchLoop.#steerOcr(ocrText, at);
 					}
@@ -429,24 +502,42 @@ export class CameraWatchLoop {
 			}
 			const chars = CameraWatchLoop.#transcript.reduce((n, e) => n + e.text.length, 0);
 			const body = CameraWatchLoop.#transcript.map(e => `[${new Date(e.at).toLocaleTimeString()}] ${e.text}`).join("\n\n");
+			const streamSummary = CameraWatchLoop.#appendStreamOverflow
+				? `, append stream capped at ${WATCH_TRANSCRIPT_MAX_CHARS} chars (${CameraWatchLoop.#appendStreamDropped} delta(s) dropped)`
+				: "";
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Accumulated watch transcript — ${CameraWatchLoop.#transcript.length} reading(s), ${chars} chars (cap ${WATCH_TRANSCRIPT_MAX_CHARS}, oldest trimmed):\n\n${body}`,
+						text: `Accumulated watch transcript — ${CameraWatchLoop.#transcript.length} reading(s), ${chars} chars (cap ${WATCH_TRANSCRIPT_MAX_CHARS}, oldest trimmed; ${CameraWatchLoop.#appendStreamChars} chars streamed to context${streamSummary}):\n\n${body}`,
 					},
 				],
-				details: { entries: CameraWatchLoop.#transcript.length, chars },
+				details: {
+					entries: CameraWatchLoop.#transcript.length,
+					chars,
+					streamedChars: CameraWatchLoop.#appendStreamChars,
+					overflowed: CameraWatchLoop.#appendStreamOverflow,
+					dropped: CameraWatchLoop.#appendStreamDropped,
+				},
 			};
 		}
 		if (action === "watch_clear") {
 			const had = CameraWatchLoop.#transcript.length;
 			CameraWatchLoop.#transcript = [];
+			CameraWatchLoop.#lastReadText = undefined;
+			CameraWatchLoop.#appendStreamChars = 0;
+			CameraWatchLoop.#appendStreamOverflow = false;
+			CameraWatchLoop.#appendStreamDropped = 0;
 			return {
 				content: [{ type: "text", text: `Transcript cleared (${had} reading(s) discarded).` }],
 			};
 		}
 		// watch_status
+		if (!CameraWatchLoop.running) {
+			return {
+				content: [{ type: "text", text: "Live watch is not running. Start it with 'watch_start'." }],
+			};
+		}
 		const frames = CameraWatchLoop.#frames;
 		const screens = frames.filter(f => f.kind === "screen").length;
 		const ocrFrames = frames.filter(f => f.kind === "screen" && f.ocr);

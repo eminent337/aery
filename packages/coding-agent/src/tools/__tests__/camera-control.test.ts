@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CameraWatchLoop, watchDigestOf, watchDiffFloor, watchShouldOcr } from "../camera-control";
+import { CameraWatchLoop, watchDigestOf, watchDiffFloor, watchLineDelta, watchShouldOcr } from "../camera-control";
 
 // Throttle + change-gating contract for the watch-loop screen lane.
 // watchShouldOcr(lastOcrAt, now, lastDigest, digest) is the pure decision
@@ -81,5 +81,26 @@ describe("watch transcript actions (append mode)", () => {
 		const started = CameraWatchLoop.handle("watch_start", false);
 		expect((started.content[0] as { text: string }).text).toMatch(/Live watch started/);
 		CameraWatchLoop.handle("watch_stop");
+	});
+});
+
+describe("watch append line deltas", () => {
+	test("empty previous returns full next (first reading)", () => {
+		expect(watchLineDelta(undefined, "alpha\nbeta\ngamma")).toBe("alpha\nbeta\ngamma");
+	});
+	test("exact repeated lines are dropped", () => {
+		expect(watchLineDelta("alpha\nbeta\ngamma", "alpha\nbeta\ngamma")).toBe("");
+	});
+	test("newly visible lines are streamed, repeated lines are not", () => {
+		expect(watchLineDelta("alpha\nbeta\ngamma", "beta\ngamma\ndelta")).toBe("delta");
+	});
+	test("partial overlap pages keep the new tail only", () => {
+		expect(watchLineDelta("page one\nmore text here", "more text here\npage two")).toBe("page two");
+	});
+	test("whitespace-only line changes are ignored (normalized match)", () => {
+		expect(watchLineDelta("alpha\nbeta", "  alpha  \n\tbeta\n")).toBe("");
+	});
+	test("short noise tokens are pruned from the delta", () => {
+		expect(watchLineDelta("an", "x\nabc\nde\n")).toBe("abc");
 	});
 });
