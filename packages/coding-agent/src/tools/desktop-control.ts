@@ -337,9 +337,10 @@ const liveAuthorizedKinds = new Set<string>();
 
 /**
  * Failure/abandonment guardrails for a model-driven loop: track consecutive
- * failures, same-action repeats, and same-direction scrolls across live_*
+ * failures, same-step repeats, and same-direction scrolls across live_*
  * injection calls so a stuck model aborts instead of looping forever.
- * Exported for tests; reset on session boundaries via resetDriveLoop().
+ * Exported for tests; a re-look (live_eye / screenshot) resets the counters —
+ * that is the recovery path the abort messages point at.
  */
 export interface DriveLoopState {
 	consecutiveFailures: number;
@@ -354,8 +355,10 @@ export interface DriveLoopState {
 }
 
 /** clippy parity: abort after 3 consecutive failures. The repeat streak only
- *  counts same-action SAME-outcome runs (a changed outcome breaks the streak,
- *  so probing looks don't abort); same-direction scrolls may run longer
+ *  counts repeats of the SAME STEP — the action plus the argument that
+ *  distinguishes it (target word, typed text, pointer coords). Three clicks on
+ *  three different links are three different steps and never trip it; three
+ *  clicks on the same dead label do. Same-direction scrolls may run longer
  *  (5) because scrolling-to-find is a legitimate pattern. */
 export const DRIVE_LOOP_MAX_FAILURES = 3;
 export const DRIVE_LOOP_MAX_SCROLLS = 5;
@@ -368,22 +371,51 @@ const driveLoop: DriveLoopState = {
 	lastScrollDir: "",
 	scrollCount: 0,
 };
+/** Fingerprint of the last counted step. Internal (not in the public
+ *  snapshot) — the streak must compare steps, not bare action names, or a
+ *  legitimate multi-step flow ("click a link, verify, click another") reads
+ *  as a stuck loop and wedges the session. */
+let lastStep: string | undefined;
+/** Fingerprint of one injection step — the action plus the argument that
+ *  distinguishes it. Two clicks on different words are different steps;
+ *  two clicks on the same word are the same step. Scroll direction and
+ *  repeat count are folded in so a double-click isn't a repeat of a click. */
+export function driveLoopStepKey(
+	action: string,
+	p: { target?: string; keys?: string; x?: number; y?: number; x2?: number; y2?: number; direction?: string; button?: string; count?: number },
+): string {
+	const bits = [action];
+	if (p.target) bits.push(`t:${p.target}`);
+	if (p.x !== undefined) bits.push(`x:${p.x}`);
+	if (p.y !== undefined) bits.push(`y:${p.y}`);
+	if (p.x2 !== undefined) bits.push(`x2:${p.x2}`);
+	if (p.y2 !== undefined) bits.push(`y2:${p.y2}`);
+	if (p.keys !== undefined) bits.push(`k:${p.keys}`);
+	if (p.direction) bits.push(`d:${p.direction}`);
+	if (p.button) bits.push(`b:${p.button}`);
+	if (p.count !== undefined) bits.push(`n:${p.count}`);
+	return bits.join("|");
+}
+
 /** Observe one injection outcome. `succeeded` = action ran without error;
- *  `scrollDir` = scroll direction for live_scroll ("up"/"down"/"left"/"right"). */
-export function driveLoopObserve(action: string, succeeded: boolean, scrollDir?: string): void {
+ *  `scrollDir` = scroll direction for live_scroll ("up"/"down"/"left"/"right");
+ *  `step` = driveLoopStepKey fingerprint — omitting it degrades the repeat
+ *  streak to bare-action matching (what tests use). */
+export function driveLoopObserve(action: string, succeeded: boolean, scrollDir?: string, step?: string): void {
 	const outcome = succeeded ? "success" : "failure";
 	if (succeeded) {
 		driveLoop.consecutiveFailures = 0;
 	} else {
 		driveLoop.consecutiveFailures++;
 	}
-	if (action === driveLoop.lastAction && outcome === driveLoop.lastOutcome) {
+	if (action === driveLoop.lastAction && outcome === driveLoop.lastOutcome && step === lastStep) {
 		driveLoop.repeatCount++;
 	} else {
 		driveLoop.lastAction = action;
 		driveLoop.lastOutcome = outcome;
 		driveLoop.repeatCount = 1;
 	}
+	lastStep = step ?? action;
 	if (action === "live_scroll" && scrollDir) {
 		if (scrollDir === driveLoop.lastScrollDir) {
 			driveLoop.scrollCount++;
@@ -397,26 +429,28 @@ export function driveLoopObserve(action: string, succeeded: boolean, scrollDir?:
 	}
 }
 
-/** True when the loop must stop before attempting another injection. */
-export function driveLoopAbortReason(): string | null {
+/** True when the loop must stop before attempting another injection. The
+ *  repeat/scroll rules fire only when the INCOMING step repeats the step that
+ *  tripped them — a different step ("try another way") is admitted and the
+ *  streak restarts on its own. Omitting `step` (tests) compares nothing, so
+ *  a tripped streak always aborts. */
+export function driveLoopAbortReason(incomingStep?: string): string | null {
 	if (driveLoop.consecutiveFailures >= DRIVE_LOOP_MAX_FAILURES) {
 		return `aborted: ${driveLoop.consecutiveFailures} consecutive failures (limit ${DRIVE_LOOP_MAX_FAILURES}) — re-eye and re-plan, do not retry the same step`;
 	}
-	if (driveLoop.lastAction !== "live_scroll" && driveLoop.repeatCount >= DRIVE_LOOP_MAX_REPEATS && driveLoop.lastAction) {
-		return `aborted: "${driveLoop.lastAction}" repeated ${driveLoop.repeatCount}x with the same outcome (limit ${DRIVE_LOOP_MAX_REPEATS}) — the action isn't working, try another way`;
+	const sameStep = incomingStep === undefined || incomingStep === lastStep;
+	if (sameStep && driveLoop.lastAction !== "live_scroll" && driveLoop.repeatCount >= DRIVE_LOOP_MAX_REPEATS && driveLoop.lastAction) {
+		return `aborted: "${driveLoop.lastAction}" repeated ${driveLoop.repeatCount}x on the same step (limit ${DRIVE_LOOP_MAX_REPEATS}) — the step isn't working, try another way`;
 	}
-	if (driveLoop.scrollCount >= DRIVE_LOOP_MAX_SCROLLS) {
+	if (sameStep && driveLoop.scrollCount >= DRIVE_LOOP_MAX_SCROLLS) {
 		return `aborted: scrolled ${driveLoop.lastScrollDir} ${driveLoop.scrollCount}x without finding the target (limit ${DRIVE_LOOP_MAX_SCROLLS}) — reverse or stop`;
 	}
 	return null;
 }
 
-/** Snapshot for tool-result details. */
-export function driveLoopStatus(): DriveLoopState {
-	return { ...driveLoop };
-}
-
-/** Reset between flows (tests, session restart). Exported for tests. */
+/** Reset between flows (tests, session restart, and the deliberate re-look:
+ *  live_eye / screenshot clear the counters so "re-eye and re-plan" — the
+ *  recovery the abort messages name — actually un-sticks the loop. */
 export function resetDriveLoop(): void {
 	driveLoop.consecutiveFailures = 0;
 	driveLoop.lastAction = "";
@@ -424,6 +458,12 @@ export function resetDriveLoop(): void {
 	driveLoop.lastOutcome = "";
 	driveLoop.lastScrollDir = "";
 	driveLoop.scrollCount = 0;
+	lastStep = undefined;
+}
+
+/** Snapshot for tool-result details. */
+export function driveLoopStatus(): DriveLoopState {
+	return { ...driveLoop };
 }
 
 function liveApprovalDecision(args: unknown): ToolApprovalDecision {
@@ -1058,12 +1098,16 @@ async function executeLiveAction(
 	params: DesktopControlParams,
 	session?: ToolSession,
 ): Promise<AgentToolResult> {
+	// Identity of THIS injection step — used both by the abort gate (does the
+	// incoming attempt repeat the stuck step?) and by the observers (does the
+	// streak count this step or restart?).
+	const stepKey = driveLoopStepKey(action, params);
 	const okText = (text: string, extra?: Record<string, unknown>): AgentToolResult => ({
 		content: [{ type: "text", text }],
 		details: { driveLoop: driveLoopStatus(), ...(extra ?? {}) },
 	});
 	const okObserve = (actionName: string, text: string, extra?: Record<string, unknown>): AgentToolResult => {
-		driveLoopObserve(actionName, true, actionName === "live_scroll" ? (params.direction ?? undefined) : undefined);
+		driveLoopObserve(actionName, true, actionName === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
 		return okText(text, extra);
 	};
 	const errText = (text: string, code?: string): AgentToolResult => ({
@@ -1071,7 +1115,7 @@ async function executeLiveAction(
 		details: code ? { error: code, driveLoop: driveLoopStatus() } : { driveLoop: driveLoopStatus() },
 	});
 	const errObserve = (actionName: string, text: string, code?: string): AgentToolResult => {
-		driveLoopObserve(actionName, false, actionName === "live_scroll" ? (params.direction ?? undefined) : undefined);
+		driveLoopObserve(actionName, false, actionName === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
 		return errText(text, code);
 	};
 
@@ -1134,7 +1178,7 @@ async function executeLiveAction(
 			"mode_off",
 		);
 	}
-	const abort = driveLoopAbortReason();
+	const abort = driveLoopAbortReason(stepKey);
 	if (abort) {
 		return errText(
 			`Drive-loop guardrail tripped before "${action}": ${abort}.`,
@@ -1197,7 +1241,7 @@ async function executeLiveAction(
 	const withVerify = async (lead: string): Promise<AgentToolResult> => {
 		// Drive-loop bookkeeping: reaching verify means the injection ran.
 		// Central success observation for every live_* branch (clippy pattern).
-		driveLoopObserve(action, true, action === "live_scroll" ? (params.direction ?? undefined) : undefined);
+		driveLoopObserve(action, true, action === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
 		if (!verify) return okText(lead);
 		// Drive loop: let the interface settle after the action before the
 		// verify read, so the verify frame reflects the settled UI (clippy's
@@ -1905,6 +1949,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			}
 
 			case "screenshot": {
+				// A deliberate re-look is the drive loop's recovery path ("re-eye
+				// and re-plan"): clear the counters so the model can act on what
+				// it sees instead of staying locked out.
+				resetDriveLoop();
 				const target = params.target ?? "active_window";
 				const timestamp = Date.now();
 				const tmpRaw = path.join(os.tmpdir(), `aerys-shot-${timestamp}-raw.png`);
@@ -2072,6 +2120,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// Fast glance. Ephemeral by design: each eye view is marked
 				// details.liveEye so the session can sweep old eye images from
 				// context at the next user prompt (steady state: ~1 eye image).
+				// A glance is also a re-plan, which is the drive loop's recovery
+				// path ("re-eye and re-plan") — clear the counters so the model
+				// can act on what it sees instead of staying locked out.
+				resetDriveLoop();
 				const includeBase64 = params.includeBase64 ?? true;
 				const timestamp = Date.now();
 				const tmpRaw = path.join(os.tmpdir(), `aerys-eye-${timestamp}-raw.png`);

@@ -37,13 +37,34 @@ describe("drive loop guardrails (clippy parity)", () => {
 		expect(reason).toContain("consecutive failures");
 		expect(reason).toContain("re-eye");
 	});
-	test(`${DRIVE_LOOP_MAX_REPEATS} same-action repeats abort`, () => {
+	test(`${DRIVE_LOOP_MAX_REPEATS} repeats of the SAME STEP abort`, () => {
 		// Alternate first so the action name's counter restarts cleanly.
-		driveLoopObserve("live_move", true);
-		for (let i = 0; i < DRIVE_LOOP_MAX_REPEATS; i++) driveLoopObserve("live_click", true);
-		const reason = driveLoopAbortReason();
+		driveLoopObserve("live_move", true, undefined, "live_move|x:1,y:1");
+		for (let i = 0; i < DRIVE_LOOP_MAX_REPEATS; i++) driveLoopObserve("live_click", true, undefined, "live_click|t:Send");
+		const reason = driveLoopAbortReason("live_click|t:Send");
 		expect(reason).toContain("live_click");
 		expect(reason).toContain("repeated");
+		// Retrying the SAME step is what gets refused.
+		expect(driveLoopAbortReason("live_click|t:Send")).toContain("aborted");
+		// A DIFFERENT step is admitted — "try another way" is real.
+		expect(driveLoopAbortReason("live_click|t:Compose")).toBeNull();
+		expect(driveLoopAbortReason("live_type|k:hello")).toBeNull();
+	});
+	test("different steps of the same action NEVER trip the repeat abort", () => {
+		// Regression: the streak used to key on the bare action name, so three
+		// deliberate clicks on three different links wedged the whole session.
+		for (const word of ["View history", "Hchecked", "September", "Development", "Developer"]) {
+			driveLoopObserve("live_click", true, undefined, `live_click|t:${word}`);
+		}
+		expect(driveLoopStatus().repeatCount).toBe(1);
+		expect(driveLoopAbortReason("live_click|t:Development")).toBeNull();
+	});
+	test("re-look (re-plan) clears a tripped loop", () => {
+		for (let i = 0; i < DRIVE_LOOP_MAX_FAILURES; i++) driveLoopObserve("live_click", false, undefined, "live_click|t:Send");
+		expect(driveLoopAbortReason("live_click|t:Send")).toContain("consecutive failures");
+		// The gate alone cannot recover — a read-tier re-look resets counters.
+		resetDriveLoop();
+		expect(driveLoopAbortReason("live_click|t:Send")).toBeNull();
 	});
 	test("switching actions resets the repeat counter", () => {
 		driveLoopObserve("live_click", true);
