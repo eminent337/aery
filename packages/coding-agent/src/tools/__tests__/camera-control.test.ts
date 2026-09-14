@@ -82,6 +82,14 @@ describe("watch transcript actions (append mode)", () => {
 		expect((started.content[0] as { text: string }).text).toMatch(/Live watch started/);
 		CameraWatchLoop.handle("watch_stop");
 	});
+	test("watch_start dispatch wires lanes (screen-only / camera-only wording)", () => {
+		const screenOnly = CameraWatchLoop.handle("watch_start", false, "screen");
+		expect((screenOnly.content[0] as { text: string }).text).toMatch(/screen ~1fps \+ OCR on change \(camera lane disabled\)/);
+		CameraWatchLoop.handle("watch_stop");
+		const cameraOnly = CameraWatchLoop.handle("watch_start", false, "camera");
+		expect((cameraOnly.content[0] as { text: string }).text).toMatch(/camera face snapshots every 5s \(screen lane disabled\)/);
+		CameraWatchLoop.handle("watch_stop");
+	});
 });
 
 describe("watch append line deltas", () => {

@@ -68,6 +68,10 @@ const cameraControlSchema = z.object({
 		.number()
 		.optional()
 		.describe("Seconds to record for 'record'/'record_screen' (default 5, max 60)."),
+	lanes: z
+		.enum(["both", "screen", "camera"])
+		.optional()
+		.describe("watch_start lane selection: 'both' (default) runs the screen lane (OCR) AND the camera lane (face snapshots); 'screen' = screen OCR only, no camera; 'camera' = camera face snapshots only, no screen OCR."),
 	face_detection: z
 		.boolean()
 		.optional()
@@ -226,10 +230,17 @@ export class CameraWatchLoop {
 	static #lastDigest: string | undefined;
 	static #ocrSwept = 0;
 	static #steerCount = 0;
+	/** Bumped on every start; in-flight async captures from a previous session
+	 *  carry the old generation and are dropped instead of polluting the new
+	 *  watch's frame ring. */
+	static #generation = 0;
 	static #steerWindowStart = Date.now();
 	/** Append mode: accumulate every distinct reading into the transcript (a
 	 *  "book") instead of keeping latest-only. Set via watch_start {append:true}. */
 	static #appendMode = false;
+	/** Lane selection: which feeds the watch loop actually runs.
+	 *  "both" (default) = screen + camera; "screen" / "camera" run one lane. */
+	static #lanes: "both" | "screen" | "camera" = "both";
 	/** Append-mode transcript: every distinct OCR reading, timestamped, in order.
 	 *  This is the "book" — the model reads it via watch_transcript to summarize
 	 *  or narrate. Bounded by WATCH_TRANSCRIPT_MAX_CHARS (oldest entries trimmed). */
@@ -250,8 +261,12 @@ export class CameraWatchLoop {
 	static attachSession(session: ToolSession | undefined): void {
 		CameraWatchLoop.#session = session;
 	}
-	static start(append = false): void {
+	static start(append = false, lanes: "both" | "screen" | "camera" = "both"): void {
 		if (CameraWatchLoop.#timer !== undefined) return; // idempotent
+		CameraWatchLoop.#generation++;
+		CameraWatchLoop.#lanes = lanes;
+		CameraWatchLoop.#frames = [];
+		CameraWatchLoop.#tickNumber = 0;
 		CameraWatchLoop.#startedAt = Date.now();
 		CameraWatchLoop.#steerWindowStart = Date.now();
 		CameraWatchLoop.#steerCount = 0;
@@ -279,6 +294,7 @@ export class CameraWatchLoop {
 			clearInterval(CameraWatchLoop.#timer);
 			CameraWatchLoop.#timer = undefined;
 			CameraWatchLoop.#startedAt = undefined;
+			CameraWatchLoop.#lanes = "both";
 		}
 	}
 	static #tickNumber = 0;
@@ -375,12 +391,14 @@ export class CameraWatchLoop {
 		CameraWatchLoop.#tickNumber++;
 		// Screen lane — capture to a keep-file so OCR can read it, with a cheap
 		// digest gate so a static screen (idle desktop, paused video) costs ~0.
-		if (!CameraWatchLoop.#screenBusy) {
+		if (CameraWatchLoop.#lanes !== "camera" && !CameraWatchLoop.#screenBusy) {
 			CameraWatchLoop.#screenBusy = true;
+			const generation = CameraWatchLoop.#generation;
 			const stamp = Date.now();
 			const keepPath = path.join(os.tmpdir(), `aerys-watch-${stamp}.jpg`);
 			void captureScreenFrame({ target: "fullscreen", quality: 60, timeoutMs: 800, keepFile: true })
 				.then(async v => {
+					if (generation !== CameraWatchLoop.#generation) return; // stopped or restarted mid-flight
 					if (!v.image) {
 						CameraWatchLoop.#push({ kind: "screen", at: stamp, note: "screen capture empty" });
 						return;
@@ -420,14 +438,16 @@ export class CameraWatchLoop {
 				});
 		}
 		// Camera lane — slower: face snapshot + identification every 5s.
-		if (CameraWatchLoop.#tickNumber % (WATCH_CAMERA_INTERVAL_MS / WATCH_SCREEN_INTERVAL_MS) === 0 && !CameraWatchLoop.#cameraBusy) {
+		if (CameraWatchLoop.#lanes !== "screen" && CameraWatchLoop.#tickNumber % (WATCH_CAMERA_INTERVAL_MS / WATCH_SCREEN_INTERVAL_MS) === 0 && !CameraWatchLoop.#cameraBusy) {
 			CameraWatchLoop.#cameraBusy = true;
+			const generation = CameraWatchLoop.#generation;
 			try {
 				const { stdout } = await execFileAsync(
 					DEFAULT_VENV_PYTHON,
 					[DEFAULT_WORKER, "--device", "/dev/video0", "--resolution", "640x480", "--identify", "--score-threshold", "0.2"],
 					{ timeout: 15_000 },
 				);
+				if (generation !== CameraWatchLoop.#generation) return; // stopped or restarted mid-flight
 				const parsed = JSON.parse(stdout) as WorkerResult;
 				const idents = (parsed.faces ?? []).map(f => f.identity?.name ?? "face").join(", ");
 				CameraWatchLoop.#push({
@@ -470,15 +490,21 @@ export class CameraWatchLoop {
 		return true;
 	}
 
-	static handle(action: string, append?: boolean): AgentToolResult {
+	static handle(action: string, append?: boolean, lanes: "both" | "screen" | "camera" = "both"): AgentToolResult {
 		if (action === "watch_start") {
-			CameraWatchLoop.start(append ?? false);
+			CameraWatchLoop.start(append ?? false, lanes);
 			const mode = append ? " + APPEND mode (every distinct reading joins the transcript)" : "";
+			const lane =
+				lanes === "both"
+					? `screen ~1fps + OCR on change + camera face snapshots every ${WATCH_CAMERA_INTERVAL_MS / 1000}s`
+					: lanes === "screen"
+						? "screen ~1fps + OCR on change (camera lane disabled)"
+						: `camera face snapshots every ${WATCH_CAMERA_INTERVAL_MS / 1000}s (screen lane disabled)`;
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Live watch started (screen ~1fps + OCR on change + camera face snapshots every ${WATCH_CAMERA_INTERVAL_MS / 1000}s)${mode}. Use 'watch_status' to summarize, 'watch_transcript' to read the accumulated book, 'watch_stop' to end.`,
+						text: `Live watch started (${lane})${mode}. Use 'watch_status' to summarize, 'watch_transcript' to read the accumulated book, 'watch_stop' to end.`,
 					},
 				],
 			};
@@ -554,8 +580,14 @@ export class CameraWatchLoop {
 		const lastCam = cams[cams.length - 1];
 		const secs = Math.round((Date.now() - (CameraWatchLoop.#startedAt ?? Date.now())) / 1000);
 		const who = lastCam?.note ?? "no face seen yet";
+		const lanePart =
+			CameraWatchLoop.#lanes === "screen"
+				? " — screen-only watch (camera lane disabled)"
+				: CameraWatchLoop.#lanes === "camera"
+					? " — camera-only watch (screen lane disabled)"
+					: "";
 		const lines = [
-			`Live watch running for ${secs}s — ${screens} screen frame(s), ${ocrFrames.length} OCR read(s)` +
+			`Live watch running for ${secs}s${lanePart} — ${screens} screen frame(s), ${ocrFrames.length} OCR read(s)` +
 				` (swept ${CameraWatchLoop.#ocrSwept}), camera: ${lastCam ? `${lastCam.faces} face(s) [${who}]` : "none yet"}.`,
 		];
 		if (lastOcr?.ocr) {
@@ -564,15 +596,16 @@ export class CameraWatchLoop {
 		} else {
 			lines.push("No screen text read yet (screen unchanged since start, or OCR pending).");
 		}
+		const live = CameraWatchLoop.#frames;
 		return {
 			content: [{ type: "text", text: lines.join("\n") }],
 			details: {
 				running: true,
 				secs,
-				screenFrames: screens,
-				ocrFrames: ocrFrames.length,
+				screenFrames: live.filter(f => f.kind === "screen").length,
+				ocrFrames: live.filter(f => f.kind === "screen" && f.ocr).length,
 				ocrSwept: CameraWatchLoop.#ocrSwept,
-				cameraFrames: cams.length,
+				cameraFrames: live.filter(f => f.kind === "camera" && (f.faces ?? 0) > 0).length,
 				lastCamera: lastCam ? { faces: lastCam.faces, note: lastCam.note } : undefined,
 				lastOcr: lastOcr?.ocr,
 				lastOcrAt: lastOcr?.at,
@@ -640,7 +673,7 @@ export class CameraWatchLoop {
 		}
 		// watch actions — the loop steers via the session's hidden steer sink.
 		CameraWatchLoop.attachSession(this.#session);
-		return CameraWatchLoop.handle(action, params.append);
+		return CameraWatchLoop.handle(action, params.append, params.lanes);
 	}
 
 	/** Build worker args for a standard capture. */

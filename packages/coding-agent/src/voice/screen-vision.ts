@@ -147,7 +147,9 @@ export async function captureScreenFrame(options: CaptureOptions = {}): Promise<
 	let windowInfo: ActiveWindowInfo | null = null;
 	let geometry: string | undefined;
 
-	// Query active window if requested
+	// Query active window if requested (fullscreen captures intentionally
+	// skip this: grim's -g geometry path on fullscreen regions can hang on
+	// this compositor, and a crop adds nothing for a full display grab).
 	if (target === "active_window") {
 		windowInfo = await getActiveWindow();
 		if (windowInfo?.at && windowInfo?.size && windowInfo.size[0] > 0 && windowInfo.size[1] > 0) {
