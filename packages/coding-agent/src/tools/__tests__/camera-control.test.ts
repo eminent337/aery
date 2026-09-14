@@ -87,7 +87,7 @@ describe("watch transcript actions (append mode)", () => {
 		expect((screenOnly.content[0] as { text: string }).text).toMatch(/screen ~1fps \+ OCR on change \(camera lane disabled\)/);
 		CameraWatchLoop.handle("watch_stop");
 		const cameraOnly = CameraWatchLoop.handle("watch_start", false, "camera");
-		expect((cameraOnly.content[0] as { text: string }).text).toMatch(/camera face snapshots every 5s \(screen lane disabled\)/);
+		expect((cameraOnly.content[0] as { text: string }).text).toMatch(/camera face snapshots every 10s \(screen lane disabled\)/);
 		CameraWatchLoop.handle("watch_stop");
 	});
 	test("recordExternalOcr keeps full middle text in the transcript", () => {

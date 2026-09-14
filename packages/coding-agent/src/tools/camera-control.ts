@@ -149,7 +149,7 @@ interface WatchFrame {
 }
 
 const WATCH_SCREEN_INTERVAL_MS = 1000;
-const WATCH_CAMERA_INTERVAL_MS = 5000;
+const WATCH_CAMERA_INTERVAL_MS = 10_000;
 const WATCH_MAX_FRAMES = 60;
 /** Never OCR faster than this even if the screen churns (tesseract cost + context budget). */
 const WATCH_OCR_MIN_INTERVAL_MS = 4000;
@@ -446,7 +446,7 @@ export class CameraWatchLoop {
 					CameraWatchLoop.#screenBusy = false;
 				});
 		}
-		// Camera lane — slower: face snapshot + identification every 5s.
+		// Camera lane — slower: face snapshot + identification every 10s.
 		if (CameraWatchLoop.#lanes !== "screen" && CameraWatchLoop.#tickNumber % (WATCH_CAMERA_INTERVAL_MS / WATCH_SCREEN_INTERVAL_MS) === 0 && !CameraWatchLoop.#cameraBusy) {
 			CameraWatchLoop.#cameraBusy = true;
 			const generation = CameraWatchLoop.#generation;
