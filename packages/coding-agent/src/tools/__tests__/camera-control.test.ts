@@ -90,6 +90,27 @@ describe("watch transcript actions (append mode)", () => {
 		expect((cameraOnly.content[0] as { text: string }).text).toMatch(/camera face snapshots every 5s \(screen lane disabled\)/);
 		CameraWatchLoop.handle("watch_stop");
 	});
+	test("recordExternalOcr keeps full middle text in the transcript", () => {
+		CameraWatchLoop.handle("watch_clear");
+		const lines = ["Subject: Re: Commonwealth Application"];
+		for (let i = 1; i <= 50; i++) lines.push(`Body line ${i}: statement of purpose draft.`);
+		lines.push("Best, Qi Ou");
+		const full = lines.join("\n");
+		expect(CameraWatchLoop.recordExternalOcr(full, "eye")).toBe(true);
+		const res = CameraWatchLoop.handle("watch_transcript");
+		const text = (res.content[0] as { text: string }).text;
+		expect(text).toContain("Body line 30");
+		expect(text).toContain("Body line 50");
+		expect(text).toMatch(/\[.*eye\]/);
+		CameraWatchLoop.handle("watch_clear");
+	});
+	test("duplicate external readings are deduped", () => {
+		CameraWatchLoop.handle("watch_clear");
+		expect(CameraWatchLoop.recordExternalOcr("same reading here", "screenshot")).toBe(true);
+		expect(CameraWatchLoop.recordExternalOcr("same reading here", "screenshot")).toBe(false);
+		expect(CameraWatchLoop.transcriptEntries).toBe(1);
+		CameraWatchLoop.handle("watch_clear");
+	});
 });
 
 describe("watch append line deltas", () => {

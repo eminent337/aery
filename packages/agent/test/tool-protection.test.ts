@@ -90,4 +90,47 @@ describe("conditional tool-result protection", () => {
 		expect(regions[0]?.kind).toBe("toolResult");
 		expect(regions[0]?.entry).toBe(fileResult);
 	});
+
+	it("keeps the newest OCR readings but prunes older ones", () => {
+		function ocrCall(toolCallId: string): SessionMessageEntry {
+			return messageEntry(`assistant-${toolCallId}`, {
+				role: "assistant",
+				content: [{ type: "toolCall", id: toolCallId, name: "desktop_control", arguments: { action: "live_eye" } }],
+				api: "mock",
+				provider: "mock",
+				model: "mock-model",
+				usage: usage(),
+				stopReason: "toolUse",
+				timestamp: 0,
+			});
+		}
+		function ocrResult(toolCallId: string, text: string): SessionMessageEntry {
+			return messageEntry(`result-${toolCallId}`, {
+				role: "toolResult",
+				toolCallId,
+				toolName: "desktop_control",
+				content: [{ type: "text", text }],
+				details: { action: "live_eye", liveEye: { at: 1 }, ocrText: text },
+				isError: false,
+				timestamp: 0,
+			});
+		}
+		const big = "x".repeat(20000);
+		// 5 OCR readings, oldest first — newest 3 protected, oldest 2 prunable.
+		const entries = [];
+		for (let i = 0; i < 5; i++) {
+			entries.push(ocrCall(`ocr-${i}`), ocrResult(`ocr-${i}`, `reading ${i}\n${big}`));
+		}
+		const result = pruneToolOutputs(entries, { ...DEFAULT_PRUNE_CONFIG, protectTokens: 0, minimumSavings: 0 });
+		expect(result.prunedCount).toBe(2);
+		for (let i = 0; i < 5; i++) {
+			const msg = (entries[i * 2 + 1] as SessionMessageEntry).message as ToolResultMessage;
+			if (i < 2) {
+				expect(typeof msg.prunedAt).toBe("number");
+			} else {
+				expect(msg.prunedAt).toBeUndefined();
+				expect(((msg.content[0] as TextContent).text)).toContain(`reading ${i}`);
+			}
+		}
+	});
 });

@@ -1,3 +1,4 @@
+import { CameraWatchLoop } from "./camera-control";
 import { detectPlatformDriver } from "./desktop-drivers";
 import { buildEyeGeometry, describeEyeTarget } from "./live-eye";
 import { ocrFrame } from "./screen-ocr";
@@ -688,6 +689,8 @@ async function executeLiveAction(
 				);
 				if (ocr.text) {
 					steerParts.push(ocr.text.length > 8000 ? `${ocr.text.slice(0, 8000)}\n…[truncated]` : ocr.text);
+					// Durable copy: live-verify steers are swept like eye glances.
+					CameraWatchLoop.recordExternalOcr(ocr.text, "verify");
 				}
 			}
 		}
@@ -1431,6 +1434,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					shotOcrText = shotOcr.text;
 					shotOcrError = shotOcr.error;
 					shotOcrMode = shotOcr.mode;
+					// Durable copy: screenshot tool results are prunable, so the
+					// full reading also lands in the watch transcript (the book).
+					if (shotOcrText) CameraWatchLoop.recordExternalOcr(shotOcrText, "screenshot");
 				}
 				const shotTargetDesc = targetWindow
 					? `window "${targetWindow.title}" (${targetWindow.class}) [${targetWindow.size[0]}x${targetWindow.size[1]}]`
@@ -1581,6 +1587,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					ocrText = ocr.text;
 					ocrError = ocr.error;
 					ocrMode = ocr.mode;
+					// Durable copy: the eye-glance steer is swept by the next glance,
+					// so record the full reading in the watch transcript (the book)
+					// where watch_transcript keeps it available every turn.
+					if (ocrText) CameraWatchLoop.recordExternalOcr(ocrText, "eye");
 				}
 				const parts: string[] = [
 					`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,

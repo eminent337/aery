@@ -6358,12 +6358,15 @@ export class AgentSession {
 		for (const entry of branchEntries) {
 			if (entry.type === "custom_message") {
 				// Steered eye glances ride as hidden custom messages (customType
-				// "eye-glance"). Each new glance supersedes the old: drop the
-				// previous glance's pixels (and its reading, which is stale) so
-				// context stays at ~1 eye image — the eye is ephemeral by design.
+				// "eye-glance"). Each new glance supersedes the old *pixels* —
+				// drop image blocks so context stays at ~1 eye image — but KEEP
+				// the OCR text: it is the only copy once the temp PNG is
+				// deleted, and the watch transcript (the book) re-serves it via
+				// watch_transcript every turn. Sweeping text is what forced
+				// "please paste the email" fallbacks.
 				const meta = entry as { customType?: unknown; content?: unknown; details?: unknown };
 				if (meta.customType !== "eye-glance") continue;
-				const content = meta.content as Array<{ type?: string; text?: string }> | undefined;
+				const content = meta.content as Array<{ type?: string; text?: string; data?: string }> | undefined;
 				if (!Array.isArray(content) || content.length === 0) continue;
 				// Already swept — nothing to do.
 				if (
@@ -6373,11 +6376,15 @@ export class AgentSession {
 				) {
 					continue;
 				}
-				// The glance is ephemeral by design: the reading is stale the
-				// moment the next glance lands, text or image alike (visionless
-				// models steer text-only readings — they must be swept too).
-				(entry as { content?: unknown }).content = [{ type: "text", text: "[eye glance superseded]" }];
-				removed += 1;
+				const kept = content.filter(p => p.type !== "image");
+				const dropped = content.length - kept.length;
+				if (dropped > 0) {
+					// Text survives; only pixels are ephemeral. If the glance
+					// was image-only, leave a tombstone so the sweep is idempotent.
+					(entry as { content?: unknown }).content =
+						kept.length > 0 ? kept : [{ type: "text", text: "[eye glance superseded — image swept, reading kept in watch transcript]" }];
+					removed += dropped;
+				}
 				continue;
 			}
 			if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
@@ -6408,10 +6415,11 @@ export class AgentSession {
 
 	/**
 	 * Sweep older live-verify frames (hidden steers, customType "live-verify").
-	 * Each new verify capture supersedes the previous one — same ephemerality
-	 * contract as the eye glance — so context stays at ~1 verify frame no
-	 * matter how many live_* steps run in a row. Call before attaching a new
-	 * verify steer; returns the number of superseded entries.
+	 * Each new verify capture supersedes the previous one's *pixels* — drop
+	 * image blocks so context stays at ~1 verify frame no matter how many
+	 * live_* steps run in a row — but KEEP the OCR text (durable copy lives in
+	 * the watch transcript via watch_transcript). Call before attaching a new
+	 * verify steer; returns the number of image blocks removed.
 	 */
 	async dropLiveVerifyImages(): Promise<number> {
 		const branchEntries = this.sessionManager.getBranch();
@@ -6425,8 +6433,13 @@ export class AgentSession {
 			if (content.length === 1 && content[0].type === "text" && content[0].text === "[verify frame superseded]") {
 				continue;
 			}
-			(entry as { content?: unknown }).content = [{ type: "text", text: "[verify frame superseded]" }];
-			removed += 1;
+			const kept = content.filter(p => p.type !== "image");
+			const dropped = content.length - kept.length;
+			if (dropped > 0) {
+				(entry as { content?: unknown }).content =
+					kept.length > 0 ? kept : [{ type: "text", text: "[verify frame superseded — image swept, reading kept in watch transcript]" }];
+				removed += dropped;
+			}
 		}
 		if (removed === 0) return 0;
 		await this.sessionManager.rewriteEntries();

@@ -8,8 +8,10 @@ import { estimateTokens } from "./compaction";
 import type { SessionEntry, SessionMessageEntry } from "./entries";
 import {
 	collectToolCallsById,
+	isOcrToolResult,
 	isProtectedToolResult,
 	isSkillReadToolResult,
+	OCR_PROTECTED_RECENT_COUNT,
 	type ProtectedToolMatcher,
 } from "./tool-protection";
 
@@ -141,14 +143,25 @@ export function pruneToolOutputs(entries: SessionEntry[], config: PruneConfig = 
 
 	const candidates: Array<{ entry: SessionMessageEntry; tokens: number }> = [];
 	const toolCallsById = collectToolCallsById(entries);
-
+	let ocrProtectedSeen = 0;
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
 		const message = getToolResultMessage(entry);
 		if (!message) continue;
 
 		const tokens = estimateTokens(message as AgentMessage);
-		const isProtected = isProtectedToolResult(message, toolCallsById.get(message.toolCallId), config.protectedTools);
+		const toolCall = toolCallsById.get(message.toolCallId);
+		let isProtected = isProtectedToolResult(message, toolCall, config.protectedTools);
+		// Newest-N OCR protection: the most recent eye/screenshot/verify text
+		// layers survive pruning even past the token budget, because the temp
+		// image file is already deleted — the text is the only copy. Older OCR
+		// results still prune normally; the watch transcript is the archive.
+		if (!isProtected && ocrProtectedSeen < OCR_PROTECTED_RECENT_COUNT) {
+			if (isOcrToolResult({ toolResult: message, toolCall })) {
+				isProtected = true;
+				ocrProtectedSeen++;
+			}
+		}
 
 		if (message.prunedAt !== undefined) {
 			accumulatedTokens += tokens;

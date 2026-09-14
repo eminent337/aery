@@ -39,6 +39,25 @@ export function isSkillReadToolResult(context: ProtectedToolContext): boolean {
 	return getReadToolPath(context)?.startsWith(SKILL_INTERNAL_URL_PREFIX) ?? false;
 }
 
+	/** Tool names whose results carry on-screen OCR text (eye/screenshot/verify).
+	 *  The newest N such results are protected from pruning — the text layer is
+	 *  the only copy once the temp image file is deleted, and sweeping it is
+	 *  what forces "please paste the email" fallbacks. Older OCR results still
+	 *  prune normally; the watch transcript (the book) is the durable archive. */
+	export const OCR_TOOL_NAMES = ["desktop_control", "camera_control"] as const;
+
+	/** How many of the most recent OCR tool results to protect. Newest-first. */
+	export const OCR_PROTECTED_RECENT_COUNT = 3;
+
+	/** True when this tool result carries OCR text in its details payload
+	 *  (eye glance, screenshot, or verify frame — all stamp ocrText). */
+	export function isOcrToolResult(context: ProtectedToolContext): boolean {
+		if (context.toolResult.toolName !== "desktop_control" && context.toolResult.toolName !== "camera_control") return false;
+		const details = context.toolResult.details as { ocrText?: unknown; liveEye?: unknown } | undefined;
+		if (!details || typeof details !== "object") return false;
+		return typeof (details as { ocrText?: unknown }).ocrText === "string" || "liveEye" in details;
+	}
+
 export function isProtectedToolResult(
 	toolResult: ToolResultMessage,
 	toolCall: AgentToolCall | undefined,

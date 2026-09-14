@@ -159,9 +159,12 @@ const WATCH_STEER_MAX_PER_MINUTE = 6;
 /** Append-mode transcript cap (chars). Oldest entries trimmed first — keeps a
  *  2h movie or a long book inside a readable budget (~50k chars ≈ 12k tokens). */
 const WATCH_TRANSCRIPT_MAX_CHARS = 50_000;
-/** Per-reading append steer cap (chars): a single OCR delta is clipped before
- *  it is hidden-steered, so one giant frame can't blow the context budget. */
-const WATCH_APPEND_STEER_MAX_CHARS = 2400;
+/** Per-reading hidden-steer cap (chars): a single OCR delta is clipped before
+ *  it is hidden-steered, so one giant frame can't blow the context budget.
+ *  8000 matches the eye/screenshot/verify truncation — every OCR path now
+ *  delivers the same full text, and the transcript (not the steer) is the
+ *  durable copy. */
+const WATCH_APPEND_STEER_MAX_CHARS = 8000;
 /** How different (0..1) two wire-frame digests must be before we bother re-OCR. */
 const WATCH_OCR_DIFF_THRESHOLD = 0.12;
 
@@ -243,8 +246,10 @@ export class CameraWatchLoop {
 	static #lanes: "both" | "screen" | "camera" = "both";
 	/** Append-mode transcript: every distinct OCR reading, timestamped, in order.
 	 *  This is the "book" — the model reads it via watch_transcript to summarize
-	 *  or narrate. Bounded by WATCH_TRANSCRIPT_MAX_CHARS (oldest entries trimmed). */
-	static #transcript: Array<{ at: number; text: string }> = [];
+	 *  or narrate. Eye, screenshot and verify OCR readings are recorded here too
+	 *  (via recordExternalOcr) so full text survives long after the ephemeral
+	 *  image sweeps. Bounded by WATCH_TRANSCRIPT_MAX_CHARS (oldest entries trimmed). */
+	static #transcript: Array<{ at: number; text: string; source?: string }> = [];
 	/** Most recent OCR reading — basis for "newly visible" line deltas. */
 	static #lastReadText: string | undefined;
 	/** Chars of append steers already delivered to the model (context budget). */
@@ -338,7 +343,7 @@ export class CameraWatchLoop {
 		}
 		if (CameraWatchLoop.#steerCount >= WATCH_STEER_MAX_PER_MINUTE) return;
 		CameraWatchLoop.#steerCount++;
-		const trimmed = text.length > 2400 ? `${text.slice(0, 2400)}…` : text;
+		const trimmed = text.length > WATCH_APPEND_STEER_MAX_CHARS ? `${text.slice(0, WATCH_APPEND_STEER_MAX_CHARS)}…` : text;
 		await CameraWatchLoop.#sweepSteers();
 		const content = [
 			{ type: "text", text: `[watch] screen now reads (${text.length} chars):\n${trimmed}` },
@@ -422,8 +427,12 @@ export class CameraWatchLoop {
 						digest,
 					});
 					if (ocrText) {
+						// Every watch reading joins the transcript (durable book),
+						// not just in append mode — the ephemeral live-watch steer
+						// is swept within a turn or two, so without this the full
+						// text would be unrecoverable after the next delta.
+						CameraWatchLoop.#appendTranscript(ocrText, "watch");
 						if (CameraWatchLoop.#appendMode) {
-							CameraWatchLoop.#appendTranscript(ocrText);
 							const delta = watchLineDelta(CameraWatchLoop.#lastReadText, ocrText);
 							CameraWatchLoop.#lastReadText = ocrText;
 							if (delta) await CameraWatchLoop.#steerAppendOcr(delta, at);
@@ -472,7 +481,7 @@ export class CameraWatchLoop {
 	/** Append a distinct OCR reading to the transcript (deduped against the
 	 *  previous entry — scrolling a book re-reads the same page several times).
 	 *  Oldest entries are trimmed once the char budget is exceeded. */
-	static #appendTranscript(text: string): boolean {
+	static #appendTranscript(text: string, source?: string): boolean {
 		const trimmed = text.trim();
 		if (trimmed.length < 3) return false;
 		const prev = CameraWatchLoop.#transcript[CameraWatchLoop.#transcript.length - 1];
@@ -481,13 +490,28 @@ export class CameraWatchLoop {
 		if (prev && prev.text.includes(trimmed)) {
 			return false;
 		}
-		CameraWatchLoop.#transcript.push({ at: Date.now(), text: trimmed });
+		CameraWatchLoop.#transcript.push({ at: Date.now(), text: trimmed, ...(source ? { source } : {}) });
 		let total = CameraWatchLoop.#transcript.reduce((n, e) => n + e.text.length + 1, 0);
 		while (total > WATCH_TRANSCRIPT_MAX_CHARS && CameraWatchLoop.#transcript.length > 1) {
 			const oldest = CameraWatchLoop.#transcript.shift();
 			if (oldest) total -= oldest.text.length + 1;
 		}
 		return true;
+	}
+
+	/** Record an OCR reading from OUTSIDE the watch loop (eye glance,
+	 *  screenshot, live-verify frame). The ephemeral image sweeps wipe the
+	 *  steer copy within a turn or two, so the transcript is the durable copy
+	 *  the model re-reads via watch_transcript. Works whether or not a watch
+	 *  is running — the book outlives any single session. Full untruncated
+	 *  text is stored; only the hidden-steer delivery is clipped. */
+	static recordExternalOcr(text: string, source: string): boolean {
+		return CameraWatchLoop.#appendTranscript(text, source);
+	}
+
+	/** Number of transcript entries (test hook). */
+	static get transcriptEntries(): number {
+		return CameraWatchLoop.#transcript.length;
 	}
 
 	static handle(action: string, append?: boolean, lanes: "both" | "screen" | "camera" = "both"): AgentToolResult {
@@ -534,8 +558,8 @@ export class CameraWatchLoop {
 					],
 				};
 			}
-			const chars = CameraWatchLoop.#transcript.reduce((n, e) => n + e.text.length, 0);
-			const body = CameraWatchLoop.#transcript.map(e => `[${new Date(e.at).toLocaleTimeString()}] ${e.text}`).join("\n\n");
+		const chars = CameraWatchLoop.#transcript.reduce((n, e) => n + e.text.length, 0);
+		const body = CameraWatchLoop.#transcript.map(e => `[${new Date(e.at).toLocaleTimeString()}${e.source ? ` ${e.source}` : ""}] ${e.text}`).join("\n\n");
 			const streamSummary = CameraWatchLoop.#appendStreamOverflow
 				? `, append stream capped at ${WATCH_TRANSCRIPT_MAX_CHARS} chars (${CameraWatchLoop.#appendStreamDropped} delta(s) dropped)`
 				: "";
@@ -591,8 +615,10 @@ export class CameraWatchLoop {
 				` (swept ${CameraWatchLoop.#ocrSwept}), camera: ${lastCam ? `${lastCam.faces} face(s) [${who}]` : "none yet"}.`,
 		];
 		if (lastOcr?.ocr) {
-			lines.push(`Latest on-screen text (${lastOcr.ocr.length} chars):`);
-			lines.push(lastOcr.ocr.length > 1200 ? `${lastOcr.ocr.slice(0, 1200)}…` : lastOcr.ocr);
+			// Full latest reading rides in details.lastOcr AND inline here — the
+			// model re-reads exact text (e.g. an email body) instead of a slice.
+			lines.push(`Latest on-screen text (${lastOcr.ocr.length} chars, full — also in watch_transcript):`);
+			lines.push(lastOcr.ocr);
 		} else {
 			lines.push("No screen text read yet (screen unchanged since start, or OCR pending).");
 		}
