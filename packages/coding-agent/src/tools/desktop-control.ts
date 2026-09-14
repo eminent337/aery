@@ -161,7 +161,7 @@ const desktopControlSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			"Click target text for 'live_click'/'live_move' — matches an OCR word from the last eye/screenshot (e.g. \"Compose\", \"Send\") instead of raw x/y. Resolves to that word's frame-px center. Omit to use x/y.",
+			"Target selector, meaning depends on action: for 'live_click'/'live_move' it is click-target text matched against an OCR word from the last eye/screenshot (e.g. \"Compose\", \"Send\") and resolved to that word's frame-px center instead of raw x/y; for 'live_eye'/'screenshot' it is what to look at ('fullscreen' — default for the eye — 'active_window', or a substring of a window title/class).",
 		),
 	direction: z
 		.enum(["up", "down"])
@@ -180,12 +180,6 @@ const desktopControlSchema = z.object({
 		.optional()
 		.describe(
 			"For 'live_mode_on': pre-authorize these live input kinds NOW (skip the first-use approval prompt for them this session). Use when you know the automation flow ahead (e.g. [\"live_click\",\"live_type\",\"live_key\"]) so multi-step app driving doesn't deadlock on a mid-flow prompt. Only these six injection kinds are accepted.",
-		),
-	target: z
-		.string()
-		.optional()
-		.describe(
-			"Target for the glance/screenshot ('fullscreen' — whole screen, the default — 'active_window', or substring of window title/class).",
 		),
 	query: z.string().optional().describe("Window address, title, or class query for 'focus_window' or 'close_window'."),
 	workspace: z.string().optional().describe("Workspace identifier for 'switch_workspace' (e.g. '1', '2', 'special')."),
@@ -535,7 +529,7 @@ let lastClickTargets: ClickTarget[] = [];
  *  same coordinate contract live_* understands), so this only filters
  *  junk and clamps edges. Prefers bigger boxes (buttons/labels) over
  *  specks; keeps reading order. Returns [] when there is no frame. */
-function clickTargetsFromOcr(words: OcrWordBox[] | undefined, frame: InputFrame | null): ClickTarget[] {
+export function clickTargetsFromOcr(words: OcrWordBox[] | undefined, frame: InputFrame | null): ClickTarget[] {
 	if (!words || words.length === 0 || !frame) return [];
 	const targets: ClickTarget[] = [];
 	for (const b of words) {
@@ -2132,6 +2126,16 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					finalPath = tmpFinal;
 				}
 
+				// Anchor the coordinate frame to THIS glance. Without this the
+				// eye's own OCR word boxes are converted against whatever frame
+				// a previous screenshot/verify left behind — wrong atX/atY and
+				// wrong scale — so `target:` clicks landed somewhere else and
+				// the stale-frame guard tripped on a glance that had, in fact,
+				// just looked at the focused window.
+				let eyeFrame: InputFrame | null = null;
+				try {
+					eyeFrame = await rememberFrame(targetWindow, geometry, tmpRaw, finalPath);
+				} catch {}
 				let base64 = "";
 				if (includeBase64) {
 					try {
@@ -2164,12 +2168,16 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					// where watch_transcript keeps it available every turn.
 					if (ocrText) CameraWatchLoop.recordExternalOcr(ocrText, "eye");
 					if (ocrText) rememberOcrText(ocrText);
-					// Clickable-OCR: word boxes → frame-px click targets.
-					eyeClickTargets = clickTargetsFromOcr(ocr.words, lastInputFrame);
+					// Clickable-OCR: word boxes → frame-px click targets, against
+					// the frame THIS glance anchored (not a stale one).
+					eyeClickTargets = clickTargetsFromOcr(ocr.words, eyeFrame);
 					if (eyeClickTargets.length > 0) rememberClickTargets(eyeClickTargets);
 				}
+				const eyeFrameNote = eyeFrame
+					? ` Frame ${eyeFrame.scaledW}x${eyeFrame.scaledH}${eyeFrame.kind === "window" ? ` (window @ ${eyeFrame.atX},${eyeFrame.atY})` : " (fullscreen)"} — clickTargets and live_* pointer coordinates are frame px of this glance.`
+					: "";
 				const parts: string[] = [
-					`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,
+					`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).${eyeFrameNote}`,
 				];
 				if (ocrText) {
 					parts.push(

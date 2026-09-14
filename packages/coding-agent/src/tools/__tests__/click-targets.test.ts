@@ -1,5 +1,42 @@
 import { describe, expect, test } from "bun:test";
-import { cursorVerifyNote, formatClickTargets, rememberClickTargets, resolveClickTarget } from "../desktop-control";
+import {
+	clickTargetsFromOcr,
+	cursorVerifyNote,
+	formatClickTargets,
+	rememberClickTargets,
+	resolveClickTarget,
+} from "../desktop-control";
+
+const FRAME_1280 = { kind: "window" as const, atX: 0, atY: 0, physW: 1280, physH: 800, scaledW: 1280, scaledH: 800 };
+
+describe("clickTargetsFromOcr frame mapping (regression: eye frame anchoring)", () => {
+	test("no frame yields no targets (never guess a coordinate space)", () => {
+		expect(clickTargetsFromOcr([{ text: "OK", x: 10, y: 10, w: 20, h: 10, confidence: 0.9 }], null)).toEqual([]);
+	});
+	test("words inside the frame pass through unchanged", () => {
+		const t = clickTargetsFromOcr([{ text: "Compose", x: 40, y: 50, w: 100, h: 24, confidence: 0.9 }], FRAME_1280);
+		expect(t).toEqual([{ text: "Compose", x: 40, y: 50, w: 100, h: 24, confidence: 0.9 }]);
+	});
+	test("boxes beyond the frame edge are clamped, not dropped", () => {
+		const t = clickTargetsFromOcr([{ text: "Edge", x: 1270, y: 795, w: 60, h: 20, confidence: 0.8 }], FRAME_1280);
+		expect(t).toHaveLength(1);
+		expect(t[0].w).toBe(10); // 1280 - 1270
+		expect(t[0].h).toBe(5); // 800 - 795
+	});
+	test("a smaller frame (different window) drops out-of-range words", () => {
+		// The old bug: word boxes from a 1280-wide glance clamped against a
+		// 765-wide stale frame → every right-hand word collapsed to the edge.
+		const small = { kind: "window" as const, atX: 0, atY: 0, physW: 926, physH: 968, scaledW: 765, scaledH: 800 };
+		const t = clickTargetsFromOcr(
+			[
+				{ text: "Fine", x: 100, y: 100, w: 40, h: 12, confidence: 0.9 },
+				{ text: "Offscreen", x: 900, y: 100, w: 40, h: 12, confidence: 0.9 },
+			],
+			small,
+		);
+		expect(t.map(x => x.text)).toEqual(["Fine"]);
+	});
+});
 
 const SAMPLE = [
 	{ text: "Compose", x: 100, y: 200, w: 120, h: 30, confidence: 0.93 },
