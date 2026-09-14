@@ -1,5 +1,5 @@
 import { CameraWatchLoop } from "./camera-control";
-import { detectPlatformDriver } from "./desktop-drivers";
+import { detectOutputScale, detectPlatformDriver, physicalToLogical } from "./desktop-drivers";
 import { buildEyeGeometry, describeEyeTarget } from "./live-eye";
 import { ocrFrame } from "./screen-ocr";
 /**
@@ -157,6 +157,12 @@ const desktopControlSchema = z.object({
 		.max(20)
 		.optional()
 		.describe("Repeat count: 'live_click' double-click = 2; 'live_scroll' = wheel/Page steps (default: 1)."),
+	target: z
+		.string()
+		.optional()
+		.describe(
+			"Click target text for 'live_click'/'live_move' — matches an OCR word from the last eye/screenshot (e.g. \"Compose\", \"Send\") instead of raw x/y. Resolves to that word's frame-px center. Omit to use x/y.",
+		),
 	direction: z
 		.enum(["up", "down"])
 		.optional()
@@ -333,6 +339,99 @@ const LIVE_GATE_ACTIONS = new Set<string>([
 ]);
 const liveAuthorizedKinds = new Set<string>();
 
+/** --- Drive loop: per-action safety counters (clippy ScreenAgent pattern) - */
+
+/**
+ * Failure/abandonment guardrails for a model-driven loop: track consecutive
+ * failures, same-action repeats, and same-direction scrolls across live_*
+ * injection calls so a stuck model aborts instead of looping forever.
+ * Exported for tests; reset on session boundaries via resetDriveLoop().
+ */
+export interface DriveLoopState {
+	consecutiveFailures: number;
+	lastAction: string;
+	repeatCount: number;
+	/** Outcome of the last non-scroll action — the repeat streak only grows
+	 *  when the same action yields the SAME outcome (a changed outcome means
+	 *  something changed, so the streak restarts). */
+	lastOutcome: "success" | "failure" | "";
+	lastScrollDir: string;
+	scrollCount: number;
+}
+
+/** clippy parity: abort after 3 consecutive failures. The repeat streak only
+ *  counts same-action SAME-outcome runs (a changed outcome breaks the streak,
+ *  so probing looks don't abort); same-direction scrolls may run longer
+ *  (5) because scrolling-to-find is a legitimate pattern. */
+export const DRIVE_LOOP_MAX_FAILURES = 3;
+export const DRIVE_LOOP_MAX_SCROLLS = 5;
+export const DRIVE_LOOP_MAX_REPEATS = 3;
+const driveLoop: DriveLoopState = {
+	consecutiveFailures: 0,
+	lastAction: "",
+	repeatCount: 0,
+	lastOutcome: "",
+	lastScrollDir: "",
+	scrollCount: 0,
+};
+/** Observe one injection outcome. `succeeded` = action ran without error;
+ *  `scrollDir` = scroll direction for live_scroll ("up"/"down"/"left"/"right"). */
+export function driveLoopObserve(action: string, succeeded: boolean, scrollDir?: string): void {
+	const outcome = succeeded ? "success" : "failure";
+	if (succeeded) {
+		driveLoop.consecutiveFailures = 0;
+	} else {
+		driveLoop.consecutiveFailures++;
+	}
+	if (action === driveLoop.lastAction && outcome === driveLoop.lastOutcome) {
+		driveLoop.repeatCount++;
+	} else {
+		driveLoop.lastAction = action;
+		driveLoop.lastOutcome = outcome;
+		driveLoop.repeatCount = 1;
+	}
+	if (action === "live_scroll" && scrollDir) {
+		if (scrollDir === driveLoop.lastScrollDir) {
+			driveLoop.scrollCount++;
+		} else {
+			driveLoop.lastScrollDir = scrollDir;
+			driveLoop.scrollCount = 1;
+		}
+	} else if (action !== "live_scroll") {
+		driveLoop.lastScrollDir = "";
+		driveLoop.scrollCount = 0;
+	}
+}
+
+/** True when the loop must stop before attempting another injection. */
+export function driveLoopAbortReason(): string | null {
+	if (driveLoop.consecutiveFailures >= DRIVE_LOOP_MAX_FAILURES) {
+		return `aborted: ${driveLoop.consecutiveFailures} consecutive failures (limit ${DRIVE_LOOP_MAX_FAILURES}) — re-eye and re-plan, do not retry the same step`;
+	}
+	if (driveLoop.lastAction !== "live_scroll" && driveLoop.repeatCount >= DRIVE_LOOP_MAX_REPEATS && driveLoop.lastAction) {
+		return `aborted: "${driveLoop.lastAction}" repeated ${driveLoop.repeatCount}x with the same outcome (limit ${DRIVE_LOOP_MAX_REPEATS}) — the action isn't working, try another way`;
+	}
+	if (driveLoop.scrollCount >= DRIVE_LOOP_MAX_SCROLLS) {
+		return `aborted: scrolled ${driveLoop.lastScrollDir} ${driveLoop.scrollCount}x without finding the target (limit ${DRIVE_LOOP_MAX_SCROLLS}) — reverse or stop`;
+	}
+	return null;
+}
+
+/** Snapshot for tool-result details. */
+export function driveLoopStatus(): DriveLoopState {
+	return { ...driveLoop };
+}
+
+/** Reset between flows (tests, session restart). Exported for tests. */
+export function resetDriveLoop(): void {
+	driveLoop.consecutiveFailures = 0;
+	driveLoop.lastAction = "";
+	driveLoop.repeatCount = 0;
+	driveLoop.lastOutcome = "";
+	driveLoop.lastScrollDir = "";
+	driveLoop.scrollCount = 0;
+}
+
 function liveApprovalDecision(args: unknown): ToolApprovalDecision {
 	const action = (args as { action?: string } | undefined)?.action;
 	if (!action || !action.startsWith("live_")) return "read";
@@ -391,6 +490,349 @@ async function rememberFrame(
 	return frame;
 }
 
+/**
+ * Format the cursor-position verify verdict (nuphus mouse_verify pattern).
+ * Aimed and read positions must be in the SAME space (hyprland: logical,
+ * since cursorpos shares movecursor's space — probed identical 30ms apart;
+ * x11: xdotool pixels). Exported for tests.
+ */
+export function cursorVerifyNote(aimed: { x: number; y: number }, read: { x: number; y: number } | null): string {
+	if (!read) return "";
+	const dx = Math.abs(read.x - aimed.x);
+	const dy = Math.abs(read.y - aimed.y);
+	return dx <= 2 && dy <= 2
+		? ` Cursor verify OK (Δ${dx},${dy}px ≤2).`
+		: ` Cursor verify MISMATCH: aimed (${aimed.x},${aimed.y}), read (${read.x},${read.y}) (Δ${dx},${dy}px) — re-eye and retry before clicking.`;
+}
+
+/** --- Click targets (clickable OCR) ------------------------------------ */
+
+/** A clickable OCR word mapped into model-visible frame px — the same
+ *  coordinate contract as live_move/live_click x/y. The model matches
+ *  `text` to a UI label and passes x/y (or the whole box) to the pointer. */
+export interface ClickTarget {
+	text: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	confidence: number;
+}
+
+/** How many word boxes to surface per reading. A dense window easily
+ *  yields hundreds of words; the top-N by area covers buttons/labels/tabs
+ *  without flooding the result. */
+const MAX_CLICK_TARGETS = 40;
+
+/** Click targets of the most recent OCR'd capture, remembered so
+ *  live_move/live_click can take a `target` text ("Compose") instead of
+ *  raw coordinates. Module-level like lastInputFrame: one shared desktop. */
+let lastClickTargets: ClickTarget[] = [];
+
+/** Convert OCR word boxes into frame-px click targets, clamped into the
+ *  frame. Word boxes already arrive in the scaled frame's px space (both
+ *  live_eye and screenshot OCR the ≤1280x800 downscaled file, which is the
+ *  same coordinate contract live_* understands), so this only filters
+ *  junk and clamps edges. Prefers bigger boxes (buttons/labels) over
+ *  specks; keeps reading order. Returns [] when there is no frame. */
+function clickTargetsFromOcr(words: OcrWordBox[] | undefined, frame: InputFrame | null): ClickTarget[] {
+	if (!words || words.length === 0 || !frame) return [];
+	const targets: ClickTarget[] = [];
+	for (const b of words) {
+		const x = Math.max(0, Math.round(b.x));
+		const y = Math.max(0, Math.round(b.y));
+		const w = Math.round(b.w);
+		const h = Math.round(b.h);
+		// Drop boxes fully outside the frame (stale OCR from a resized window).
+		if (x >= frame.scaledW || y >= frame.scaledH) continue;
+		const clampedW = Math.min(w, frame.scaledW - x);
+		const clampedH = Math.min(h, frame.scaledH - y);
+		if (clampedW <= 0 || clampedH <= 0) continue;
+		targets.push({ text: b.text, x, y, w: clampedW, h: clampedH, confidence: b.confidence });
+	}
+	return targets
+		.sort((a, b) => b.w * b.h - a.w * a.h)
+		.slice(0, MAX_CLICK_TARGETS)
+		.sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+/** Format click targets compactly for the model — one per line, box + text. */
+export function formatClickTargets(targets: ClickTarget[], max = 20): string {
+	if (targets.length === 0) return "";
+	const lines = targets.slice(0, max).map(t => `  (${t.x},${t.y}) ${t.w}x${t.h} "${t.text}"`);
+	return `Clickable words (frame px — pass these as live_click x/y):\n${lines.join("\n")}`;
+}
+
+/** Remember this reading's click targets for `target`-based live_* calls.
+ *  Exported for tests to seed the matcher, and used by eye/screenshot. */
+export function rememberClickTargets(targets: ClickTarget[]): void {
+	lastClickTargets = targets;
+}
+
+/** Resolve a `target` text ("Compose", "Send") to the best remembered click
+ *  target. Case-insensitive substring match; prefers earlier (topmost)
+ *  matches so "OK" hits the dialog button, not body text. Returns frame-px
+ *  center of the box. */
+export function resolveClickTarget(text: string): { x: number; y: number; box: ClickTarget } | null {
+	const q = text.trim().toLowerCase();
+	if (!q) return null;
+	const matches = lastClickTargets.filter(t => t.text.toLowerCase().includes(q));
+	if (matches.length === 0) return null;
+	// Prefer exact match, then shortest text (a button label beats a
+	// sentence containing the word), then topmost.
+	const best = matches.sort((a, b) => {
+		const ea = a.text.toLowerCase() === q ? 0 : 1;
+		const eb = b.text.toLowerCase() === q ? 0 : 1;
+		if (ea !== eb) return ea - eb;
+		if (a.text.length !== b.text.length) return a.text.length - b.text.length;
+		return a.y - b.y || a.x - b.x;
+	})[0];
+	return { x: best.x + Math.round(best.w / 2), y: best.y + Math.round(best.h / 2), box: best };
+}
+
+/** --- Guardrails: final-action denylist + password-field detection ------- */
+
+/**
+ * Labels that commit an irreversible or externally-visible action. Clicks
+ * resolving to these words (or typing that names them) need an explicit
+ * human go-ahead — the drive loop refuses fail-closed instead of asking
+ * mid-flow (clippy AutomationSafety + nuphus strict-confirm pattern).
+ * Substring match on the lowercase label; keep entries word-like so
+ * "sender" doesn't trip on "send" — matching is token-aware (see below).
+ */
+export const FINAL_ACTION_DENYLIST = [
+	"send",
+	"submit",
+	"pay",
+	"buy",
+	"purchase",
+	"checkout",
+	"delete",
+	"remove",
+	"agree",
+	"accept",
+	"sign out",
+	"signout",
+	"log out",
+	"logout",
+	"publish",
+	"post",
+	"transfer",
+	"confirm",
+] as const;
+
+/** Tokens in on-screen text that suggest a password/secret field is focused. */
+const PASSWORD_HINTS = ["password", "passcode", "secret", "enter your pin", "2fa", "one-time code", "otp"];
+
+/** Token-aware denylist hit: whole-word (or whole-phrase) match, so "sender"
+ *  doesn't trip on "send" but 'Click "Send"' does. Exported for tests. */
+export function finalActionHit(label: string): string | null {
+	const q = label.trim().toLowerCase();
+	if (!q) return null;
+	const tokens = new Set(q.split(/[^a-z0-9]+/).filter(Boolean));
+	for (const entry of FINAL_ACTION_DENYLIST) {
+		if (entry.includes(" ")) {
+			if (q.includes(entry)) return entry;
+		} else if (tokens.has(entry)) {
+			return entry;
+		}
+	}
+	return null;
+}
+
+/** True when the remembered OCR text looks like a password/secret prompt.
+ *  Exported for tests. */
+export function looksLikePasswordPrompt(ocrText: string | undefined): boolean {
+	if (!ocrText) return false;
+	const q = ocrText.toLowerCase();
+	return PASSWORD_HINTS.some(h => q.includes(h));
+}
+
+/** Last full OCR reading (any of eye/screenshot/verify), kept for the
+ *  password-prompt check. Module-level like lastInputFrame. */
+let lastOcrText = "";
+
+/** Remember the latest full OCR reading for guardrail checks. */
+export function rememberOcrText(text: string): void {
+	lastOcrText = text;
+}
+
+/**
+ * Fail-closed guardrail for injection actions. Returns an error message when
+ * the action must NOT run, or null when it may proceed. Checks, in order:
+ * 1. `target` text against the final-action denylist (clicking "Send"/"Pay"…);
+ * 2. typed/key text that names a final action ("click Send", live_type "pay now");
+ * 3. password-prompt context for live_type (typing secrets needs a human).
+ * D004 preserved: approval gates still apply — this is an additional refusal
+ * layer, not a replacement.
+ */
+export function guardrailRefusal(action: string, params: { target?: string; keys?: string }): string | null {
+	if (params.target) {
+		const hit = finalActionHit(params.target);
+		if (hit) {
+			return `Refused: "${params.target}" matches final-action "${hit}" — this commits an irreversible or externally-visible action. Confirm with Peter out-of-band first, then act yourself.`;
+		}
+	}
+	if ((action === "live_type" || action === "live_key") && params.keys) {
+		const hit = finalActionHit(params.keys);
+		if (hit) {
+			return `Refused: typed text names final-action "${hit}" — this may commit an irreversible action. Confirm with Peter out-of-band first.`;
+		}
+		if (action === "live_type" && looksLikePasswordPrompt(lastOcrText)) {
+			return "Refused: the screen looks like a password/secret prompt — never type secrets via automation. Peter types passwords himself.";
+		}
+	}
+	return null;
+}
+
+
+/** --- Guardrails: restricted apps (terminal / agent CLI) ---------------- */
+
+/**
+ * Window classes that host a shell or the agent's own CLI/TUI. Typing or
+ * clicking into these is refused fail-closed: the agent already has a bash
+ * tool for shell work, and keystrokes into its own terminal risk
+ * self-injection (commands executed as Peter, session corruption).
+ * Matching is case-insensitive substring on the Wayland app-id / WM_CLASS.
+ */
+export const RESTRICTED_APP_CLASSES = [
+	"kitty",
+	"alacritty",
+	"foot",
+	"wezterm",
+	"gnome-terminal",
+	"konsole",
+	"xterm",
+	"terminator",
+	"tilix",
+	"hyper",
+	"iterm",
+	"terminal",
+	"cmd.exe",
+	"powershell",
+	"windowsterminal",
+] as const;
+
+/** True when the window class belongs to a restricted app. Exported for tests. */
+export function restrictedAppHit(winClass: string | undefined): string | null {
+	if (!winClass) return null;
+	const q = winClass.toLowerCase();
+	for (const entry of RESTRICTED_APP_CLASSES) {
+		if (q.includes(entry)) return entry;
+	}
+	return null;
+}
+
+/**
+ * Fail-closed refusal for live_type/live_click into restricted apps
+ * (terminals, agent CLI). live_move/live_key/live_scroll stay allowed —
+ * looking and navigating are harmless; only text injection and clicks
+ * (which can focus editors/buttons inside the terminal) are refused.
+ */
+export function restrictedAppRefusal(
+	action: string,
+	win: { class?: string; title?: string } | undefined,
+): string | null {
+	if (action !== "live_type" && action !== "live_click") return null;
+	const hit = restrictedAppHit(win?.class);
+	if (!hit) return null;
+	return `Refused: focused window "${win?.title ?? "(untitled)"}" is a ${hit} terminal — use the bash tool for shell work instead of typing/clicking into a terminal. Keystrokes here could self-inject into the agent's own session.`;
+}
+/**
+ * Validate-before-run (clippy validate-before-run pattern): every check that
+ * can fail WITHOUT touching the desktop runs here, before any backend
+ * subprocess. Bounds, target resolution, stale frame, and both guardrails.
+ * Returns { ok } or { error, code }. Exported for tests.
+ */
+export function validateInjection(params: {
+	action: string;
+	x?: number;
+	y?: number;
+	x2?: number;
+	y2?: number;
+	target?: string;
+	keys?: string;
+	frame: { scaledW: number; scaledH: number; kind: string; address?: string } | null;
+	focusedAddress: string | undefined;
+}): { ok: true; tx?: number; ty?: number } | { ok: false; error: string; code: string } {
+	const isPointer = params.action === "live_move" || params.action === "live_click" || params.action === "live_drag";
+	// 1. Guardrails first (cheapest, no frame needed).
+	const refusal = guardrailRefusal(params.action, { target: params.target, keys: params.keys });
+	if (refusal) return { ok: false, error: refusal, code: "guardrail_refusal" };
+	// Restricted-app check needs the window — represented here by class/title
+	// passed via keys-free params; the live path re-checks with the real win.
+	// 2. Pointer branches need a frame + coordinates.
+	if (isPointer) {
+		if (!params.frame) {
+			return {
+				ok: false,
+				error: "No screenshot frame yet. Take a desktop_control screenshot of the target window (default active_window) first — live pointer coordinates are frame px of that image.",
+				code: "no_frame",
+			};
+		}
+		if (params.frame.kind === "window" && params.frame.address !== params.focusedAddress) {
+			return {
+				ok: false,
+				error: "The focused window changed since the last screenshot. Retake a screenshot of the target window, then retry.",
+				code: "frame_stale",
+			};
+		}
+		let tx = params.x;
+		let ty = params.y;
+		if (params.target) {
+			const hit = resolveClickTarget(params.target);
+			if (!hit) {
+				return {
+					ok: false,
+					error: `No remembered OCR word matches "${params.target}". Take an eye/screenshot of the window first; live_click target matches words from the last reading (e.g. "Compose", "Send").`,
+					code: "target_not_found",
+				};
+			}
+			tx = hit.x;
+			ty = hit.y;
+		}
+		if (tx === undefined || ty === undefined) {
+			return {
+				ok: false,
+				error: `${params.action} requires x and y (frame px from the last screenshot), or target (OCR word from the last eye/screenshot).`,
+				code: "missing_xy",
+			};
+		}
+		// 3. Out-of-bounds reject (fail-closed — never inject blind coords).
+		if (tx < 0 || ty < 0 || tx >= params.frame.scaledW || ty >= params.frame.scaledH) {
+			return {
+				ok: false,
+				error: `Coordinates (${tx},${ty}) are outside the ${params.frame.scaledW}x${params.frame.scaledH} frame — re-eye and re-aim. Refusing to inject blind.`,
+				code: "out_of_bounds",
+			};
+		}
+		if (params.action === "live_drag" && (params.x2 === undefined || params.y2 === undefined)) {
+			return { ok: false, error: "live_drag requires x,y and x2,y2 (frame px).", code: "missing_xy2" };
+		}
+		if (
+			params.action === "live_drag" &&
+			params.x2 !== undefined &&
+			params.y2 !== undefined &&
+			(params.x2 < 0 || params.y2 < 0 || params.x2 >= params.frame.scaledW || params.y2 >= params.frame.scaledH)
+		) {
+			return {
+				ok: false,
+				error: `Drag end (${params.x2},${params.y2}) is outside the ${params.frame.scaledW}x${params.frame.scaledH} frame — re-eye and re-aim.`,
+				code: "out_of_bounds",
+			};
+		}
+		return { ok: true, tx, ty };
+	}
+	// 3b. Keyboard branches need their payload.
+	if (params.action === "live_type" && !params.keys) {
+		return { ok: false, error: "live_type requires 'keys' (the text to type).", code: "missing_text" };
+	}
+	if (params.action === "live_key" && !params.keys) {
+		return { ok: false, error: "live_key requires 'keys' (e.g. Return, ctrl+l, super+Return, space).", code: "missing_keys" };
+	}
+	return { ok: true };
+}
+
 type LiveImageBlock = Extract<AgentToolResult["content"][number], { type: "image" }>;
 
 interface LiveCapture {
@@ -431,6 +873,74 @@ async function captureLiveFrame(lead: string): Promise<LiveCapture | { error: st
 		frame,
 		framePath: finalPath,
 	};
+}
+
+/** --- Drive loop: settle (wait-for-quiet) ------------------------------ */
+
+/** A cheap UI-state fingerprint used to detect "the screen has stopped
+ *  changing" after an action. Combines the active-window identity with a
+ *  downscaled capture (hashed) so both layout shifts and content repaints
+ *  are caught without full OCR on every poll. */
+async function uiFingerprint(): Promise<string> {
+	const win = isSupportedDriver() ? await getDriverActiveWindow().catch(() => undefined) : undefined;
+	const stamp = Date.now();
+	const rawPath = path.join(os.tmpdir(), `aerys-settle-${stamp}.png`);
+	let img = "";
+	try {
+		const cap = await detectPlatformDriver().capture.capture(rawPath).catch(() => ({ code: 1, stderr: "capture threw" }));
+		if (cap.code === 0 && fs.existsSync(rawPath)) {
+			// Resize to a tiny grayscale-ish hash input so repaints dominate
+			// the digest and absolute scale doesn't matter. Short timeout:
+			// a wedged compositor (locked screen) must degrade to
+			// window-identity, never hang the drive loop.
+			const small = path.join(os.tmpdir(), `aerys-settle-${stamp}-small.png`);
+			const conv = await runCmd("convert", [rawPath, "-resize", "160x100!", small], { timeout: 4000 });
+			if (conv.code === 0 && fs.existsSync(small)) {
+				const buf = await fs.promises.readFile(small);
+				img = hashBytes(buf);
+			}
+			fs.rm(rawPath, { force: true }, () => {});
+			fs.rm(small, { force: true }, () => {});
+		}
+	} catch {
+		// best-effort; fingerprint degrades to window identity only
+	}
+	return `${win?.address ?? ""}|${win?.title ?? ""}|${img}`;
+}
+
+/** Tiny deterministic hash (FNV-1a) over a byte buffer. Exported for tests. */
+export function hashBytes(buf: Uint8Array): string {
+	let h = 0x811c9dc5;
+	for (let i = 0; i < buf.length; i++) {
+		h ^= buf[i];
+		h = Math.imul(h, 0x01000193);
+	}
+	return h >>> 0 ? h.toString(16) : "0";
+}
+
+/**
+ * Wait for the interface to stop changing ("settle"), giving up after
+ * `withinMs`. Polls every `intervalMs`; returns the number of polls that
+ * showed a *change* (0 = already quiet). Used by the drive loop between
+ * steps so the next eye/verify read sees the settled UI — clippy's
+ * settle(within:) pattern.
+ */
+export async function settle(withinMs = 2000, intervalMs = 250): Promise<number> {
+	const t0 = Date.now();
+	let prev = await uiFingerprint();
+	let changes = 0;
+	while (Date.now() - t0 < withinMs) {
+		await new Promise(r => setTimeout(r, intervalMs));
+		const cur = await uiFingerprint();
+		if (cur !== prev) {
+			changes++;
+			prev = cur;
+		} else if (changes > 0) {
+			// One stable sample after the last change = quiet.
+			break;
+		}
+	}
+	return changes;
 }
 
 /** Run argv steps sequentially with a small inter-step sleep. Returns error|null. */
@@ -556,12 +1066,20 @@ async function executeLiveAction(
 ): Promise<AgentToolResult> {
 	const okText = (text: string, extra?: Record<string, unknown>): AgentToolResult => ({
 		content: [{ type: "text", text }],
-		details: extra ?? {},
+		details: { driveLoop: driveLoopStatus(), ...(extra ?? {}) },
 	});
+	const okObserve = (actionName: string, text: string, extra?: Record<string, unknown>): AgentToolResult => {
+		driveLoopObserve(actionName, true, actionName === "live_scroll" ? (params.direction ?? undefined) : undefined);
+		return okText(text, extra);
+	};
 	const errText = (text: string, code?: string): AgentToolResult => ({
 		content: [{ type: "text", text }],
-		details: code ? { error: code } : {},
+		details: code ? { error: code, driveLoop: driveLoopStatus() } : { driveLoop: driveLoopStatus() },
 	});
+	const errObserve = (actionName: string, text: string, code?: string): AgentToolResult => {
+		driveLoopObserve(actionName, false, actionName === "live_scroll" ? (params.direction ?? undefined) : undefined);
+		return errText(text, code);
+	};
 
 	if (action === "live_mode_on") {
 		liveModeEnabled = true;
@@ -615,12 +1133,26 @@ async function executeLiveAction(
 		});
 	}
 
-	// ---- injection actions: opt-in gate first ----
+	// ---- injection actions: opt-in gate + drive-loop abort gate ----
 	if (!liveModeEnabled) {
 		return errText(
 			'App-control mode is OFF (D004 safety gate). Enable it with action "live_mode_on" first — live input drives your real desktop.',
 			"mode_off",
 		);
+	}
+	const abort = driveLoopAbortReason();
+	if (abort) {
+		return errText(
+			`Drive-loop guardrail tripped before "${action}": ${abort}.`,
+			"drive_loop_abort",
+		);
+	}
+	// Fail-closed final-action / password guardrail (phase-3): refuse before
+	// any backend work. Applies to live_click (target), live_type/live_key
+	// (keys naming a final action, or secrets into a password prompt).
+	const refusal = guardrailRefusal(action, { target: params.target, keys: params.keys });
+	if (refusal) {
+		return errText(refusal, "guardrail_refusal");
 	}
 	const probe = await probeBackends();
 	const win = await getDriverActiveWindow();
@@ -629,6 +1161,13 @@ async function executeLiveAction(
 			"No focused window to drive. Focus the target app first (focus_window / hyprctl) or click it yourself.",
 			"no_focused_window",
 		);
+	}
+	// Restricted-app guardrail: never type/click into a terminal or the
+	// agent's own CLI — the bash tool covers shell work, and keystrokes here
+	// risk self-injection. Checked after focus so the refusal names the app.
+	const appRefusal = restrictedAppRefusal(action, win);
+	if (appRefusal) {
+		return errText(appRefusal, "guardrail_refusal");
 	}
 	const isPointer = action === "live_move" || action === "live_click" || action === "live_drag";
 	const kind: InputKind =
@@ -662,7 +1201,14 @@ async function executeLiveAction(
 
 	const verify = params.verify !== false;
 	const withVerify = async (lead: string): Promise<AgentToolResult> => {
+		// Drive-loop bookkeeping: reaching verify means the injection ran.
+		// Central success observation for every live_* branch (clippy pattern).
+		driveLoopObserve(action, true, action === "live_scroll" ? (params.direction ?? undefined) : undefined);
 		if (!verify) return okText(lead);
+		// Drive loop: let the interface settle after the action before the
+		// verify read, so the verify frame reflects the settled UI (clippy's
+		// settle-within pattern) rather than a half-repainted frame.
+		const settleChanges = await settle(1500, 250);
 		// Sweep the previous verify frame first (same ephemerality contract as
 		// the eye glance — context keeps ~1 verify frame across a flow).
 		const swept = (await session?.dropLiveVerifyImages?.()) ?? 0;
@@ -673,7 +1219,7 @@ async function executeLiveAction(
 		// steer; the tool result stays a tiny one-liner.
 		const steerParts: string[] = [
 			cap.text,
-			`Verify frame after the live input action (ephemeral — replaced next verify;${swept > 0 ? ` swept ${swept} older verify frame(s)` : " no older verify frames in context"}).`,
+			`Verify frame after the live input action (ephemeral — replaced next verify;${swept > 0 ? ` swept ${swept} older verify frame(s)` : " no older verify frames in context"}${settleChanges > 0 ? `; settled after ${settleChanges} change(s)` : " (UI was already quiet)"}).`,
 		];
 		const modelSeesImages = session?.supportsVision?.() ?? true;
 		if (!modelSeesImages) {
@@ -691,6 +1237,7 @@ async function executeLiveAction(
 					steerParts.push(ocr.text.length > 8000 ? `${ocr.text.slice(0, 8000)}\n…[truncated]` : ocr.text);
 					// Durable copy: live-verify steers are swept like eye glances.
 					CameraWatchLoop.recordExternalOcr(ocr.text, "verify");
+					rememberOcrText(ocr.text);
 				}
 			}
 		}
@@ -726,40 +1273,57 @@ async function executeLiveAction(
 		);
 	};
 
-	// Stale-frame guard — applies to pointer AND keyboard alike: if the last
-	// window-scoped screenshot was of another window than the currently focused
-	// one, refuse. Injection must land in the intended window, not whatever
-	// grabbed focus since the screenshot.
-	const staleFrame = lastInputFrame;
-	if (staleFrame?.kind === "window" && staleFrame.address !== win.address) {
-		return errText(
-			`The focused window changed since the last screenshot (now "${win.title}"). Retake a screenshot of the target window, then retry.`,
-			"frame_stale",
-		);
-	}
 
+	// Validate-before-run: every fail-without-touching check (guardrails,
+	// frame presence/staleness, target resolution, bounds) runs BEFORE any
+	// backend subprocess. Failures stop and ask — nothing is injected.
+	const validation = validateInjection({
+		action,
+		x: params.x,
+		y: params.y,
+		x2: params.x2,
+		y2: params.y2,
+		target: params.target,
+		keys: params.keys,
+		frame: lastInputFrame,
+		focusedAddress: win.address,
+	});
+	if (!validation.ok) {
+		return errText(validation.error, validation.code);
+	}
 	if (isPointer) {
-		const frame = lastInputFrame;
-		if (!frame) {
-			return errText(
-				"No screenshot frame yet. Take a desktop_control screenshot of the target window (default active_window) first — live pointer coordinates are frame px of that image.",
-				"no_frame",
-			);
-		}
-		if (params.x === undefined || params.y === undefined) {
-			return errText(`${action} requires x and y (frame px from the last screenshot).`, "missing_xy");
-		}
-		const pt = frameToPhysical(frame, params.x, params.y);
+		const frame = lastInputFrame!;
+		const tx = validation.ok ? (validation.tx ?? params.x) : params.x;
+		const ty = validation.ok ? (validation.ty ?? params.y) : params.y;
+		const pt = frameToPhysical(frame, tx as number, ty as number);
+		// Aiming happens in LOGICAL units on Wayland (hyprctl movecursor and
+		// ydotool's mapped absolute moves), while frameToPhysical yields
+		// PHYSICAL capture pixels — convert by the monitor scale (no-op at
+		// scale 1, which is the common case).
+		const scale = await detectOutputScale();
+		const logical = physicalToLogical(pt.x, pt.y, scale);
 		// Aim with the compositor (exact); ydotool absolute moves are unreliable on
 		// Hyprland (no ABS cap on the virtual device — relative deltas + accel skew).
-		const aim = detectPlatformDriver().id === "hyprland" ? hyprMoveCursor(pt.x, pt.y) : null;
+		const aim = detectPlatformDriver().id === "hyprland" ? hyprMoveCursor(logical.x, logical.y) : null;
 		if (action === "live_move") {
 			const fail = await runSteps(
 				aim ? [aim] : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
 			);
-			if (fail) return errText(fail);
+			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
-			return withVerify(`Moved pointer to frame (${params.x},${params.y}) → physical (${pt.x},${pt.y}).`);
+			// Cursor-position verify (nuphus mouse_verify pattern): read the
+			// cursor back and demand ≤2px error vs the aim point (same space:
+			// hyprland logical, x11 pixels). Null/throw → reads unsupported,
+			// skip silently — the verify frame still covers us.
+			let posNote = "";
+			try {
+				posNote = cursorVerifyNote(logical, await detectPlatformDriver().capture.cursorPos());
+			} catch {
+				// reads unsupported — verify frame still covers us
+			}
+			return withVerify(
+				`Moved pointer to ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}).${posNote}`,
+			);
 		}
 		if (action === "live_click") {
 			const button = params.button ?? "left";
@@ -772,30 +1336,30 @@ async function executeLiveAction(
 						: [ydoMove(pt.x, pt.y), ydoClickButton(code, count)]
 					: [xdoClick(pt.x, pt.y, button, count)];
 			const fail = await runSteps(steps);
-			if (fail) return errText(fail);
+			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
 			return withVerify(
-				`${count > 1 ? `${count}× ` : ""}${button} click at frame (${params.x},${params.y}) → physical (${pt.x},${pt.y}) on "${win.title}".`,
+				`${count > 1 ? `${count}× ` : ""}${button} click ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}) on "${win.title}".`,
 			);
 		}
 		if (action === "live_drag") {
-			if (params.x2 === undefined || params.y2 === undefined)
-				return errText("live_drag requires x,y and x2,y2 (frame px).", "missing_xy2");
-			const end = frameToPhysical(frame, params.x2, params.y2);
+			const end = frameToPhysical(frame, params.x2!, params.y2!);
 			let steps: string[][];
 			if (backend === "ydotool") {
 				steps = aim ? [aim, ydoClickButton(YDO_DOWN)] : [ydoMove(pt.x, pt.y), ydoClickButton(YDO_DOWN)];
 				for (let i = 1; i <= 6; i++) {
 					const mx = pt.x + ((end.x - pt.x) * i) / 6;
 					const my = pt.y + ((end.y - pt.y) * i) / 6;
-					steps.push(aim ? hyprMoveCursor(mx, my) : ydoMove(mx, my));
+					// Waypoints interpolate in physical px; aim calls need logical.
+					const wl = physicalToLogical(mx, my, scale);
+					steps.push(aim ? hyprMoveCursor(wl.x, wl.y) : ydoMove(wl.x, wl.y));
 				}
 				steps.push(ydoClickButton(YDO_UP));
 			} else {
 				steps = [xdoDrag(pt.x, pt.y, end.x, end.y)];
 			}
 			const fail = await runSteps(steps, 24);
-			if (fail) return errText(fail);
+			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
 			return withVerify(`Dragged frame (${params.x},${params.y}) → (${params.x2},${params.y2}).`);
 		}
@@ -803,7 +1367,6 @@ async function executeLiveAction(
 
 	if (action === "live_type") {
 		const text = params.keys ?? "";
-		if (!text) return errText("live_type requires 'keys' (the text to type).", "missing_text");
 		if (chain.length === 0) {
 			return errText(
 				`No typing backend available (need ydotool+daemon, wtype, or xdotool on XWayland). Probe: ydotool=${probe.ydotool}/${probe.ydotoold ? "up" : "down"}, wtype=${probe.wtype}, xdotool=${probe.xdotool}.`,
@@ -811,14 +1374,13 @@ async function executeLiveAction(
 			);
 		}
 		const fail = await typeTextWith(chain, text);
-		if (fail) return errText(fail);
+		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
 		return withVerify(`Typed ${text.length} chars into "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`);
 	}
 
 	if (action === "live_key") {
 		const spec = params.keys ?? "";
-		if (!spec) return errText("live_key requires 'keys' (e.g. Return, ctrl+l, super+Return, space).", "missing_keys");
 		if (chain.length === 0) {
 			return errText(
 				`No keyboard backend available (need ydotool+daemon, wtype, or xdotool on XWayland). Probe: ydotool=${probe.ydotool}/${probe.ydotoold ? "up" : "down"}, wtype=${probe.wtype}, xdotool=${probe.xdotool}.`,
@@ -826,7 +1388,7 @@ async function executeLiveAction(
 			);
 		}
 		const fail = await keyTextWith(chain, spec);
-		if (fail) return errText(fail);
+		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
 		return withVerify(`Sent keys "${spec}" to "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`);
 	}
@@ -837,7 +1399,7 @@ async function executeLiveAction(
 		if (backend === "xdotool") {
 			const btn = dir === "up" ? "4" : "5";
 			const fail = await runSteps([["xdotool", "click", "--repeat", String(count), "--delay", "60", btn]]);
-			if (fail) return errText(fail);
+			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
 			return withVerify(`Wheel-scrolled ${dir} ${count}× on XWayland window "${win.title}".`);
 		}
@@ -852,7 +1414,7 @@ async function executeLiveAction(
 		const events: string[] = [];
 		if (chord) for (let i = 0; i < count; i++) events.push(`${chord[0]}:1`, `${chord[0]}:0`);
 		const fail = await runSteps([ydoKeyEvents(events)]);
-		if (fail) return errText(fail);
+		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
 		return withVerify(
 			`Scrolled ${dir} ${count}× (Page_${dir === "up" ? "Up" : "Down"} emulation — ydotool has no wheel).`,
@@ -1428,6 +1990,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				let shotOcrError: string | undefined;
 				let shotOcrMode: "native" | "upscaled" | undefined;
 				let shotOcrMs0 = 0;
+				let shotClickTargets: ClickTarget[] = [];
 				if (shotWantOcr) {
 					shotOcrMs0 = Date.now();
 					const shotOcr = await ocrFrame(finalPath, { lang: params.ocrLang });
@@ -1437,6 +2000,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					// Durable copy: screenshot tool results are prunable, so the
 					// full reading also lands in the watch transcript (the book).
 					if (shotOcrText) CameraWatchLoop.recordExternalOcr(shotOcrText, "screenshot");
+					if (shotOcrText) rememberOcrText(shotOcrText);
+					// Clickable-OCR: word boxes → frame-px click targets the model
+					// can pass to live_move/live_click (or target: "Compose").
+					shotClickTargets = clickTargetsFromOcr(shotOcr.words, remembered);
+					if (shotClickTargets.length > 0) rememberClickTargets(shotClickTargets);
 				}
 				const shotTargetDesc = targetWindow
 					? `window "${targetWindow.title}" (${targetWindow.class}) [${targetWindow.size[0]}x${targetWindow.size[1]}]`
@@ -1451,6 +2019,8 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						`On-screen text (${shotOcrText.length} chars, tesseract ${shotOcrMode ?? "native"}):`,
 						shotOcrText.length > 8000 ? `${shotOcrText.slice(0, 8000)}\n…[truncated]` : shotOcrText,
 					);
+					const ct = formatClickTargets(shotClickTargets);
+					if (ct) shotTextParts.push(ct);
 				} else if (shotWantOcr && shotOcrError) {
 					shotTextParts.push(`OCR failed: ${shotOcrError}`);
 				} else if (shotWantOcr) {
@@ -1479,6 +2049,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								...(shotOcrError ? { ocrError: shotOcrError } : {}),
 							}
 						: {}),
+					...(shotClickTargets.length > 0 ? { clickTargets: shotClickTargets } : {}),
 				};
 
 				return {
@@ -1581,6 +2152,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				let ocrError: string | undefined;
 				let ocrMs0 = 0;
 				let ocrMode: "native" | "upscaled" | undefined;
+				let eyeClickTargets: ClickTarget[] = [];
 				if (wantOcr) {
 					ocrMs0 = Date.now();
 					const ocr = await ocrFrame(finalPath, { lang: params.ocrLang });
@@ -1591,6 +2163,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					// so record the full reading in the watch transcript (the book)
 					// where watch_transcript keeps it available every turn.
 					if (ocrText) CameraWatchLoop.recordExternalOcr(ocrText, "eye");
+					if (ocrText) rememberOcrText(ocrText);
+					// Clickable-OCR: word boxes → frame-px click targets.
+					eyeClickTargets = clickTargetsFromOcr(ocr.words, lastInputFrame);
+					if (eyeClickTargets.length > 0) rememberClickTargets(eyeClickTargets);
 				}
 				const parts: string[] = [
 					`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).`,
@@ -1600,12 +2176,13 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						`On-screen text (${ocrText.length} chars, tesseract ${ocrMode ?? "native"}):`,
 						ocrText.length > 8000 ? `${ocrText.slice(0, 8000)}\n…[truncated]` : ocrText,
 					);
+					const ct = formatClickTargets(eyeClickTargets);
+					if (ct) parts.push(ct);
 				} else if (wantOcr && ocrError) {
 					parts.push(`OCR failed: ${ocrError}`);
 				} else if (wantOcr) {
 					parts.push("OCR produced no text (frame may contain no readable text).");
 				}
-
 				// The tool result stays small & human-friendly: the scanning model
 				// gets the full picture (pixels + OCR text) through the hidden
 				// steer below, and the visible call bar shows only a one-liner.
@@ -1635,6 +2212,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 									liveEye: { at: timestamp },
 									filePath: finalPath,
 									targetDesc,
+									...(eyeClickTargets.length > 0 ? { clickTargets: eyeClickTargets } : {}),
 								},
 								attribution: "agent",
 							},
@@ -1665,6 +2243,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						...(wantOcr
 							? { ocrText, ocrMode, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) }
 							: {}),
+						...(eyeClickTargets.length > 0 ? { clickTargets: eyeClickTargets } : {}),
 					} as unknown as Record<string, unknown>,
 				};
 			}

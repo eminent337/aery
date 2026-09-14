@@ -20,11 +20,26 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+/** One OCR word and its bounding box in the frame's native pixel space.
+ *  Click-target primitive: the model matches `text` to a UI label, then
+ *  passes the box to live_move/live_click. (Agent-S s3 / waywarp pattern:
+ *  tesseract TSV word boxes, not a vision model.) */
+export interface OcrWordBox {
+	text: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	confidence: number;
+}
+
 export interface OcrFrameResult {
 	text: string;
 	error?: string;
 	mode: "native" | "upscaled";
 	ms: number;
+	/** Word-level boxes in native frame pixels (present when TSV was run). */
+	words?: OcrWordBox[];
 }
 
 async function runCmd(
@@ -61,7 +76,57 @@ function nonWs(text: string): number {
 	return text.replace(/\s/g, "").length;
 }
 
-/** Run tesseract on one image file with the proven single-threaded tuning. */
+/** Run tesseract TSV on one image file with the same proven single-threaded
+ *  tuning as runTess. TSV yields word-level bounding boxes (the
+ *  clickable-OCR primitive); this pass's stdout text is NOT used for the
+ *  reading — the plain runTess pass owns the text layer. */
+async function runTessTsv(
+	imgPath: string,
+	opts: { lang?: string; timeoutMs?: number },
+): Promise<{ stdout: string; stderr: string; code: number }> {
+	return runCmd("tesseract", [imgPath, "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", "6", "tsv"], {
+		timeout: opts.timeoutMs ?? 30_000,
+		env: { OMP_THREAD_LIMIT: "1" },
+	});
+}
+
+/**
+ * Parse tesseract TSV into word boxes. TSV columns:
+ * level page block par line word left top width height conf text.
+ * Level-5 rows are words; conf is 0..100 (-1 on skipped rows). Coordinates
+ * come back in the image's own pixel space; `divisor` folds an upscaled
+ * pass back to native pixels. Rows with empty text, non-finite or
+ * non-positive geometry are dropped.
+ */
+export function parseTsvWordBoxes(tsv: string, divisor = 1): OcrWordBox[] {
+	const boxes: OcrWordBox[] = [];
+	const lines = tsv.split("\n");
+	for (const line of lines.slice(1)) {
+		const cols = line.split("\t");
+		if (cols.length < 12) continue;
+		if (Number(cols[0]) !== 5) continue;
+		const text = (cols[11] ?? "").trim();
+		const conf = Number(cols[10]);
+		const left = Number(cols[6]);
+		const top = Number(cols[7]);
+		const width = Number(cols[8]);
+		const height = Number(cols[9]);
+		if (!text) continue;
+		if (![left, top, width, height, conf].every(Number.isFinite)) continue;
+		if (width <= 0 || height <= 0 || conf < 0) continue;
+		const d = divisor > 0 ? divisor : 1;
+		boxes.push({
+			text,
+			x: Math.round(left / d),
+			y: Math.round(top / d),
+			w: Math.max(1, Math.round(width / d)),
+			h: Math.max(1, Math.round(height / d)),
+			confidence: Math.round(conf) / 100,
+		});
+	}
+	return boxes;
+}
+
 async function runTess(
 	imgPath: string,
 	opts: { lang?: string; timeoutMs?: number },
@@ -86,6 +151,7 @@ export async function ocrFrame(
 	let text = "";
 	let error: string | undefined;
 	let mode: "native" | "upscaled" = "native";
+	let words: OcrWordBox[] | undefined;
 
 	const res = await runTess(imgPath, opts);
 	if (res.code === 0) {
@@ -93,6 +159,11 @@ export async function ocrFrame(
 	} else {
 		error = res.stderr || `tesseract exit ${res.code}`;
 	}
+
+	// Word boxes ride on the native pass by default; the upscaled branch
+	// below re-runs TSV (divisor 2) only when it wins the text comparison.
+	const tsv = await runTessTsv(imgPath, opts);
+	if (tsv.code === 0) words = parseTsvWordBoxes(tsv.stdout);
 
 	const sparse = nonWs(text) < 20;
 	const dims = await identifyDims(imgPath);
@@ -105,10 +176,14 @@ export async function ocrFrame(
 				text = upRes.stdout.trim();
 				error = undefined;
 				mode = "upscaled";
+				// Boxes must land in native pixels: re-run TSV on the upscaled
+				// image and fold coords back with divisor 2.
+				const upTsv = await runTessTsv(upscale, opts);
+				if (upTsv.code === 0) words = parseTsvWordBoxes(upTsv.stdout, 2);
 			}
 		}
 		fs.rm(upscale, { force: true }, () => {});
 	}
 
-	return { text, error, mode, ms: Date.now() - t0 };
+	return { text, error, mode, ms: Date.now() - t0, ...(words ? { words } : {}) };
 }

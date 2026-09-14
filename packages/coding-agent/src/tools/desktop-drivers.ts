@@ -55,6 +55,81 @@ export interface DesktopDriver {
 	run(cmd: string, args: string[], opts?: { timeout?: number; env?: NodeJS.ProcessEnv }): Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
+/** --- Output scale (physical px → logical units) ----------------------- */
+
+/**
+ * Wayland compositors take pointer positions in LOGICAL units, while grim
+ * captures PHYSICAL pixels — on a scale≠1 monitor these diverge by the
+ * monitor's scale factor (waywarp-scanner's core lesson). Auto-detect the
+ * active scale: hyprctl → swaymsg → wlr-randr, falling back to 1 (indistinguishable
+ * from a genuinely unscaled screen, which is the common case). Result is
+ * cached briefly: scale changes mid-session are rare and re-querying per
+ * pointer action would add a subprocess to every click.
+ */
+let scaleCache: { value: number; at: number } | null = null;
+const SCALE_CACHE_MS = 30_000;
+
+export async function detectOutputScale(): Promise<number> {
+	if (scaleCache && Date.now() - scaleCache.at < SCALE_CACHE_MS) return scaleCache.value;
+	// 1. Hyprland: monitors -j → [ {scale: 1.5, ...} ]
+	try {
+		const res = await runCmd("hyprctl", ["monitors", "-j"], { timeout: 4000 });
+		if (res.code === 0) {
+			const monitors = JSON.parse(res.stdout) as Array<{ scale?: number }>;
+			const scale = monitors.find(m => typeof m.scale === "number" && m.scale > 0)?.scale;
+			if (scale) {
+				scaleCache = { value: scale, at: Date.now() };
+				return scale;
+			}
+		}
+	} catch {
+		// fall through
+	}
+	// 2. sway: swaymsg -t get_outputs → [ {scale: 1.25, ...} ]
+	try {
+		const res = await runCmd("swaymsg", ["-t", "get_outputs"], { timeout: 4000 });
+		if (res.code === 0) {
+			const outputs = JSON.parse(res.stdout) as Array<{ scale?: number }>;
+			const scale = outputs.find(o => typeof o.scale === "number" && o.scale > 0)?.scale;
+			if (scale) {
+				scaleCache = { value: scale, at: Date.now() };
+				return scale;
+		}
+		}
+	} catch {
+		// fall through
+	}
+	// 3. wlr-randr (parse "Scale: 1.25" style lines). Last — its output shape
+	// varies by compositor.
+	try {
+		const res = await runCmd("wlr-randr", [], { timeout: 4000 });
+		if (res.code === 0) {
+			const m = /Scale:\s*([0-9.]+)/.exec(res.stdout);
+			const scale = m ? Number(m[1]) : 0;
+			if (scale > 0) {
+				scaleCache = { value: scale, at: Date.now() };
+				return scale;
+			}
+		}
+	} catch {
+		// fall through
+	}
+	scaleCache = { value: 1, at: Date.now() };
+	return 1;
+}
+
+/** Physical compositor pixels → logical pointer units (the space
+ * `hyprctl movecursor`/`cursorpos` and ydotool's mapped absolute moves use). */
+export function physicalToLogical(x: number, y: number, scale: number): { x: number; y: number } {
+	if (!(scale > 0)) return { x, y };
+	return { x: Math.round(x / scale), y: Math.round(y / scale) };
+}
+
+/** Test hook: clear the cached scale so probes re-detect. */
+export function clearScaleCache(): void {
+	scaleCache = null;
+}
+
 /** Detect which driver owns this box. Pure env/platform check — no I/O. */
 export function detectPlatformId(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): PlatformId {
 	if (platform === "darwin") return "macos";
@@ -159,7 +234,9 @@ const hyprlandDriver: DesktopDriver = {
 	capture: {
 		async capture(tmpPath: string, geometry?: string) {
 			const args = geometry ? ["-g", geometry, tmpPath] : [tmpPath];
-			const res = await runCmd("grim", args);
+			// Short timeout: a locked/wedged compositor must fail fast so
+			// settle() degrades instead of hanging the drive loop.
+			const res = await runCmd("grim", args, { timeout: 4000 });
 			return { code: res.code, stderr: res.stderr };
 		},
 		async cursorPos() {
