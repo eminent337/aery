@@ -220,6 +220,12 @@ const desktopControlSchema = z.object({
 		.string()
 		.optional()
 		.describe("Tesseract language for 'ocr' (default: 'eng'; requires the language pack in /usr/share/tessdata)."),
+	textOnly: z
+		.boolean()
+		.optional()
+		.describe(
+			"For 'live_eye': skip the base64 image read entirely and return OCR text + clickTargets only (child-process drives read words, not pixels). Cuts ~100-300ms of PNG read/encode per glance.",
+		),
 });
 
 export type DesktopControlParams = z.infer<typeof desktopControlSchema>;
@@ -313,6 +319,29 @@ async function getDriverWindows(): Promise<DesktopWindowInfo[]> {
 async function getDriverActiveWindow(): Promise<DesktopWindowInfo | undefined> {
 	return detectPlatformDriver().windows.activeWindow();
 }
+
+/**
+ * Focus fast path: dispatch focus by window address and confirm with a short
+ * poll (default 5 × 120ms). Returns the focused window or an error string.
+ * Exported for tests and the browser-drive harness.
+ */
+export async function focusWindowFast(
+	address: string,
+	polls = 5,
+	pollMs = 120,
+): Promise<DesktopWindowInfo | { error: string }> {
+	const driver = detectPlatformDriver();
+	if (!isSupportedDriver()) return { error: `live input is not supported on this platform yet (${driver.label}).` };
+	const err = await driver.windows.focusWindow(address);
+	if (err) return { error: err };
+	for (let i = 0; i < polls; i++) {
+		await new Promise(r => setTimeout(r, pollMs));
+		const win = await driver.windows.activeWindow().catch(() => undefined);
+		if (win?.address === address) return win;
+	}
+	return { error: `window ${address} did not become active after ${polls} polls — focus it yourself and retry.` };
+}
+
 /* ================= Live desktop app-control (D002/D004) =================
  * Model-visible coordinate frame = the last screenshot this tool returned (a window
  * or the full display, downscaled to ≤ maxWidth×maxHeight). live_* actions inject
@@ -1237,21 +1266,25 @@ async function executeLiveAction(
 		);
 	}
 
-	const verify = params.verify !== false;
-	const withVerify = async (lead: string): Promise<AgentToolResult> => {
-		// Drive-loop bookkeeping: reaching verify means the injection ran.
-		// Central success observation for every live_* branch (clippy pattern).
-		driveLoopObserve(action, true, action === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
-		if (!verify) return okText(lead);
-		// Drive loop: let the interface settle after the action before the
-		// verify read, so the verify frame reflects the settled UI (clippy's
-		// settle-within pattern) rather than a half-repainted frame.
-		const settleChanges = await settle(1500, 250);
-		// Sweep the previous verify frame first (same ephemerality contract as
-		// the eye glance — context keeps ~1 verify frame across a flow).
-		const swept = (await session?.dropLiveVerifyImages?.()) ?? 0;
-		const cap = await captureLiveFrame(lead);
-		if ("error" in cap) return okText(`${lead} (verify screenshot failed: ${cap.error})`);
+const verify = params.verify !== false;
+const withVerify = async (lead: string): Promise<AgentToolResult> => {
+	// Drive-loop bookkeeping: reaching verify means the injection ran.
+	// Central success observation for every live_* branch (clippy pattern).
+	driveLoopObserve(action, true, action === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
+	if (!verify) return okText(lead);
+	// Drive loop: let the interface settle after the action before the
+	// verify read, so the verify frame reflects the settled UI (clippy's
+	// settle-within pattern) rather than a half-repainted frame. Fast
+	// path first (one fingerprint + one change-budgeted re-sample):
+	// cheap reads like key/type land here; slower changes still settle
+	// via the capped loop. LIVE_SETTLE_MS overrides the default 800ms.
+	const settleMs = Number(process.env.LIVE_SETTLE_MS ?? 800);
+	const settleChanges = await settle(settleMs, 250);
+	// Sweep the previous verify frame first (same ephemerality contract as
+	// the eye glance — context keeps ~1 verify frame across a flow).
+	const swept = (await session?.dropLiveVerifyImages?.()) ?? 0;
+	const cap = await captureLiveFrame(lead);
+	if ("error" in cap) return okText(`${lead} (verify screenshot failed: ${cap.error})`);
 		// Like live_eye: deliver the full verify capture (OCR text for a
 		// visionless model, pixels+OCR for a vision-capable one) as a hidden
 		// steer; the tool result stays a tiny one-liner.
@@ -1447,11 +1480,14 @@ async function executeLiveAction(
 				"no_scroll",
 			);
 		// ydotool: no REL_WHEEL in v1 — emulate Page_Up / Page_Down.
+		// Coalesced: count rides in ONE ydotool call (no per-step sleep),
+		// and with verify:false the settle/verify capture is skipped, so a
+		// multi-step scroll is one fast call + the caller's re-eye.
 		const token = dir === "up" ? "pageup" : "pagedown";
 		const chord = parseChord(token);
 		const events: string[] = [];
 		if (chord) for (let i = 0; i < count; i++) events.push(`${chord[0]}:1`, `${chord[0]}:0`);
-		const fail = await runSteps([ydoKeyEvents(events)]);
+		const fail = await runSteps([ydoKeyEvents(events)], 0);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
 		return withVerify(
@@ -1565,9 +1601,18 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						details: { error: fail },
 					};
 				}
+				// Fast-path confirm: short poll so the caller knows the focus
+				// landed (5 × 120ms ≈ 0.6s max, usually the first poll).
+				const confirmed = await focusWindowFast(match.address);
+				if ("error" in confirmed) {
+					return {
+						content: [{ type: "text", text: `Focus dispatched to "${match.title}" but ${confirmed.error}` }],
+						details: { error: "focus_unconfirmed", focused: match },
+					};
+				}
 				return {
-					content: [{ type: "text", text: `Focused window: "${match.title}" (class: ${match.class})` }],
-					details: { focused: match },
+					content: [{ type: "text", text: `Focused window: "${confirmed.title}" (class: ${confirmed.class})` }],
+					details: { focused: confirmed },
 				};
 			}
 
@@ -2124,10 +2169,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// path ("re-eye and re-plan") — clear the counters so the model
 				// can act on what it sees instead of staying locked out.
 				resetDriveLoop();
-				const includeBase64 = params.includeBase64 ?? true;
-				const timestamp = Date.now();
-				const tmpRaw = path.join(os.tmpdir(), `aerys-eye-${timestamp}-raw.png`);
-				const tmpFinal = path.join(os.tmpdir(), `aerys-eye-${timestamp}.png`);
+			const includeBase64 = params.includeBase64 ?? true;
+			const textOnly = params.textOnly ?? false;
+			const timestamp = Date.now();
+			const tmpRaw = path.join(os.tmpdir(), `aerys-eye-${timestamp}-raw.png`);
+			const tmpFinal = path.join(os.tmpdir(), `aerys-eye-${timestamp}.png`);
 
 				// Resolve what to look at: explicit region > window target > active window.
 				let geometry: string | undefined;
@@ -2188,8 +2234,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				try {
 					eyeFrame = await rememberFrame(targetWindow, geometry, tmpRaw, finalPath);
 				} catch {}
+				// textOnly fast path (child-process drives): skip the base64
+				// read entirely — the caller only needs OCR text + clickTargets.
 				let base64 = "";
-				if (includeBase64) {
+				if (includeBase64 && !textOnly) {
 					try {
 						base64 = (await fs.promises.readFile(finalPath)).toString("base64");
 					} catch {}

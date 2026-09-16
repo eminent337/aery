@@ -76,17 +76,26 @@ function nonWs(text: string): number {
 	return text.replace(/\s/g, "").length;
 }
 
-/** Run tesseract TSV on one image file with the same proven single-threaded
- *  tuning as runTess. TSV yields word-level bounding boxes (the
- *  clickable-OCR primitive); this pass's stdout text is NOT used for the
- *  reading — the plain runTess pass owns the text layer. */
+/** Thread env for tesseract. Single-threaded (OMP_THREAD_LIMIT=1) is the
+ *  proven tuning on this 4-core box: 2 threads tie (~1.55s), 3+ threads
+ *  contend badly (~2.3s OMP=3, ~7s OMP=4). OCR_FAST is accepted but
+ *  currently maps to the same single-threaded value; keep it for a future
+ *  box with more cores. */
+function ocrThreadEnv(): NodeJS.ProcessEnv {
+	return { OMP_THREAD_LIMIT: "1" };
+}
+
+/** Run tesseract TSV on one image file. Engine (--oem 1) and layout (--psm
+ *  6) stay fixed. TSV yields word-level bounding boxes (the clickable-OCR
+ *  primitive); this pass's stdout text is NOT used for the reading — the
+ *  plain runTess pass owns the text layer. */
 async function runTessTsv(
 	imgPath: string,
 	opts: { lang?: string; timeoutMs?: number },
 ): Promise<{ stdout: string; stderr: string; code: number }> {
 	return runCmd("tesseract", [imgPath, "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", "6", "tsv"], {
 		timeout: opts.timeoutMs ?? 30_000,
-		env: { OMP_THREAD_LIMIT: "1" },
+		env: ocrThreadEnv(),
 	});
 }
 
@@ -133,7 +142,7 @@ async function runTess(
 ): Promise<{ stdout: string; stderr: string; code: number }> {
 	return runCmd("tesseract", [imgPath, "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", "6"], {
 		timeout: opts.timeoutMs ?? 30_000,
-		env: { OMP_THREAD_LIMIT: "1" },
+		env: ocrThreadEnv(),
 	});
 }
 
@@ -153,7 +162,7 @@ export async function ocrFrame(
 	let mode: "native" | "upscaled" = "native";
 	let words: OcrWordBox[] | undefined;
 
-	const res = await runTess(imgPath, opts);
+	const [res, tsv] = await Promise.all([runTess(imgPath, opts), runTessTsv(imgPath, opts)]);
 	if (res.code === 0) {
 		text = res.stdout.trim();
 	} else {
@@ -162,7 +171,8 @@ export async function ocrFrame(
 
 	// Word boxes ride on the native pass by default; the upscaled branch
 	// below re-runs TSV (divisor 2) only when it wins the text comparison.
-	const tsv = await runTessTsv(imgPath, opts);
+	// Text + boxes run concurrently in separate tesseract processes, so the
+	// pair costs ~one pass instead of two serial passes.
 	if (tsv.code === 0) words = parseTsvWordBoxes(tsv.stdout);
 
 	const sparse = nonWs(text) < 20;

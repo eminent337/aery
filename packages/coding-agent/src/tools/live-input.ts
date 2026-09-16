@@ -40,9 +40,29 @@ async function hasBin(name: string): Promise<boolean> {
 	}
 }
 
+/** Cached probe: binary presence never changes mid-session and the daemon
+ *  socket only flips from absent→present (ensureYdotoold's own re-probe
+ *  covers that transition), so each live_* call doesn't need 4 fresh
+ *  subprocesses. `clearProbeCache()` resets for tests. */
+let probeCache: BackendProbe | null = null;
+
 export async function probeBackends(): Promise<BackendProbe> {
+	if (probeCache) {
+		// Re-check only the daemon socket (cheap existsSync, no subprocess) —
+		// this is the one bit that can flip from absent to present.
+		if (!probeCache.ydotoold && (await hasYdotooldSocket())) {
+			probeCache = { ...probeCache, ydotoold: true };
+		}
+		return probeCache;
+	}
 	const [ydotool, xdotool, wtype] = await Promise.all([hasBin("ydotool"), hasBin("xdotool"), hasBin("wtype")]);
-	return { ydotool, ydotoold: await hasYdotooldSocket(), xdotool, wtype };
+	probeCache = { ydotool, ydotoold: await hasYdotooldSocket(), xdotool, wtype };
+	return probeCache;
+}
+
+/** Test hook: drop the cached probe so the next call re-detects. */
+export function clearProbeCache(): void {
+	probeCache = null;
 }
 
 async function hasYdotooldSocket(): Promise<boolean> {
