@@ -125,6 +125,38 @@ export function physicalToLogical(x: number, y: number, scale: number): { x: num
 	return { x: Math.round(x / scale), y: Math.round(y / scale) };
 }
 
+/** Monitor reserved zones (waybar/pannels) in physical px. Layer-shell surfaces
+ * are positioned inside the USABLE area, so an overlay must subtract these or
+ * it lands offset by the bar height. Detects via hyprctl; zeros when unknown. */
+let reservedCache: { value: { left: number; top: number; right: number; bottom: number }; at: number } | null = null;
+const RESERVED_CACHE_MS = 30_000;
+export async function detectReservedArea(): Promise<{ left: number; top: number; right: number; bottom: number }> {
+	const zero = { left: 0, top: 0, right: 0, bottom: 0 };
+	if (reservedCache && Date.now() - reservedCache.at < RESERVED_CACHE_MS) return reservedCache.value;
+	try {
+		const res = await runCmd("hyprctl", ["monitors", "-j"], { timeout: 4000 });
+		if (res.code === 0) {
+			const monitors = JSON.parse(res.stdout) as Array<{ reserved?: number[]; focused?: boolean }>;
+			const mon = monitors.find(m => m.focused) ?? monitors[0];
+			const r = mon?.reserved;
+			if (Array.isArray(r) && r.length === 4) {
+				const value = { left: r[0], top: r[1], right: r[2], bottom: r[3] };
+				reservedCache = { value, at: Date.now() };
+				return value;
+			}
+		}
+	} catch {
+		// fall through
+	}
+	reservedCache = { value: zero, at: Date.now() };
+	return zero;
+}
+
+/** Test hook: clear the cached reserved zones so probes re-detect. */
+export function clearReservedCache(): void {
+	reservedCache = null;
+}
+
 /** Test hook: clear the cached scale so probes re-detect. */
 export function clearScaleCache(): void {
 	scaleCache = null;

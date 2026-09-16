@@ -1,7 +1,17 @@
 import { CameraWatchLoop } from "./camera-control";
-import { detectOutputScale, detectPlatformDriver, physicalToLogical } from "./desktop-drivers";
+import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
 import { buildEyeGeometry, describeEyeTarget } from "./live-eye";
 import { ocrFrame } from "./screen-ocr";
+import {
+	boundingBox,
+	frameRectToPhysical,
+	highlightColor,
+	highlightOverlayScript,
+	layerGeometry,
+	toBands,
+	type FrameRect,
+	type HighlightRect,
+} from "./eye-highlight";
 /**
  * Desktop Control & Screen Vision Tool.
  *
@@ -85,6 +95,7 @@ const desktopControlSchema = z.object({
 			"screenshot",
 			"list_windows",
 			"live_eye",
+			"highlight",
 			"focus_window",
 			"close_window",
 			"switch_workspace",
@@ -254,6 +265,35 @@ const desktopControlSchema = z.object({
 		.optional()
 		.describe(
 			"For 'live_eye': skip the base64 image read entirely and return OCR text + clickTargets only (child-process drives read words, not pixels). Cuts ~100-300ms of PNG read/encode per glance.",
+		),
+	highlight: z
+		.object({
+			targets: z
+				.array(z.string())
+				.optional()
+				.describe("Words from the last eye/screenshot reading to highlight (resolved like live_click target)."),
+			regions: z
+				.array(
+					z.object({
+						x: z.number().int().min(0).describe("Frame px left."),
+						y: z.number().int().min(0).describe("Frame px top."),
+						w: z.number().int().min(1).describe("Frame px width."),
+						h: z.number().int().min(1).describe("Frame px height."),
+					}),
+				)
+				.optional()
+				.describe("Raw frame-px rectangles to highlight (from the last reading's frames)."),
+			color: z.enum(["yellow", "amber", "green", "cyan", "pink", "blue", "red"]).optional().describe("Marker color (default yellow — the classic highlighter)."),
+			style: z
+				.enum(["highlighter", "box"])
+				.optional()
+				.describe("highlighter (default) = solid translucent band painted over the words, like a felt-tip or a text selection. box = hollow outline around the region."),
+			ms: z.number().int().min(300).max(30000).optional().describe("How long the mark stays before it dissolves, in ms (default 3000)."),
+			width: z.number().int().min(1).max(20).optional().describe("Line width in px for style=box (default 4)."),
+		})
+		.optional()
+		.describe(
+			"For 'highlight': what to point at — the eye's laser pointer. Words resolved from the last reading's click targets, or raw frame-px regions. Painted on a click-through overlay that dissolves after `ms` (highlighter band by default, or a box outline).",
 		),
 });
 
@@ -2453,6 +2493,132 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					...(allTargets.length > 0 ? { clickTargets: allTargets } : {}),
 				} as unknown as Record<string, unknown>,
 			};
+			}
+
+			case "highlight": {
+				// The eye's laser pointer: point at what was just read. Pure
+				// visual draw on a layer-shell OVERLAY surface — click-through,
+				// unfocusable, auto-fades. Read-tier (no D004 gate): it changes
+				// nothing, injects nothing, and must work over terminals too
+				// (the restricted-app refusal applies to live_type/live_click
+				// only, not to drawing above a window).
+				const hl = params.highlight ?? {};
+				const ms = hl.ms ?? 3000;
+				const width = hl.width ?? 4;
+				const style = hl.style ?? "highlighter";
+				const pad = style === "highlighter" ? 5 : 6;
+
+				// Resolve words → frame-px boxes from the last reading (same
+				// matcher as live_click target), plus any raw regions.
+				const wantWords = hl.targets ?? [];
+				const wordRects: FrameRect[] = [];
+				const missing: string[] = [];
+				for (const t of wantWords) {
+					const hit = resolveClickTarget(t);
+					if (hit) {
+						const b = hit.box;
+						wordRects.push({ x: b.x, y: b.y, w: b.w, h: b.h });
+					} else {
+						missing.push(t);
+					}
+				}
+				const rawRects: FrameRect[] = (hl.regions ?? []).map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
+				const allRects = [...wordRects, ...rawRects];
+				if (allRects.length === 0) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Nothing to highlight.${missing.length ? ` No remembered OCR word matches: ${missing.map(m => `"${m}"`).join(", ")}.` : ""} Take a live_eye reading first (words come from its clickTargets), or pass frame-px regions.`,
+							},
+						],
+						details: { error: "nothing_to_highlight", missing },
+					};
+				}
+
+				// Frame-px → physical px. Each rect uses the frame it was read
+				// in; the module-level lastInputFrame is the anchored frame of
+				// the most recent capture (multi-view readings anchor per view,
+				// and merged click targets carry their own view's frame space —
+				// for cross-view word sets re-eye with those views first).
+				const frame = lastInputFrame;
+				if (!frame) {
+					return {
+						content: [{ type: "text", text: "No frame anchored yet — take a live_eye glance first so the highlight has a coordinate space." }],
+						details: { error: "no_frame" },
+					};
+				}
+				const physical: HighlightRect[] = [];
+				for (const r of allRects) {
+					const p = frameRectToPhysical(frame, r);
+					if (p) physical.push(p);
+				}
+				if (physical.length === 0) {
+					return {
+						content: [{ type: "text", text: "All highlight rects fell outside the anchored frame — re-eye and retry." }],
+						details: { error: "out_of_bounds" },
+					};
+				}
+
+				// Spawn the overlay: self-contained python/gtk-layer-shell script
+				// that paints the bands for `ms`, dissolves, and exits.
+				// Fire-and-forget with a completion log; errors surface in the
+				// result but never block the session.
+				//
+				// Physical bands → layer-shell surface geometry. Reserved zones
+				// (waybar) shrink the usable area the surface gets positioned in
+				// and margins are LOGICAL — compensate for both, or every mark
+				// lands ~68px low on a waybar box.
+				const scale = await detectOutputScale();
+				const reservedArea = await detectReservedArea();
+				const geom = layerGeometry(toBands(physical, { pad, style }), { reserved: reservedArea, scale });
+				if (!geom) {
+					return {
+						content: [{ type: "text", text: "Highlight geometry collapsed — nothing to draw." }],
+						details: { error: "no_geometry" },
+					};
+				}
+				const script = highlightOverlayScript(geom, { color: hl.color, ms, width, style });
+				const scriptPath = path.join(os.tmpdir(), `aerys-hl-${Date.now()}.py`);
+				await fs.promises.writeFile(scriptPath, script, "utf8");
+				const drawP = execFileAsync("python3", [scriptPath], { timeout: ms + 10_000 })
+					.then(() => fs.promises.unlink(scriptPath).catch(() => {}))
+					.catch((e: unknown) => {
+						fs.promises.unlink(scriptPath).catch(() => {});
+						return { error: String((e as { message?: string }).message ?? e) };
+					});
+
+				const bb = boundingBox(physical);
+				const mark = style === "box" ? "boxes" : "bands";
+				const drew = `${physical.length} ${mark} at frame ${frame.scaledW}x${frame.scaledH}${frame.kind === "window" ? ` (window @ ${frame.atX},${frame.atY})` : ` @ ${frame.atX},${frame.atY}`} — dissolves after ${ms}ms${missing.length ? ` (no match for: ${missing.map(m => `"${m}"`).join(", ")})` : ""}`;
+				const lead = `Highlighted ${drew}`;
+
+				// Hidden steer carries what was pointed at (the visible result
+				// stays a one-liner, same contract as the eye glance).
+				const steerText = `Highlight drawn: ${drew}\nRects (physical px): ${physical.map(r => `(${r.x},${r.y} ${r.w}x${r.h})`).join(" ")}${bb ? `\nBounds: ${bb.x},${bb.y} ${bb.w}x${bb.h}` : ""}\nOverlay surface: ${geom.marginLeft},${geom.marginTop} ${geom.width}x${geom.height} (reserved ${reservedArea.top}px top, scale ${scale})`;
+				if (this.session && "sendCustomMessage" in this.session) {
+					try {
+						await this.session.sendCustomMessage?.(
+							{
+								customType: "eye-highlight",
+								content: [{ type: "text", text: steerText }],
+								display: false,
+								details: { highlight: { at: Date.now(), ms, style, color: highlightColor(hl.color), rects: physical, geometry: geom } },
+								attribution: "agent",
+							},
+							{ deliverAs: "steer", triggerTurn: false },
+						);
+					} catch {
+						// fire-and-forget
+					}
+				}
+				// Don't await the full fade — report immediately (overlay is
+				// independent); keep the promise alive so errors are logged.
+				void drawP;
+				return {
+					content: [{ type: "text", text: lead }],
+					details: { highlight: { at: Date.now(), ms, style, color: highlightColor(hl.color), count: physical.length, rects: physical, geometry: geom, missing } },
+				};
 			}
 		}
 	}
