@@ -6368,14 +6368,10 @@ export class AgentSession {
 				if (meta.customType !== "eye-glance") continue;
 				const content = meta.content as Array<{ type?: string; text?: string; data?: string }> | undefined;
 				if (!Array.isArray(content) || content.length === 0) continue;
-				// Already swept — nothing to do.
-				if (
-					content.length === 1 &&
-					content[0].type === "text" &&
-					content[0].text === "[eye glance superseded]"
-				) {
-					continue;
-				}
+				// Already swept — nothing to do. Shape-based: after a sweep every
+				// image block is gone (a multi-focus glance keeps its N text
+				// sections), so any text-only content is post-sweep or imageless.
+				if (content.every(p => p.type === "text")) continue;
 				const kept = content.filter(p => p.type !== "image");
 				const dropped = content.length - kept.length;
 				if (dropped > 0) {

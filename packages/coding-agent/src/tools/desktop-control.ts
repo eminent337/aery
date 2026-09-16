@@ -123,6 +123,35 @@ const desktopControlSchema = z.object({
 		.describe(
 			"Physical-pixel rectangle for 'live_eye' — a crop of the ENTIRE desktop, independent of any window. The eye looks anywhere.",
 		),
+	views: z
+		.array(
+			z
+				.object({
+					target: z
+						.string()
+						.optional()
+						.describe("What to look at: 'fullscreen' (default), 'active_window', or a window title/class/address substring."),
+					region: z
+						.object({
+							x: z.number().int().min(0),
+							y: z.number().int().min(0),
+							w: z.number().int().min(1),
+							h: z.number().int().min(1),
+						})
+						.optional()
+						.describe("Physical-pixel crop of the ENTIRE desktop for this view (like top-level region)."),
+					label: z
+						.string()
+						.optional()
+						.describe("Short label for the reading header, e.g. 'fovea', 'tab strip', 'second monitor'."),
+				})
+				.refine(v => v.target || v.region, { message: "each view needs 'target' or 'region'" }),
+		)
+		.max(4)
+		.optional()
+		.describe(
+			"Multi-focus glance: 1-4 views in ONE call, like a human eye saccading between focus points while keeping the whole scene — e.g. [{target:'active_window'},{region:{x:0,y:0,w:600,h:400},label:'fovea'}] returns wide context + zoomed focus together. Each view gets its own anchored frame and clickable words; all readings arrive in one hidden steer. Views capture concurrently, so 2-4 views cost little more than one.",
+		),
 	command: z
 		.string()
 		.optional()
@@ -518,7 +547,11 @@ async function identifyDims(filePath: string): Promise<[number, number] | null> 
 		: null;
 }
 
-/** Record the coordinate frame of a finished capture (window or fullscreen). */
+/** Record the coordinate frame of a finished capture (window or fullscreen).
+ *  `geometry` is the grim-style "X,Y WxH" crop string; when the capture was a
+ *  plain region (no window), the frame anchors at the CROP ORIGIN — otherwise
+ *  a region view's frame px would map clicks to the top-left of the screen
+ *  instead of where the crop actually sits. */
 async function rememberFrame(
 	win: DesktopWindowInfo | undefined,
 	geometry: string | undefined,
@@ -528,29 +561,42 @@ async function rememberFrame(
 	const raw = await identifyDims(rawPath);
 	const scaled = await identifyDims(finalPath);
 	if (!raw || !scaled) return null;
-	const frame: InputFrame =
-		geometry && win
-			? {
-					kind: "window",
-					atX: win.at[0],
-					atY: win.at[1],
-					physW: raw[0],
-					physH: raw[1],
-					scaledW: scaled[0],
-					scaledH: scaled[1],
-					address: win.address,
-				}
-			: {
-					kind: "fullscreen",
-					atX: 0,
-					atY: 0,
-					physW: raw[0],
-					physH: raw[1],
-					scaledW: scaled[0],
-					scaledH: scaled[1],
-				};
+	let frame: InputFrame;
+	if (geometry && win) {
+		frame = {
+			kind: "window",
+			atX: win.at[0],
+			atY: win.at[1],
+			physW: raw[0],
+			physH: raw[1],
+			scaledW: scaled[0],
+			scaledH: scaled[1],
+			address: win.address,
+		};
+	} else {
+		// Region crop (or true fullscreen). Anchor at the crop origin when a
+		// geometry was given; only a geometry-less capture is the real
+		// fullscreen frame with origin (0,0).
+		const origin = geometry ? parseGeometryOrigin(geometry) : { x: 0, y: 0 };
+		frame = {
+			kind: win ? "window" : "fullscreen",
+			atX: origin.x,
+			atY: origin.y,
+			physW: raw[0],
+			physH: raw[1],
+			scaledW: scaled[0],
+			scaledH: scaled[1],
+			...(win ? { address: win.address } : {}),
+		};
+	}
 	lastInputFrame = frame;
 	return frame;
+}
+
+/** Parse the "X,Y WxH" grim geometry string into its origin. */
+function parseGeometryOrigin(geometry: string): { x: number; y: number } {
+	const m = geometry.match(/^(-?\d+),(-?\d+)/);
+	return m ? { x: Number(m[1]), y: Number(m[2]) } : { x: 0, y: 0 };
 }
 
 /**
@@ -2172,188 +2218,241 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			const includeBase64 = params.includeBase64 ?? true;
 			const textOnly = params.textOnly ?? false;
 			const timestamp = Date.now();
-			const tmpRaw = path.join(os.tmpdir(), `aerys-eye-${timestamp}-raw.png`);
-			const tmpFinal = path.join(os.tmpdir(), `aerys-eye-${timestamp}.png`);
+			const maxWidth = params.maxWidth ?? 1280;
+			const maxHeight = params.maxHeight ?? 800;
 
-				// Resolve what to look at: explicit region > window target > active window.
-				let geometry: string | undefined;
-				let targetWindow: DesktopWindowInfo | undefined;
-				let targetDesc: string;
-				if (params.region) {
-					geometry = buildEyeGeometry(params.region, undefined);
-					targetDesc = `region ${geometry}`;
-				} else {
-					const target = params.target ?? "fullscreen";
+			// ---- Resolve the view list (multi-focus vs single-glance) ----
+			// views[] is the human-eye path: 1-4 focus points in one glance
+			// (wide context + a fovea crop, or several windows). No views[]
+			// means the classic single view built from top-level params —
+			// byte-for-byte the old behavior.
+			interface EyeViewSpec {
+				label: string;
+				target?: string;
+				region?: EyeRegion;
+			}
+			const viewSpecs: EyeViewSpec[] = params.views?.length
+				? params.views.map((v, i) => ({
+						label: v.label || `view ${i + 1}`,
+						target: v.target,
+						region: v.region,
+					}))
+				: [{ label: "", target: params.target, region: params.region }];
+
+			// Ephemeral sweep: drop previous eye images from history BEFORE capturing
+			// the new ones (best-effort; tolerated if the host lacks the hook).
+			let swept = 0;
+			try {
+				swept = (await this.session?.dropLiveEyeImages?.()) ?? 0;
+			} catch {}
+
+			const eyeDriver = detectPlatformDriver();
+			if (!isSupportedDriver() && viewSpecs.length > 1) {
+				return {
+					content: [{ type: "text", text: `Multi-view eye is not supported on this platform yet (${eyeDriver.label}).` }],
+					details: { error: "unsupported_platform", driver: eyeDriver.id },
+				};
+			}
+
+			// ---- Resolve each view's geometry/window concurrently ----
+			const resolved = await Promise.all(
+				viewSpecs.map(async (spec): Promise<EyeViewSpec & { geometry?: string; window?: DesktopWindowInfo; desc: string }> => {
+					if (spec.region) {
+						const geometry = buildEyeGeometry(spec.region, undefined);
+						return { ...spec, geometry, desc: `region ${geometry}` };
+					}
+					const target = spec.target ?? "fullscreen";
+					let window: DesktopWindowInfo | undefined;
+					let geometry: string | undefined;
 					if (isSupportedDriver()) {
 						if (target === "active_window") {
-							targetWindow = await getDriverActiveWindow();
+							window = await getDriverActiveWindow();
 						} else if (target !== "fullscreen") {
 							const windows = await getDriverWindows();
 							const q = target.toLowerCase();
-							targetWindow =
+							window =
 								windows.find(w => w.address.toLowerCase() === q) ||
 								windows.find(w => w.class.toLowerCase().includes(q)) ||
 								windows.find(w => w.title.toLowerCase().includes(q));
 						}
-						geometry = buildEyeGeometry(undefined, targetWindow);
+						geometry = buildEyeGeometry(undefined, window);
 					}
-					targetDesc = describeEyeTarget(targetWindow, geometry, target);
-				}
+					return { ...spec, geometry, window, desc: describeEyeTarget(window, geometry, target) };
+				}),
+			);
 
-				// Ephemeral sweep: drop previous eye images from history BEFORE capturing
-				// the new one (best-effort; tolerated if the host lacks the hook).
-				let swept = 0;
-				try {
-					swept = (await this.session?.dropLiveEyeImages?.()) ?? 0;
-				} catch {}
-
-				const eyeDriver = detectPlatformDriver();
-				const capRes = await eyeDriver.capture.capture(tmpRaw, geometry).catch((e: unknown) => ({ code: 1, stderr: String(e) }));
-				if (capRes.code !== 0) {
-					return {
-						content: [{ type: "text", text: `live_eye capture failed (${eyeDriver.id}): ${capRes.stderr}` }],
-						details: { error: capRes.stderr, swept, driver: eyeDriver.id },
-					};
-				}
-
-				const maxWidth = params.maxWidth ?? 1280;
-				const maxHeight = params.maxHeight ?? 800;
-				let finalPath = tmpRaw;
-				const resizeRes = await runCmd("convert", [tmpRaw, "-resize", `${maxWidth}x${maxHeight}>`, tmpFinal]);
-				if (resizeRes.code === 0 && fs.existsSync(tmpFinal)) {
-					finalPath = tmpFinal;
-				}
-
-				// Anchor the coordinate frame to THIS glance. Without this the
-				// eye's own OCR word boxes are converted against whatever frame
-				// a previous screenshot/verify left behind — wrong atX/atY and
-				// wrong scale — so `target:` clicks landed somewhere else and
-				// the stale-frame guard tripped on a glance that had, in fact,
-				// just looked at the focused window.
-				let eyeFrame: InputFrame | null = null;
-				try {
-					eyeFrame = await rememberFrame(targetWindow, geometry, tmpRaw, finalPath);
-				} catch {}
-				// textOnly fast path (child-process drives): skip the base64
-				// read entirely — the caller only needs OCR text + clickTargets.
-				let base64 = "";
-				if (includeBase64 && !textOnly) {
+			// ---- Capture all views concurrently (the eye saccades in parallel) ----
+			const captures = await Promise.all(
+				resolved.map(async (v, i) => {
+					const rawPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}-raw.png`);
+					const finalPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}.png`);
+					const capRes = await eyeDriver.capture.capture(rawPath, v.geometry).catch((e: unknown) => ({ code: 1, stderr: String(e) }));
+					if (capRes.code !== 0) return { spec: v, rawPath, finalPath, error: `capture failed (${eyeDriver.id}): ${capRes.stderr}` };
+					const resizeRes = await runCmd("convert", [rawPath, "-resize", `${maxWidth}x${maxHeight}>`, finalPath]);
+					const out = resizeRes.code === 0 && fs.existsSync(finalPath) ? finalPath : rawPath;
+					let frame: InputFrame | null = null;
 					try {
-						base64 = (await fs.promises.readFile(finalPath)).toString("base64");
+						// Per-view frame anchor: each view's clickTargets map to ITS
+						// own crop/window, so a word read in a fovea crop clicks at
+						// the right physical spot even though the wide view was
+						// captured separately. The LAST successful view becomes
+						// lastInputFrame (matches the single-view contract).
+						frame = await rememberFrame(v.window, v.geometry, rawPath, out);
 					} catch {}
-				}
+					return { spec: v, rawPath, finalPath: out, frame };
+				}),
+			);
 
-				// OCR text extraction: automatic for a visionless model (it reads the
-				// frame as text instead of receiving pixels it can't see), opt-out
-				// via ocr:false. Vision-capable callers get OCR text alongside the
-				// image — or can skip the ~1s OCR cost with ocr:false.
-				// Adaptive: run tesseract at native size first (fast path ~1s); only
-				// pay for a 2x upscale + retry when the first pass comes back sparse
-				// (<20 chars), which is how small-text frames fail.
-				const modelSeesImages = this.session?.supportsVision?.() ?? true;
-				const wantOcr = params.ocr ?? !modelSeesImages;
-				let ocrText = "";
-				let ocrError: string | undefined;
-				let ocrMs0 = 0;
-				let ocrMode: "native" | "upscaled" | undefined;
-				let eyeClickTargets: ClickTarget[] = [];
-				if (wantOcr) {
-					ocrMs0 = Date.now();
-					const ocr = await ocrFrame(finalPath, { lang: params.ocrLang });
-					ocrText = ocr.text;
-					ocrError = ocr.error;
-					ocrMode = ocr.mode;
-					// Durable copy: the eye-glance steer is swept by the next glance,
-					// so record the full reading in the watch transcript (the book)
-					// where watch_transcript keeps it available every turn.
-					if (ocrText) CameraWatchLoop.recordExternalOcr(ocrText, "eye");
-					if (ocrText) rememberOcrText(ocrText);
-					// Clickable-OCR: word boxes → frame-px click targets, against
-					// the frame THIS glance anchored (not a stale one).
-					eyeClickTargets = clickTargetsFromOcr(ocr.words, eyeFrame);
-					if (eyeClickTargets.length > 0) rememberClickTargets(eyeClickTargets);
-				}
-				const eyeFrameNote = eyeFrame
-					? ` Frame ${eyeFrame.scaledW}x${eyeFrame.scaledH}${eyeFrame.kind === "window" ? ` (window @ ${eyeFrame.atX},${eyeFrame.atY})` : " (fullscreen)"} — clickTargets and live_* pointer coordinates are frame px of this glance.`
-					: "";
-				const parts: string[] = [
-					`Eye view of ${targetDesc} (ephemeral — replaced next glance;${swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context"}).${eyeFrameNote}`,
-				];
-				if (ocrText) {
-					parts.push(
-						`On-screen text (${ocrText.length} chars, tesseract ${ocrMode ?? "native"}):`,
-						ocrText.length > 8000 ? `${ocrText.slice(0, 8000)}\n…[truncated]` : ocrText,
-					);
-					const ct = formatClickTargets(eyeClickTargets);
-					if (ct) parts.push(ct);
-				} else if (wantOcr && ocrError) {
-					parts.push(`OCR failed: ${ocrError}`);
-				} else if (wantOcr) {
-					parts.push("OCR produced no text (frame may contain no readable text).");
-				}
-				// The tool result stays small & human-friendly: the scanning model
-				// gets the full picture (pixels + OCR text) through the hidden
-				// steer below, and the visible call bar shows only a one-liner.
-				// Pixels ride ONLY for vision-capable models — a visionless
-				// model can't see them, and the harness mangles the block into
-				// "[image omitted: model does not support vision]". A visionless
-				// caller gets the OCR text layer and nothing else.
-				const reading = parts.join("\n");
-				const steerContent: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
-					{ type: "text", text: reading },
-				];
-				if (modelSeesImages && base64) {
-					steerContent.push({ type: "image", data: base64, mimeType: "image/png" });
-				}
-
-
-				let attached = false;
-				const eyeSession = this.session;
-				if (eyeSession && "sendCustomMessage" in eyeSession) {
-					try {
-						await eyeSession.sendCustomMessage?.(
-							{
-								customType: "eye-glance",
-								content: steerContent,
-								display: false,
-								details: {
-									liveEye: { at: timestamp },
-									filePath: finalPath,
-									targetDesc,
-									...(eyeClickTargets.length > 0 ? { clickTargets: eyeClickTargets } : {}),
-								},
-								attribution: "agent",
-							},
-							{ deliverAs: "steer", triggerTurn: false },
-						);
-						attached = true;
-					} catch {
-						// Fire-and-forget; if the session is shutting down we
-						// just fall back to returning the text inline below.
-					}
-				}
-
+			const okViews = captures.filter(c => !("error" in c) || !c.error);
+			if (okViews.length === 0) {
+				const firstErr = captures.find(c => "error" in c && c.error) as { error: string } | undefined;
 				return {
-					content: [
-						{
-							type: "text",
-							text: attached
-								? `Eye glance at ${targetDesc} — reading attached for the model (ephemeral — replaced next glance; swept ${swept}).`
-								: reading,
-						},
-					],
-					details: {
-						action: "live_eye",
-						liveEye: { at: timestamp },
-						filePath: finalPath,
-						targetDesc,
-						swept,
-						...(wantOcr
-							? { ocrText, ocrMode, ocrMs: Date.now() - ocrMs0, ...(ocrError ? { ocrError } : {}) }
-							: {}),
-						...(eyeClickTargets.length > 0 ? { clickTargets: eyeClickTargets } : {}),
-					} as unknown as Record<string, unknown>,
+					content: [{ type: "text", text: `live_eye capture failed (${eyeDriver.id}): ${firstErr?.error ?? "unknown"}` }],
+					details: { error: firstErr?.error ?? "unknown", swept, driver: eyeDriver.id },
 				};
+			}
+
+			const modelSeesImages = this.session?.supportsVision?.() ?? true;
+			const wantOcr = params.ocr ?? !modelSeesImages;
+			const ocrMs0 = Date.now();
+
+			// ---- OCR every view concurrently; per-view text + click targets ----
+			const readings = await Promise.all(
+				captures.map(async c => {
+					if ("error" in c && c.error) {
+						return { label: c.spec.label, desc: c.spec.desc, error: c.error, text: "", targets: [], frame: null as InputFrame | null };
+					}
+					let ocrText = "";
+					let ocrError: string | undefined;
+					let ocrMode: "native" | "upscaled" | undefined;
+					let targets: ClickTarget[] = [];
+					if (wantOcr && c.finalPath) {
+						const ocr = await ocrFrame(c.finalPath, { lang: params.ocrLang });
+						ocrText = ocr.text;
+						ocrError = ocr.error;
+						ocrMode = ocr.mode;
+						if (ocrText) {
+							// Durable copy: the eye-glance steer is swept by the next
+							// glance, so record the full reading in the watch
+							// transcript (the book). Multi-view lines carry the view
+							// label so the book stays legible.
+							CameraWatchLoop.recordExternalOcr(ocrText, "eye");
+							rememberOcrText(ocrText);
+						}
+						targets = clickTargetsFromOcr(ocr.words, c.frame);
+					}
+					let base64 = "";
+					if (includeBase64 && !textOnly && c.finalPath) {
+						try {
+							base64 = (await fs.promises.readFile(c.finalPath)).toString("base64");
+						} catch {}
+					}
+					return { label: c.spec.label, desc: c.spec.desc, text: ocrText, ocrError, ocrMode, targets, frame: c.frame ?? null, base64, filePath: c.finalPath };
+				}),
+			);
+
+			// rememberClickTargets: merge every view's targets so a word seen in
+			// ANY view is clickable (each target is already in its own frame's
+			// px space; resolveClickTarget only needs text → frame px of the
+			// anchored lastInputFrame, which is the last view's frame — when
+			// views differ, the reading header says which frame each word
+			// belongs to via per-view click-target lists).
+			const allTargets = readings.flatMap(r => r.targets);
+			if (allTargets.length > 0) rememberClickTargets(allTargets);
+			if (wantOcr) {
+				for (const r of readings) {
+					if (r.text) rememberOcrText(r.text);
+				}
+			}
+
+			// ---- Build the combined reading (one steer, N sections) ----
+			const multi = viewSpecs.length > 1;
+			const sections: string[] = [];
+			const steerContent: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
+			const sweepNote = swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context";
+			for (const r of readings) {
+				const header = multi
+					? `── Eye view [${r.label}] ${r.desc} (ephemeral — replaced next glance;${sweepNote})${r.frame ? ` Frame ${r.frame.scaledW}x${r.frame.scaledH} (window @ ${r.frame.atX},${r.frame.atY})` : ""} — this view's clickTargets are frame px of THIS crop.`
+					: `Eye view of ${r.desc} (ephemeral — replaced next glance;${sweepNote}).${r.frame ? ` Frame ${r.frame.scaledW}x${r.frame.scaledH}${r.frame.kind === "window" ? ` (window @ ${r.frame.atX},${r.frame.atY})` : " (fullscreen)"} — clickTargets and live_* pointer coordinates are frame px of this glance.` : ""}`;
+				const lines: string[] = [header];
+				if (r.error) lines.push(`Capture failed: ${r.error}`);
+				else if (r.text) {
+					lines.push(
+						`On-screen text (${r.text.length} chars, tesseract ${r.ocrMode ?? "native"}):`,
+						r.text.length > 8000 ? `${r.text.slice(0, 8000)}\n…[truncated]` : r.text,
+					);
+					const ct = formatClickTargets(r.targets);
+					if (ct) lines.push(ct);
+				} else if (wantOcr && r.ocrError) lines.push(`OCR failed: ${r.ocrError}`);
+				else if (wantOcr) lines.push("OCR produced no text (frame may contain no readable text).");
+				const section = lines.join("\n");
+				sections.push(section);
+				steerContent.push({ type: "text", text: section });
+				// Pixels ride ONLY for vision-capable models (see single-view note).
+				if (modelSeesImages && r.base64) {
+					steerContent.push({ type: "image", data: r.base64, mimeType: "image/png" });
+				}
+			}
+			const reading = sections.join("\n\n");
+
+			let attached = false;
+			const eyeSession = this.session;
+			if (eyeSession && "sendCustomMessage" in eyeSession) {
+				try {
+					await eyeSession.sendCustomMessage?.(
+						{
+							customType: "eye-glance",
+							content: steerContent,
+							display: false,
+							details: {
+								liveEye: { at: timestamp },
+								// Primary file path stays the first successful view
+								// (back-compat); every view is listed in views[].
+								filePath: readings.find(r => r.filePath)?.filePath,
+								targetDesc: multi ? `${readings.length} views` : readings[0]?.desc,
+								...(multi ? { views: readings.map(r => ({ label: r.label, desc: r.desc, filePath: r.filePath, frame: r.frame })) } : {}),
+								...(allTargets.length > 0 ? { clickTargets: allTargets } : {}),
+							},
+							attribution: "agent",
+						},
+						{ deliverAs: "steer", triggerTurn: false },
+					);
+					attached = true;
+				} catch {
+					// Fire-and-forget; if the session is shutting down we
+					// just fall back to returning the text inline below.
+				}
+			}
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: attached
+							? multi
+								? `Eye glance at ${readings.length} views (${viewSpecs.map(v => v.label).join(", ")}) — readings attached for the model (ephemeral — replaced next glance; swept ${swept}).`
+								: `Eye glance at ${readings[0]?.desc} — reading attached for the model (ephemeral — replaced next glance; swept ${swept}).`
+							: reading,
+					},
+				],
+				details: {
+					action: "live_eye",
+					liveEye: { at: timestamp },
+					filePath: readings.find(r => r.filePath)?.filePath,
+					targetDesc: multi ? `${readings.length} views` : readings[0]?.desc,
+					swept,
+					...(multi ? { views: readings.map(r => ({ label: r.label, desc: r.desc, filePath: r.filePath, frame: r.frame, error: r.error ?? undefined })) } : {}),
+					...(wantOcr
+						? {
+								ocrText: readings.map(r => r.text).join("\n\n"),
+								ocrMode: readings[0]?.ocrMode,
+								ocrMs: Date.now() - ocrMs0,
+								...(readings.find(r => r.ocrError) ? { ocrError: readings.find(r => r.ocrError)?.ocrError } : {}),
+							}
+						: {}),
+					...(allTargets.length > 0 ? { clickTargets: allTargets } : {}),
+				} as unknown as Record<string, unknown>,
+			};
 			}
 		}
 	}
