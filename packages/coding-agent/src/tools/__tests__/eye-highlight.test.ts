@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bandBleed, boundingBox, frameRectToPhysical, highlightColor, highlightOverlayScript, layerGeometry, toBands } from "../eye-highlight";
+import { bandBleed, boundingBox, frameRectToPhysical, highlightColor, highlightOverlayScript, layerGeometry, mergeBands, toBands } from "../eye-highlight";
 
 const WINDOW_FRAME = {
 	kind: "window" as const,
@@ -85,6 +85,32 @@ describe("eye-highlight geometry", () => {
 		expect(bands[0].h).toBe(20 + 2 * bandBleed(20));
 		const boxes = toBands([{ x: 100, y: 200, w: 40, h: 20 }], { pad: 6, style: "box" });
 		expect(boxes[0]).toEqual({ x: 94, y: 194, w: 52, h: 32 });
+	});
+
+	test("mergeBands joins neighbouring words into one stroke", () => {
+		// Three grown word bands on one line with small gaps → one stroke.
+		const merged = mergeBands([
+			{ x: 95, y: 190, w: 60, h: 28 },
+			{ x: 163, y: 190, w: 80, h: 28 },
+			{ x: 251, y: 190, w: 50, h: 28 },
+		]);
+		expect(merged).toHaveLength(1);
+		expect(merged[0]).toEqual({ x: 95, y: 190, w: 206, h: 28 });
+	});
+
+	test("mergeBands keeps separate lines and far words apart", () => {
+		const merged = mergeBands([
+			{ x: 95, y: 190, w: 60, h: 28 },
+			{ x: 95, y: 240, w: 60, h: 28 }, // next line
+			{ x: 500, y: 190, w: 60, h: 28 }, // same line, far away
+		]);
+		expect(merged).toHaveLength(3);
+	});
+
+	test("mergeBands is a no-op for a single band", () => {
+		const one = [{ x: 10, y: 10, w: 40, h: 20 }];
+		expect(mergeBands(one)).toEqual(one);
+		expect(mergeBands([])).toEqual([]);
 	});
 
 	test("layerGeometry subtracts reserved zones and divides by logical scale", () => {

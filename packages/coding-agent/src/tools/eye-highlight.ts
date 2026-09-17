@@ -133,6 +133,52 @@ export function toBands(rects: HighlightRect[], opts: { pad: number; style: High
 }
 
 /**
+ * Merge grown bands into continuous marker strokes. Without this, painting a
+ * whole line paints one padded band per word: neighbours overlap, cairo OVER
+ * stacks the alpha in the overlap (dark seams), and the line reads as a
+ * lumpy yellow blob instead of one clean highlighter stroke. Bands join when
+ * they share a text line (vertical overlap ≥ half the smaller height) and
+ * sit close horizontally (gap ≤ maxGap, default 28 physical px — terminal
+ * word gaps are ~8-15px). Different lines and far-apart words stay separate.
+ */
+export function mergeBands(bands: HighlightRect[], opts: { maxGap?: number } = {}): HighlightRect[] {
+	if (bands.length < 2) return [...bands];
+	const maxGap = opts.maxGap ?? 28;
+	const overlapY = (a: HighlightRect, b: HighlightRect) =>
+		Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+	const sameLine = (a: HighlightRect, b: HighlightRect) =>
+		overlapY(a, b) >= 0.5 * Math.min(a.h, b.h);
+	// Group into lines first (bands arrive in reading order, not row order).
+	const byY = [...bands].sort((a, b) => a.y - b.y || a.x - b.x);
+	const lines: HighlightRect[][] = [];
+	for (const b of byY) {
+		const line = lines.find(l => l.some(m => sameLine(m, b)));
+		if (line) line.push(b);
+		else lines.push([b]);
+	}
+	// Within a line, join runs separated by at most a word gap.
+	const out: HighlightRect[] = [];
+	for (const line of lines) {
+		const xs = [...line].sort((a, b) => a.x - b.x);
+		let cur = { ...xs[0] };
+		for (const n of xs.slice(1)) {
+			if (n.x - (cur.x + cur.w) <= maxGap) {
+				const x1 = Math.min(cur.x, n.x);
+				const y1 = Math.min(cur.y, n.y);
+				const x2 = Math.max(cur.x + cur.w, n.x + n.w);
+				const y2 = Math.max(cur.y + cur.h, n.y + n.h);
+				cur = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+			} else {
+				out.push(cur);
+				cur = { ...n };
+			}
+		}
+		out.push(cur);
+	}
+	return out;
+}
+
+/**
  * Convert physical band rects into the layer-shell surface geometry.
  *
  * Two compositor facts this encodes:
