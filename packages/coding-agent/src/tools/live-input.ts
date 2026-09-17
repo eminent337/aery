@@ -403,6 +403,17 @@ export function ydoMove(x: number, y: number): string[] {
 	return ["ydotool", "mousemove", "--absolute", "-x", String(Math.round(x)), "-y", String(Math.round(y))];
 }
 
+/** RELATIVE uinput move. The ydotoold virtual device is REL-only (no ABS_X/Y
+ * cap), so absolute "moves" are delta accumulations that pointer accel skews —
+ * but plain relative deltas under a HELD button DO reach the client as real
+ * motion events, which drag-selection needs (a compositor warp delivers
+ * none). Clamp deltas to the safe ±600 range so a stray value can't fling
+ * the pointer across screens. */
+export function ydoMoveRelative(dx: number, dy: number): string[] {
+	const clamp = (v: number) => Math.max(-600, Math.min(600, Math.round(v)));
+	return ["ydotool", "mousemove", "-x", String(clamp(dx)), "-y", String(clamp(dy))];
+}
+
 export function ydoClickButton(code: string, count = 1): string[] {
 	const argv = ["ydotool", "click"];
 	if (count > 1) argv.push("--repeat", String(Math.min(count, 20)), "--next-delay", "80");

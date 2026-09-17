@@ -8,6 +8,7 @@ import {
 	highlightColor,
 	highlightOverlayScript,
 	layerGeometry,
+	mergeBands,
 	toBands,
 	type FrameRect,
 	type HighlightRect,
@@ -50,7 +51,6 @@ import {
 	splitForEnterTyping,
 	wtypeChord,
 	xdoClick,
-	xdoDrag,
 	xdoMove,
 	YDO_CTRL_V,
 	YDO_DOWN,
@@ -61,6 +61,7 @@ import {
 	ydoClickButton,
 	ydoKeyEvents,
 	ydoMove,
+	ydoMoveRelative,
 } from "./live-input";
 
 const execFileAsync = promisify(execFile);
@@ -180,6 +181,14 @@ const desktopControlSchema = z.object({
 	y: z.number().int().optional().describe("Y pixel coordinate — see 'x'."),
 	x2: z.number().int().optional().describe("End X pixel coordinate for 'live_drag' (same frame as 'x')."),
 	y2: z.number().int().optional().describe("End Y pixel coordinate for 'live_drag' (same frame as 'y')."),
+	modifiers: z
+		.array(z.enum(["shift"]))
+		.max(1)
+		.optional()
+		.refine(modifiers => modifiers === undefined || modifiers.length > 0, {
+			message: "modifiers must contain 'shift' when present; use undefined for no modifiers.",
+		})
+		.describe("For 'live_drag' only: optional ['shift'] holds Shift before mouse down until after mouse up. Runtime rejects this field on every other action, including empty lists, before anything touches the desktop. No other modifiers or actions are supported."),
 	keys: z
 		.string()
 		.optional()
@@ -295,7 +304,16 @@ const desktopControlSchema = z.object({
 		.describe(
 			"For 'highlight': what to point at — the eye's laser pointer. Words resolved from the last reading's click targets, or raw frame-px regions. Painted on a click-through overlay that dissolves after `ms` (highlighter band by default, or a box outline).",
 		),
-});
+})
+	.superRefine((params, ctx) => {
+		if (params.action !== "live_drag" && params.modifiers !== undefined) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["modifiers"],
+				message: "modifiers is supported only for live_drag.",
+			});
+		}
+	});
 
 export type DesktopControlParams = z.infer<typeof desktopControlSchema>;
 
@@ -887,6 +905,16 @@ export function restrictedAppRefusal(
 	if (!hit) return null;
 	return `Refused: focused window "${win?.title ?? "(untitled)"}" is a ${hit} terminal — use the bash tool for shell work instead of typing/clicking into a terminal. Keystrokes here could self-inject into the agent's own session.`;
 }
+
+function modifierRefusal(action: string, modifiers: unknown): string | null {
+	if (modifiers === undefined) return null;
+	if (action !== "live_drag") return "modifiers is supported only for live_drag.";
+	if (!Array.isArray(modifiers) || modifiers.length !== 1 || modifiers[0] !== "shift") {
+		return "live_drag modifiers must be exactly ['shift'].";
+	}
+	return null;
+}
+
 /**
  * Validate-before-run (clippy validate-before-run pattern): every check that
  * can fail WITHOUT touching the desktop runs here, before any backend
@@ -901,6 +929,7 @@ export function validateInjection(params: {
 	y2?: number;
 	target?: string;
 	keys?: string;
+	modifiers?: unknown;
 	frame: { scaledW: number; scaledH: number; kind: string; address?: string } | null;
 	focusedAddress: string | undefined;
 }): { ok: true; tx?: number; ty?: number } | { ok: false; error: string; code: string } {
@@ -908,6 +937,8 @@ export function validateInjection(params: {
 	// 1. Guardrails first (cheapest, no frame needed).
 	const refusal = guardrailRefusal(params.action, { target: params.target, keys: params.keys });
 	if (refusal) return { ok: false, error: refusal, code: "guardrail_refusal" };
+	const modifiersError = modifierRefusal(params.action, params.modifiers);
+	if (modifiersError) return { ok: false, error: modifiersError, code: "invalid_modifiers" };
 	// Restricted-app check needs the window — represented here by class/title
 	// passed via keys-free params; the live path re-checks with the real win.
 	// 2. Pointer branches need a frame + coordinates.
@@ -1102,6 +1133,62 @@ async function runSteps(steps: string[][], interStepMs = 30): Promise<string | n
 	return null;
 }
 
+/** Drag sequencing with an injected runner for tests; cleanup never inherits cancellation. */
+export async function runDragWithCleanup(
+	options: { backend: "ydotool" | "xdotool"; shift: boolean; start: string[]; moves: string[][] },
+	runStep: (argv: string[]) => Promise<string | null>,
+	signal?: AbortSignal,
+): Promise<string | null> {
+	const ydo = options.backend === "ydotool";
+	const shiftDown = ydo ? ydoKeyEvents(["42:1"]) : ["xdotool", "keydown", "Shift_L"];
+	const shiftUp = ydo ? ydoKeyEvents(["42:0"]) : ["xdotool", "keyup", "Shift_L"];
+	const mouseDown = ydo ? ydoClickButton(YDO_DOWN) : ["xdotool", "mousedown", "1"];
+	const mouseUp = ydo ? ydoClickButton(YDO_UP) : ["xdotool", "mouseup", "1"];
+	let releaseMouse = false;
+	let releaseShift = false;
+	let failure: string | null = null;
+	const cleanupFailures: string[] = [];
+	const checkAbort = () => {
+		if (signal?.aborted) throw new Error("live_drag aborted.");
+	};
+	const step = async (argv: string[]) => {
+		checkAbort();
+		const error = await runStep(argv);
+		if (error) throw new Error(error);
+		checkAbort();
+	};
+	const release = async (label: string, argv: string[]) => {
+		try {
+			const error = await runStep(argv);
+			if (error) cleanupFailures.push(`${label}: ${error}`);
+		} catch (error) {
+			cleanupFailures.push(`${label}: ${String(error)}`);
+		}
+	};
+	try {
+		// An empty start (ydotool path pre-aims via the compositor anchor) is
+		// not a step — spawning an empty argv is a hard error, not a no-op.
+		if (options.start.length) await step(options.start);
+		if (options.shift) {
+			// A failed command may still have injected its down event.
+			releaseShift = true;
+			await step(shiftDown);
+		}
+		releaseMouse = true;
+		await step(mouseDown);
+		for (const move of options.moves) await step(move);
+	} catch (error) {
+		failure = String(error);
+	} finally {
+		if (releaseMouse) await release("mouse up", mouseUp);
+		if (releaseShift) await release("Shift up", shiftUp);
+	}
+	if (cleanupFailures.length) {
+		return `${failure ? `${failure} ` : ""}live_drag cleanup failed: ${cleanupFailures.join("; ")}. Mouse or Shift may still be held; release them before retrying.`;
+	}
+	return failure ?? (signal?.aborted ? "live_drag aborted." : null);
+}
+
 /**
  * Type text trying backends in chain order until one succeeds.
  * ASCII goes direct (ydotool type / wtype text / xdotool type); non-ASCII
@@ -1212,6 +1299,7 @@ async function executeLiveAction(
 	action: string,
 	params: DesktopControlParams,
 	session?: ToolSession,
+	signal?: AbortSignal,
 ): Promise<AgentToolResult> {
 	// Identity of THIS injection step — used both by the abort gate (does the
 	// incoming attempt repeat the stuck step?) and by the observers (does the
@@ -1442,6 +1530,7 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 		y2: params.y2,
 		target: params.target,
 		keys: params.keys,
+		modifiers: params.modifiers,
 		frame: lastInputFrame,
 		focusedAddress: win.address,
 	});
@@ -1501,21 +1590,45 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 		}
 		if (action === "live_drag") {
 			const end = frameToPhysical(frame, params.x2!, params.y2!);
-			let steps: string[][];
+			const moves: string[][] = [];
 			if (backend === "ydotool") {
-				steps = aim ? [aim, ydoClickButton(YDO_DOWN)] : [ydoMove(pt.x, pt.y), ydoClickButton(YDO_DOWN)];
-				for (let i = 1; i <= 6; i++) {
-					const mx = pt.x + ((end.x - pt.x) * i) / 6;
-					const my = pt.y + ((end.y - pt.y) * i) / 6;
-					// Waypoints interpolate in physical px; aim calls need logical.
-					const wl = physicalToLogical(mx, my, scale);
-					steps.push(aim ? hyprMoveCursor(wl.x, wl.y) : ydoMove(wl.x, wl.y));
+				// Warp to the start with the compositor (button still up), then
+				// read the pointer back — the sweep must be RELATIVE from the
+				// real anchor because compositor warps deliver no held-button
+				// motion events, and ydotool absolute is delta+accel skewed.
+				const anchor = aim
+					? (await runSteps([aim], 0)) === null
+						? await detectPlatformDriver().capture.cursorPos()
+						: null
+					: null;
+				if (!anchor) {
+					return errText(
+						"Could not anchor the drag start (aim or cursor read failed) — refusing to inject a blind sweep.",
+						"drag_anchor_failed",
+					);
 				}
-				steps.push(ydoClickButton(YDO_UP));
+				const endLogical = physicalToLogical(end.x, end.y, scale);
+				const dx = endLogical.x - anchor.x;
+				const dy = endLogical.y - anchor.y;
+				const stepCount = 8;
+				for (let i = 1; i <= stepCount; i++) {
+					// Interpolate in logical px; emit per-step REL deltas. Steps
+					// stay ≤600 because the whole drag is clamped to the screen.
+					const stepDx = (dx * i) / stepCount - (dx * (i - 1)) / stepCount;
+					const stepDy = (dy * i) / stepCount - (dy * (i - 1)) / stepCount;
+					moves.push(ydoMoveRelative(stepDx, stepDy));
+				}
 			} else {
-				steps = [xdoDrag(pt.x, pt.y, end.x, end.y)];
+				const start = xdoMove(pt.x, pt.y);
+				moves.push(xdoMove(end.x, end.y));
+				const fail = await runSteps([start], 0);
+				if (fail) return errObserve(action, fail);
 			}
-			const fail = await runSteps(steps, 24);
+			const fail = await runDragWithCleanup(
+				{ backend: backend === "ydotool" ? "ydotool" : "xdotool", shift: params.modifiers?.includes("shift") ?? false, start: [], moves },
+				argv => runSteps([argv], 24),
+				signal,
+			);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
 			return withVerify(`Dragged frame (${params.x},${params.y}) → (${params.x2},${params.y2}).`);
@@ -1607,7 +1720,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 		this.session = session;
 	}
 
-	async execute(_id: string, params: DesktopControlParams): Promise<AgentToolResult> {
+	async execute(_id: string, params: DesktopControlParams, signal?: AbortSignal): Promise<AgentToolResult> {
+		const modifiersError = modifierRefusal(params.action, params.modifiers);
+		if (modifiersError) {
+			return { content: [{ type: "text", text: modifiersError }], details: { error: "invalid_modifiers" } };
+		}
 		switch (params.action) {
 			case "live_mode_on":
 			case "live_mode_off":
@@ -1619,7 +1736,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "live_type":
 			case "live_key":
 			case "live_scroll":
-				return executeLiveAction(params.action, params, this.session);
+				return executeLiveAction(params.action, params, this.session, signal);
 			case "list_windows": {
 				const listDriver = detectPlatformDriver();
 				if (listDriver.id !== "hyprland" && listDriver.id !== "x11") {
@@ -2571,7 +2688,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// lands ~68px low on a waybar box.
 				const scale = await detectOutputScale();
 				const reservedArea = await detectReservedArea();
-				const geom = layerGeometry(toBands(physical, { pad, style }), { reserved: reservedArea, scale });
+				// Neighbouring bands merge into continuous marker strokes, so a
+				// whole painted line reads as one clean stroke, not a lumpy blob.
+				const bands = mergeBands(toBands(physical, { pad, style }));
+				const geom = layerGeometry(bands, { reserved: reservedArea, scale });
 				if (!geom) {
 					return {
 						content: [{ type: "text", text: "Highlight geometry collapsed — nothing to draw." }],
