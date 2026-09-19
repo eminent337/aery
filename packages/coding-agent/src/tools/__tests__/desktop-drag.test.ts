@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DesktopControlTool, focusGuardRefusal, insertionProbeRegion, insertionVerdict, runDragWithCleanup, runSteps, validateInjection } from "../desktop-control";
+import { DesktopControlTool, focusGuardRefusal, insertionProbeRegion, insertionVerdict, observationInputStatus, runDragWithCleanup, runScrollBurst, runSteps, scrollBurstIntervalMs, scrollBurstPlan, validateInjection } from "../desktop-control";
 
 const FRAME = { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" };
 const DRAG = { action: "live_drag" as const, x: 10, y: 20, x2: 100, y2: 200 };
@@ -158,6 +158,141 @@ describe("insertion verdict tri-state", () => {
 
 	test("an unlocalizable row reports unknown, never a false failure", () => {
 		expect(insertionVerdict({ nativeSeen: false, frameSeen: false, rowLocated: false })).toBeNull();
+	});
+});
+
+describe("scroll burst plan", () => {
+	test("maps reading cadence to inter-step pauses", () => {
+		expect(scrollBurstIntervalMs("slow")).toBe(600);
+		expect(scrollBurstIntervalMs("normal")).toBe(250);
+		expect(scrollBurstIntervalMs("fast")).toBe(80);
+		expect(scrollBurstIntervalMs(undefined)).toBe(250);
+	});
+
+	test("clamps steps, falls back on bad speed, samples by default", () => {
+		expect(scrollBurstPlan({})).toMatchObject({ steps: 1, speed: "normal", intervalMs: 250, sample: true });
+		expect(scrollBurstPlan({ count: 99, scrollSpeed: "fast", observeDuringScroll: false }))
+			.toMatchObject({ steps: 20, speed: "fast", intervalMs: 80, sample: false });
+		expect(scrollBurstPlan({ count: 0, scrollSpeed: "ludicrous" }).speed).toBe("normal");
+	});
+});
+
+describe("scroll burst guards and sampling", () => {
+	const steps = [["a"], ["b"], ["c"]];
+	const okAssert = async () => null;
+
+	test("runs every step with one focus assertion each and samples progress", async () => {
+		let asserts = 0;
+		const ran: string[][] = [];
+		const fps = ["f1", "f2", "f3"];
+		const r = await runScrollBurst(steps, {
+			intervalMs: 1, sample: true, expectedWindowAddress: "0xA",
+			run: async argv => { ran.push(argv); return null; },
+			sampleFrame: async () => fps[ran.length - 1],
+			assertFocus: async expected => { asserts++; expect(expected).toBe("0xA"); return okAssert(); },
+		});
+		expect(r).toMatchObject({ failure: null, completedSteps: 3 });
+		expect(ran).toEqual(steps);
+		expect(asserts).toBe(3);
+		expect(r.samples.map(s => s.step)).toEqual([1, 2, 3]);
+		expect(r.samples.map(s => s.changed)).toEqual([false, true, true]);
+	});
+
+	test("focus loss stops the burst before the next injection", async () => {
+		const ran: string[][] = [];
+		const r = await runScrollBurst(steps, {
+			intervalMs: 1, sample: false, expectedWindowAddress: "0xA",
+			run: async argv => { ran.push(argv); return null; },
+			assertFocus: async () => (ran.length === 0 ? null : "focus changed"),
+		});
+		expect(r.failure).toContain("focus changed");
+		expect(r.completedSteps).toBe(1);
+		expect(ran.length).toBe(1);
+	});
+
+	test("backend failure and cancellation never emit further input", async () => {
+		const ran: string[][] = [];
+		const failed = await runScrollBurst(steps, {
+			intervalMs: 1, sample: false, expectedWindowAddress: "0xA",
+			run: async argv => { ran.push(argv); return ran.length === 2 ? "backend broke" : null; },
+			assertFocus: okAssert,
+		});
+		expect(failed.failure).toContain("backend broke");
+		expect(failed.completedSteps).toBe(1);
+		const controller = new AbortController();
+		controller.abort();
+		const ran2: string[][] = [];
+		const cancelled = await runScrollBurst(steps, {
+			intervalMs: 1, sample: true, expectedWindowAddress: "0xA", signal: controller.signal,
+			run: async argv => { ran2.push(argv); return null; },
+			sampleFrame: async () => "fp",
+			assertFocus: okAssert,
+		});
+		expect(cancelled.failure).toContain("aborted");
+		expect(cancelled.completedSteps).toBe(0);
+		expect(ran2).toEqual([]);
+	});
+
+	test("a throwing sampler degrades to a null sample, not a burst failure", async () => {
+		const r = await runScrollBurst([["a"]], {
+			intervalMs: 0, sample: true, expectedWindowAddress: "0xA",
+			run: async () => null,
+			sampleFrame: async () => { throw new Error("camera wedged"); },
+			assertFocus: okAssert,
+		});
+		expect(r.failure).toBeNull();
+		expect(r.samples[0]).toMatchObject({ step: 1, fingerprint: null });
+	});
+});
+
+describe("continuous-observation freshness policy", () => {
+	const fresh = { generation: 2, address: "0xA", frame: null, capturedAt: 10_000 };
+
+	test("fresh snapshot anchored to the active window is accepted", () => {
+		expect(observationInputStatus({ snapshot: fresh, activeAddress: "0xA", freshFrame: null, now: 10_800 }))
+			.toMatchObject({ state: "fresh", ageMs: 800, address: "0xA" });
+	});
+
+	test("stale snapshot refuses with an actionable age", () => {
+		const s = observationInputStatus({ snapshot: fresh, activeAddress: "0xA", freshFrame: null, now: 10_000 + 1501 });
+		expect(s.state).toBe("stale");
+		if (s.state === "stale") expect(s.detail).toContain("1501ms");
+	});
+
+	test("an address-mismatched snapshot refuses even when otherwise fresh", () => {
+		const s = observationInputStatus({ snapshot: fresh, activeAddress: "0xB", freshFrame: null, now: 10_100 });
+		expect(s).toMatchObject({ state: "address_mismatch" });
+	});
+
+	test("a superseded snapshot never drives input", () => {
+		const s = observationInputStatus({ snapshot: { ...fresh, superseded: true }, activeAddress: "0xA", freshFrame: null, now: 10_100 });
+		expect(s).toMatchObject({ state: "superseded" });
+	});
+
+	test("a missing snapshot refuses with the glance hint", () => {
+		const s = observationInputStatus({ snapshot: undefined, activeAddress: "0xA", freshFrame: null, now: 10_100 });
+		expect(s.state).toBe("missing");
+		if (s.state === "missing") expect(s.detail).toContain("live_eye");
+	});
+
+	test("a fresh frame from the pre-action capture re-anchors an old generation", () => {
+		const oldSnap = { generation: 1, address: "0xOLD", frame: null, capturedAt: 9_000 };
+		const freshFrame = { ...FRAME, atX: 708, atY: 90, physW: 1190, physH: 968, kind: "window" as const, address: "0xA" };
+		expect(observationInputStatus({ snapshot: oldSnap, activeAddress: "0xA", freshFrame, now: 10_100 }))
+			.toMatchObject({ state: "fresh", ageMs: 0, address: "0xA" });
+	});
+
+	test("validateInjection refuses non-fresh observations with fail-closed codes", () => {
+		const base = { action: "live_click", x: 10, y: 20, frame: { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" }, focusedAddress: "win1" };
+		const stale = validateInjection({ ...base, observation: { state: "stale", detail: "1600ms old", ageMs: 1600 } });
+		expect(stale).toMatchObject({ ok: false, code: "observation_stale" });
+		const missing = validateInjection({ ...base, observation: { state: "missing", detail: "no glance", ageMs: null } });
+		expect(missing).toMatchObject({ ok: false, code: "no_observation" });
+		const superseded = validateInjection({ ...base, observation: { state: "superseded", detail: "re-anchor", ageMs: 900 } });
+		expect(superseded).toMatchObject({ ok: false, code: "observation_superseded" });
+		// Fresh observations (or absent ones — legacy callers) stay valid.
+		const freshOk = validateInjection({ ...base, observation: { state: "fresh", ageMs: 300, address: "win1" } });
+		expect(freshOk).toMatchObject({ ok: true });
 	});
 });
 

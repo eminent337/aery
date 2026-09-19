@@ -1,4 +1,5 @@
 import { CameraWatchLoop } from "./camera-control";
+import { ObservationController, type ObservationSnapshot } from "./live-observe";
 import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
 import { buildEyeGeometry, describeEyeTarget, type EyeRegion } from "./live-eye";
 import { type OcrWordBox, ocrFrame } from "./screen-ocr";
@@ -218,6 +219,18 @@ const desktopControlSchema = z.object({
 		.optional()
 		.describe(
 			"Scroll direction for 'live_scroll' (default: down). Native Wayland wheel needs uinput REL_WHEEL which ydotool does not expose — 'live_scroll' on a native window emulates Page_Up/Page_Down.",
+		),
+	scrollSpeed: z
+		.enum(["slow", "normal", "fast"])
+		.optional()
+		.describe(
+			"Reading cadence for a 'live_scroll' burst (default: normal). Sets the inter-step pause so the eye can read while the view moves: slow ≈600ms for reading along, normal ≈250ms, fast ≈80ms for covering ground. Each step still re-checks the exact focused-window address before injecting.",
+		),
+	observeDuringScroll: z
+		.boolean()
+		.optional()
+		.describe(
+			"Sample a cheap change fingerprint between 'live_scroll' steps and report per-step progress in details.scroll.samples (default: true). No full settle wait is forced between steps; the burst keeps moving while observations stream.",
 		),
 	verify: z
 		.boolean()
@@ -439,6 +452,10 @@ export async function focusWindowFast(
  * enforced via the host approval resolver below.
  */
 let liveModeEnabled = false;
+/** Continuous observation: one session-scoped snapshot anchored to the exact
+ *  window address of the latest eye/verify reading. live_* actions consult it
+ *  for fresh coordinates; it never injects input itself. */
+const liveObservation = new ObservationController();
 let lastInputFrame: InputFrame | null = null;
 
 const LIVE_GATE_ACTIONS = new Set<string>([
@@ -671,6 +688,32 @@ export function cursorVerifyNote(aimed: { x: number; y: number }, read: { x: num
 	return dx <= 2 && dy <= 2
 		? ` Cursor verify OK (Δ${dx},${dy}px ≤2).`
 		: ` Cursor verify MISMATCH: aimed (${aimed.x},${aimed.y}), read (${read.x},${read.y}) (Δ${dx},${dy}px) — re-eye and retry before clicking.`;
+}
+
+/** Anchor the session observation to the last successful window reading.
+ *  Fail-closed by construction: only a frame carrying an exact window
+ *  address anchors; fullscreen/region frames (no address) replace the
+ *  snapshot with nothing and instead cancel it, so a stale window frame
+ *  can never drive input after an unanchored glance. Returns the detail
+ *  fragment merged into the tool result (observation generation + age data
+ *  flow through the normal result path, no new visible output). */
+function anchorLiveObservation(
+	readings: Array<{ frame: InputFrame | null; text?: string }>,
+	now = Date.now(),
+): Record<string, unknown> {
+	const last = [...readings].reverse().find(r => r.frame);
+	if (!last?.frame) {
+		liveObservation.cancel();
+		return { observation: { anchored: false, reason: "no_frame" } };
+	}
+	const address = last.frame.address;
+	if (!address) {
+		liveObservation.cancel();
+		return { observation: { anchored: false, reason: "unaddressed_frame" } };
+	}
+	const gen = liveObservation.replace(address, last.frame, now);
+	if (last.text) liveObservation.noteOcr(gen, last.text, undefined, now);
+	return { observation: { anchored: true, generation: gen, address, at: now } };
 }
 
 /** --- Click targets (clickable OCR) ------------------------------------ */
@@ -916,6 +959,47 @@ function modifierRefusal(action: string, modifiers: unknown): string | null {
 	return null;
 }
 
+/** Status of the continuous observation at input-validation time.
+ *  Exported for tests: proves pointer/keyboard actions consult the live
+ *  snapshot (not just the last screenshot frame) and refuse stale or
+ *  re-anchored readings with an actionable code. */
+export type ObservationInputStatus =
+	| { state: "fresh"; ageMs: number; address: string }
+	| { state: "missing" | "superseded" | "stale" | "address_mismatch"; detail: string; ageMs: number | null };
+
+/** Central freshness policy for live input: the session observation must be
+ *  present, live, fresh, and anchored to the focused window. A focused window
+ *  that CHANGED address re-anchors the snapshot instead of reusing the old
+ *  frame: the caller passes the fresh frame (from the pre-action capture)
+ *  and the controller atomically supersedes the previous generation.
+ *  Pure over injected state — exported for tests. */
+export function observationInputStatus(input: {
+	snapshot: ObservationSnapshot | undefined;
+	activeAddress: string | undefined;
+	freshFrame: InputFrame | null;
+	now?: number;
+	maxAgeMs?: number;
+}): ObservationInputStatus {
+	const now = input.now ?? Date.now();
+	const maxAgeMs = input.maxAgeMs ?? 1500;
+	const snap = input.snapshot;
+	if (snap && !snap.superseded && snap.address === input.activeAddress) {
+		const ageMs = Math.max(0, now - snap.capturedAt);
+		if (ageMs <= maxAgeMs) return { state: "fresh", ageMs, address: snap.address };
+		return { state: "stale", detail: `Continuous observation is ${ageMs}ms old (limit ${maxAgeMs}ms) — refresh the glance before driving input.`, ageMs };
+	}
+	if (snap && !snap.superseded && input.freshFrame?.address && input.freshFrame.address === input.activeAddress) {
+		return { state: "fresh", ageMs: 0, address: input.freshFrame.address };
+	}
+	if (!snap) return { state: "missing", detail: "No continuous observation yet — take a live_eye glance first.", ageMs: null };
+	if (snap.superseded) return { state: "superseded", detail: "Observation was superseded by a focus change or cancel — re-anchor before driving input.", ageMs: Math.max(0, now - snap.capturedAt) };
+	return {
+		state: "address_mismatch",
+		detail: `Observation is anchored to ${snap.address} but the active window is ${input.activeAddress ?? "none"} — re-anchor before driving input.`,
+		ageMs: Math.max(0, now - snap.capturedAt),
+	};
+}
+
 /**
  * Validate-before-run (clippy validate-before-run pattern): every check that
  * can fail WITHOUT touching the desktop runs here, before any backend
@@ -933,6 +1017,7 @@ export function validateInjection(params: {
 	modifiers?: unknown;
 	frame: { scaledW: number; scaledH: number; kind: string; address?: string } | null;
 	focusedAddress: string | undefined;
+	observation?: ObservationInputStatus;
 }): { ok: true; tx?: number; ty?: number } | { ok: false; error: string; code: string } {
 	const isPointer = params.action === "live_move" || params.action === "live_click" || params.action === "live_drag";
 	// 1. Guardrails first (cheapest, no frame needed).
@@ -942,6 +1027,14 @@ export function validateInjection(params: {
 	if (modifiersError) return { ok: false, error: modifiersError, code: "invalid_modifiers" };
 	// Restricted-app check needs the window — represented here by class/title
 	// passed via keys-free params; the live path re-checks with the real win.
+	// 1b. Continuous-observation freshness: when the caller supplies the
+	// snapshot status, a stale/superseded/mismatched reading refuses with an
+	// actionable code instead of driving from an old frame.
+	if (params.observation && params.observation.state !== "fresh") {
+		const obs = params.observation;
+		const code = obs.state === "missing" ? "no_observation" : obs.state === "stale" ? "observation_stale" : obs.state === "superseded" ? "observation_superseded" : "observation_mismatch";
+		return { ok: false, error: obs.detail, code };
+	}
 	// 2. Pointer branches need a frame + coordinates.
 	if (isPointer) {
 		if (!params.frame) {
@@ -1327,6 +1420,93 @@ async function keyTextWith(chain: LiveBackend[], spec: string, expectedWindowAdd
 	}
 	return lastErr;
 }
+/** Inter-step pause (ms) for a live_scroll burst by reading cadence.
+ *  Exported for tests. The guard assertion before every step stays
+ *  mandatory — speed only shortens the pause between guarded steps. */
+export function scrollBurstIntervalMs(speed: "slow" | "normal" | "fast" | undefined): number {
+	switch (speed) {
+		case "slow": return 600;
+		case "fast": return 80;
+		default: return 250;
+	}
+}
+
+/** Validated scroll-burst plan: clamped step count + cadence + sampling flag.
+ *  Exported for tests. Invalid speeds fall back to normal (never refuse —
+ *  the burst must stay fail-operational on the cadence axis; safety lives
+ *  in the per-step focus guard, not the speed knob). */
+export function scrollBurstPlan(input: { count?: number; scrollSpeed?: string; observeDuringScroll?: boolean }): {
+	steps: number;
+	intervalMs: number;
+	speed: "slow" | "normal" | "fast";
+	sample: boolean;
+} {
+	const steps = Math.max(1, Math.min(input.count ?? 1, 20));
+	const speed = input.scrollSpeed === "slow" || input.scrollSpeed === "fast" ? input.scrollSpeed : "normal";
+	return { steps, intervalMs: scrollBurstIntervalMs(speed), speed, sample: input.observeDuringScroll ?? true };
+}
+
+/** One per-step progress sample in a scroll burst: cheap change fingerprint
+ *  taken between guarded steps so the eye reads WHILE the view moves. */
+export interface ScrollBurstSample {
+	step: number;
+	at: number;
+	/** Fingerprint of the window right after this step (null when uncaptured). */
+	fingerprint: string | null;
+	/** True when the fingerprint differs from the previous sample. */
+	changed: boolean;
+}
+
+/** Run a scroll burst one guarded step at a time with an adjustable cadence.
+ *  Each step re-asserts the exact focused-window address BEFORE injecting
+ *  (fail-closed); between steps an optional cheap fingerprint samples visual
+ *  progress without forcing a full settle. Aborts on focus loss, backend
+ *  failure, or cancellation — never emits input after a mismatch. Exported
+ *  for tests via injectable step/sample/assert hooks (no desktop I/O). */
+export async function runScrollBurst(
+	steps: string[][],
+	options: {
+		intervalMs: number;
+		sample: boolean;
+		expectedWindowAddress: string;
+		signal?: AbortSignal;
+		run?: (argv: string[]) => Promise<string | null>;
+		sampleFrame?: () => Promise<string | null>;
+		assertFocus?: (expected: string | undefined) => Promise<string | null>;
+	},
+): Promise<{ failure: string | null; completedSteps: number; samples: ScrollBurstSample[] }> {
+	const run = options.run ?? (async argv => {
+		const res = await runCmd(argv[0], argv.slice(1), { timeout: 8000 });
+		return res.code === 0 ? null : `"${argv[0]} ${argv.slice(1).join(" ")}" failed: ${res.stderr || res.stdout}`;
+	});
+	const assertFocus = options.assertFocus ?? assertInputFocus;
+	const samples: ScrollBurstSample[] = [];
+	let prev: string | null | undefined;
+	let completedSteps = 0;
+	for (let i = 0; i < steps.length; i++) {
+		if (options.signal?.aborted) return { failure: `Scroll burst aborted before step ${i + 1}.`, completedSteps, samples };
+		const focusError = await assertFocus(options.expectedWindowAddress);
+		if (focusError) return { failure: focusError, completedSteps, samples };
+		const stepFailure = await run(steps[i]);
+		if (stepFailure) return { failure: stepFailure, completedSteps, samples };
+		completedSteps++;
+		if (options.sample && options.sampleFrame) {
+			let fp: string | null = null;
+			try {
+				fp = await options.sampleFrame();
+			} catch {
+				fp = null;
+			}
+			samples.push({ step: i + 1, at: Date.now(), fingerprint: fp, changed: prev !== undefined && fp !== prev });
+			prev = fp;
+		}
+		if (i < steps.length - 1 && options.intervalMs > 0) {
+			await new Promise(r => setTimeout(r, options.intervalMs));
+		}
+	}
+	return { failure: null, completedSteps, samples };
+}
+
 /** Execute one live_* action (module-level so the execute() switch stays tiny). */
 async function executeLiveAction(
 	action: string,
@@ -1474,6 +1654,7 @@ async function executeLiveAction(
 	}
 
 const verify = params.verify !== false;
+	const verifyStartedAt = Date.now();
 const withVerify = async (lead: string, extra?: Record<string, unknown>, expectedInsertion?: string): Promise<AgentToolResult> => {
 	// Drive-loop bookkeeping: reaching verify means the injection ran.
 	// Central success observation for every live_* branch (clippy pattern).
@@ -1619,9 +1800,29 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 				// shutting down.
 			}
 		}
+		// The verify capture re-anchors the observation (it is the freshest
+		// address-exact reading); hidden-steer ephemerality is unchanged.
+		const reanchor: Record<string, unknown> = cap.frame?.address
+			? anchorLiveObservation([{ frame: cap.frame }])
+			: {};
+		// Structured verification (continuous control): freshness, focus
+		// identity, capture timing, and settle result ride in details so a
+		// caller can PROVE the observation was fresh, not just assume it.
+		const snapshot = liveObservation.get();
+		const verification = {
+			observationAgeMs: snapshot ? Math.max(0, Date.now() - snapshot.capturedAt) : null,
+			observationAddress: snapshot?.address ?? null,
+			observationGeneration: snapshot?.generation ?? null,
+			ocrConfidence: snapshot?.ocrConfidence ?? null,
+			focusedAddress: win.address,
+			focusedTitle: win.title,
+			focusedClass: win.class,
+			settleChanges,
+			verifyMs: Date.now() - verifyStartedAt,
+		};
 		return okText(
 			`${lead}${attached ? " — verify frame attached for the model." : " (verify frame could not be attached; verify:false to skip)"}`,
-			{ success: true, frame: cap.frame, steerAttached: attached, swept, ...(extra ?? {}), ...(insertion ? { insertion } : {}) },
+			{ success: true, frame: cap.frame, steerAttached: attached, swept, verification, ...(extra ?? {}), ...(insertion ? { insertion } : {}), ...reanchor },
 		);
 	};
 
@@ -1629,6 +1830,14 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 	// Validate-before-run: every fail-without-touching check (guardrails,
 	// frame presence/staleness, target resolution, bounds) runs BEFORE any
 	// backend subprocess. Failures stop and ask — nothing is injected.
+	// Continuous observation joins validation: the session snapshot must be
+	// fresh and anchored to THIS window, or the action refuses (fail-closed)
+	// with an actionable code instead of driving from a stale reading.
+	const obsStatus = observationInputStatus({
+		snapshot: liveObservation.get(),
+		activeAddress: win.address,
+		freshFrame: null,
+	});
 	const validation = validateInjection({
 		action,
 		x: params.x,
@@ -1640,6 +1849,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		modifiers: params.modifiers,
 		frame: lastInputFrame,
 		focusedAddress: win.address,
+		observation: obsStatus,
 	});
 	if (!validation.ok) {
 		return errText(validation.error, validation.code);
@@ -1791,34 +2001,52 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 
 	if (action === "live_scroll") {
 		const dir = params.direction ?? "down";
-		const count = Math.min(params.count ?? 1, 20);
 		const before = verify ? await captureLiveFrame("Before scroll") : null;
-		const observation = {
-			scroll: {
-				direction: dir,
-				requestedSteps: count,
-				beforeFrame: before && !("error" in before) ? before.frame : null,
-				beforeCaptureError: before && "error" in before ? before.error : undefined,
-			},
-		};
+		const x11Plan = scrollBurstPlan({ count: params.count, scrollSpeed: params.scrollSpeed, observeDuringScroll: params.observeDuringScroll });
 		if (backend === "xdotool") {
-			const fail = await runSteps(xdoWheelScroll(dir, count), 60, win.address);
+			const fail = await runSteps(xdoWheelScroll(dir, x11Plan.steps), x11Plan.intervalMs, win.address);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
-			return withVerify(`Wheel-scrolled ${dir} ${count} notch${count === 1 ? "" : "es"} on XWayland window "${win.title}".`, observation);
+			return withVerify(`Wheel-scrolled ${dir} ${x11Plan.steps} notch${x11Plan.steps === 1 ? "" : "es"} at ${x11Plan.speed} cadence on XWayland window "${win.title}".`, {
+				scroll: { direction: dir, requestedSteps: x11Plan.steps, completedSteps: x11Plan.steps, speed: x11Plan.speed, intervalMs: x11Plan.intervalMs, samples: [], beforeFrame: before && !("error" in before) ? before.frame : null, beforeCaptureError: before && "error" in before ? before.error : undefined },
+			});
 		}
 		if (backend === "wtype")
 			return errText(
 				"wtype is keyboard-only and cannot scroll. Use live_key Page_Up/Page_Down on a native window, or install a true uinput wheel backend.",
 				"no_scroll",
 			);
-		// ydotool has no REL_WHEEL CLI path: use separate PageUp/PageDown
-		// steps, re-checking focus before each one. This is intentionally not
-		// described as a wheel notch because it scrolls the focused viewport.
-		const fail = await runSteps(ydoPageScroll(dir, count), 60, win.address);
-		if (fail) return errObserve(action, fail);
+		// ydotool has no REL_WHEEL CLI path: run separate PageUp/PageDown
+		// steps as a burst — one exact-address focus assertion per step, an
+		// adjustable reading cadence between steps, and cheap progress
+		// samples instead of a full settle after every step. This is
+		// intentionally not described as a wheel notch because it scrolls
+		// the focused viewport.
+		const plan = scrollBurstPlan({ count: params.count, scrollSpeed: params.scrollSpeed, observeDuringScroll: params.observeDuringScroll });
+		const burst = await runScrollBurst(ydoPageScroll(dir, plan.steps), {
+			intervalMs: plan.intervalMs,
+			sample: plan.sample && verify,
+			expectedWindowAddress: win.address,
+			signal,
+			sampleFrame: plan.sample && verify ? uiFingerprint : undefined,
+		});
+		if (burst.failure) return errObserve(action, burst.failure);
 		liveAuthorizedKinds.add(action);
-		return withVerify(`Scrolled ${dir} ${count} page step${count === 1 ? "" : "s"} (native Wayland fallback — no REL_WHEEL backend).`, observation);
+		return withVerify(
+			`Scrolled ${dir} ${burst.completedSteps} page step${burst.completedSteps === 1 ? "" : "s"} at ${plan.speed} cadence (native Wayland fallback — no REL_WHEEL backend).`,
+			{
+				scroll: {
+					direction: dir,
+					requestedSteps: plan.steps,
+					completedSteps: burst.completedSteps,
+					speed: plan.speed,
+					intervalMs: plan.intervalMs,
+					samples: burst.samples,
+					beforeFrame: before && !("error" in before) ? before.frame : null,
+					beforeCaptureError: before && "error" in before ? before.error : undefined,
+				},
+			},
+		);
 	}
 
 	return errText(`Unhandled live action "${action}".`, "unhandled");
@@ -2513,6 +2741,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					targetWindow: targetWindow
 						? { title: targetWindow.title, class: targetWindow.class, address: targetWindow.address }
 						: undefined,
+					...anchorLiveObservation([{ frame: remembered, text: shotOcrText || undefined }]),
 					...(shotWantOcr
 						? {
 								ocrText: shotOcrText,
@@ -2790,6 +3019,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							}
 						: {}),
 					...(allTargets.length > 0 ? { clickTargets: allTargets } : {}),
+					// Continuous observation anchor: the LAST successful view's
+					// window frame becomes the session snapshot (address-exact,
+					// fail-closed). Multi-view glances anchor the last view so
+					// input always uses one unambiguous coordinate space.
+					...anchorLiveObservation(readings),
 				} as unknown as Record<string, unknown>,
 			};
 			}
