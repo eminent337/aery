@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DesktopControlTool, focusGuardRefusal, runDragWithCleanup, runSteps, validateInjection } from "../desktop-control";
+import { DesktopControlTool, focusGuardRefusal, insertionProbeRegion, insertionVerdict, runDragWithCleanup, runSteps, validateInjection } from "../desktop-control";
 
 const FRAME = { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" };
 const DRAG = { action: "live_drag" as const, x: 10, y: 20, x2: 100, y2: 200 };
@@ -125,6 +125,39 @@ describe("immediate focused-window guard", () => {
 			return refusal;
 		});
 		expect(result).toBe(refusal);
+	});
+});
+
+describe("insertion probe region", () => {
+	const frame = { atX: 700, atY: 90, physW: 1190, physH: 968 };
+
+	test("spans the caret row without sampling beyond the captured window", () => {
+		const r = insertionProbeRegion(frame, { x: 900, y: 300 });
+		expect(r.x).toBe(700); // clamped to the window's left edge
+		expect(r.y).toBe(280);
+		expect(r.x + r.w).toBeLessThanOrEqual(frame.atX + frame.physW);
+		expect(r.y + r.h).toBeLessThanOrEqual(frame.atY + frame.physH);
+	});
+
+	test("honours explicit padding and never returns a negative size", () => {
+		const r = insertionProbeRegion(frame, { x: 701, y: 91 }, { left: 0, right: 0, above: 0, below: 0 });
+		expect(r.w).toBe(0);
+		expect(r.h).toBe(0);
+		expect(r.x).toBe(701);
+	});
+});
+describe("insertion verdict tri-state", () => {
+	test("native or frame evidence confirms the insertion", () => {
+		expect(insertionVerdict({ nativeSeen: true, frameSeen: false, rowLocated: true })).toBe(true);
+		expect(insertionVerdict({ nativeSeen: false, frameSeen: true, rowLocated: false })).toBe(true);
+	});
+
+	test("a positively read row without the text is a real negative", () => {
+		expect(insertionVerdict({ nativeSeen: false, frameSeen: false, rowLocated: true })).toBe(false);
+	});
+
+	test("an unlocalizable row reports unknown, never a false failure", () => {
+		expect(insertionVerdict({ nativeSeen: false, frameSeen: false, rowLocated: false })).toBeNull();
 	});
 });
 

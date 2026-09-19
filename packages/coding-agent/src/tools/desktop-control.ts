@@ -1493,14 +1493,76 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 	const cap = await captureLiveFrame(lead);
 	if ("error" in cap) return okText(`${lead} (verify screenshot failed: ${cap.error})`, extra);
 	let insertion: Record<string, unknown> | undefined;
-	if (expectedInsertion !== undefined && cap.framePath) {
-		const ocr = await ocrFrame(cap.framePath, {});
+	if (expectedInsertion !== undefined) {
 		const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+		const wanted = normalize(expectedInsertion);
+		const token = wanted.replace(/\s+/g, "");
+		// A field value can wrap and re-read in the downscaled verify frame, so
+		// its OCR is unreliable exactly when the value is long enough to matter.
+		// The verdict therefore comes from a NATIVE-resolution read of the field
+		// row; the frame reading is corroborating evidence only. Locate the row
+		// by the token's frame word box, falling back to the pointer (which is
+		// not the text caret) only when no word box can be found.
+		let frameText = "";
+		let frameWords: OcrWordBox[] | undefined;
+		if (cap.framePath) {
+			const ocr = await ocrFrame(cap.framePath, {});
+			frameText = ocr.text;
+			frameWords = ocr.words;
+		}
+		const frameSeen = normalize(frameText).replace(/\s+/g, "").includes(token);
+		let nativeText: string | null = null;
+		let nativeAnchor: "frame_word" | "pointer" | "none" = "none";
+		try {
+			if (lastInputFrame && lastInputFrame.scaledW > 0) {
+				const fx = lastInputFrame.physW / lastInputFrame.scaledW;
+				const fy = lastInputFrame.physH / lastInputFrame.scaledH;
+				const hit = (frameWords ?? []).find(w => normalize(w.text).replace(/\s+/g, "").includes(token));
+				let screen: { x: number; y: number } | null = null;
+				let boxLeft = 460;
+				let boxAbove = 20;
+				if (hit) {
+					screen = { x: lastInputFrame.atX + hit.x * fx, y: lastInputFrame.atY + hit.y * fy };
+					boxLeft = 16;
+					boxAbove = Math.round(hit.h * fy) + 12;
+					nativeAnchor = "frame_word";
+				} else {
+					const caret = await detectPlatformDriver().capture.cursorPos();
+					if (caret) {
+						screen = caret;
+						nativeAnchor = "pointer";
+					}
+				}
+				if (screen) {
+					nativeText = await ocrRegionNative(
+						insertionProbeRegion(lastInputFrame, screen, {
+							left: boxLeft,
+							right: lastInputFrame.physW,
+							above: boxAbove,
+							below: 30,
+						}),
+					);
+				}
+			}
+		} catch {
+			// Native confirmation is best-effort; the frame reading still stands.
+		}
+		const nativeSeen = nativeText !== null && normalize(nativeText).replace(/\s+/g, "").includes(token);
+		const verdict = insertionVerdict({
+			nativeSeen,
+			frameSeen,
+			rowLocated: nativeText !== null && nativeAnchor === "frame_word",
+		});
 		insertion = {
 			expectedText: expectedInsertion,
-			verified: normalize(ocr.text).includes(normalize(expectedInsertion)),
-			detectedText: ocr.text,
-			method: "settled_frame_ocr",
+			verified: verdict,
+			nativeVerified: nativeText !== null ? nativeSeen : null,
+			frameSeen,
+			nativeAnchor,
+			detectedText: nativeText ?? frameText,
+			nativeText,
+			frameText,
+			method: nativeText !== null ? "native_field_row_ocr" : "settled_frame_ocr",
 			windowAddress: win.address,
 		};
 	}
@@ -1760,6 +1822,60 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 	}
 
 	return errText(`Unhandled live action "${action}".`, "unhandled");
+}
+
+/** OCR one screen region at native resolution for insertion verification.
+ *  A field row is a single line inside a bordered box, and `--psm 7`
+ *  (single-line) mis-segments that band; block mode (`--psm 6`) reads it
+ *  reliably. Two upscales are tried and the richer reading wins, since which
+ *  scale resolves the glyphs depends on font size. */
+async function ocrRegionNative(region: { x: number; y: number; w: number; h: number }): Promise<string | null> {
+	if (region.w < 8 || region.h < 6) return null;
+	const stamp = Date.now();
+	const rawPath = path.join(os.tmpdir(), `aerys-insert-${stamp}-raw.png`);
+	const cap = await detectPlatformDriver().capture.capture(rawPath, `${region.x},${region.y} ${region.w}x${region.h}`);
+	if (cap.code !== 0) return null;
+	let best = "";
+	for (const scale of ["200%", "300%"]) {
+		const upPath = path.join(os.tmpdir(), `aerys-insert-${stamp}-${scale.replace("%", "")}.png`);
+		const conv = await runCmd("convert", [rawPath, "-resize", scale, upPath]);
+		if (conv.code !== 0 || !fs.existsSync(upPath)) continue;
+		const res = await runCmd("tesseract", [upPath, "stdout", "--oem", "1", "-l", "eng", "--psm", "6"], { timeout: 8000 });
+		const text = res.code === 0 ? res.stdout.replace(/\s+/g, " ").trim() : "";
+		if (text.replace(/\s+/g, "").length > best.replace(/\s+/g, "").length) best = text;
+		fs.rm(upPath, { force: true }, () => {});
+	}
+	fs.rm(rawPath, { force: true }, () => {});
+	return best || null;
+}
+
+/** Screen region (logical px) covering the text row where the insertion
+ *  landed, clamped to the captured window so a probe can never sample a
+ *  neighbouring window. */
+export function insertionProbeRegion(
+	frame: { atX: number; atY: number; physW: number; physH: number },
+	anchorLogical: { x: number; y: number },
+	pad: { left?: number; right?: number; above?: number; below?: number } = {},
+): { x: number; y: number; w: number; h: number } {
+	const left = pad.left ?? 420;
+	const right = pad.right ?? 260;
+	const above = pad.above ?? 20;
+	const below = pad.below ?? 20;
+	const x = Math.max(frame.atX, Math.round(anchorLogical.x - left));
+	const y = Math.max(frame.atY, Math.round(anchorLogical.y - above));
+	const w = Math.max(0, Math.min(Math.round(left + right), Math.round(frame.atX + frame.physW - x)));
+	const h = Math.max(0, Math.min(Math.round(above + below), Math.round(frame.atY + frame.physH - y)));
+	return { x, y, w, h };
+}
+
+/** Tri-state insertion verdict. `true` = confirmed present; `false` = the
+ *  field row was positively read at native resolution and the text is NOT
+ *  there; `null` = the row could not be localized, so the result is unknown —
+ *  never report a failure that was only an unverified guess. A frame hit is
+ *  positive evidence on its own (the token appeared in OCR, even if mangled). */
+export function insertionVerdict(input: { nativeSeen: boolean; frameSeen: boolean; rowLocated: boolean }): boolean | null {
+	if (input.nativeSeen || input.frameSeen) return true;
+	return input.rowLocated ? false : null;
 }
 
 export class DesktopControlTool implements AgentTool<typeof desktopControlSchema> {
