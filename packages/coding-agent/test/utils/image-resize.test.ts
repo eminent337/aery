@@ -22,17 +22,17 @@ async function makeRedWebP(width: number, height: number): Promise<string> {
 }
 
 describe("resizeImage defaults", () => {
-	it("downscales inputs larger than 1568px on the long edge", async () => {
-		// 2000x1500 — exceeds the default 1568 cap on width
-		const data = await makeRedPng(2000, 1500);
+	it("downscales inputs larger than 4096px on the long edge", async () => {
+		// 5000x3000 — exceeds the default 4096 cap on width
+		const data = await makeRedPng(5000, 3000);
 
 		const result = await resizeImage({ type: "image", data, mimeType: "image/png" });
 
 		expect(result.wasResized).toBe(true);
-		expect(result.width).toBeLessThanOrEqual(1568);
-		expect(result.height).toBeLessThanOrEqual(1568);
+		expect(result.width).toBeLessThanOrEqual(4096);
+		expect(result.height).toBeLessThanOrEqual(4096);
 		// Aspect ratio preserved (with rounding tolerance)
-		expect(Math.abs(result.width / result.height - 2000 / 1500)).toBeLessThan(0.01);
+		expect(Math.abs(result.width / result.height - 5000 / 3000)).toBeLessThan(0.01);
 	});
 
 	it("preserves inputs already within budget and dimensions (fast path)", async () => {
@@ -77,22 +77,22 @@ describe("resizeImage defaults", () => {
 	});
 
 	it("uses lossy WebP or JPEG (not PNG) for oversized inputs", async () => {
-		// 2000x2000 red PNG — exceeds dimension cap, triggers encodeSmallest.
+		// 5000x5000 red PNG — exceeds dimension cap, triggers encodeSmallest.
 		// Lossy formats (JPEG/WebP) should win over PNG for a solid-color image
 		// at this dimension because they compress more aggressively.
-		const data = await makeRedPng(2000, 2000);
+		const data = await makeRedPng(5000, 5000);
 
 		const result = await resizeImage({ type: "image", data, mimeType: "image/png" });
 
 		expect(result.wasResized).toBe(true);
 		// The result should be a lossy format (JPEG or WebP), not PNG,
-		// because lossy encoding at <=1568px for a solid square is trivially small.
+		// because lossy encoding at <=4096px for a solid square is trivially small.
 		expect(["image/jpeg", "image/webp"]).toContain(result.mimeType);
-		expect(result.buffer.length).toBeLessThanOrEqual(500 * 1024);
+		expect(result.buffer.length).toBeLessThanOrEqual(5 * 1024 * 1024);
 	});
 
 	it("excludes WebP when excludeWebP option is true", async () => {
-		const data = await makeRedPng(2000, 2000);
+		const data = await makeRedPng(5000, 5000);
 
 		const result = await resizeImage({ type: "image", data, mimeType: "image/png" }, { excludeWebP: true });
 

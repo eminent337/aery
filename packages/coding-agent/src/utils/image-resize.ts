@@ -19,17 +19,17 @@ export interface ResizedImage {
 	get data(): string;
 }
 
-// 500KB target — aggressive compression; Anthropic's 5MB per-image cap is rarely the
-// binding constraint once images are downsized to 1568px (Anthropic's internal threshold).
-const DEFAULT_MAX_BYTES = 500 * 1024;
+// 5MB target — high fidelity matching modern multimodal vision models (Gemini, Claude 3.7, GPT-4o).
+// Anthropic supports 5MB+, Gemini supports 20MB+, OpenAI supports 20MB+.
+const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 
 const DEFAULT_OPTIONS: Required<Omit<ImageResizeOptions, "excludeWebP">> = {
-	// Anthropic's "internal recommended size" — Claude internally caps images at
-	// 1568px on the longest edge before vision processing.
-	maxWidth: 1568,
-	maxHeight: 1568,
+	// Modern multimodal vision standard: preserve up to 4K resolution (4096px)
+	// so fine text, documents, code screenshots, and complex architecture diagrams stay crystal clear.
+	maxWidth: 4096,
+	maxHeight: 4096,
 	maxBytes: DEFAULT_MAX_BYTES,
-	jpegQuality: 80,
+	jpegQuality: 92,
 };
 
 /**
