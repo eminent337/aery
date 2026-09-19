@@ -760,11 +760,7 @@ export function observeRefresherTick(
 	if (generation !== snap.generation) return { action: "noop" };
 	if (!probeResult || !geometryIsKnown(probeResult)) return { action: "noop" };
 	const sameAddress = snap.address === probeResult.address;
-	const snapRect: ActiveGeometry | null = snap.windowRect
-		? { at: snap.windowRect.at, size: snap.windowRect.size }
-		: snap.frame
-			? { at: [snap.frame.atX, snap.frame.atY], size: [snap.frame.physW, snap.frame.physH] }
-			: null;
+	const snapRect = snapshotRect(snap);
 	const sameRect =
 		!!snapRect && snapRect.at[0] === probeResult.at[0] && snapRect.at[1] === probeResult.at[1]
 			&& snapRect.size[0] === probeResult.size[0] && snapRect.size[1] === probeResult.size[1];
@@ -1070,7 +1066,29 @@ export interface ActiveGeometry {
 
 /** True when a probe actually reported usable geometry. */
 export function geometryIsKnown(g: ActiveGeometry | undefined | null): g is ActiveGeometry {
-	return !!g && g.size[0] > 0 && g.size[1] > 0;
+	return !!g && Array.isArray(g.at) && Array.isArray(g.size) && g.size[0] > 0 && g.size[1] > 0;
+}
+
+/** Defensive shape check: a safety gate must NEVER throw on malformed data —
+ *  an unusable rect degrades to "identity unproven" (wall-clock fallback,
+ *  fail-closed) instead of a TypeError mid-injection. */
+function rectIsUsable(r: ActiveGeometry | null | undefined): r is ActiveGeometry {
+	return (
+		!!r &&
+		Array.isArray(r.at) && r.at.length === 2 && Number.isFinite(r.at[0]) && Number.isFinite(r.at[1]) &&
+		Array.isArray(r.size) && r.size.length === 2 && Number.isFinite(r.size[0]) && Number.isFinite(r.size[1])
+	);
+}
+
+/** Usable rect from a snapshot: probe-reported windowRect first (authoritative),
+ *  else the capture frame's rect; null when neither is usable. */
+function snapshotRect(snap: { windowRect?: ActiveGeometry | null; frame?: InputFrame | null }): ActiveGeometry | null {
+	const cands: Array<ActiveGeometry | null | undefined> = [
+		snap.windowRect ?? null,
+		snap.frame ? { at: [snap.frame.atX, snap.frame.atY], size: [snap.frame.physW, snap.frame.physH] } : null,
+	];
+	for (const c of cands) if (rectIsUsable(c)) return { at: [c.at[0], c.at[1]], size: [c.size[0], c.size[1]] };
+	return null;
 }
 
 /** Central validity policy for live input. A snapshot stays usable while the
@@ -1113,13 +1131,14 @@ export function observationInputStatus(input: {
 	// frame's capture rect: a window larger than the monitor is clamped by the
 	// compositor, so the capture rect can be smaller than the window itself.
 	const geometryKnown = geometryIsKnown(input.activeGeometry);
-	const snapRect: ActiveGeometry | null = snap.windowRect
-		? { at: snap.windowRect.at, size: snap.windowRect.size }
-		: snap.frame
-			? { at: [snap.frame.atX, snap.frame.atY], size: [snap.frame.physW, snap.frame.physH] }
-			: null;
+	const snapRect = snapshotRect(snap);
 	const identityUnproven = !snapRect || !geometryKnown;
-	const rectMatches = identityUnproven || (snapRect.at[0] === input.activeGeometry!.at[0] && snapRect.at[1] === input.activeGeometry!.at[1] && snapRect.size[0] === input.activeGeometry!.size[0] && snapRect.size[1] === input.activeGeometry!.size[1]);
+	const live = geometryKnown ? { at: input.activeGeometry!.at, size: input.activeGeometry!.size } : null;
+	const rectMatches =
+		identityUnproven ||
+		(!!live &&
+			snapRect!.at[0] === live.at[0] && snapRect!.at[1] === live.at[1] &&
+			snapRect!.size[0] === live.size[0] && snapRect!.size[1] === live.size[1]);
 	if (identityUnproven) {
 		// Cannot prove scene identity (no anchored rect, or the backend has
 		// no usable geometry): fall back to wall-clock expiry — fail-closed.

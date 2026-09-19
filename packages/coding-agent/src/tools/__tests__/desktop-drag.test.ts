@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DesktopControlTool, focusGuardRefusal, geometryIsKnown, insertionProbeRegion, insertionVerdict, observationInputStatus, runDragWithCleanup, runScrollBurst, runSteps, scrollBurstIntervalMs, scrollBurstPlan, validateInjection } from "../desktop-control";
-import { ObservationController } from "../live-observe";
+import { ObservationController, type ObservationSnapshot } from "../live-observe";
 import { observeRefresherTick } from "../desktop-control";
 
 const FRAME = { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" };
@@ -370,6 +370,28 @@ describe("continuous-observation freshness policy", () => {
 			expect(c2.get()!.capturedAt).toBe(10_000);
 		});
 	});
+	test("gate never throws on malformed snapshot geometry (degrades fail-closed)", () => {
+		// Regression: a snapshot whose rect is partially/wholly malformed must
+		// degrade to identity-unproven (wall-clock fallback), never a TypeError.
+		const bad: ObservationSnapshot[] = [
+			{ generation: 1, address: "0xA", frame: null, capturedAt: 10_000, windowRect: { at: undefined as unknown as [number, number], size: [10, 20] as [number, number] } },
+			{ generation: 1, address: "0xA", frame: null, capturedAt: 10_000, windowRect: { at: [1] as unknown as [number, number], size: [10, 20] as [number, number] } },
+			{ generation: 1, address: "0xA", frame: null, capturedAt: 10_000, windowRect: { at: [Number.NaN, 2], size: [10, 20] as [number, number] } },
+		];
+		for (const snapshot of bad) {
+			const s1 = observationInputStatus({ snapshot, activeAddress: "0xA", freshFrame: null, activeGeometry: { at: [1, 2], size: [10, 20] }, now: 10_100, maxAgeMs: 1500 });
+			expect(s1.state).toBe("fresh"); // within wall-clock window → fail-open only in time, never crash
+			const s2 = observationInputStatus({ snapshot, activeAddress: "0xA", freshFrame: null, activeGeometry: { at: [1, 2], size: [10, 20] }, now: 99_999, maxAgeMs: 1500 });
+			expect(s2.state).toBe("stale"); // outside window with unprovable identity → fail-closed
+		}
+		// Malformed ACTIVE geometry must also degrade, not throw.
+		const okSnap = { generation: 1, address: "0xA", frame: { kind: "window" as const, atX: 1, atY: 2, physW: 10, physH: 20, scaledW: 10, scaledH: 20, address: "0xA" }, capturedAt: 10_000 };
+		for (const g of [{ at: [1], size: [10, 20] } as unknown as { at: [number, number]; size: [number, number] }, { at: [1, 2], size: [] } as unknown as { at: [number, number]; size: [number, number] }]) {
+			expect(() => observationInputStatus({ snapshot: okSnap, activeAddress: "0xA", freshFrame: null, activeGeometry: g, now: 10_100, maxAgeMs: 1500 })).not.toThrow();
+		}
+		expect(geometryIsKnown({ at: undefined as unknown as [number, number], size: [0, 0] })).toBe(false);
+	});
+
 	test("live_eye exposes the probe-reported windowRect in multi-view details", () => {
 		// Contract the phase-3 refresher depends on: live_eye readings carry
 		// their window rect so anchoring (and noteWindowRect) stays
