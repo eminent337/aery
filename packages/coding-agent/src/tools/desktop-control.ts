@@ -1,5 +1,5 @@
 import { CameraWatchLoop } from "./camera-control";
-import { ObservationController, type ObservationSnapshot } from "./live-observe";
+import { ObservationController, type ObservationSnapshot, type WindowRect } from "./live-observe";
 import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
 import { buildEyeGeometry, describeEyeTarget, type EyeRegion } from "./live-eye";
 import { type OcrWordBox, ocrFrame } from "./screen-ocr";
@@ -698,7 +698,7 @@ export function cursorVerifyNote(aimed: { x: number; y: number }, read: { x: num
  *  fragment merged into the tool result (observation generation + age data
  *  flow through the normal result path, no new visible output). */
 function anchorLiveObservation(
-	readings: Array<{ frame: InputFrame | null; text?: string }>,
+	readings: Array<{ frame: InputFrame | null; text?: string; windowRect?: ActiveGeometry }>,
 	now = Date.now(),
 ): Record<string, unknown> {
 	const last = [...readings].reverse().find(r => r.frame);
@@ -711,9 +711,101 @@ function anchorLiveObservation(
 		liveObservation.cancel();
 		return { observation: { anchored: false, reason: "unaddressed_frame" } };
 	}
-	const gen = liveObservation.replace(address, last.frame, now);
+	// Prefer an explicitly-reported window rect; else derive it from a window
+	// frame (its capture rect IS the window rect for a window-targeted eye).
+	const windowRect: WindowRect | undefined =
+		last.windowRect ??
+		(last.frame.kind === "window" ? { at: [last.frame.atX, last.frame.atY], size: [last.frame.physW, last.frame.physH] } : undefined);
+	const gen = liveObservation.replace(address, last.frame, now, windowRect);
 	if (last.text) liveObservation.noteOcr(gen, last.text, undefined, now);
-	return { observation: { anchored: true, generation: gen, address, at: now } };
+	return { observation: { anchored: true, generation: gen, address, at: now, windowRect: windowRect ?? null } };
+}
+
+/** --- Adaptive observation refresher (phase 3) ------------------------- */
+
+/** Interval between observation refresh ticks while app-control is ON.
+ *  Probe-only (one Hyprland focus query, ~17ms, no capture), so the cost is
+ *  deliberately modest; overridable via OBS_REFRESH_MS (50..5000). */
+const OBS_REFRESH_MS = Math.min(5000, Math.max(50, Number(process.env.OBS_REFRESH_MS ?? 250)));
+
+/** One probe reading: the cheap focus probe's address + geometry. */
+export interface ProbeReading {
+	address: string;
+	at: [number, number];
+	size: [number, number];
+}
+
+/** PURE decision core of one refresher tick — returns what the tick should
+ *  do WITHOUT touching the desktop, so the generation-safety rules are
+ *  testable. Rules (all fail-closed):
+ *  - snapshot missing/superseded → stop the timer (nothing to keep fresh)
+ *  - no usable probe geometry → no-op (never invents data, never refuses;
+ *    a probe blip must not kill the refresher)
+ *  - same address + same rect → noteWindowRect: re-assert freshness with
+ *    live probe data (the human-eye contract: the scene did not move)
+ *  - address or rect CHANGED → note-only noop (do NOT overwrite the
+ *    anchored rect: the gate must still refuse with address_mismatch /
+ *    geometry_mismatch so a mis-aimed click can't ride silent auto-refresh)
+ *  - mismatched generation → no-op (a replace() mid-flight re-anchors and
+ *    restarts the timer; a superseded snapshot cannot be resurrected).
+ *  Re-exported return shape keeps the production callback thin. */
+export function observeRefresherTick(
+	generation: number,
+	probeResult: ProbeReading | null,
+	control: ObservationController,
+	now = Date.now(),
+): { action: "stop" | "noop" | "note"; notedAddress?: string; noteRect?: ActiveGeometry } {
+	const snap = control.get();
+	if (!snap || snap.superseded) return { action: "stop" };
+	if (generation !== snap.generation) return { action: "noop" };
+	if (!probeResult || !geometryIsKnown(probeResult)) return { action: "noop" };
+	const sameAddress = snap.address === probeResult.address;
+	const snapRect: ActiveGeometry | null = snap.windowRect
+		? { at: snap.windowRect.at, size: snap.windowRect.size }
+		: snap.frame
+			? { at: [snap.frame.atX, snap.frame.atY], size: [snap.frame.physW, snap.frame.physH] }
+			: null;
+	const sameRect =
+		!!snapRect && snapRect.at[0] === probeResult.at[0] && snapRect.at[1] === probeResult.at[1]
+			&& snapRect.size[0] === probeResult.size[0] && snapRect.size[1] === probeResult.size[1];
+	if (sameAddress && sameRect) {
+		const noteAddress = control.noteWindowRect(generation, { at: probeResult.at, size: probeResult.size }, now);
+		return noteAddress ? { action: "note", notedAddress: snap.address, noteRect: { at: probeResult.at, size: probeResult.size } } : { action: "noop" };
+	}
+	return { action: "noop" };
+}
+
+/** Module refresher state: ONE probe-only timer for the whole session, kept
+ *  OUTSIDE the controller so a replace()/re-anchor mid-flow merely restarts
+ *  it against the new generation instead of killing continuous freshness. */
+let obsRefresherTimer: ReturnType<typeof setInterval> | undefined;
+let obsRefresherRunning = false;
+
+/** Start the probe-only refresher (app-control ON). Idempotent. */
+function startObservationRefresher(): void {
+	if (obsRefresherRunning) return;
+	obsRefresherTimer = setInterval(refreshObservationTick, OBS_REFRESH_MS);
+	obsRefresherRunning = true;
+}
+
+/** Stop the refresher timer (app-control OFF / session teardown). */
+function stopObservationRefresher(): void {
+	if (obsRefresherTimer !== undefined) clearInterval(obsRefresherTimer);
+	obsRefresherTimer = undefined;
+	obsRefresherRunning = false;
+}
+
+/** One probe-only tick: cheap focus probe → decision → noteWindowRect on
+ *  generation match. Never captures, never injects. */
+async function refreshObservationTick(): Promise<void> {
+	try {
+		const win = await getDriverActiveWindow().catch(() => undefined);
+		const probeResult: ProbeReading | null = win && win.address ? { address: win.address, at: win.at, size: win.size } : null;
+		const decision = observeRefresherTick(liveObservation.get()?.generation ?? -1, probeResult, liveObservation);
+		if (decision.action === "stop") stopObservationRefresher();
+	} catch {
+		// Refresher must never break the session: swallow and try next tick.
+	}
 }
 
 /** --- Click targets (clickable OCR) ------------------------------------ */
@@ -961,43 +1053,92 @@ function modifierRefusal(action: string, modifiers: unknown): string | null {
 
 /** Status of the continuous observation at input-validation time.
  *  Exported for tests: proves pointer/keyboard actions consult the live
- *  snapshot (not just the last screenshot frame) and refuse stale or
- *  re-anchored readings with an actionable code. */
+ *  snapshot (not just the last screenshot frame) and refuse a reading whose
+ *  scene no longer matches with an actionable code. */
 export type ObservationInputStatus =
 	| { state: "fresh"; ageMs: number; address: string }
-	| { state: "missing" | "superseded" | "stale" | "address_mismatch"; detail: string; ageMs: number | null };
+	| { state: "missing" | "superseded" | "stale" | "address_mismatch" | "geometry_mismatch"; detail: string; ageMs: number | null };
 
-/** Central freshness policy for live input: the session observation must be
- *  present, live, fresh, and anchored to the focused window. A focused window
- *  that CHANGED address re-anchors the snapshot instead of reusing the old
- *  frame: the caller passes the fresh frame (from the pre-action capture)
- *  and the controller atomically supersedes the previous generation.
- *  Pure over injected state — exported for tests. */
+/** Live geometry of the focused window, as the cheap focus probe reports it
+ *  (`hyprctl activewindow -j` → at/size). Zero size means the backend cannot
+ *  report geometry (the X11 driver returns [0,0]); that is "unknown", never a
+ *  mismatch, so X11 degrades to address-only identity instead of refusing. */
+export interface ActiveGeometry {
+	at: [number, number];
+	size: [number, number];
+}
+
+/** True when a probe actually reported usable geometry. */
+export function geometryIsKnown(g: ActiveGeometry | undefined | null): g is ActiveGeometry {
+	return !!g && g.size[0] > 0 && g.size[1] > 0;
+}
+
+/** Central validity policy for live input. A snapshot stays usable while the
+ *  scene it described is still the scene in front of it: un-superseded, same
+ *  focused-window ADDRESS, and (when the probe reports geometry) the same
+ *  RECT as the anchored frame. This is the human-eye contract — perception
+ *  invalidates when the scene moves, not when wall-clock time passes, so a
+ *  matching snapshot is accepted at any age and ageMs is reported for
+ *  transparency only. Identity that cannot be proven (no anchored frame, or
+ *  no reported geometry) falls back to wall-clock expiry, fail-closed.
+ *  A focused window that changed address re-anchors from the fresh pre-action
+ *  frame when one is supplied. Pure over injected state — exported for tests. */
 export function observationInputStatus(input: {
 	snapshot: ObservationSnapshot | undefined;
 	activeAddress: string | undefined;
 	freshFrame: InputFrame | null;
+	activeGeometry?: ActiveGeometry | null;
 	now?: number;
 	maxAgeMs?: number;
 }): ObservationInputStatus {
 	const now = input.now ?? Date.now();
 	const maxAgeMs = input.maxAgeMs ?? 1500;
 	const snap = input.snapshot;
-	if (snap && !snap.superseded && snap.address === input.activeAddress) {
-		const ageMs = Math.max(0, now - snap.capturedAt);
-		if (ageMs <= maxAgeMs) return { state: "fresh", ageMs, address: snap.address };
-		return { state: "stale", detail: `Continuous observation is ${ageMs}ms old (limit ${maxAgeMs}ms) — refresh the glance before driving input.`, ageMs };
-	}
-	if (snap && !snap.superseded && input.freshFrame?.address && input.freshFrame.address === input.activeAddress) {
-		return { state: "fresh", ageMs: 0, address: input.freshFrame.address };
-	}
 	if (!snap) return { state: "missing", detail: "No continuous observation yet — take a live_eye glance first.", ageMs: null };
 	if (snap.superseded) return { state: "superseded", detail: "Observation was superseded by a focus change or cancel — re-anchor before driving input.", ageMs: Math.max(0, now - snap.capturedAt) };
-	return {
-		state: "address_mismatch",
-		detail: `Observation is anchored to ${snap.address} but the active window is ${input.activeAddress ?? "none"} — re-anchor before driving input.`,
-		ageMs: Math.max(0, now - snap.capturedAt),
-	};
+	const ageMs = Math.max(0, now - snap.capturedAt);
+	const freshFrameMatches = !!input.freshFrame?.address && input.freshFrame.address === input.activeAddress;
+	if (snap.address !== input.activeAddress) {
+		// Focus moved off the anchored window. A fresh pre-action frame for the
+		// NEW address re-anchors cleanly; otherwise refuse (never redirect).
+		if (freshFrameMatches) return { state: "fresh", ageMs: 0, address: input.freshFrame!.address! };
+		return {
+			state: "address_mismatch",
+			detail: `Observation is anchored to ${snap.address} but the active window is ${input.activeAddress ?? "none"} — re-anchor before driving input.`,
+			ageMs,
+		};
+	}
+	// Same address. Compare scene identity when the probe reports geometry.
+	// Prefer the snapshot's probe-reported window rect (authoritative) over the
+	// frame's capture rect: a window larger than the monitor is clamped by the
+	// compositor, so the capture rect can be smaller than the window itself.
+	const geometryKnown = geometryIsKnown(input.activeGeometry);
+	const snapRect: ActiveGeometry | null = snap.windowRect
+		? { at: snap.windowRect.at, size: snap.windowRect.size }
+		: snap.frame
+			? { at: [snap.frame.atX, snap.frame.atY], size: [snap.frame.physW, snap.frame.physH] }
+			: null;
+	const identityUnproven = !snapRect || !geometryKnown;
+	const rectMatches = identityUnproven || (snapRect.at[0] === input.activeGeometry!.at[0] && snapRect.at[1] === input.activeGeometry!.at[1] && snapRect.size[0] === input.activeGeometry!.size[0] && snapRect.size[1] === input.activeGeometry!.size[1]);
+	if (identityUnproven) {
+		// Cannot prove scene identity (no anchored rect, or the backend has
+		// no usable geometry): fall back to wall-clock expiry — fail-closed.
+		if (ageMs <= maxAgeMs) return { state: "fresh", ageMs, address: snap.address };
+		if (freshFrameMatches) return { state: "fresh", ageMs: 0, address: input.freshFrame!.address! };
+		return { state: "stale", detail: `Continuous observation is ${ageMs}ms old (limit ${maxAgeMs}ms) with no anchored rect to prove identity — refresh the glance before driving input.`, ageMs };
+	}
+	if (!rectMatches) {
+		const g = input.activeGeometry!;
+		const wasAt = snapRect ? `@ ${snapRect.at[0]},${snapRect.at[1]} ${snapRect.size[0]}x${snapRect.size[1]}` : "(no anchored rect)";
+		return {
+			state: "geometry_mismatch",
+			detail: `Focused window ${snap.address} moved/resized since the observation (was ${wasAt}; now @ ${g.at[0]},${g.at[1]} ${g.size[0]}x${g.size[1]}) — re-eye before driving input.`,
+			ageMs,
+		};
+	}
+	// Identical rects prove the scene is unchanged — accept at any age and
+	// report the age for transparency (the human-eye contract).
+	return { state: "fresh", ageMs, address: snap.address };
 }
 
 /**
@@ -1032,7 +1173,7 @@ export function validateInjection(params: {
 	// actionable code instead of driving from an old frame.
 	if (params.observation && params.observation.state !== "fresh") {
 		const obs = params.observation;
-		const code = obs.state === "missing" ? "no_observation" : obs.state === "stale" ? "observation_stale" : obs.state === "superseded" ? "observation_superseded" : "observation_mismatch";
+		const code = obs.state === "missing" ? "no_observation" : obs.state === "stale" ? "observation_stale" : obs.state === "superseded" ? "observation_superseded" : obs.state === "geometry_mismatch" ? "observation_geometry_mismatch" : "observation_mismatch";
 		return { ok: false, error: obs.detail, code };
 	}
 	// 2. Pointer branches need a frame + coordinates.
@@ -1550,6 +1691,10 @@ async function executeLiveAction(
 		// "no-daemon" error until someone starts ydotoold by hand. Best-effort:
 		// if it can't start (no uinput/udev), the probe/actions will say so.
 		const daemonUp = await ensureYdotoold();
+		// Phase 3: adaptive observation refresher — while app-control is ON,
+		// cheap probe-only ticks keep the continuous observation current so
+		// agent turn latency no longer expires the human-eye freshness gate.
+		startObservationRefresher();
 		const pre = params.preAuthorize?.length ? ` Pre-authorized: ${params.preAuthorize.join(", ")}.` : "";
 		return okText(
 			`App-control mode is ON. live_* actions may drive the focused window on your real desktop. Peter stays in control: the first use of each action kind prompts for approval.${pre}${daemonUp ? "" : " Warning: ydotool input daemon could not be started — injection may fail (see live_backend_probe)."}`,
@@ -1558,6 +1703,7 @@ async function executeLiveAction(
 	}
 	if (action === "live_mode_off") {
 		liveModeEnabled = false;
+		stopObservationRefresher();
 		return okText("App-control mode OFF — live input disabled.", { liveMode: false });
 	}
 	if (action === "live_mode_status" || action === "live_backend_probe") {
@@ -1568,7 +1714,7 @@ async function executeLiveAction(
 		const keyboard = resolveBackend(probe, win?.xwayland, "keyboard");
 		const frame = lastInputFrame;
 		const lines = [
-			`App-control mode: ${liveModeEnabled ? "ON" : "OFF"}`,
+			`App-control mode: ${liveModeEnabled ? "ON" : "OFF"}${obsRefresherRunning ? " (observation refresher running)" : ""}`,
 			`Platform: ${driver.label} (driver: ${driver.id})`,
 			`Backends: ydotool=${probe.ydotool} (daemon: ${probe.ydotoold ? "up" : "DOWN"}) | xdotool=${probe.xdotool} | wtype=${probe.wtype}`,
 			`Focused window: ${win ? `"${win.title}" (${win.class}) — ${win.xwayland ? "XWayland" : "native Wayland"}` : "none (focus one first)"}`,
@@ -1802,8 +1948,15 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		}
 		// The verify capture re-anchors the observation (it is the freshest
 		// address-exact reading); hidden-steer ephemerality is unchanged.
+		// win already carries the probe-reported live rect, so the anchor is
+		// crop-independent exactly like the eye/screenshot sites.
 		const reanchor: Record<string, unknown> = cap.frame?.address
-			? anchorLiveObservation([{ frame: cap.frame }])
+			? anchorLiveObservation([
+					{
+						frame: cap.frame,
+						windowRect: win.size[0] > 0 && win.size[1] > 0 ? { at: win.at, size: win.size } : undefined,
+					},
+				])
 			: {};
 		// Structured verification (continuous control): freshness, focus
 		// identity, capture timing, and settle result ride in details so a
@@ -1833,10 +1986,28 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 	// Continuous observation joins validation: the session snapshot must be
 	// fresh and anchored to THIS window, or the action refuses (fail-closed)
 	// with an actionable code instead of driving from a stale reading.
+	// The cheap focus probe (win) already carries the live geometry
+	// (at/size) AND the exact address, so identity is proven for free on
+	// every action — no extra capture. lastInputFrame is reused as the
+	// pre-action frame when it belongs to the currently focused window.
+	// No extra capture: the cheap focus probe (win) already reports the live
+	// window rect. When it matches the anchor, noteWindowRect keeps the
+	// observation's identity current for this generation — the eye stays
+	// continuous while the scene holds still. Focus loss is caught by the
+	// address branch inside observationInputStatus (never redirected).
+	const snap0 = liveObservation.get();
+	if (
+		snap0 && !snap0.superseded && snap0.address === win.address &&
+		snap0.frame && snap0.frame.kind === "window" &&
+		snap0.frame.address === win.address && win.size[0] > 0 && win.size[1] > 0
+	) {
+		liveObservation.noteWindowRect(snap0.generation, { at: win.at, size: win.size });
+	}
 	const obsStatus = observationInputStatus({
 		snapshot: liveObservation.get(),
 		activeAddress: win.address,
-		freshFrame: null,
+		freshFrame: lastInputFrame && lastInputFrame.address === win.address ? lastInputFrame : null,
+		activeGeometry: { at: win.at, size: win.size },
 	});
 	const validation = validateInjection({
 		action,
@@ -2741,7 +2912,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					targetWindow: targetWindow
 						? { title: targetWindow.title, class: targetWindow.class, address: targetWindow.address }
 						: undefined,
-					...anchorLiveObservation([{ frame: remembered, text: shotOcrText || undefined }]),
+					...anchorLiveObservation([{ frame: remembered, text: shotOcrText || undefined, windowRect: targetWindow && targetWindow.size[0] > 0 && targetWindow.size[1] > 0 ? { at: targetWindow.at, size: targetWindow.size } : undefined }]),
 					...(shotWantOcr
 						? {
 								ocrText: shotOcrText,
@@ -2886,9 +3057,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 
 			// ---- OCR every view concurrently; per-view text + click targets ----
 			const readings = await Promise.all(
-				captures.map(async c => {
+				captures.map(async (c): Promise<{ label: string; desc: string; text: string; ocrError?: string; ocrMode?: "native" | "upscaled"; targets: ClickTarget[]; frame: InputFrame | null; windowRect?: ActiveGeometry; base64: string; filePath?: string; error?: unknown }> => {
 					if ("error" in c && c.error) {
-						return { label: c.spec.label, desc: c.spec.desc, error: c.error, text: "", targets: [], frame: null as InputFrame | null };
+					// Window rect travels with the reading so the continuous
+					// observation can prove scene identity from the cheap focus
+					// probe instead of demanding a fresh glance per action.
+					const w = c.spec.window;
+					const windowRect = w && w.size[0] > 0 && w.size[1] > 0 ? { at: w.at, size: w.size } : undefined;
+					return { label: c.spec.label, desc: c.spec.desc, windowRect, error: c.error, text: "", targets: [], frame: null as InputFrame | null, base64: "", filePath: undefined };
 					}
 					let ocrText = "";
 					let ocrError: string | undefined;
@@ -2915,7 +3091,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							base64 = (await fs.promises.readFile(c.finalPath)).toString("base64");
 						} catch {}
 					}
-					return { label: c.spec.label, desc: c.spec.desc, text: ocrText, ocrError, ocrMode, targets, frame: c.frame ?? null, base64, filePath: c.finalPath };
+					const wOk = c.spec.window;
+					const windowRectOk = wOk && wOk.size[0] > 0 && wOk.size[1] > 0 ? { at: wOk.at, size: wOk.size } : undefined;
+					return { label: c.spec.label, desc: c.spec.desc, text: ocrText, ocrError, ocrMode, targets, frame: c.frame ?? null, windowRect: windowRectOk, base64, filePath: c.finalPath };
 				}),
 			);
 
@@ -2978,7 +3156,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								// (back-compat); every view is listed in views[].
 								filePath: readings.find(r => r.filePath)?.filePath,
 								targetDesc: multi ? `${readings.length} views` : readings[0]?.desc,
-								...(multi ? { views: readings.map(r => ({ label: r.label, desc: r.desc, filePath: r.filePath, frame: r.frame })) } : {}),
+								...(multi ? { views: readings.map(r => ({ label: r.label, desc: r.desc, filePath: r.filePath, frame: r.frame, ...(r.windowRect ? { windowRect: r.windowRect } : {}), error: r.error ?? undefined })) } : {}),
 								...(allTargets.length > 0 ? { clickTargets: allTargets } : {}),
 							},
 							attribution: "agent",
@@ -3009,7 +3187,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					filePath: readings.find(r => r.filePath)?.filePath,
 					targetDesc: multi ? `${readings.length} views` : readings[0]?.desc,
 					swept,
-					...(multi ? { views: readings.map(r => ({ label: r.label, desc: r.desc, filePath: r.filePath, frame: r.frame, error: r.error ?? undefined })) } : {}),
+					...(multi ? { views: readings.map(r => ({ label: r.label, desc: r.desc, filePath: r.filePath, frame: r.frame, ...(r.windowRect ? { windowRect: r.windowRect } : {}), error: r.error ?? undefined })) } : {}),
 					...(wantOcr
 						? {
 								ocrText: readings.map(r => r.text).join("\n\n"),

@@ -98,6 +98,27 @@ describe("ObservationController lifecycle", () => {
 		expect(c.get()!.ocrText).toBe("new");
 	});
 
+	test("windowRect rides start/replace and can be refreshed by noteWindowRect", () => {
+		const c = new ObservationController();
+		const rect = { at: [708, 90] as [number, number], size: [1190, 968] as [number, number] };
+		const g1 = c.start("0xA", { ...FRAME }, 10_000, rect);
+		expect(c.get()!.windowRect).toEqual(rect);
+		// Stale-generation writer is dropped, timer keeps ticking.
+		expect(c.noteWindowRect(g1 + 1, rect, 10_050)).toBe(false);
+		expect(c.get()!.capturedAt).toBe(10_000);
+		// Current-generation writer refreshes rect + capturedAt.
+		const rect2 = { at: [966, 90] as [number, number], size: [932, 968] as [number, number] };
+		expect(c.noteWindowRect(g1, rect2, 10_060)).toBe(true);
+		expect(c.get()!.windowRect).toEqual(rect2);
+		expect(c.get()!.capturedAt).toBe(10_060);
+		// replace carries a new rect; superseded snapshots can no longer write.
+		const g2 = c.replace("0xB", { ...FRAME }, 10_100, rect);
+		expect(c.get()!.windowRect).toEqual(rect);
+		expect(c.noteWindowRect(g1, rect2, 10_110)).toBe(false);
+		c.cancel();
+		expect(c.noteWindowRect(g2, rect2, 10_120)).toBe(false);
+	});
+
 	test("cancel supersedes the snapshot and stops refresh", () => {
 		const c = new ObservationController();
 		const g = c.start("0xA");

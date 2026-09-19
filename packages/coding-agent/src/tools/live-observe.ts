@@ -35,6 +35,12 @@ export const DEFAULT_OBSERVATION_POLICY: ObservationPolicy = {
 	requireAddressMatch: true,
 };
 
+/** Rect of a focused window as the compositor probe reports it. */
+export interface WindowRect {
+	at: [number, number];
+	size: [number, number];
+}
+
 export interface ObservationSnapshot {
 	/** Generation that created this snapshot; bumped on start/replace. */
 	generation: number;
@@ -44,6 +50,11 @@ export interface ObservationSnapshot {
 	frame: InputFrame | null;
 	/** Wall-clock ms when the frame was captured. */
 	capturedAt: number;
+	/** Rect of the anchored WINDOW (not the capture crop) when the probe
+	 *  reported one. Authoritative for change detection: a region glance on a
+	 *  window yields a frame whose physW/physH is the crop, so the frame rect
+	 *  alone cannot prove the window has not moved/resized. */
+	windowRect?: WindowRect;
 	/** Change digest of the capture (cheap fingerprint, optional). */
 	digest?: string;
 	/** Latest OCR text for this snapshot (capped, optional). */
@@ -133,11 +144,13 @@ export class ObservationController {
 	private current: ObservationSnapshot | undefined;
 	private timer: ReturnType<typeof setInterval> | undefined;
 
-	/** Start (or restart) observation anchored to an exact window address. */
-	start(address: string, frame: InputFrame | null = null, now = Date.now()): number {
+	/** Start (or restart) observation anchored to an exact window address.
+	 *  windowRect is the anchored WINDOW's rect (probe-reported), the
+	 *  authoritative identity for change detection — see ObservationSnapshot. */
+	start(address: string, frame: InputFrame | null = null, now = Date.now(), windowRect?: WindowRect): number {
 		this.stopTimer();
 		this.generation += 1;
-		this.current = { generation: this.generation, address, frame, capturedAt: now };
+		this.current = { generation: this.generation, address, frame, capturedAt: now, ...(windowRect ? { windowRect } : {}) };
 		return this.generation;
 	}
 
@@ -172,12 +185,21 @@ export class ObservationController {
 	 * Atomically re-anchor to a new window address (focus change). The old
 	 * snapshot is superseded so it can never drive input again.
 	 */
-	replace(address: string, frame: InputFrame | null = null, now = Date.now()): number {
+	replace(address: string, frame: InputFrame | null = null, now = Date.now(), windowRect?: WindowRect): number {
 		if (this.current) this.current.superseded = true;
 		this.stopTimer();
 		this.generation += 1;
-		this.current = { generation: this.generation, address, frame, capturedAt: now };
+		this.current = { generation: this.generation, address, frame, capturedAt: now, ...(windowRect ? { windowRect } : {}) };
 		return this.generation;
+	}
+
+	/** Refresh the anchored window's rect for the CURRENT generation (cheap
+	 *  probe data, no capture); ignores stale writers. */
+	noteWindowRect(generation: number, windowRect: WindowRect, now = Date.now()): boolean {
+		if (!this.current || this.current.superseded || generation !== this.generation) return false;
+		this.current.windowRect = windowRect;
+		this.current.capturedAt = now;
+		return true;
 	}
 
 	/** True when there is no usable snapshot (missing/superseded/stale). */

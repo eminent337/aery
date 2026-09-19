@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { DesktopControlTool, focusGuardRefusal, insertionProbeRegion, insertionVerdict, observationInputStatus, runDragWithCleanup, runScrollBurst, runSteps, scrollBurstIntervalMs, scrollBurstPlan, validateInjection } from "../desktop-control";
+import { DesktopControlTool, focusGuardRefusal, geometryIsKnown, insertionProbeRegion, insertionVerdict, observationInputStatus, runDragWithCleanup, runScrollBurst, runSteps, scrollBurstIntervalMs, scrollBurstPlan, validateInjection } from "../desktop-control";
+import { ObservationController } from "../live-observe";
+import { observeRefresherTick } from "../desktop-control";
 
 const FRAME = { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" };
 const DRAG = { action: "live_drag" as const, x: 10, y: 20, x2: 100, y2: 200 };
@@ -282,6 +284,108 @@ describe("continuous-observation freshness policy", () => {
 			.toMatchObject({ state: "fresh", ageMs: 0, address: "0xA" });
 	});
 
+	// --- Desired contract (continuous visual control, fix): validity is
+	// change-based, not clock-based. A snapshot whose focused window still
+	// matches by ADDRESS and GEOMETRY stays usable no matter how much wall
+	// clock passed (human-eye model: perception invalidates when the scene
+	// moves, not when time passes). Identity loss — address or geometry — is
+	// the real invalidation event, and a snapshot with no anchored frame
+	// cannot prove identity, so it falls back to wall-clock expiry.
+	const frameless = { generation: 2, address: "0xA", frame: null, capturedAt: 10_000 };
+	const GEO_FRAME = { kind: "window" as const, atX: 708, atY: 90, physW: 1190, physH: 968, scaledW: 1280, scaledH: 800, address: "0xA" };
+	const snapGeo = { generation: 2, address: "0xA", frame: GEO_FRAME, capturedAt: 10_000 };
+	const activeGeo = { at: [708, 90] as [number, number], size: [1190, 968] as [number, number] };
+
+	test("stale-by-wall-clock but identity-matching snapshot is accepted", () => {
+		const s = observationInputStatus({ snapshot: snapGeo, activeAddress: "0xA", activeGeometry: activeGeo, freshFrame: null, now: 10_000 + 5_000 });
+		expect(s).toMatchObject({ state: "fresh", ageMs: 5_000, address: "0xA" });
+	});
+
+	test("focused-window geometry change refuses with a distinct code", () => {
+		const moved = { at: [708, 90] as [number, number], size: [1000, 500] as [number, number] };
+		const s = observationInputStatus({ snapshot: snapGeo, activeAddress: "0xA", activeGeometry: moved, freshFrame: null, now: 10_100 });
+		expect(s.state).toBe("geometry_mismatch");
+	});
+
+	test("a snapshot with no anchored frame still falls back to wall-clock expiry (fail-closed)", () => {
+		const s = observationInputStatus({ snapshot: frameless, activeAddress: "0xA", activeGeometry: activeGeo, freshFrame: null, now: 10_000 + 1_501 });
+		expect(s.state).toBe("stale");
+	});
+
+	test("a probe-rect change refuses even when the frame rect matches (windowRect is authoritative)", () => {
+		const s2 = observationInputStatus({ snapshot: { ...snapGeo, windowRect: { at: [708, 90], size: [1190, 968] } }, activeAddress: "0xA", activeGeometry: { at: [708, 90], size: [1000, 500] }, freshFrame: null, now: 10_100 });
+		expect(s2.state).toBe("geometry_mismatch");
+	});
+
+	describe("observation refresher tick (phase 3)", () => {
+		const RECT = { at: [966, 90] as [number, number], size: [932, 968] as [number, number] };
+		function started() {
+			const c = new ObservationController();
+			const g = c.start("0xA", { kind: "window", atX: 966, atY: 90, physW: 932, physH: 968, scaledW: 932, scaledH: 968, address: "0xA" }, 10_000, RECT);
+			return { c, g };
+		}
+		const probeSame = { address: "0xA", at: [966, 90] as [number, number], size: [932, 968] as [number, number] };
+
+		test("same address + same rect re-asserts freshness via noteWindowRect", () => {
+			const { c, g } = started();
+			const d = observeRefresherTick(g, probeSame, c, 20_000);
+			expect(d.action).toBe("note");
+			expect(c.get()!.capturedAt).toBe(20_000);
+			expect(c.get()!.windowRect).toEqual(RECT);
+		});
+
+		test("rect drift is NOT overwritten — the gate must still refuse geometry_mismatch", () => {
+			const { c, g } = started();
+			const drifted = { address: "0xA", at: [708, 90] as [number, number], size: [1190, 968] as [number, number] };
+			expect(observeRefresherTick(g, drifted, c, 20_000).action).toBe("noop");
+			expect(c.get()!.windowRect).toEqual(RECT);
+			expect(c.get()!.capturedAt).toBe(10_000);
+			expect(observationInputStatus({ snapshot: c.get(), activeAddress: "0xA", freshFrame: null, activeGeometry: drifted.at && drifted.size ? { at: drifted.at, size: drifted.size } : null, now: 20_000 }).state).toBe("geometry_mismatch");
+		});
+
+		test("address change is NOT swallowed — the gate must still refuse address_mismatch", () => {
+			const { c, g } = started();
+			const moved = { address: "0xB", at: [0, 0] as [number, number], size: [500, 500] as [number, number] };
+			expect(observeRefresherTick(g, moved, c, 20_000).action).toBe("noop");
+			expect(c.get()!.address).toBe("0xA");
+			expect(c.get()!.capturedAt).toBe(10_000);
+		});
+
+		test("superseded snapshot stops the refresher; stale generation is a no-op", () => {
+			const { c, g } = started();
+			c.cancel();
+			expect(observeRefresherTick(g, probeSame, c, 20_000).action).toBe("stop");
+			const { c: c2, g: g2 } = started();
+			const g3 = c2.replace("0xB");
+			expect(observeRefresherTick(g2, probeSame, c2, 20_000).action).toBe("noop");
+			expect(c2.get()!.generation).toBe(g3);
+		});
+
+		test("missing snapshot stops; unusable probe (null / zero geometry) is a no-op", () => {
+			const c = new ObservationController();
+			expect(observeRefresherTick(1, probeSame, c, 20_000).action).toBe("stop");
+			const { c: c2, g } = started();
+			expect(observeRefresherTick(g, null, c2, 20_000).action).toBe("noop");
+			expect(observeRefresherTick(g, { address: "0xA", at: [0, 0], size: [0, 0] }, c2, 20_000).action).toBe("noop");
+			expect(c2.get()!.capturedAt).toBe(10_000);
+		});
+	});
+	test("live_eye exposes the probe-reported windowRect in multi-view details", () => {
+		// Contract the phase-3 refresher depends on: live_eye readings carry
+		// their window rect so anchoring (and noteWindowRect) stays
+		// crop-independent. The reading builder maps each view's resolved
+		// window (probe-reported at/size) onto windowRect.
+		const viewWindow = { address: "0xA", at: [708, 90] as [number, number], size: [1190, 968] as [number, number] };
+		const w = viewWindow;
+		const rect = w && w.size[0] > 0 && w.size[1] > 0 ? { at: w.at, size: w.size } : undefined;
+		expect(rect).toEqual({ at: [708, 90], size: [1190, 968] });
+		const zero = { address: "0xX", at: [0, 0] as [number, number], size: [0, 0] as [number, number] };
+		const z = zero;
+		expect(z && z.size[0] > 0 && z.size[1] > 0 ? { at: z.at, size: z.size } : undefined).toBeUndefined();
+		expect(geometryIsKnown({ at: [0, 0], size: [0, 0] })).toBe(false);
+		expect(geometryIsKnown({ at: [708, 90], size: [1190, 968] })).toBe(true);
+	});
+
 	test("validateInjection refuses non-fresh observations with fail-closed codes", () => {
 		const base = { action: "live_click", x: 10, y: 20, frame: { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" }, focusedAddress: "win1" };
 		const stale = validateInjection({ ...base, observation: { state: "stale", detail: "1600ms old", ageMs: 1600 } });
@@ -290,6 +394,8 @@ describe("continuous-observation freshness policy", () => {
 		expect(missing).toMatchObject({ ok: false, code: "no_observation" });
 		const superseded = validateInjection({ ...base, observation: { state: "superseded", detail: "re-anchor", ageMs: 900 } });
 		expect(superseded).toMatchObject({ ok: false, code: "observation_superseded" });
+		const geomoved = validateInjection({ ...base, observation: { state: "geometry_mismatch", detail: "moved", ageMs: 900 } });
+		expect(geomoved).toMatchObject({ ok: false, code: "observation_geometry_mismatch" });
 		// Fresh observations (or absent ones — legacy callers) stay valid.
 		const freshOk = validateInjection({ ...base, observation: { state: "fresh", ageMs: 300, address: "win1" } });
 		expect(freshOk).toMatchObject({ ok: true });
