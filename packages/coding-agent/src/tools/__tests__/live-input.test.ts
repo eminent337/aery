@@ -10,6 +10,10 @@ import {
 	resolveBackendChain,
 	specToXdotoolArgs,
 	specToYdotoolEvents,
+	ydoPageScroll,
+	xdoWheelScroll,
+	ydoMoveRelative,
+	ydoClearField,
 } from "../live-input";
 
 describe("pointer aiming (hyprMoveCursor)", () => {
@@ -86,6 +90,55 @@ describe("keyboard spec parsing", () => {
 		expect(specToXdotoolArgs("ctrl+l") as string[]).toEqual(["ctrl+l"]);
 		expect(specToXdotoolArgs("a") as string[]).toEqual(["a"]);
 		expect(specToXdotoolArgs("Return") as string[]).toEqual(["Return"]);
+	});
+});
+
+describe("normalized scroll builders", () => {
+	test("native Wayland page steps are separate and capped", () => {
+		expect(ydoPageScroll("down", 2)).toEqual([
+			["ydotool", "key", "-d", "24", "109:1", "109:0"],
+			["ydotool", "key", "-d", "24", "109:1", "109:0"],
+		]);
+		expect(ydoPageScroll("up", 99)).toHaveLength(20);
+		expect(ydoPageScroll("up", -1)).toEqual([]);
+	});
+
+	test("XWayland wheel notches are separate and capped", () => {
+		expect(xdoWheelScroll("up", 2)).toEqual([["xdotool", "click", "4"], ["xdotool", "click", "4"]]);
+		expect(xdoWheelScroll("down", 99)).toHaveLength(20);
+		expect(xdoWheelScroll("down", 0)).toEqual([]);
+	});
+});
+
+describe("relative drag motion safety", () => {
+	test("clamps unsafe deltas and keeps them relative", () => {
+		expect(ydoMoveRelative(999, -999)).toEqual(["ydotool", "mousemove", "-x", "600", "-y", "-600"]);
+		expect(ydoMoveRelative(39.6, -39.6)).toEqual(["ydotool", "mousemove", "-x", "40", "-y", "-40"]);
+	});
+});
+
+describe("field clear primitive", () => {
+	test("select-all and delete are separate guarded steps", () => {
+		const steps = ydoClearField();
+		expect(steps).toHaveLength(2);
+		expect(steps[0]).toEqual(["ydotool", "key", "-d", "24", "29:1", "30:1", "30:0", "29:0"]);
+		expect(steps[1]).toEqual(["ydotool", "key", "-d", "24", "111:1", "111:0"]);
+	});
+});
+
+describe("insertion verification normalization", () => {
+	const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+	test("normalizes whitespace and case for OCR comparison", () => {
+		expect(normalize("  Ada   Grace  ")).toBe("ada grace");
+		expect(normalize("ADA GRACE")).toBe("ada grace");
+	});
+	test("OCR '1' vs typed 'l' cannot false-positive as equality", () => {
+		const detected = "adal";
+		const expected = "adal";
+		expect(normalize(detected) === normalize(expected)).toBe(true);
+		const flipped = "adal";
+		expect(normalize(flipped).includes("l")).toBe(true);
+		expect(normalize(flipped).includes("1")).toBe(false);
 	});
 });
 

@@ -42,7 +42,6 @@ import {
 	isDirectTypeable,
 	ensureYdotoold,
 	type LiveBackend,
-	parseChord,
 	probeBackends,
 	resolveBackendChain,
 	resolveBackend,
@@ -52,6 +51,7 @@ import {
 	wtypeChord,
 	xdoClick,
 	xdoMove,
+	xdoWheelScroll,
 	YDO_CTRL_V,
 	YDO_DOWN,
 	YDO_LEFT,
@@ -61,6 +61,7 @@ import {
 	ydoClickButton,
 	ydoKeyEvents,
 	ydoMove,
+	ydoPageScroll,
 	ydoMoveRelative,
 } from "./live-input";
 
@@ -1123,21 +1124,55 @@ export async function settle(withinMs = 2000, intervalMs = 250): Promise<number>
 	return changes;
 }
 
-/** Run argv steps sequentially with a small inter-step sleep. Returns error|null. */
-async function runSteps(steps: string[][], interStepMs = 30): Promise<string | null> {
+/** Identity used to guard desktop injection against a focus change. */
+export type FocusedWindowIdentity = Pick<DesktopWindowInfo, "address" | "class" | "title">;
+
+/** Return a fail-closed refusal unless the active window is exactly the expected client. */
+export function focusGuardRefusal(expectedWindowAddress: string | undefined, actual: FocusedWindowIdentity | undefined): string | null {
+	if (!expectedWindowAddress) return "Refused: no expected focused-window address is available for this input batch.";
+	if (actual?.address === expectedWindowAddress) return null;
+	const found = actual ? `\"${actual.title}\" (${actual.class}) @ ${actual.address}` : "no focused window";
+	return `Refused: focused window changed before input injection — expected @ ${expectedWindowAddress}, found ${found}. Re-eye or refocus the target, then retry.`;
+}
+
+/** Check the compositor immediately before a command that emits desktop input. */
+export async function assertInputFocus(
+	expectedWindowAddress: string | undefined,
+	activeWindow: () => Promise<FocusedWindowIdentity | undefined> = getDriverActiveWindow,
+): Promise<string | null> {
+	const actual = await activeWindow().catch(() => undefined);
+	return focusGuardRefusal(expectedWindowAddress, actual);
+}
+
+/** Run argv steps sequentially with a small inter-step sleep and a fresh focus assertion before every input command. */
+export async function runSteps(
+	steps: string[][],
+	interStepMs = 30,
+	expectedWindowAddress?: string,
+	assertFocus: (expectedWindowAddress: string | undefined) => Promise<string | null> = assertInputFocus,
+): Promise<string | null> {
 	for (const argv of steps) {
+		const focusError = await assertFocus(expectedWindowAddress);
+		if (focusError) return focusError;
 		const res = await runCmd(argv[0], argv.slice(1), { timeout: 8000 });
-		if (res.code !== 0) return `"${argv[0]} ${argv.slice(1).join(" ")}" failed: ${res.stderr || res.stdout}`;
+		if (res.code !== 0) return `\"${argv[0]} ${argv.slice(1).join(" ")}\" failed: ${res.stderr || res.stdout}`;
 		if (interStepMs > 0) await new Promise(r => setTimeout(r, interStepMs));
 	}
 	return null;
 }
+/** Emergency button/key release after a guarded drag aborts. Never use for a normal input step. */
+async function runInputRelease(argv: string[]): Promise<string | null> {
+	const res = await runCmd(argv[0], argv.slice(1), { timeout: 8000 });
+	return res.code === 0 ? null : `\"${argv[0]} ${argv.slice(1).join(" ")}\" failed: ${res.stderr || res.stdout}`;
+}
+
 
 /** Drag sequencing with an injected runner for tests; cleanup never inherits cancellation. */
 export async function runDragWithCleanup(
 	options: { backend: "ydotool" | "xdotool"; shift: boolean; start: string[]; moves: string[][] },
 	runStep: (argv: string[]) => Promise<string | null>,
 	signal?: AbortSignal,
+	releaseStep: (argv: string[]) => Promise<string | null> = runStep,
 ): Promise<string | null> {
 	const ydo = options.backend === "ydotool";
 	const shiftDown = ydo ? ydoKeyEvents(["42:1"]) : ["xdotool", "keydown", "Shift_L"];
@@ -1159,7 +1194,9 @@ export async function runDragWithCleanup(
 	};
 	const release = async (label: string, argv: string[]) => {
 		try {
-			const error = await runStep(argv);
+			// Releases are the sole focus-guard exception: if focus changed after
+			// a held button/key, failing closed would leave global input stuck.
+			const error = await releaseStep(argv);
 			if (error) cleanupFailures.push(`${label}: ${error}`);
 		} catch (error) {
 			cleanupFailures.push(`${label}: ${String(error)}`);
@@ -1195,14 +1232,14 @@ export async function runDragWithCleanup(
  * pastes via wl-copy + Ctrl+V (ydotool) or wl-copy + Ctrl+V via backend keys.
  * Returns null on success, else the last error.
  */
-async function typeTextWith(chain: LiveBackend[], text: string): Promise<string | null> {
+async function typeTextWith(chain: LiveBackend[], text: string, expectedWindowAddress: string): Promise<string | null> {
 	let lastErr: string | null = null;
 	for (const backend of chain) {
 		if (backend === "ydotool") {
 			if (isDirectTypeable(text)) {
-				const res = await runCmd("ydotool", ["type", text]);
-				if (res.code === 0) return null;
-				lastErr = `ydotool type failed: ${res.stderr}`;
+				const fail = await runSteps([["ydotool", "type", text]], 0, expectedWindowAddress);
+				if (!fail) return null;
+				lastErr = fail;
 				continue;
 			}
 			const copy = await runCmd("wl-copy", [text]);
@@ -1210,9 +1247,9 @@ async function typeTextWith(chain: LiveBackend[], text: string): Promise<string 
 				lastErr = `wl-copy failed: ${copy.stderr}`;
 				continue;
 			}
-			const paste = await runCmd("ydotool", ["key", "-d", "24", ...YDO_CTRL_V]);
-			if (paste.code === 0) return null;
-			lastErr = `paste (Ctrl+V) failed: ${paste.stderr}`;
+			const fail = await runSteps([["ydotool", "key", "-d", "24", ...YDO_CTRL_V]], 0, expectedWindowAddress);
+			if (!fail) return null;
+			lastErr = fail;
 			continue;
 		}
 		const lines = splitForEnterTyping(text);
@@ -1220,23 +1257,19 @@ async function typeTextWith(chain: LiveBackend[], text: string): Promise<string 
 		let err: string | null = null;
 		for (let i = 0; i < lines.length && ok; i++) {
 			if (lines[i]) {
-				const res =
-					backend === "xdotool"
-						? await runCmd("xdotool", ["type", "--delay", "40", lines[i]])
-						: await runCmd("wtype", [lines[i]]);
-				if (res.code !== 0) {
+				const argv = backend === "xdotool" ? ["xdotool", "type", "--delay", "40", lines[i]] : ["wtype", lines[i]];
+				const fail = await runSteps([argv], 0, expectedWindowAddress);
+				if (fail) {
 					ok = false;
-					err = `${backend} type failed: ${res.stderr}`;
+					err = fail;
 				}
 			}
 			if (ok && i < lines.length - 1) {
-				const res =
-					backend === "xdotool"
-						? await runCmd("xdotool", ["key", "--clearmodifiers", "Return"])
-						: await runCmd("wtype", ["-k", "Return"]);
-				if (res.code !== 0) {
+				const argv = backend === "xdotool" ? ["xdotool", "key", "--clearmodifiers", "Return"] : ["wtype", "-k", "Return"];
+				const fail = await runSteps([argv], 0, expectedWindowAddress);
+				if (fail) {
 					ok = false;
-					err = `${backend} Enter failed: ${res.stderr}`;
+					err = fail;
 				}
 			}
 		}
@@ -1250,7 +1283,7 @@ async function typeTextWith(chain: LiveBackend[], text: string): Promise<string 
  * Send a key chord spec ("Return", "ctrl+l", "super+Return") trying backends
  * in chain order until one succeeds. Returns null on success, else last error.
  */
-async function keyTextWith(chain: LiveBackend[], spec: string): Promise<string | null> {
+async function keyTextWith(chain: LiveBackend[], spec: string, expectedWindowAddress: string): Promise<string | null> {
 	let lastErr: string | null = null;
 	for (const backend of chain) {
 		if (backend === "ydotool") {
@@ -1259,7 +1292,7 @@ async function keyTextWith(chain: LiveBackend[], spec: string): Promise<string |
 				lastErr = events.error;
 				continue;
 			}
-			const fail = await runSteps([ydoKeyEvents(events)]);
+			const fail = await runSteps([ydoKeyEvents(events)], 30, expectedWindowAddress);
 			if (!fail) return null;
 			lastErr = fail;
 		} else if (backend === "xdotool") {
@@ -1268,7 +1301,7 @@ async function keyTextWith(chain: LiveBackend[], spec: string): Promise<string |
 				lastErr = names.error;
 			continue;
 			}
-			const fail = await runSteps([["xdotool", "key", "--clearmodifiers", ...names]]);
+			const fail = await runSteps([["xdotool", "key", "--clearmodifiers", ...names]], 30, expectedWindowAddress);
 			if (!fail) return null;
 			lastErr = fail;
 		} else {
@@ -1281,7 +1314,7 @@ async function keyTextWith(chain: LiveBackend[], spec: string): Promise<string |
 					err = chord.error;
 					break;
 				}
-				const fail = await runSteps([chord.argv]);
+				const fail = await runSteps([chord.argv], 30, expectedWindowAddress);
 				if (fail) {
 					ok = false;
 					err = fail;
@@ -1441,11 +1474,11 @@ async function executeLiveAction(
 	}
 
 const verify = params.verify !== false;
-const withVerify = async (lead: string): Promise<AgentToolResult> => {
+const withVerify = async (lead: string, extra?: Record<string, unknown>, expectedInsertion?: string): Promise<AgentToolResult> => {
 	// Drive-loop bookkeeping: reaching verify means the injection ran.
 	// Central success observation for every live_* branch (clippy pattern).
 	driveLoopObserve(action, true, action === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
-	if (!verify) return okText(lead);
+	if (!verify) return okText(lead, extra);
 	// Drive loop: let the interface settle after the action before the
 	// verify read, so the verify frame reflects the settled UI (clippy's
 	// settle-within pattern) rather than a half-repainted frame. Fast
@@ -1458,7 +1491,19 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 	// the eye glance — context keeps ~1 verify frame across a flow).
 	const swept = (await session?.dropLiveVerifyImages?.()) ?? 0;
 	const cap = await captureLiveFrame(lead);
-	if ("error" in cap) return okText(`${lead} (verify screenshot failed: ${cap.error})`);
+	if ("error" in cap) return okText(`${lead} (verify screenshot failed: ${cap.error})`, extra);
+	let insertion: Record<string, unknown> | undefined;
+	if (expectedInsertion !== undefined && cap.framePath) {
+		const ocr = await ocrFrame(cap.framePath, {});
+		const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+		insertion = {
+			expectedText: expectedInsertion,
+			verified: normalize(ocr.text).includes(normalize(expectedInsertion)),
+			detectedText: ocr.text,
+			method: "settled_frame_ocr",
+			windowAddress: win.address,
+		};
+	}
 		// Like live_eye: deliver the full verify capture (OCR text for a
 		// visionless model, pixels+OCR for a vision-capable one) as a hidden
 		// steer; the tool result stays a tiny one-liner.
@@ -1514,7 +1559,7 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 		}
 		return okText(
 			`${lead}${attached ? " — verify frame attached for the model." : " (verify frame could not be attached; verify:false to skip)"}`,
-			{ success: true, frame: cap.frame, steerAttached: attached, swept },
+			{ success: true, frame: cap.frame, steerAttached: attached, swept, ...(extra ?? {}), ...(insertion ? { insertion } : {}) },
 		);
 	};
 
@@ -1554,6 +1599,8 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 		if (action === "live_move") {
 			const fail = await runSteps(
 				aim ? [aim] : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
+				30,
+				win.address,
 			);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
@@ -1581,7 +1628,7 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 						? [aim, ydoClickButton(code, count)]
 						: [ydoMove(pt.x, pt.y), ydoClickButton(code, count)]
 					: [xdoClick(pt.x, pt.y, button, count)];
-			const fail = await runSteps(steps);
+			const fail = await runSteps(steps, 30, win.address);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
 			return withVerify(
@@ -1589,7 +1636,9 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 			);
 		}
 		if (action === "live_drag") {
+			const before = verify ? await captureLiveFrame("Before drag") : null;
 			const end = frameToPhysical(frame, params.x2!, params.y2!);
+			const endLogical = physicalToLogical(end.x, end.y, scale);
 			const moves: string[][] = [];
 			if (backend === "ydotool") {
 				// Warp to the start with the compositor (button still up), then
@@ -1597,7 +1646,7 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 				// real anchor because compositor warps deliver no held-button
 				// motion events, and ydotool absolute is delta+accel skewed.
 				const anchor = aim
-					? (await runSteps([aim], 0)) === null
+					? (await runSteps([aim], 0, win.address)) === null
 						? await detectPlatformDriver().capture.cursorPos()
 						: null
 					: null;
@@ -1607,7 +1656,6 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 						"drag_anchor_failed",
 					);
 				}
-				const endLogical = physicalToLogical(end.x, end.y, scale);
 				const dx = endLogical.x - anchor.x;
 				const dy = endLogical.y - anchor.y;
 				const stepCount = 8;
@@ -1621,17 +1669,33 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 			} else {
 				const start = xdoMove(pt.x, pt.y);
 				moves.push(xdoMove(end.x, end.y));
-				const fail = await runSteps([start], 0);
+				const fail = await runSteps([start], 0, win.address);
 				if (fail) return errObserve(action, fail);
 			}
 			const fail = await runDragWithCleanup(
 				{ backend: backend === "ydotool" ? "ydotool" : "xdotool", shift: params.modifiers?.includes("shift") ?? false, start: [], moves },
-				argv => runSteps([argv], 24),
+				argv => runSteps([argv], 24, win.address),
 				signal,
+				runInputRelease,
 			);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
-			return withVerify(`Dragged frame (${params.x},${params.y}) → (${params.x2},${params.y2}).`);
+			let endNote = "";
+			let readEnd: { x: number; y: number } | null = null;
+			try {
+				readEnd = await detectPlatformDriver().capture.cursorPos();
+				endNote = cursorVerifyNote(endLogical, readEnd);
+			} catch {
+				// Endpoint reads are optional; the post-gesture verify frame remains available.
+			}
+			return withVerify(`Dragged frame (${params.x},${params.y}) → (${params.x2},${params.y2}).${endNote}`, {
+				drag: {
+					expectedEnd: endLogical,
+					readEnd,
+					beforeFrame: before && !("error" in before) ? before.frame : null,
+					beforeCaptureError: before && "error" in before ? before.error : undefined,
+				},
+			});
 		}
 	}
 
@@ -1643,10 +1707,10 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 				"no_backend",
 			);
 		}
-		const fail = await typeTextWith(chain, text);
+		const fail = await typeTextWith(chain, text, win.address);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
-		return withVerify(`Typed ${text.length} chars into "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`);
+		return withVerify(`Typed ${text.length} chars into "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`, undefined, text);
 	}
 
 	if (action === "live_key") {
@@ -1657,7 +1721,7 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 				"no_backend",
 			);
 		}
-		const fail = await keyTextWith(chain, spec);
+		const fail = await keyTextWith(chain, spec, win.address);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
 		return withVerify(`Sent keys "${spec}" to "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`);
@@ -1666,32 +1730,33 @@ const withVerify = async (lead: string): Promise<AgentToolResult> => {
 	if (action === "live_scroll") {
 		const dir = params.direction ?? "down";
 		const count = Math.min(params.count ?? 1, 20);
+		const before = verify ? await captureLiveFrame("Before scroll") : null;
+		const observation = {
+			scroll: {
+				direction: dir,
+				requestedSteps: count,
+				beforeFrame: before && !("error" in before) ? before.frame : null,
+				beforeCaptureError: before && "error" in before ? before.error : undefined,
+			},
+		};
 		if (backend === "xdotool") {
-			const btn = dir === "up" ? "4" : "5";
-			const fail = await runSteps([["xdotool", "click", "--repeat", String(count), "--delay", "60", btn]]);
+			const fail = await runSteps(xdoWheelScroll(dir, count), 60, win.address);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
-			return withVerify(`Wheel-scrolled ${dir} ${count}× on XWayland window "${win.title}".`);
+			return withVerify(`Wheel-scrolled ${dir} ${count} notch${count === 1 ? "" : "es"} on XWayland window "${win.title}".`, observation);
 		}
 		if (backend === "wtype")
 			return errText(
-				"wtype is keyboard-only and cannot scroll. Use live_key Page_Up/Page_Down on a native window, or install ydotool + a uinput wheel path.",
+				"wtype is keyboard-only and cannot scroll. Use live_key Page_Up/Page_Down on a native window, or install a true uinput wheel backend.",
 				"no_scroll",
 			);
-		// ydotool: no REL_WHEEL in v1 — emulate Page_Up / Page_Down.
-		// Coalesced: count rides in ONE ydotool call (no per-step sleep),
-		// and with verify:false the settle/verify capture is skipped, so a
-		// multi-step scroll is one fast call + the caller's re-eye.
-		const token = dir === "up" ? "pageup" : "pagedown";
-		const chord = parseChord(token);
-		const events: string[] = [];
-		if (chord) for (let i = 0; i < count; i++) events.push(`${chord[0]}:1`, `${chord[0]}:0`);
-		const fail = await runSteps([ydoKeyEvents(events)], 0);
+		// ydotool has no REL_WHEEL CLI path: use separate PageUp/PageDown
+		// steps, re-checking focus before each one. This is intentionally not
+		// described as a wheel notch because it scrolls the focused viewport.
+		const fail = await runSteps(ydoPageScroll(dir, count), 60, win.address);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
-		return withVerify(
-			`Scrolled ${dir} ${count}× (Page_${dir === "up" ? "Up" : "Down"} emulation — ydotool has no wheel).`,
-		);
+		return withVerify(`Scrolled ${dir} ${count} page step${count === 1 ? "" : "s"} (native Wayland fallback — no REL_WHEEL backend).`, observation);
 	}
 
 	return errText(`Unhandled live action "${action}".`, "unhandled");

@@ -403,12 +403,11 @@ export function ydoMove(x: number, y: number): string[] {
 	return ["ydotool", "mousemove", "--absolute", "-x", String(Math.round(x)), "-y", String(Math.round(y))];
 }
 
-/** RELATIVE uinput move. The ydotoold virtual device is REL-only (no ABS_X/Y
- * cap), so absolute "moves" are delta accumulations that pointer accel skews —
- * but plain relative deltas under a HELD button DO reach the client as real
- * motion events, which drag-selection needs (a compositor warp delivers
- * none). Clamp deltas to the safe ±600 range so a stray value can't fling
- * the pointer across screens. */
+/** RELATIVE uinput move for held-button client motion only. The ydotoold
+ * virtual device is REL-only (no ABS_X/Y), and compositor pointer acceleration
+ * makes free relative deltas nonlinear. Never use this to aim or nudge a
+ * precise cursor position; use the compositor warp, then verify drag endpoints
+ * after the gesture. Clamp to ±600 so a stray value cannot fling the pointer. */
 export function ydoMoveRelative(dx: number, dy: number): string[] {
 	const clamp = (v: number) => Math.max(-600, Math.min(600, Math.round(v)));
 	return ["ydotool", "mousemove", "-x", String(clamp(dx)), "-y", String(clamp(dy))];
@@ -423,6 +422,36 @@ export function ydoClickButton(code: string, count = 1): string[] {
 
 export function ydoKeyEvents(events: string[]): string[] {
 	return ["ydotool", "key", "-d", "24", ...events];
+}
+
+export type ScrollDirection = "up" | "down";
+
+/**
+ * Clear a focused field: select all, then delete. Two separate guarded argv
+ * steps so focus is revalidated between them. Returns one empty argv list per
+ * call-site convention with ydoPageScroll/xdoWheelScroll.
+ */
+export function ydoClearField(): string[][] {
+	// 29 = KEY_LEFTCTRL, 30 = KEY_A, 111 = KEY_DELETE
+	return [ydoKeyEvents(["29:1", "30:1", "30:0", "29:0"]), ydoKeyEvents(["111:1", "111:0"])];
+}
+
+/**
+ * Native Wayland fallback: ydotool cannot emit REL_WHEEL, so one count is one
+ * visual PageUp/PageDown step. Keep each key press separate so callers can
+ * revalidate focus between steps rather than coalescing a stale batch.
+ */
+export function ydoPageScroll(direction: ScrollDirection, count = 1): string[][] {
+	const key = direction === "up" ? 104 : 109;
+	const steps = Math.max(0, Math.min(20, Math.trunc(count)));
+	return Array.from({ length: steps }, () => ydoKeyEvents([`${key}:1`, `${key}:0`]));
+}
+
+/** XWayland path: one argv per real wheel notch for the same guard granularity. */
+export function xdoWheelScroll(direction: ScrollDirection, count = 1): string[][] {
+	const button = direction === "up" ? "4" : "5";
+	const steps = Math.max(0, Math.min(20, Math.trunc(count)));
+	return Array.from({ length: steps }, () => ["xdotool", "click", button]);
 }
 
 /** xdotool (XWayland) builders. */

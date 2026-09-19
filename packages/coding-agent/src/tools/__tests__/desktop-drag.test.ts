@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DesktopControlTool, runDragWithCleanup, validateInjection } from "../desktop-control";
+import { DesktopControlTool, focusGuardRefusal, runDragWithCleanup, runSteps, validateInjection } from "../desktop-control";
 
 const FRAME = { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" };
 const DRAG = { action: "live_drag" as const, x: 10, y: 20, x2: 100, y2: 200 };
@@ -99,6 +99,32 @@ describe("Shift drag preserves frame and endpoint guardrails", () => {
 
 	test("accepts the last in-bounds frame pixels as the drag endpoint", () => {
 		expect(validateInjection({ ...SHIFT_DRAG, x2: FRAME.scaledW - 1, y2: FRAME.scaledH - 1 }).ok).toBe(true);
+	});
+});
+
+describe("immediate focused-window guard", () => {
+	test("allows an input batch only when the exact Hyprland address still matches", () => {
+		expect(focusGuardRefusal("0xexpected", { address: "0xexpected", class: "brave-browser", title: "Bench" })).toBeNull();
+	});
+
+	test("reports expected and actual identity on mismatch", () => {
+		const refusal = focusGuardRefusal("0xexpected", { address: "0xother", class: "kitty", title: "Aery" });
+		expect(refusal).toContain("0xexpected");
+		expect(refusal).toContain("0xother");
+		expect(refusal).toContain("kitty");
+	});
+
+	test("fails closed when an expected address is absent", () => {
+		expect(focusGuardRefusal(undefined, { address: "0xother", class: "brave-browser", title: "Bench" })).toContain("no expected");
+	});
+
+	test("refuses before spawning the next argv when focus changes", async () => {
+		const refusal = "focus changed";
+		const result = await runSteps([["this-command-must-not-run"]], 0, "0xexpected", async expected => {
+			expect(expected).toBe("0xexpected");
+			return refusal;
+		});
+		expect(result).toBe(refusal);
 	});
 });
 
