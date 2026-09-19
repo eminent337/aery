@@ -1,7 +1,7 @@
 import { CameraWatchLoop } from "./camera-control";
 import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
-import { buildEyeGeometry, describeEyeTarget } from "./live-eye";
-import { ocrFrame } from "./screen-ocr";
+import { buildEyeGeometry, describeEyeTarget, type EyeRegion } from "./live-eye";
+import { type OcrWordBox, ocrFrame } from "./screen-ocr";
 import {
 	boundingBox,
 	frameRectToPhysical,
@@ -2251,9 +2251,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// Record the model-visible coordinate frame for live_* mapping (D002/D004).
 				let frameSize: { width: number; height: number } | undefined;
 				let frameNote = "";
+				let remembered: InputFrame | null = null;
 				if (isSupportedDriver()) {
 					try {
-						const remembered = await rememberFrame(targetWindow, geometry, tmpRaw, finalPath);
+						remembered = await rememberFrame(targetWindow, geometry, tmpRaw, finalPath);
 						if (remembered) {
 							frameSize = { width: remembered.scaledW, height: remembered.scaledH };
 							frameNote = ` Frame ${remembered.scaledW}x${remembered.scaledH}${remembered.kind === "window" ? ` (window @ ${remembered.atX},${remembered.atY})` : " (fullscreen)"} — live_* pointer coordinates are frame px of this image.`;
@@ -2496,7 +2497,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							CameraWatchLoop.recordExternalOcr(ocrText, "eye");
 							rememberOcrText(ocrText);
 						}
-						targets = clickTargetsFromOcr(ocr.words, c.frame);
+						targets = clickTargetsFromOcr(ocr.words, c.frame ?? null);
 					}
 					let base64 = "";
 					if (includeBase64 && !textOnly && c.finalPath) {

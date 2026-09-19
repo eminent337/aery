@@ -64,7 +64,7 @@ export interface LayerGeometry {
  * where scale = scaled/phys per axis. Clamps into the frame first.
  */
 export function frameRectToPhysical(
-	frame: Pick<InputFrame, "atX" | "atY" | "physW" | "physH" | "scaledW" | "scaledH">,
+	frame: InputFrame,
 	rect: FrameRect,
 ): HighlightRect | null {
 	if (frame.scaledW <= 0 || frame.scaledH <= 0 || frame.physW <= 0 || frame.physH <= 0) return null;
@@ -205,7 +205,7 @@ export function layerGeometry(
 	const usable = bands.map(r => ({ x: r.x - reserved.left, y: r.y - reserved.top, w: r.w, h: r.h }));
 	// Drop bands that fall entirely behind a reserved zone (under the bar):
 	// they can never be seen, so drawing them would only enlarge the surface.
-	const keep = usable.filter(b => b.w > 0 && b.h > 0 && b.x + b.w > reserved.left && b.y + b.h > 0);
+	const keep = usable.filter(b => b.w > 0 && b.h > 0 && b.x + b.w > 0 && b.y + b.h > 0);
 	if (keep.length === 0) return null;
 
 	const originX = Math.max(0, Math.min(...keep.map(b => b.x)));

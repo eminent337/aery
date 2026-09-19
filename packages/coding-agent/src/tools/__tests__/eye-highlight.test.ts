@@ -146,6 +146,11 @@ describe("eye-highlight geometry", () => {
 		expect(layerGeometry([{ x: 10, y: 5, w: 100, h: 3 }], { reserved: { left: 0, top: 68, right: 0, bottom: 0 } })).toBeNull();
 	});
 
+	test("a band fully behind the left reserved zone is dropped", () => {
+		// x=5,w=50 with reserved.left=68 → usable x=-63, right edge -13 < 0.
+		expect(layerGeometry([{ x: 5, y: 200, w: 50, h: 30 }], { reserved: { left: 68, top: 0, right: 0, bottom: 0 } })).toBeNull();
+	});
+
 	test("layerGeometry is null for empty input", () => {
 		expect(layerGeometry([])).toBeNull();
 	});
