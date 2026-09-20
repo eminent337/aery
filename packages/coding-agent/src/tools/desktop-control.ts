@@ -562,6 +562,13 @@ interface XvfbFrameState {
 }
 let xvfbFrame: XvfbFrameState | null = null;
 let xvfbClickTargets: ClickTarget[] = [];
+/** Bumped by every xvfb_screenshot and xvfb_close; word targets carry the
+/** Bumped by every xvfb_screenshot and xvfb_close; word targets carry the
+ *  generation of the reading that produced them, so boxes from an older
+ *  reading can never be mapped through a newer frame. `-1` = no valid
+ *  targets (ocr:false pass, empty capture, or closed session). */
+let xvfbGeneration = 0;
+let xvfbTargetsGeneration = -1;
 
 /** Content-bounds view of a capture (fuzz-trimmed to the painted region, then
  *  padded with a white border). Tesseract's page segmentation (--psm 6)
@@ -713,9 +720,26 @@ export async function headlessEyeRead(opts: {
 
 /** Remember the xvfb eye's word targets for target-based xvfb_click.
  *  Separate store from the live stack's lastClickTargets — headless and real
- *  desktop coordinates must never mix. Exported for tests. */
+ *  desktop coordinates must never mix.
+ *  The generation stamp is what keeps this honest: word targets are expressed
+ *  in the frame of ONE reading, so a later xvfb_screenshot with a different
+ *  frame (a maxWidth/maxHeight cap, a window-composite rescue, an ocr:false
+ *  pass that skips OCR entirely) must invalidate them. Without this, a stale
+ *  box mapped through a NEW frame silently clicks somewhere else — e.g.
+ *  B2 mapped through a 640-wide frame landed at display 188,218 instead of
+ *  375,435. Fail closed instead: no matching generation ⇒ no word click.
+ *  Exported for tests. */
 export function rememberXvfbTargets(targets: ClickTarget[]): void {
 	xvfbClickTargets = targets;
+	xvfbTargetsGeneration = targets.length > 0 ? xvfbGeneration : -1;
+}
+
+/** True when word targets exist AND belong to the frame currently in force.
+ *  A reading that produced no targets (ocr:false, or a blank capture) leaves
+ *  no valid targets behind, so target-based clicks refuse rather than reuse
+ *  an older reading's boxes. Exported for tests. */
+export function xvfbTargetsAreCurrent(): boolean {
+	return xvfbClickTargets.length > 0 && xvfbTargetsGeneration === xvfbGeneration;
 }
 
 /** Resolve a word target against the LAST xvfb eye reading. Same precedence
@@ -723,11 +747,14 @@ export function rememberXvfbTargets(targets: ClickTarget[]): void {
  *  column fragments (a box far taller than a real label, e.g. "ARR]"
  *  spanning a whole grid column) are skipped unless NOTHING else matches,
  *  and a crisp high-confidence word beats a mangled fragment that merely
- *  contains the query ("B2" the label vs "(B2" the smear). Returns the
- *  scaled-frame center. */
+ *  contains the query ("B2" the label vs "(B2" the smear). Frame binding is
+ *  enforced by the caller (xvfbTargetsAreCurrent failing closed in
+ *  xvfb_click); resolve itself refuses when no valid generation exists, so
+ *  a stale box can never be handed out silently. Returns the scaled-frame
+ *  center. */
 export function resolveXvfbTarget(text: string): { x: number; y: number; box: ClickTarget } | null {
 	const q = text.trim().toLowerCase();
-	if (!q || xvfbClickTargets.length === 0) return null;
+	if (!q || !xvfbTargetsAreCurrent()) return null;
 	const sane = (t: ClickTarget): boolean => t.h <= Math.max(32, t.w * 2.2);
 	const rank = (a: ClickTarget, b: ClickTarget): number => {
 		const ea = a.text.toLowerCase() === q ? 0 : 1;
@@ -2996,8 +3023,17 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							}
 						}
 					}
+					// Bind frame and targets to ONE generation. A later reading
+					// with a different frame (a maxWidth cap, a composite rescue,
+					// an ocr:false pass) must not be able to reuse these boxes:
+					// mapping stale boxes through a new frame silently clicks
+					// somewhere else (B2 landed at display 188,218 instead of
+					// 375,435). An ocr:false pass records NO targets, so word
+					// clicks refuse until a real reading happens again.
 					xvfbFrame = eye.frame;
+					xvfbGeneration = ++xvfbGeneration;
 					if (wantOcr) rememberXvfbTargets(eye.targets);
+					else rememberXvfbTargets([]);
 					const buf = fs.readFileSync(eye.scaledPath);
 					const size = buf.length;
 					const lines = [`Captured the headless virtual display (${XVFB_GEOMETRY}) → ${eye.scaledPath}${composited ? " (window-composited: no compositor on bare Xvfb, so mapped windows were stacked at their positions)." : ""}.`];
@@ -3070,6 +3106,21 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				let sy: number | undefined = params.y;
 				let anchor = "";
 				if (params.target) {
+					// A word target is only meaningful in the frame of the reading
+					// that produced it. If the last screenshot changed the frame
+					// (or skipped OCR entirely), refuse instead of mapping an old
+					// box through a new frame.
+					if (!xvfbTargetsAreCurrent()) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Error: no current word targets — the last reading did not produce any (ocr:false or an empty capture). Take xvfb_screenshot again before clicking '${params.target}'.`,
+								},
+							],
+							details: { error: "stale_targets", target: params.target },
+						};
+					}
 					const hit = resolveXvfbTarget(params.target);
 					if (!hit) {
 						return {
@@ -3185,6 +3236,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				await runCmd("pkill", ["Xvfb"]).catch?.(() => {});
 				xvfbServerAlive = false;
 				xvfbFrame = null;
+				xvfbGeneration = ++xvfbGeneration;
 				rememberXvfbTargets([]);
 				const goneDeadline = Date.now() + 5000;
 				for (;;) {
