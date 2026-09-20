@@ -156,3 +156,51 @@ describe("ObservationController lifecycle", () => {
 		expect(ticks).toBe(seen); // no ticks after cancel
 	});
 });
+
+describe("scroll-offset tracking on the snapshot (read-while-scrolling)", () => {
+	const R0 = { at: [646, 90] as [number, number], size: [1252, 968] as [number, number] };
+	test("start/replace accept an initial scroll offset", () => {
+		const c = new ObservationController();
+		const g1 = c.start("0xB", { ...FRAME, address: "0xB" }, 1000, R0, 880);
+		expect(g1).toBe(1);
+		expect(c.get()?.scrollY).toBe(880);
+		const g2 = c.replace("0xB", { ...FRAME, address: "0xB" }, 1100, R0, 240);
+		expect(g2).toBe(2);
+		expect(c.get()?.scrollY).toBe(240);
+	});
+
+	test("noteScrollY updates the offset and re-asserts freshness for the current generation", () => {
+		const c = new ObservationController();
+		const g = c.start("0xB", null, 1000, R0);
+		expect(c.noteScrollY(g, 776, 1200)).toBe(true);
+		expect(c.get()?.scrollY).toBe(776);
+		expect(c.get()?.capturedAt).toBe(1200);
+	});
+
+	test("stale generations and superseded snapshots ignore noteScrollY", () => {
+		const c = new ObservationController();
+		const g = c.start("0xB", null, 1000, R0);
+		expect(c.noteScrollY(g + 1, 500, 1100)).toBe(false);
+		expect(c.get()?.scrollY).toBeUndefined();
+		c.cancel();
+		expect(c.noteScrollY(g, 500, 1100)).toBe(false);
+	});
+
+	test("scroll motion between samples keeps identity fresh (address+rect unchanged)", () => {
+		const c = new ObservationController();
+		const g = c.start("0xB", { ...FRAME, address: "0xB" }, 1000, R0);
+		c.noteScrollY(g, 400, 2000); // page slid, window did not
+		const sel = c.select("0xB", 2500); // within the freshness horizon
+		expect(sel.ok).toBe(true);
+		expect((c.get() as any).scrollY).toBe(400);
+		// scroll alone never ages identity: the change-based gate (pinned in
+		// scroll-reading.test.ts) accepts the same address+rect at any age.
+	});
+
+	test("snapshots without a scroll offset stay valid (field is optional)", () => {
+		const c = new ObservationController();
+		c.start("0xB", null, 1000, R0);
+		expect(c.select("0xB", 1100).ok).toBe(true);
+		expect(c.get()?.scrollY).toBeUndefined();
+	});
+});

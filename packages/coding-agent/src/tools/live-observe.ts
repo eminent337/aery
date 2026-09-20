@@ -65,6 +65,11 @@ export interface ObservationSnapshot {
 	ocrConfidence?: number;
 	/** True once superseded by replace()/cancel() — never usable. */
 	superseded?: boolean;
+	/** Document scroll offset (px) of the anchored window's viewport at
+	 *  capture time, when the page reports one. Scroll moves CONTENT, not
+	 *  the window, so a changed offset re-tags the reading without
+	 *  invalidating identity (address + rect still prove the scene). */
+	scrollY?: number;
 }
 
 export type ObservationRefusalReason = "missing" | "superseded" | "stale" | "address_mismatch";
@@ -147,11 +152,24 @@ export class ObservationController {
 	/** Start (or restart) observation anchored to an exact window address.
 	 *  windowRect is the anchored WINDOW's rect (probe-reported), the
 	 *  authoritative identity for change detection — see ObservationSnapshot. */
-	start(address: string, frame: InputFrame | null = null, now = Date.now(), windowRect?: WindowRect): number {
+	start(address: string, frame: InputFrame | null = null, now = Date.now(), windowRect?: WindowRect, scrollY?: number): number {
 		this.stopTimer();
 		this.generation += 1;
-		this.current = { generation: this.generation, address, frame, capturedAt: now, ...(windowRect ? { windowRect } : {}) };
+		this.current = {
+			generation: this.generation, address, frame, capturedAt: now,
+			...(windowRect ? { windowRect } : {}), ...(scrollY !== undefined ? { scrollY } : {}),
+		};
 		return this.generation;
+	}
+
+	/** Feed a scroll offset for the CURRENT generation; ignores stale writers.
+	 *  Re-asserts capturedAt: the reading reflects the page as of NOW. */
+	noteScrollY(generation: number, scrollY: number, now = Date.now()): boolean {
+		if (!this.current || this.current.superseded || generation !== this.generation) return false;
+		if (!Number.isFinite(scrollY)) return false;
+		this.current.scrollY = scrollY;
+		this.current.capturedAt = now;
+		return true;
 	}
 
 	/** Latest snapshot (no freshness check — use select()/isStale() first). */
@@ -185,11 +203,14 @@ export class ObservationController {
 	 * Atomically re-anchor to a new window address (focus change). The old
 	 * snapshot is superseded so it can never drive input again.
 	 */
-	replace(address: string, frame: InputFrame | null = null, now = Date.now(), windowRect?: WindowRect): number {
+	replace(address: string, frame: InputFrame | null = null, now = Date.now(), windowRect?: WindowRect, scrollY?: number): number {
 		if (this.current) this.current.superseded = true;
 		this.stopTimer();
 		this.generation += 1;
-		this.current = { generation: this.generation, address, frame, capturedAt: now, ...(windowRect ? { windowRect } : {}) };
+		this.current = {
+			generation: this.generation, address, frame, capturedAt: now,
+			...(windowRect ? { windowRect } : {}), ...(scrollY !== undefined ? { scrollY } : {}),
+		};
 		return this.generation;
 	}
 

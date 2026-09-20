@@ -3,6 +3,7 @@ import { ObservationController, type ObservationSnapshot, type WindowRect } from
 import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
 import { buildEyeGeometry, describeEyeTarget, type EyeRegion } from "./live-eye";
 import { type OcrWordBox, ocrFrame } from "./screen-ocr";
+import { scrollFrameQuality } from "./scroll-reading";
 import {
 	boundingBox,
 	frameRectToPhysical,
@@ -2213,17 +2214,33 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		// intentionally not described as a wheel notch because it scrolls
 		// the focused viewport.
 		const plan = scrollBurstPlan({ count: params.count, scrollSpeed: params.scrollSpeed, observeDuringScroll: params.observeDuringScroll });
+		// Read during the burst instead of only after it settles. Capture/OCR is
+		// intentionally best-effort: focus guarding still owns safety, while a
+		// bad/blurred frame is reported as untrusted rather than used to drive.
+		const scrollReadings: Array<{ words: number; chars: number; trustworthy: boolean; ocrMs: number; text: string }> = [];
+		const readWhileScrolling = async (): Promise<string> => {
+			const cap = await captureLiveFrame("Reading while scrolling");
+			if ("error" in cap || !cap.framePath) return "read-capture-error";
+			const ocr = await ocrFrame(cap.framePath);
+			const words = (ocr.words ?? []).map(word => ({ ...word, confidence: word.confidence / 100 }));
+			const quality = scrollFrameQuality(words);
+			scrollReadings.push({
+				words: words.length, chars: ocr.text.length, trustworthy: quality.trustworthy, ocrMs: ocr.ms,
+				text: ocr.text.slice(0, 600),
+			});
+			return `read:${words.length}:${quality.trustworthy ? "trusted" : "untrusted"}`;
+		};
 		const burst = await runScrollBurst(ydoPageScroll(dir, plan.steps), {
 			intervalMs: plan.intervalMs,
 			sample: plan.sample && verify,
 			expectedWindowAddress: win.address,
 			signal,
-			sampleFrame: plan.sample && verify ? uiFingerprint : undefined,
+			sampleFrame: plan.sample && verify ? readWhileScrolling : undefined,
 		});
 		if (burst.failure) return errObserve(action, burst.failure);
 		liveAuthorizedKinds.add(action);
 		return withVerify(
-			`Scrolled ${dir} ${burst.completedSteps} page step${burst.completedSteps === 1 ? "" : "s"} at ${plan.speed} cadence (native Wayland fallback — no REL_WHEEL backend).`,
+			`Scrolled ${dir} ${burst.completedSteps} page step${burst.completedSteps === 1 ? "" : "s"} at ${plan.speed} cadence (native Wayland fallback — no REL_WHEEL backend)${scrollReadings.length ? `; read ${scrollReadings.length} mid-scroll frame${scrollReadings.length === 1 ? "" : "s"}.` : ""}`,
 			{
 				scroll: {
 					direction: dir,
@@ -2232,6 +2249,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 					speed: plan.speed,
 					intervalMs: plan.intervalMs,
 					samples: burst.samples,
+					readings: scrollReadings,
 					beforeFrame: before && !("error" in before) ? before.frame : null,
 					beforeCaptureError: before && "error" in before ? before.error : undefined,
 				},
