@@ -517,6 +517,16 @@ async function xvfbListWindows(): Promise<string[]> {
 		: [];
 }
 
+/** Names present in `after` but not in `before`, matched case-insensitively.
+ *  Used by xvfb_launch to name exactly which windows THAT launch produced —
+ *  polling alone is not enough, because a pre-existing window makes "any
+ *  window mapped" true instantly and the new app is never confirmed.
+ *  Exported for tests. */
+export function xvfbNewWindows(before: string[], after: string[]): string[] {
+	const seen = new Set(before.map(w => w.trim().toLowerCase()));
+	return after.filter(w => !seen.has(w.trim().toLowerCase()));
+}
+
 /** Poll for a mapped window on the virtual display (bounded). Replaces the
  *  old fixed 4s sleep: return the moment a window maps, or the timeout list
  *  so the caller can still report what is actually present. */
@@ -2819,16 +2829,32 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						timeout: 12_000,
 					});
 					// Poll for the window to map instead of sleeping a fixed 4s.
+					// Also diff against the pre-launch window set: with another
+					// app already on screen, "any window mapped" returns
+					// instantly and this launch's own window is never named.
 					const t0 = Date.now();
-					const windows = await xvfbPollForWindows();
+					const before = await xvfbListWindows();
+					const after_ = await xvfbPollForWindows();
+					const fresh = xvfbNewWindows(before, after_);
+					const note = fresh.length
+						? ` New windows from this launch: ${fresh.join(" | ")}.`
+						: after_.length
+							? " No new window named this launch (may still be loading) — verify with xvfb_screenshot."
+							: " No window mapped yet (may still be loading) — check with xvfb_list_windows or xvfb_screenshot.";
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Launched '${params.command}' invisibly on the virtual display.${windows.length ? ` Windows now present: ${windows.join(" | ")}` : " No window mapped yet (may still be loading) — check with xvfb_list_windows or xvfb_screenshot."}`,
+								text: `Launched '${params.command}' invisibly on the virtual display.${note}`,
 							},
 						],
-						details: { command: params.command, headless: true, windows, waitMs: Date.now() - t0 },
+						details: {
+							command: params.command,
+							headless: true,
+							windows: after_,
+							newWindows: fresh,
+							waitMs: Date.now() - t0,
+						},
 					};
 				} catch (err) {
 					return {

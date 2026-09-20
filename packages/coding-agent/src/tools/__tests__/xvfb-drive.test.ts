@@ -104,3 +104,32 @@ describe("xvfbFrameToDisplay (regression lock: phase-1 mapping)", () => {
 		expect(xvfbFrameToDisplay(800, 450, null)).toEqual([800, 450]);
 	});
 });
+
+describe("xvfbNewWindows (launch diff: name THIS launch's windows)", () => {
+	test("returns only windows absent before the launch", async () => {
+		const { xvfbNewWindows } = await import("../desktop-control");
+		expect(xvfbNewWindows(["AeryAim2"], ["AeryAim2", "AeryBench"])).toEqual(["AeryBench"]);
+	});
+
+	test("is empty when a pre-existing window is all that mounted", async () => {
+		// Regression: polling returned instantly on AeryAim2 alone, so the
+		// second launch named the wrong app. The diff must stay empty here.
+		const { xvfbNewWindows } = await import("../desktop-control");
+		expect(xvfbNewWindows(["AeryAim2"], ["AeryAim2"])).toEqual([]);
+	});
+
+	test("matches case- and whitespace-insensitively", async () => {
+		const { xvfbNewWindows } = await import("../desktop-control");
+		expect(xvfbNewWindows([" AeryAim2 "], ["aeryaim2", "AeryBench"])).toEqual(["AeryBench"]);
+	});
+
+	test("returns everything on a cold display", async () => {
+		const { xvfbNewWindows } = await import("../desktop-control");
+		expect(xvfbNewWindows([], ["AeryAim2", "AeryBench"])).toEqual(["AeryAim2", "AeryBench"]);
+	});
+
+	test("drops a window that closed before the poll finished", async () => {
+		const { xvfbNewWindows } = await import("../desktop-control");
+		expect(xvfbNewWindows(["Gone"], [])).toEqual([]);
+	});
+});
