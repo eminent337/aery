@@ -3,7 +3,7 @@ import { ObservationController, type ObservationSnapshot, type WindowRect } from
 import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
 import { buildEyeGeometry, describeEyeTarget, type EyeRegion } from "./live-eye";
 import { type OcrWordBox, ocrFrame } from "./screen-ocr";
-import { formatScrollReadDigest, scrollFrameQuality } from "./scroll-reading";
+import { formatScrollReadDigest, normalizeOcrConfidence, scrollFrameQuality } from "./scroll-reading";
 import {
 	boundingBox,
 	frameRectToPhysical,
@@ -2222,7 +2222,10 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			const cap = await captureLiveFrame("Reading while scrolling");
 			if ("error" in cap || !cap.framePath) return "read-capture-error";
 			const ocr = await ocrFrame(cap.framePath);
-			const words = (ocr.words ?? []).map(word => ({ ...word, confidence: word.confidence / 100 }));
+			// ocrFrame words already carry 0..1 fractions — normalize instead of
+			// scaling, so a percent-scale producer can never smuggle past (and a
+			// fraction can never be divided twice into mush). Live news-site bug.
+			const words = (ocr.words ?? []).map(word => ({ ...word, confidence: normalizeOcrConfidence(word.confidence) }));
 			const quality = scrollFrameQuality(words);
 			scrollReadings.push({
 				words: words.length, chars: ocr.text.length, trustworthy: quality.trustworthy, ocrMs: ocr.ms,

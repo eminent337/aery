@@ -302,3 +302,41 @@ describe("model-visible scroll digest (phase 1 pin: fails while stub throws)", (
 		expect(out.match(/Save Cancel Refresh/g)?.length).toBe(1);
 	});
 });
+
+describe("confidence scale tolerance (live news-site bug: double /100)", () => {
+	const W = (confidence: number) => ({ text: "Save", x: 100, y: 200, w: 60, h: 20, confidence });
+	test("normalizeOcrConfidence passes 0..1 fractions through untouched", () => {
+		const { normalizeOcrConfidence } = require("../scroll-reading");
+		expect(normalizeOcrConfidence(0.62)).toBeCloseTo(0.62, 6);
+		expect(normalizeOcrConfidence(0)).toBe(0);
+		expect(normalizeOcrConfidence(1)).toBe(1);
+	});
+
+	test("normalizeOcrConfidence folds 0..100 percents into 0..1", () => {
+		const { normalizeOcrConfidence } = require("../scroll-reading");
+		expect(normalizeOcrConfidence(62)).toBeCloseTo(0.62, 6);
+		expect(normalizeOcrConfidence(100)).toBe(1);
+	});
+
+	test("normalizeOcrConfidence clamps out-of-range and fails closed on non-finite", () => {
+		const { normalizeOcrConfidence } = require("../scroll-reading");
+		expect(normalizeOcrConfidence(150)).toBe(1);
+		expect(normalizeOcrConfidence(-5)).toBe(0);
+		expect(normalizeOcrConfidence(NaN)).toBe(0);
+	});
+
+	test("scrollFrameQuality treats a 45%-confidence frame as untrusted at EITHER scale", () => {
+		const { scrollFrameQuality } = require("../scroll-reading");
+		const frac = [W(0.45), W(0.45), W(0.45)];
+		const pct = [W(45), W(45), W(45)];
+		expect(scrollFrameQuality(frac).trustworthy).toBe(false);
+		// 45 (percent scale) must NOT smuggle past the 0.5 gate as "45 >= 0.5".
+		expect(scrollFrameQuality(pct).trustworthy).toBe(false);
+	});
+
+	test("scrollFrameQuality trusts a crisp frame at either scale", () => {
+		const { scrollFrameQuality } = require("../scroll-reading");
+		expect(scrollFrameQuality([W(0.9), W(0.9), W(0.9)]).trustworthy).toBe(true);
+		expect(scrollFrameQuality([W(90), W(90), W(90)]).trustworthy).toBe(true);
+	});
+});

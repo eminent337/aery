@@ -182,6 +182,21 @@ export function planScrollReadBurst(input: { count?: number; scrollSpeed?: strin
 	return { steps, intervalMs, speed, sample: input.observeDuringScroll ?? true };
 }
 
+/**
+ * Fold an OCR confidence into the canonical 0..1 scale, WHATEVER the
+ * producer emits. parseTsvWordBoxes already returns 0..1 fractions, but a
+ * caller may pass raw 0..100 percents (or double-divide): the fold rule is
+ * a threshold, so anything above 1 is folded down and anything at/below 1
+ * is kept. Found live on a news page: desktop-control divided an already-
+ * fractional confidence by 100 again (0.62 → 0.006), which made EVERY real
+ * frame read as motion-smeared. Non-finite fails closed to 0.
+ */
+export function normalizeOcrConfidence(confidence: number): number {
+	if (!Number.isFinite(confidence)) return 0;
+	const folded = confidence > 1 ? confidence / 100 : confidence;
+	return Math.min(1, Math.max(0, folded));
+}
+
 /** Quality verdict for ONE mid-motion frame: enough real words, confident
  *  enough to be crisp rather than motion-smeared, and (when a settled
  *  baseline vocabulary is supplied) some overlap with known page text —
@@ -206,8 +221,11 @@ export function scrollFrameQuality(
 		overlap = hit / wordCount;
 	}
 	// Crisp text on this bench reads ≥3 words; smear collapses to junk.
+	// Every confidence runs through normalizeOcrConfidence: a 0..100 percent
+	// input must never smuggle past the 0.5 gate as "45 >= 0.5", and a real
+	// 0..1 fraction must never arrive twice-divided.
 	const enoughWords = wordCount >= 3;
-	const conf = wordCount > 0 ? words.reduce((s, w) => s + w.confidence, 0) / wordCount : 0;
+	const conf = wordCount > 0 ? words.reduce((s, w) => s + normalizeOcrConfidence(w.confidence), 0) / wordCount : 0;
 	const crisp = conf >= 0.5;
 	const coherent = baseline && baseline.size > 0 && wordCount > 0 ? overlap >= 0.3 : true;
 	return { wordCount, overlap, trustworthy: enoughWords && crisp && coherent };

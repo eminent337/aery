@@ -30,6 +30,10 @@ export interface OcrWordBox {
 	y: number;
 	w: number;
 	h: number;
+	/** Canonical 0..1 fraction (parseTsvWordBoxes divides TSV conf by 100).
+	 *  Callers MUST NOT rescale — feed through normalizeOcrConfidence instead,
+	 *  which folds either scale to 0..1. Rescaling a fraction is exactly how
+	 *  every real frame read as motion-smeared on a news page. */
 	confidence: number;
 }
 
