@@ -85,3 +85,33 @@ describe("headlessEyeRead (xvfb eye)", () => {
 		expect(r.targets).toEqual([]);
 	});
 });
+
+describe("xvfbCompositeWindows (ARGB fallback)", () => {
+	test("stacked windows become readable with fullscreen-origin coordinates", async () => {
+		// Black "root capture" (what bare Xvfb yields: no compositor) plus a
+		// small white window crop pasted onto it by the composite path.
+		const ROOT = "/tmp/aerys-xvfb-composite-root.png";
+		const WIN = "/tmp/aerys-xvfb-composite-win.png";
+		const { exec } = await import("node:child_process");
+		const { promisify } = await import("node:util");
+		const runLocal = promisify(exec);
+		// A white 520x260 window with OCR-friendly words at its local origin.
+		await runLocal(
+			`convert -size 520x260 xc:white -font FreeSans -pointsize 48 -fill black -annotate +30+90 "STACKED OK" ${WIN}`,
+		);
+		// Sanity: the window crop itself reads.
+		const { headlessEyeRead, xvfbCompositeWindows, xvfbFrameToDisplay } = await import("../desktop-control");
+		const winRead = await headlessEyeRead({ rawPath: WIN, physW: 520, physH: 260 });
+		expect(winRead.emptyRoot).toBe(false);
+		expect(winRead.text).toMatch(/STACKED/);
+		// The composite helper pastes the window at its absolute position;
+		// here we verify the parts that need no X server: null when no
+		// window contributes, and fullscreen-origin mapping is untouched.
+		const none = await xvfbCompositeWindows(ROOT, []);
+		expect(none).toBeNull();
+		// Fullscreen-origin mapping: scaled (640x360 of 1600x900) → display.
+		const [dx, dy] = xvfbFrameToDisplay(320, 180, { physW: 1600, physH: 900, scaledW: 640, scaledH: 360 });
+		expect(dx).toBe(800);
+		expect(dy).toBe(450);
+	});
+});

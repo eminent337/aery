@@ -378,7 +378,6 @@ function xvfbGeometry(): [number, number] {
  *  calls in one drive loop stop re-probing the display; cleared by
  *  xvfb_close so a later launch re-starts and re-proves it. */
 let xvfbServerAlive = false;
-
 function xvfbEnv(): NodeJS.ProcessEnv {
 	return {
 		DISPLAY: XVFB_DISPLAY,
@@ -414,6 +413,96 @@ function xvfbCommandFixup(cmd: string): string {
 		return cmd.replace(/^(flatpak run \S+|[^ ]+\.AppImage|\S+)/, "$& --ozone-platform=x11");
 	}
 	return cmd;
+}
+/** One mapped window on the virtual display: id + absolute position + size. */
+export interface XvfbMappedWindow {
+	id: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+/** Enumerate visible windows with absolute geometry. Exported for tests. */
+export async function xvfbMappedWindows(): Promise<XvfbMappedWindow[]> {
+	const res = await runCmd("xdotool", ["search", "--onlyvisible", "--name", "."], { env: xvfbEnv() });
+	if (res.code !== 0) return [];
+	const ids = res.stdout
+		.split("\n")
+		.map(s => s.trim())
+		.filter(s => /^\d+$/.test(s));
+	const out: XvfbMappedWindow[] = [];
+	for (const id of ids) {
+		const g = await runCmd("xdotool", ["getwindowgeometry", "--shell", id], { env: xvfbEnv() });
+		if (g.code !== 0) continue;
+		const num = (re: RegExp): number | null => {
+			const m = re.exec(g.stdout);
+			return m ? Number(m[1]) : null;
+		};
+		const x = num(/X=(-?\d+)/);
+		const y = num(/Y=(-?\d+)/);
+		const w = num(/WIDTH=(\d+)/);
+		const h = num(/HEIGHT=(\d+)/);
+		if (x === null || y === null || w === null || h === null) continue;
+		out.push({ id, x, y, w, h });
+	}
+	return out;
+}
+
+/** Composite every visible window onto a white canvas at absolute positions
+ *  so ARGB/GL apps — which bare Xvfb never paints into the root framebuffer
+ *  — become readable. Coordinates stay fullscreen-origin, so existing click
+ *  mapping is untouched. The canvas is white (not the black root): tesseract's
+ *  default page segmentation misses a small text island on a giant black
+ *  canvas, and the black root carries no usable pixels anyway. The root seed
+ *  is applied only when the root is NOT effectively blank, so a black sheet
+ *  never recreates the trap we are escaping. Returns the stacked path, or
+ *  null when no window contributed pixels. Best-effort: never throws. */
+export async function xvfbCompositeWindows(rootPath: string, windows: XvfbMappedWindow[]): Promise<string | null> {
+	try {
+		const [physW, physH] = xvfbGeometry();
+		const stackPath = path.join(os.tmpdir(), `aerys-xvfb-stack-${Date.now()}.png`);
+		const base = await runCmd("convert", ["-size", `${physW}x${physH}`, "xc:white", stackPath], {
+			env: xvfbEnv(),
+			timeout: 15_000,
+		});
+		if (base.code !== 0 || !fs.existsSync(stackPath)) return null;
+		// Seed the canvas with any root pixels that exist (non-ARGB apps such
+		// as the widget/mousepad paint straight into the framebuffer).
+		const mean = await runCmd("identify", ["-format", "%[fx:mean]", rootPath], { timeout: 10_000 });
+		const rootBrightness = Number(mean.stdout);
+		if (Number.isFinite(rootBrightness) && rootBrightness > 0.01) {
+			await runCmd("convert", [stackPath, rootPath, "-flatten", stackPath], { env: xvfbEnv(), timeout: 15_000 });
+		}
+		let layers = 0;
+		for (const w of windows) {
+			if (w.w <= 0 || w.h <= 0) continue;
+			const winPath = path.join(os.tmpdir(), `aerys-xvfb-win-${Date.now()}-${w.id}.png`);
+			const shot = await runCmd("import", ["-window", w.id, winPath], { env: xvfbEnv(), timeout: 15_000 });
+			if (shot.code !== 0 || !fs.existsSync(winPath)) continue;
+			const wmean = await runCmd("identify", ["-format", "%[fx:mean]", winPath], { timeout: 10_000 });
+			const brightness = Number(wmean.stdout);
+			if (!Number.isFinite(brightness) || brightness <= 0.001) continue;
+			const flatWin = path.join(os.tmpdir(), `aerys-xvfb-winflat-${Date.now()}-${w.id}.png`);
+			const flatRes = await runCmd("convert", [winPath, "-background", "white", "-alpha", "remove", "-alpha", "off", flatWin], {
+				env: xvfbEnv(),
+				timeout: 15_000,
+			});
+			if (flatRes.code !== 0 || !fs.existsSync(flatWin)) continue;
+			// Clamp the paste origin so offscreen windows cannot corrupt the stack.
+			const px = Math.max(0, Math.min(w.x, physW - 1));
+			const py = Math.max(0, Math.min(w.y, physH - 1));
+			const comp = await runCmd(
+				"convert",
+				[stackPath, flatWin, "-geometry", `+${px}+${py}`, "-composite", stackPath],
+				{ env: xvfbEnv(), timeout: 15_000 },
+			);
+			if (comp.code === 0) layers++;
+		}
+		return layers > 0 ? stackPath : null;
+	} catch {
+		return null;
+	}
 }
 
 async function xvfbListWindows(): Promise<string[]> {
@@ -2748,7 +2837,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					}
 					const [physW, physH] = xvfbGeometry();
 					const wantOcr = params.ocr ?? true;
-					const eye = await headlessEyeRead({
+					let eye = await headlessEyeRead({
 						rawPath: outPath,
 						physW,
 						physH,
@@ -2756,11 +2845,33 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						maxHeight: params.maxHeight,
 						ocr: wantOcr,
 					});
-					xvfbFrame = eye.frame;
+					// Bare Xvfb has no compositor: ARGB/GL windows map but never
+					// paint into the root capture, so a blank root with visible
+					// windows means "uncomposited", not "empty". Re-read from a
+					// white-flattened stack of the windows at their absolute
+					// positions — coordinates stay fullscreen-origin.
+					let composited = false;
+					if (wantOcr && eye.emptyRoot) {
+						const mapped = await xvfbMappedWindows();
+						if (mapped.length > 0) {
+							const stack = await xvfbCompositeWindows(outPath, mapped);
+							if (stack) {
+								eye = await headlessEyeRead({
+									rawPath: stack,
+									physW,
+									physH,
+									maxWidth: params.maxWidth,
+									maxHeight: params.maxHeight,
+									ocr: wantOcr,
+								});
+								composited = !eye.emptyRoot;
+							}
+						}
+					}
 					if (wantOcr) rememberXvfbTargets(eye.targets);
 					const buf = fs.readFileSync(eye.scaledPath);
 					const size = buf.length;
-					const lines = [`Captured the headless virtual display (${XVFB_GEOMETRY}) → ${eye.scaledPath}.`];
+					const lines = [`Captured the headless virtual display (${XVFB_GEOMETRY}) → ${eye.scaledPath}${composited ? " (window-composited: no compositor on bare Xvfb, so mapped windows were stacked at their positions)." : ""}.`];
 					if (wantOcr && eye.text) {
 						lines.push(
 							`On-screen text (${eye.text.length} chars, tesseract ${eye.ocrMode ?? "native"}):`,
