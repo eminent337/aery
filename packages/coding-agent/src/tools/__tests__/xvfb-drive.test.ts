@@ -42,6 +42,26 @@ describe("resolveXvfbTarget (word-anchored headless clicks)", () => {
 		expect(m.resolveXvfbTarget("nonexistent")).toBeNull();
 		expect(m.resolveXvfbTarget("")).toBeNull();
 	});
+
+	test("skips merged column fragments: crisp B2 beats a tall (B2 smear)", async () => {
+		const m = await import("../desktop-control");
+		// What tesseract yields on a small-cell grid: one clean label plus a
+		// tall merged fragment in the same column that also contains "B2".
+		m.rememberXvfbTargets([
+			{ text: "(B2", x: 300, y: 200, w: 60, h: 190, confidence: 0.5 },
+			{ text: "B2", x: 300, y: 250, w: 50, h: 30, confidence: 0.93 },
+		]);
+		const hit = m.resolveXvfbTarget("B2")!;
+		expect(hit.box.text).toBe("B2");
+		expect(hit.box.h).toBe(30);
+	});
+
+	test("falls back to a fragment match when nothing sane matches", async () => {
+		const m = await import("../desktop-control");
+		m.rememberXvfbTargets([{ text: "ARR]", x: 100, y: 200, w: 60, h: 190, confidence: 0.24 }]);
+		const hit = m.resolveXvfbTarget("arr");
+		expect(hit).not.toBeNull();
+	});
 });
 
 describe("buildXvfbTypeArgs / buildXvfbKeyArgs (activate before input)", () => {

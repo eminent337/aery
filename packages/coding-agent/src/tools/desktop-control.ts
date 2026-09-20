@@ -620,20 +620,33 @@ export function rememberXvfbTargets(targets: ClickTarget[]): void {
 }
 
 /** Resolve a word target against the LAST xvfb eye reading. Same precedence
- *  as resolveClickTarget: exact match first, then shortest label (a button
- *  beats a sentence), then topmost. Returns the scaled-frame center. */
+ *  as resolveClickTarget, but garbage OCR boxes are distrusted: merged
+ *  column fragments (a box far taller than a real label, e.g. "ARR]"
+ *  spanning a whole grid column) are skipped unless NOTHING else matches,
+ *  and a crisp high-confidence word beats a mangled fragment that merely
+ *  contains the query ("B2" the label vs "(B2" the smear). Returns the
+ *  scaled-frame center. */
 export function resolveXvfbTarget(text: string): { x: number; y: number; box: ClickTarget } | null {
 	const q = text.trim().toLowerCase();
 	if (!q || xvfbClickTargets.length === 0) return null;
-	const matches = xvfbClickTargets.filter(t => t.text.toLowerCase().includes(q));
-	if (matches.length === 0) return null;
-	const best = matches.sort((a, b) => {
+	const sane = (t: ClickTarget): boolean => t.h <= Math.max(32, t.w * 2.2);
+	const rank = (a: ClickTarget, b: ClickTarget): number => {
 		const ea = a.text.toLowerCase() === q ? 0 : 1;
 		const eb = b.text.toLowerCase() === q ? 0 : 1;
 		if (ea !== eb) return ea - eb;
+		// Prefer high-confidence boxes: a crisp exact word beats a taller
+		// merged fragment that merely contains the query ("B2" the label vs
+		// "(B2" the column smear).
+		const ca = a.confidence ?? 0;
+		const cb = b.confidence ?? 0;
+		if (Math.abs(ca - cb) > 0.3) return cb - ca;
 		if (a.text.length !== b.text.length) return a.text.length - b.text.length;
 		return a.y - b.y || a.x - b.x;
-	})[0];
+	};
+	const matches = xvfbClickTargets.filter(t => t.text.toLowerCase().includes(q));
+	if (matches.length === 0) return null;
+	const good = matches.filter(sane).sort(rank);
+	const best = (good.length > 0 ? good : matches.sort(rank))[0];
 	return { x: best.x + Math.round(best.w / 2), y: best.y + Math.round(best.h / 2), box: best };
 }
 
@@ -2868,6 +2881,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							}
 						}
 					}
+					xvfbFrame = eye.frame;
 					if (wantOcr) rememberXvfbTargets(eye.targets);
 					const buf = fs.readFileSync(eye.scaledPath);
 					const size = buf.length;
