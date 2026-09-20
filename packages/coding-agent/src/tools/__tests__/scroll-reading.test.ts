@@ -262,3 +262,43 @@ describe("targets stay usable during AND after scroll (regression)", () => {
 		expect(scrollSettled([880, 880, 881])).toBe(false);
 	});
 });
+
+describe("model-visible scroll digest (phase 1 pin: fails while stub throws)", () => {
+	const R = (over: Record<string, unknown> = {}) => ({
+		words: 3, chars: 20, trustworthy: true, ocrMs: 500, text: "Save Cancel Refresh", ...over,
+	});
+	test("digest surfaces mid-scroll TEXT (not just a count) labelled by offset + trust", () => {
+		const { formatScrollReadDigest } = require("../scroll-reading");
+		const out = formatScrollReadDigest([R({ text: "Save Cancel Refresh", trustworthy: true })]);
+		// The model must be able to READ the words, not merely know a frame happened.
+		expect(out).toContain("Save Cancel Refresh");
+		expect(out).toMatch(/trusted/i);
+	});
+
+	test("untrusted/blurred frame is surfaced but explicitly marked NOT trusted", () => {
+		const { formatScrollReadDigest } = require("../scroll-reading");
+		const out = formatScrollReadDigest([R({ text: "c »phimestis", trustworthy: false })]);
+		expect(out).toContain("c »phimestis");       // never silently dropped
+		expect(out).toMatch(/untrusted|not trusted|blur/i);
+	});
+
+	test("digest is bounded and says so when it truncates", () => {
+		const { formatScrollReadDigest } = require("../scroll-reading");
+		const long = R({ text: "word ".repeat(2000) });
+		const out = formatScrollReadDigest([long, long, long, long], { maxChars: 300 });
+		expect(out.length).toBeLessThanOrEqual(301);
+		expect(out).toMatch(/truncat|…/i);
+	});
+
+	test("empty / missing readings produce no digest (caller text unchanged)", () => {
+		const { formatScrollReadDigest } = require("../scroll-reading");
+		expect(formatScrollReadDigest([])).toBe("");
+		expect(formatScrollReadDigest(undefined as unknown as unknown[])).toBe("");
+	});
+
+	test("identical consecutive frames are de-duplicated (no repeated text bloat)", () => {
+		const { formatScrollReadDigest } = require("../scroll-reading");
+		const out = formatScrollReadDigest([R(), R(), R()]);
+		expect(out.match(/Save Cancel Refresh/g)?.length).toBe(1);
+	});
+});

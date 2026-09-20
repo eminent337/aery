@@ -275,3 +275,77 @@ export async function runScrollReadBurst(
 	}
 	return { failure: null, completedSteps, readings, targets };
 }
+
+/** --- Model-visible digest (phase 4): the read must reach the MODEL ----- */
+
+/** One per-frame reading as captured during the scroll burst (the shape
+ *  desktop-control pushes into `scroll.readings`). */
+export interface ScrollReadDigestEntry {
+	words: number;
+	chars: number;
+	trustworthy: boolean;
+	ocrMs: number;
+	text: string;
+	/** Scroll offset (px) the frame was read at — lets the model know where
+	 *  on the page the text came from. */
+	scrollY?: number;
+}
+
+export interface ScrollReadDigestOptions {
+	/** Hard cap on the digest length. Context is shared, so a long scroll
+	 *  must not be able to flood it. */
+	maxChars?: number;
+}
+
+/**
+ * Render mid-scroll readings as a MODEL-VISIBLE digest.
+ *
+ * Why this exists: readings used to land only in the tool result's
+ * `details`, which is UI metadata — the agent loop forwards only `content`
+ * to the model, so the eye read the page but the model never saw the words.
+ * This turns the readings into text the model can actually read and answer
+ * from, while staying bounded so repeated scrolling cannot bloat context.
+ *
+ * Contract:
+ *  - the TEXT is included (not just a word count) — the model must be able
+ *    to answer questions about what was scrolled past
+ *  - untrusted/blurred frames are STILL shown, explicitly marked, never
+ *    silently dropped (trust gates USE to drive, not visibility)
+ *  - output is capped at maxChars; truncation is stated, never silent
+ *  - identical consecutive frames collapse (a repeated OCR of a still
+ *    view must not repeat itself)
+ *  - empty/missing readings render as "" so the caller's text is unchanged
+ */
+export function formatScrollReadDigest(
+	readings: ScrollReadDigestEntry[] | undefined,
+	options: ScrollReadDigestOptions = {},
+): string {
+	if (!readings || readings.length === 0) return "";
+	const maxChars = Math.max(0, options.maxChars ?? 1200);
+	const seen = new Set<string>();
+	const parts: string[] = [];
+	for (const r of readings) {
+		const text = (r.text ?? "").replace(/\s+/g, " ").trim();
+		if (!text) continue;
+		const key = text.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		const where = Number.isFinite(r.scrollY) ? `@scroll ${r.scrollY} ` : "";
+		// Trust is stated for BOTH outcomes: an unmarked frame would read as
+		// verified, and a blurred one must never masquerade as a clean read.
+		const trust = r.trustworthy ? "trusted" : "untrusted — may be blurred";
+		parts.push(`${where}[${trust}] ${text}`);
+	}
+	if (parts.length === 0) return "";
+	const joined = parts.join("\n");
+	if (joined.length <= maxChars) return joined;
+	// Truncate on a word boundary where possible and SAY SO — a silent cut
+	// would read as a complete page and mislead the model.
+	const notice = "\n… [mid-scroll read truncated]";
+	const room = Math.max(0, maxChars - notice.length);
+	let cut = joined.slice(0, room);
+	const lastSpace = cut.lastIndexOf(" ");
+	if (lastSpace > room * 0.6) cut = cut.slice(0, lastSpace);
+	const result = cut + notice;
+	return result.length <= maxChars ? result : result.slice(0, maxChars);
+}

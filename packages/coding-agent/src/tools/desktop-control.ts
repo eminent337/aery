@@ -3,7 +3,7 @@ import { ObservationController, type ObservationSnapshot, type WindowRect } from
 import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
 import { buildEyeGeometry, describeEyeTarget, type EyeRegion } from "./live-eye";
 import { type OcrWordBox, ocrFrame } from "./screen-ocr";
-import { scrollFrameQuality } from "./scroll-reading";
+import { formatScrollReadDigest, scrollFrameQuality } from "./scroll-reading";
 import {
 	boundingBox,
 	frameRectToPhysical,
@@ -2239,8 +2239,13 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		});
 		if (burst.failure) return errObserve(action, burst.failure);
 		liveAuthorizedKinds.add(action);
+		// The reads must reach the MODEL, not just the UI: `details` is
+		// metadata the agent loop never forwards, so the words go in the
+		// visible text as a bounded digest while full readings stay in
+		// details for the interface.
+		const digest = formatScrollReadDigest(scrollReadings);
 		return withVerify(
-			`Scrolled ${dir} ${burst.completedSteps} page step${burst.completedSteps === 1 ? "" : "s"} at ${plan.speed} cadence (native Wayland fallback — no REL_WHEEL backend)${scrollReadings.length ? `; read ${scrollReadings.length} mid-scroll frame${scrollReadings.length === 1 ? "" : "s"}.` : ""}`,
+			`Scrolled ${dir} ${burst.completedSteps} page step${burst.completedSteps === 1 ? "" : "s"} at ${plan.speed} cadence (native Wayland fallback — no REL_WHEEL backend)${scrollReadings.length ? `; read ${scrollReadings.length} mid-scroll frame${scrollReadings.length === 1 ? "" : "s"}.` : ""}${digest ? `\n\nWhat was read while scrolling:\n${digest}` : ""}`,
 			{
 				scroll: {
 					direction: dir,
