@@ -86,6 +86,91 @@ describe("headlessEyeRead (xvfb eye)", () => {
 	});
 });
 
+describe("headlessEyeRead segmentation rescue (content crop)", () => {
+	const DIALOG = "/tmp/aerys-xvfb-eye-dialog.png";
+
+	/** A small dialog on a big blank desktop — the exact shape that made
+	 *  tesseract's --psm 6 block layout drop the button row entirely. */
+	async function synthDialog(): Promise<void> {
+		await run(
+			`convert -size 1600x900 xc:white -fill black -draw "rectangle 20,20 540,260" -fill white -font FreeSans -pointsize 22 -annotate +40+60 "Headless approval required" -font FreeSans -pointsize 20 -annotate +70+230 "Approve" -annotate +230+230 "Deny" ${DIALOG}`,
+		);
+	}
+
+	test("reads a small dialog's buttons off a large blank canvas", async () => {
+		await synthDialog();
+		const { headlessEyeRead } = await import("../desktop-control");
+		const r = await headlessEyeRead({ rawPath: DIALOG, physW: 1600, physH: 900 });
+		// Regression: the button row used to vanish (only the body text read).
+		expect(r.text).toMatch(/Headless approval required/);
+		expect(r.text).toMatch(/Approve/);
+		expect(r.text).toMatch(/Deny/);
+	});
+
+	test("rescued words land in full-frame coords, not crop coords", async () => {
+		await synthDialog();
+		const { headlessEyeRead } = await import("../desktop-control");
+		const r = await headlessEyeRead({ rawPath: DIALOG, physW: 1600, physH: 900 });
+		const b = r.targets.find(t => /Approve/i.test(t.text));
+		expect(b).toBeDefined();
+		// On the full capture "Approve" sits near x≈70..150, y≈222..236; the
+		// crop offset must be folded back so the box is nowhere near the crop
+		// origin (which would be a few px in from the frame edge).
+		expect(b!.x).toBeGreaterThan(40);
+		expect(b!.y).toBeGreaterThan(150);
+	});
+
+	test("dense full-canvas captures are untouched by the rescue path", async () => {
+		// The rescue only fires on a sparse read; a well-filled capture must
+		// still read exactly as before (no crop, no coordinate folding).
+		await synth();
+		const { headlessEyeRead } = await import("../desktop-control");
+		const r = await headlessEyeRead({ rawPath: IMG, physW: 1600, physH: 900 });
+		expect(r.text).toContain("APPROVE LAUNCH SETTINGS");
+		expect(r.text).toContain("STATUS ONLINE");
+	});
+});
+
+describe("xvfbContentCrop (trim geometry)", () => {
+	test("finds content bounds and returns a padded crop", async () => {
+		const BIG = "/tmp/aerys-xvfb-crop-big.png";
+		const { exec } = await import("node:child_process");
+		const { promisify } = await import("node:util");
+		const runLocal = promisify(exec);
+		await runLocal(
+			`convert -size 1600x900 xc:white -fill black -draw "rectangle 100,400 400,500" ${BIG}`,
+		);
+		const { xvfbContentCrop } = await import("../desktop-control");
+		const c = await xvfbContentCrop(BIG);
+		expect(c).not.toBeNull();
+		expect(c!.x).toBe(100);
+		expect(c!.y).toBe(400);
+		// Inclusive draw bounds: 100..400 is 300 or 301 px wide depending on
+		// how IM rounds the rectangle's last row/column.
+		expect(c!.w).toBeGreaterThanOrEqual(300);
+		expect(c!.w).toBeLessThanOrEqual(301);
+		expect(c!.h).toBeGreaterThanOrEqual(100);
+		expect(c!.h).toBeLessThanOrEqual(101);
+		expect(c!.pad).toBeGreaterThan(0);
+	});
+
+	test("declines to crop when content already fills the canvas", async () => {
+		const FULL = "/tmp/aerys-xvfb-crop-full.png";
+		const { exec } = await import("node:child_process");
+		const { promisify } = await import("node:util");
+		const runLocal = promisify(exec);
+		await runLocal(`convert -size 1600x900 xc:white -fill black -draw "rectangle 0,0 1599,899" ${FULL}`);
+		const { xvfbContentCrop } = await import("../desktop-control");
+		expect(await xvfbContentCrop(FULL)).toBeNull();
+	});
+
+	test("an all-blank canvas yields no crop", async () => {
+		await synth();
+		const { xvfbContentCrop } = await import("../desktop-control");
+		expect(await xvfbContentCrop(BLANK)).toBeNull();
+	});
+});
+
 describe("xvfbCompositeWindows (ARGB fallback)", () => {
 	test("stacked windows become readable with fullscreen-origin coordinates", async () => {
 		// Black "root capture" (what bare Xvfb yields: no compositor) plus a

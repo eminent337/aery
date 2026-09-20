@@ -563,9 +563,64 @@ interface XvfbFrameState {
 let xvfbFrame: XvfbFrameState | null = null;
 let xvfbClickTargets: ClickTarget[] = [];
 
+/** Content-bounds view of a capture (fuzz-trimmed to the painted region, then
+ *  padded with a white border). Tesseract's page segmentation (--psm 6)
+ *  reliably MISSES a small text island sitting on a huge blank canvas — a
+ *  520x200 dialog on a 1600x900 desktop loses its button row entirely, while
+ *  the identical pixels read fine once trimmed. Trimming recovers that text
+ *  and returns where the crop came from, so word boxes can still be folded
+ *  back into full-frame coordinates. The padding is essential: tesseract also
+ *  drops text flush against the image edge.
+ *  Returns null when the trim would not shrink the canvas (dense captures
+ *  like a full-window app are already well-framed, and trimming them would
+ *  only add cost). */
+export async function xvfbContentCrop(
+	imgPath: string,
+	opts: { fuzzPct?: number; pad?: number; minAreaGain?: number } = {},
+): Promise<{ croppedPath: string; x: number; y: number; w: number; h: number; pad: number } | null> {
+	const fuzz = opts.fuzzPct ?? 10;
+	const pad = opts.pad ?? 25;
+	const minAreaGain = opts.minAreaGain ?? 1.35;
+	const dims = await identifyDims(imgPath);
+	if (!dims) return null;
+	const [fullW, fullH] = dims;
+	const geo = await runCmd("convert", [imgPath, "-fuzz", `${fuzz}%`, "-trim", "-format", "%w %h %X %Y", "info:"]);
+	if (geo.code !== 0) return null;
+	// ImageMagick reports the offset as "+X+Y" with a leading sign.
+	const parts = geo.stdout
+		.trim()
+		.replace(/[+-]/g, " ")
+		.split(/\s+/)
+		.map(Number);
+	if (parts.length !== 4 || !parts.every(Number.isFinite)) return null;
+	const [cw, ch, cx, cy] = parts as [number, number, number, number];
+	if (cw <= 0 || ch <= 0) return null;
+	// Only worth it when the content occupies a small slice of the canvas.
+	if (cw * ch * minAreaGain >= fullW * fullH) return null;
+	const croppedPath = path.join(os.tmpdir(), `aerys-xvfb-content-${Date.now()}.png`);
+	const crop = await runCmd("convert", [
+		imgPath,
+		"-crop",
+		`${cw}x${ch}+${Math.max(0, cx)}+${Math.max(0, cy)}`,
+		"+repage",
+		"-bordercolor",
+		"white",
+		"-border",
+		String(pad),
+		croppedPath,
+	]);
+	if (crop.code !== 0 || !fs.existsSync(croppedPath) || fs.statSync(croppedPath).size <= 500) return null;
+	return { croppedPath, x: Math.max(0, cx), y: Math.max(0, cy), w: cw, h: ch, pad };
+}
+
 /** Read one xvfb root capture: downscale once, OCR the scaled image, build
  *  click targets. `emptyRoot` = nothing usable was seen (tiny capture, or no
- *  text and no targets) — callers surface that instead of a silent success. */
+ *  text and no targets) — callers surface that instead of a silent success.
+ *  When the scaled read comes back sparse (the small-island-on-blank-canvas
+ *  segmentation trap), the same capture is re-read through a fuzz-trimmed
+ *  content crop and the richer reading wins — word boxes are folded back into
+ *  full-frame coordinates through the crop offset, so the coordinate contract
+ *  never changes. */
 export async function headlessEyeRead(opts: {
 	rawPath: string;
 	physW: number;
@@ -593,7 +648,7 @@ export async function headlessEyeRead(opts: {
 	const conv = await runCmd("convert", [opts.rawPath, "-resize", `${maxW}x${maxH}>`, scaledPath]);
 	const tiny = conv.code !== 0 || !fs.existsSync(scaledPath) || fs.statSync(scaledPath).size <= 500;
 	const wantOcr = opts.ocr ?? true;
-	const ocr = tiny || !wantOcr ? null : await ocrFrame(scaledPath);
+	let ocr = tiny || !wantOcr ? null : await ocrFrame(scaledPath);
 	const dims = tiny ? null : await identifyDims(scaledPath);
 	const frame: InputFrame = {
 		kind: "fullscreen",
@@ -604,6 +659,40 @@ export async function headlessEyeRead(opts: {
 		scaledW: dims?.[0] ?? opts.physW,
 		scaledH: dims?.[1] ?? opts.physH,
 	};
+	// Segmentation rescue: a small text island on a big blank canvas makes
+	// tesseract's block layout (--psm 6) silently drop whole rows — a 520x200
+	// dialog on a 1600x900 desktop loses its buttons entirely, while the same
+	// pixels read fine once trimmed. Re-read through a fuzz-trimmed,
+	// white-padded content crop and MERGE what it saw with the primary pass:
+	// the crop offset folds every new box back into scaled-frame pixels, so
+	// the coordinate contract is unchanged, and merging means a box the
+	// primary pass already had can never regress.
+	if (wantOcr && !tiny && ocr && (ocr.text ?? "").replace(/\s+/g, "").length < 20) {
+		const crop = await xvfbContentCrop(scaledPath);
+		if (crop) {
+			const alt = await ocrFrame(crop.croppedPath);
+			const folded = (alt.words ?? []).map(w => ({
+				...w,
+				x: Math.max(0, w.x + crop.x - crop.pad),
+				y: Math.max(0, w.y + crop.y - crop.pad),
+			}));
+			// Merge: keep the primary boxes, add crop boxes that aren't already
+			// covered (same text, near-identical box).
+			const merged = [...(ocr.words ?? [])];
+			for (const w of folded) {
+				const dup = merged.some(
+					m => m.text === w.text && Math.abs(m.x - w.x) <= 6 && Math.abs(m.y - w.y) <= 6,
+				);
+				if (!dup) merged.push(w);
+			}
+			const primary = (ocr.text ?? "").replace(/\s+/g, "").length;
+			const rescued = (alt.text ?? "").replace(/\s+/g, "").length;
+			const text = rescued > primary ? alt.text : ocr.text;
+			if (merged.length !== (ocr.words ?? []).length || rescued > primary) {
+				ocr = { ...ocr, text, words: merged };
+			}
+		}
+	}
 	const words = (ocr?.words ?? []).map(w => ({ ...w, confidence: normalizeOcrConfidence(w.confidence) }));
 	// A blank frame must yield no targets: clickTargetsFromOcr keys off words,
 	// and an empty reading is surfaced via emptyRoot rather than faked.
