@@ -3097,7 +3097,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			}
 
 			const modelSeesImages = this.session?.supportsVision?.() ?? true;
-			const wantOcr = params.ocr ?? !modelSeesImages;
+			// textOnly means "words, not pixels" — it must imply OCR, otherwise a
+			// vision-default caller asking textOnly gets neither pixels nor text.
+			const wantOcr = params.ocr ?? (!modelSeesImages || textOnly);
 			const ocrMs0 = Date.now();
 
 			// ---- OCR every view concurrently; per-view text + click targets ----

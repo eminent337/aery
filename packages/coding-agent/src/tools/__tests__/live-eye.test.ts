@@ -40,33 +40,38 @@ describe("live_eye geometry + targeting (pure logic)", () => {
 describe("live_eye vision auto-detection (pure logic)", () => {
 	// Mirrors the decision logic in desktop-control live_eye:
 	//   modelSeesImages = session?.supportsVision?.() ?? true
-	//   wantOcr = params.ocr ?? !modelSeesImages
-	//   textOnly = !modelSeesImages || params.ocr === true
-	function decide(supportsVision: (() => boolean | undefined) | undefined, ocr?: boolean) {
+	//   wantOcr = params.ocr ?? (!modelSeesImages || textOnly)
+	// textOnly means "words, not pixels", so it implies OCR — otherwise a
+	// vision-default caller asking textOnly gets neither pixels nor text.
+	function decide(supportsVision: (() => boolean | undefined) | undefined, ocr: boolean | undefined, textOnly: boolean) {
 		const modelSeesImages = supportsVision?.() ?? true;
-		const wantOcr = ocr ?? !modelSeesImages;
-		const textOnly = !modelSeesImages || ocr === true;
-		return { modelSeesImages, wantOcr, textOnly };
+		const wantOcr = ocr ?? (!modelSeesImages || textOnly);
+		return { modelSeesImages, wantOcr };
 	}
 
-	test("visionless model auto-OCRs and goes text-only", () => {
-		expect(decide(() => false, undefined)).toEqual({ modelSeesImages: false, wantOcr: true, textOnly: true });
+	test("visionless model auto-OCRs", () => {
+		expect(decide(() => false, undefined, false)).toEqual({ modelSeesImages: false, wantOcr: true });
 	});
 
-	test("vision model keeps pixels, skips OCR by default", () => {
-		expect(decide(() => true, undefined)).toEqual({ modelSeesImages: true, wantOcr: false, textOnly: false });
+	test("vision model skips OCR by default", () => {
+		expect(decide(() => true, undefined, false)).toEqual({ modelSeesImages: true, wantOcr: false });
 	});
 
-	test("explicit ocr:true forces OCR + text-only even for vision", () => {
-		expect(decide(() => true, true)).toEqual({ modelSeesImages: true, wantOcr: true, textOnly: true });
+	test("textOnly implies OCR even when vision defaults true", () => {
+		expect(decide(() => true, undefined, true)).toEqual({ modelSeesImages: true, wantOcr: true });
+		expect(decide(undefined, undefined, true)).toEqual({ modelSeesImages: true, wantOcr: true });
+	});
+
+	test("explicit ocr:true forces OCR even for vision", () => {
+		expect(decide(() => true, true, false)).toEqual({ modelSeesImages: true, wantOcr: true });
 	});
 
 	test("explicit ocr:false skips OCR even for visionless", () => {
-		expect(decide(() => false, false)).toEqual({ modelSeesImages: false, wantOcr: false, textOnly: true });
+		expect(decide(() => false, false, false)).toEqual({ modelSeesImages: false, wantOcr: false });
 	});
 
 	test("unknown capability defaults to vision-keeping behavior", () => {
-		expect(decide(undefined, undefined)).toEqual({ modelSeesImages: true, wantOcr: false, textOnly: false });
+		expect(decide(undefined, undefined, false)).toEqual({ modelSeesImages: true, wantOcr: false });
 	});
 });
 

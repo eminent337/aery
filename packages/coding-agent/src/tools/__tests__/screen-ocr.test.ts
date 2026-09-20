@@ -49,3 +49,23 @@ describe("parseTsvWordBoxes", () => {
 		expect(parseTsvWordBoxes("level\tpage\tblock")).toEqual([]);
 	});
 });
+
+describe("ocrFrame never silently discards produced text", () => {
+	test("when tesseract succeeds, the returned text and words are non-empty", async () => {
+		const { ocrFrame } = await import("../screen-ocr");
+		const util = await import("node:util");
+		const exec = util.promisify((await import("node:child_process")).execFile);
+		// Synthesize a crisp frame: big black-on-white words, no desktop needed.
+		const img = "/tmp/ocr-smoke.png";
+		await exec("convert", ["-size", "800x300", "xc:white", "-font", "FreeSans", "-pointsize", "48", "-fill", "black", "-annotate", "+60+120", "Cookie Bank Store", img]);
+		const r = await ocrFrame(img);
+		expect(r.error).toBeUndefined();
+		expect(r.text.length).toBeGreaterThan(10);
+		expect(r.words?.length ?? 0).toBeGreaterThan(1);
+		// Canonical contract: every confidence is a 0..1 fraction.
+		for (const w of r.words ?? []) {
+			expect(w.confidence).toBeGreaterThanOrEqual(0);
+			expect(w.confidence).toBeLessThanOrEqual(1);
+		}
+	});
+});
