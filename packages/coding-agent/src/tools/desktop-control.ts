@@ -2932,7 +2932,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			}
 
 			case "xvfb_close": {
-				// close all windows on the virtual display, then optionally kill apps
+				// Close all windows, kill the server, then WAIT for it to be
+				// actually gone. Returning while Xvfb is still dying races the
+				// next xvfbEnsureServer probe: a half-dead display answers just
+				// long enough to look alive, and the restart never happens.
 				const wins = await xvfbListWindows();
 				const env = xvfbEnv();
 				for (const w of wins) {
@@ -2940,6 +2943,16 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				}
 				await runCmd("sh", ["-c", `pkill -f "DISPLAY=${XVFB_DISPLAY}" 2>/dev/null; true`]);
 				await runCmd("pkill", ["Xvfb"]).catch?.(() => {});
+				xvfbServerAlive = false;
+				xvfbFrame = null;
+				rememberXvfbTargets([]);
+				const goneDeadline = Date.now() + 5000;
+				for (;;) {
+					const probe = await runCmd("sh", ["-c", `DISPLAY=${XVFB_DISPLAY} xdotool getdisplaygeometry`]);
+					if (probe.code !== 0) break;
+					if (Date.now() >= goneDeadline) break;
+					await new Promise(r => setTimeout(r, 150));
+				}
 				return {
 					content: [
 						{
