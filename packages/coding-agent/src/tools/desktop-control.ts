@@ -368,6 +368,17 @@ function isSupportedDriver(): boolean {
 const XVFB_DISPLAY = ":99";
 const XVFB_GEOMETRY = "1600x900x24";
 
+/** Physical geometry of the virtual display, parsed from XVFB_GEOMETRY. */
+function xvfbGeometry(): [number, number] {
+	const [w, h] = XVFB_GEOMETRY.split("x");
+	return [Number(w) || 1600, Number(h) || 900];
+}
+
+/** True once a probe has proven the Xvfb server is up. Memoized so repeated
+ *  calls in one drive loop stop re-probing the display; cleared by
+ *  xvfb_close so a later launch re-starts and re-proves it. */
+let xvfbServerAlive = false;
+
 function xvfbEnv(): NodeJS.ProcessEnv {
 	return {
 		DISPLAY: XVFB_DISPLAY,
@@ -381,8 +392,12 @@ function xvfbEnv(): NodeJS.ProcessEnv {
 }
 
 async function xvfbEnsureServer(): Promise<void> {
+	if (xvfbServerAlive) return;
 	const probe = await runCmd("sh", ["-c", `DISPLAY=${XVFB_DISPLAY} xdotool getdisplaygeometry`]);
-	if (probe.code === 0) return;
+	if (probe.code === 0) {
+		xvfbServerAlive = true;
+		return;
+	}
 	const up = await runCmd("sh", [
 		"-c",
 		`nohup Xvfb ${XVFB_DISPLAY} -screen 0 ${XVFB_GEOMETRY} >/dev/null 2>&1 & sleep 1.5`,
@@ -390,6 +405,7 @@ async function xvfbEnsureServer(): Promise<void> {
 	if (up.code !== 0) throw new Error(`Failed to start Xvfb: ${up.stderr}`);
 	const check = await runCmd("sh", ["-c", `DISPLAY=${XVFB_DISPLAY} xdotool getdisplaygeometry`]);
 	if (check.code !== 0) throw new Error("Xvfb started but not responding");
+	xvfbServerAlive = true;
 }
 
 function xvfbCommandFixup(cmd: string): string {
@@ -411,6 +427,153 @@ async function xvfbListWindows(): Promise<string[]> {
 				.filter(Boolean)
 		: [];
 }
+
+/** Poll for a mapped window on the virtual display (bounded). Replaces the
+ *  old fixed 4s sleep: return the moment a window maps, or the timeout list
+ *  so the caller can still report what is actually present. */
+async function xvfbPollForWindows(timeoutMs = 8000, intervalMs = 200): Promise<string[]> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const windows = await xvfbListWindows();
+		if (windows.length > 0 || Date.now() >= deadline) return windows;
+		await new Promise(r => setTimeout(r, intervalMs));
+	}
+}
+
+/** Focused window id on the virtual display (for activate-before-input).
+ *  Best-effort: null when nothing is focused or xdotool errors. */
+async function xvfbFocusedWindowId(): Promise<string | null> {
+	const res = await runCmd("xdotool", ["getactivewindow"], { env: xvfbEnv() });
+	return res.code === 0 && res.stdout ? res.stdout.trim() : null;
+}
+
+/** ---------- Headless eye (xvfb) ----------
+ * The virtual display's eye: one capture → one downscale → OCR → clickTargets.
+ * Mirrors live_eye's contract (text + word targets in scaled-frame px) but
+ * lives entirely inside Xvfb — it never touches the real Wayland desktop.
+ * Frame is the fullscreen virtual display anchored at the origin; xvfb_click
+ * maps scaled-frame px back to raw display px through it. Kept separate from
+ * the live stack's lastInputFrame/lastClickTargets so the two worlds can
+ * never cross-contaminate each other's coordinates. */
+interface XvfbFrameState {
+	physW: number;
+	physH: number;
+	scaledW: number;
+	scaledH: number;
+}
+let xvfbFrame: XvfbFrameState | null = null;
+let xvfbClickTargets: ClickTarget[] = [];
+
+/** Read one xvfb root capture: downscale once, OCR the scaled image, build
+ *  click targets. `emptyRoot` = nothing usable was seen (tiny capture, or no
+ *  text and no targets) — callers surface that instead of a silent success. */
+export async function headlessEyeRead(opts: {
+	rawPath: string;
+	physW: number;
+	physH: number;
+	maxWidth?: number;
+	maxHeight?: number;
+	ocr?: boolean;
+}): Promise<{
+	text: string;
+	words: number;
+	targets: ClickTarget[];
+	frame: InputFrame;
+	emptyRoot: boolean;
+	ocrError?: string;
+	ocrMode?: "native" | "upscaled";
+	ocrMs: number;
+	scaledPath: string;
+}> {
+	const t0 = Date.now();
+	const scaledPath = path.join(os.tmpdir(), `aerys-xvfb-eye-${Date.now()}-scaled.png`);
+	const maxW = opts.maxWidth ?? 1280;
+	const maxH = opts.maxHeight ?? 800;
+	// ONE downscale pass: OCR and clickTargets both read the scaled image, so
+	// every coordinate the model sees (and clicks with) is scaled-frame px.
+	const conv = await runCmd("convert", [opts.rawPath, "-resize", `${maxW}x${maxH}>`, scaledPath]);
+	const tiny = conv.code !== 0 || !fs.existsSync(scaledPath) || fs.statSync(scaledPath).size <= 500;
+	const wantOcr = opts.ocr ?? true;
+	const ocr = tiny || !wantOcr ? null : await ocrFrame(scaledPath);
+	const dims = tiny ? null : await identifyDims(scaledPath);
+	const frame: InputFrame = {
+		kind: "fullscreen",
+		atX: 0,
+		atY: 0,
+		physW: opts.physW,
+		physH: opts.physH,
+		scaledW: dims?.[0] ?? opts.physW,
+		scaledH: dims?.[1] ?? opts.physH,
+	};
+	const words = (ocr?.words ?? []).map(w => ({ ...w, confidence: normalizeOcrConfidence(w.confidence) }));
+	// A blank frame must yield no targets: clickTargetsFromOcr keys off words,
+	// and an empty reading is surfaced via emptyRoot rather than faked.
+	const targets = wantOcr ? clickTargetsFromOcr(words, frame) : [];
+	const text = ocr?.text ?? "";
+	return {
+		text,
+		words: words.length,
+		targets,
+		frame,
+		emptyRoot: tiny || (text === "" && targets.length === 0),
+		...(ocr?.error ? { ocrError: ocr.error } : {}),
+		...(ocr?.mode ? { ocrMode: ocr.mode } : {}),
+		ocrMs: Date.now() - t0,
+		scaledPath,
+	};
+}
+
+/** Remember the xvfb eye's word targets for target-based xvfb_click.
+ *  Separate store from the live stack's lastClickTargets — headless and real
+ *  desktop coordinates must never mix. Exported for tests. */
+export function rememberXvfbTargets(targets: ClickTarget[]): void {
+	xvfbClickTargets = targets;
+}
+
+/** Resolve a word target against the LAST xvfb eye reading. Same precedence
+ *  as resolveClickTarget: exact match first, then shortest label (a button
+ *  beats a sentence), then topmost. Returns the scaled-frame center. */
+export function resolveXvfbTarget(text: string): { x: number; y: number; box: ClickTarget } | null {
+	const q = text.trim().toLowerCase();
+	if (!q || xvfbClickTargets.length === 0) return null;
+	const matches = xvfbClickTargets.filter(t => t.text.toLowerCase().includes(q));
+	if (matches.length === 0) return null;
+	const best = matches.sort((a, b) => {
+		const ea = a.text.toLowerCase() === q ? 0 : 1;
+		const eb = b.text.toLowerCase() === q ? 0 : 1;
+		if (ea !== eb) return ea - eb;
+		if (a.text.length !== b.text.length) return a.text.length - b.text.length;
+		return a.y - b.y || a.x - b.x;
+	})[0];
+	return { x: best.x + Math.round(best.w / 2), y: best.y + Math.round(best.h / 2), box: best };
+}
+
+/** Map scaled-frame px (what the model sees on the xvfb screenshot) to raw
+ *  display px (what xdotool injects). No frame ⇒ coords are already display
+ *  px (passthrough). Exported for tests. */
+export function xvfbFrameToDisplay(
+	x: number,
+	y: number,
+	frame: { physW: number; physH: number; scaledW: number; scaledH: number } | null,
+): [number, number] {
+	if (!frame) return [x, y];
+	return [Math.round((x * frame.physW) / frame.scaledW), Math.round((y * frame.physH) / frame.scaledH)];
+}
+
+/** xdotool argv for xvfb_type: activate (and wait for) the target window
+ *  first so keystrokes land in it, then type. Exported for tests. */
+export function buildXvfbTypeArgs(text: string, windowId?: string): string[] {
+	return windowId
+		? ["windowactivate", "--sync", windowId, "type", "--delay", "40", text]
+		: ["type", "--delay", "40", text];
+}
+
+/** xdotool argv for xvfb_key: same activate-first discipline. Exported for
+ *  tests. */
+export function buildXvfbKeyArgs(keys: string, windowId?: string): string[] {
+	return windowId ? ["windowactivate", "--sync", windowId, "key", keys] : ["key", keys];
+}
+
 
 /** Window listing via the platform driver (Hyprland native, X11, …). */
 async function getDriverWindows(): Promise<DesktopWindowInfo[]> {
@@ -2553,9 +2716,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						env: xvfbEnv(),
 						timeout: 12_000,
 					});
-					// give GUI apps a beat to map their window, then report what's on the display
-					await new Promise(r => setTimeout(r, 4000));
-					const windows = await xvfbListWindows();
+					// Poll for the window to map instead of sleeping a fixed 4s.
+					const t0 = Date.now();
+					const windows = await xvfbPollForWindows();
 					return {
 						content: [
 							{
@@ -2563,7 +2726,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								text: `Launched '${params.command}' invisibly on the virtual display.${windows.length ? ` Windows now present: ${windows.join(" | ")}` : " No window mapped yet (may still be loading) — check with xvfb_list_windows or xvfb_screenshot."}`,
 							},
 						],
-						details: { command: params.command, headless: true, windows },
+						details: { command: params.command, headless: true, windows, waitMs: Date.now() - t0 },
 					};
 				} catch (err) {
 					return {
@@ -2583,24 +2746,59 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					if (shot.code !== 0 || !fs.existsSync(outPath)) {
 						return { content: [{ type: "text", text: `xvfb_screenshot failed: ${shot.stderr}` }] };
 					}
-					const buf = fs.readFileSync(outPath);
+					const [physW, physH] = xvfbGeometry();
+					const wantOcr = params.ocr ?? true;
+					const eye = await headlessEyeRead({
+						rawPath: outPath,
+						physW,
+						physH,
+						maxWidth: params.maxWidth,
+						maxHeight: params.maxHeight,
+						ocr: wantOcr,
+					});
+					xvfbFrame = eye.frame;
+					if (wantOcr) rememberXvfbTargets(eye.targets);
+					const buf = fs.readFileSync(eye.scaledPath);
 					const size = buf.length;
+					const lines = [`Captured the headless virtual display (${XVFB_GEOMETRY}) → ${eye.scaledPath}.`];
+					if (wantOcr && eye.text) {
+						lines.push(
+							`On-screen text (${eye.text.length} chars, tesseract ${eye.ocrMode ?? "native"}):`,
+							eye.text.length > 8000 ? `${eye.text.slice(0, 8000)}\n…[truncated]` : eye.text,
+						);
+						const ct = formatClickTargets(eye.targets);
+						if (ct) lines.push(ct.replace("live_click", "xvfb_click"));
+					} else if (wantOcr && eye.ocrError) {
+						lines.push(`OCR failed: ${eye.ocrError}`);
+					} else if (wantOcr && eye.emptyRoot) {
+						lines.push("Note: capture looks empty (no windows on the virtual display?).");
+					} else if (!wantOcr) {
+						lines.push("OCR skipped (ocr:false).");
+					}
 					return {
 						content: [
-							{ type: "text", text: `Captured the headless virtual display (${XVFB_GEOMETRY}) → ${outPath}.` },
-							...(size > 500 && (params.includeBase64 ?? true)
+							{ type: "text", text: lines.join("\n") },
+							...(size > 500 && !(params.textOnly ?? false) && (params.includeBase64 ?? true)
 								? [{ type: "image" as const, data: buf.toString("base64"), mimeType: "image/png" }]
 								: []),
-							...(size <= 500
-								? [
-										{
-											type: "text" as const,
-											text: "Note: capture looks empty (no windows on the virtual display?).",
-										},
-									]
-								: []),
 						],
-						details: { file: outPath, bytes: size, headless: true },
+						details: {
+							file: eye.scaledPath,
+							rawFile: outPath,
+							bytes: size,
+							headless: true,
+							frame: eye.frame,
+							emptyRoot: eye.emptyRoot,
+							...(wantOcr
+								? {
+										ocrText: eye.text,
+										ocrMs: eye.ocrMs,
+										...(eye.ocrMode ? { ocrMode: eye.ocrMode } : {}),
+										...(eye.ocrError ? { ocrError: eye.ocrError } : {}),
+									}
+								: {}),
+							...(eye.targets.length > 0 ? { clickTargets: eye.targets } : {}),
+						},
 					};
 				} catch (err) {
 					return { content: [{ type: "text", text: `xvfb_screenshot failed: ${String(err)}` }] };
@@ -2624,28 +2822,72 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			}
 
 			case "xvfb_click": {
-				if (params.x === undefined || params.y === undefined) {
+				// Word-anchored click wins: a target resolves against the LAST
+				// xvfb eye reading (fail-closed on unknown words). Raw x/y is the
+				// fallback and is mapped from the scaled eye frame to raw display.
+				await xvfbEnsureServer();
+				let sx: number | undefined = params.x;
+				let sy: number | undefined = params.y;
+				let anchor = "";
+				if (params.target) {
+					const hit = resolveXvfbTarget(params.target);
+					if (!hit) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Error: '${params.target}' was not found in the last xvfb eye reading — take xvfb_screenshot first (no blind click).`,
+								},
+							],
+							details: { error: "unknown_target", target: params.target },
+						};
+					}
+					sx = hit.x;
+					sy = hit.y;
+					anchor = `"${hit.box.text}" `;
+				}
+				if (sx === undefined || sy === undefined) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: "Error: 'x' and 'y' pixel coordinates are required for xvfb_click (see the xvfb_screenshot image for where to click).",
+								text: "Error: pass 'target' (a word from the last xvfb_screenshot) or 'x' and 'y' pixel coordinates for xvfb_click.",
 							},
 						],
+						details: { error: "missing_coordinates" },
 					};
 				}
-				await xvfbEnsureServer();
-				const btn = params.target && /right|middle/.test(params.target) ? params.target : "left";
-				const res = await runCmd("xdotool", ["mousemove", String(params.x), String(params.y), "click", btn], {
+				const [dx, dy] = xvfbFrameToDisplay(sx, sy, xvfbFrame);
+				const [physW, physH] = xvfbGeometry();
+				if (dx < 0 || dy < 0 || dx >= physW || dy >= physH) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error: mapped click (${dx},${dy}) is outside the virtual display ${physW}x${physH} — refusing out-of-bounds injection.`,
+							},
+						],
+						details: { error: "out_of_bounds", mapped: [dx, dy] },
+					};
+				}
+				// XTEST buttons are numeric: named buttons fail with BadValue.
+				const btnName = params.button ?? "left";
+				const btn = btnName === "right" ? "3" : btnName === "middle" ? "2" : "1";
+				const res = await runCmd("xdotool", ["mousemove", String(dx), String(dy), "click", btn], {
 					env: xvfbEnv(),
 				});
-				return res.code === 0
-					? {
-							content: [
-								{ type: "text", text: `Clicked ${btn} at ${params.x},${params.y} on the headless display.` },
-							],
-						}
-					: { content: [{ type: "text", text: `xvfb_click failed: ${res.stderr}` }] };
+				if (res.code !== 0) {
+					return { content: [{ type: "text", text: `xvfb_click failed: ${res.stderr}` }] };
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Clicked ${btnName} ${anchor}at display ${dx},${dy} (frame ${sx},${sy}) on the headless display.`,
+						},
+					],
+					details: { button: btnName, frame: [sx, sy], display: [dx, dy], headless: true },
+				};
 			}
 
 			case "xvfb_type": {
@@ -2655,9 +2897,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 				await xvfbEnsureServer();
-				const res = await runCmd("xdotool", ["type", "--delay", "40", params.keys], { env: xvfbEnv() });
+				const win = await xvfbFocusedWindowId();
+				const res = await runCmd("xdotool", buildXvfbTypeArgs(params.keys, win ?? undefined), { env: xvfbEnv() });
 				return res.code === 0
-					? { content: [{ type: "text", text: `Typed text into the focused headless window.` }] }
+					? {
+							content: [
+								{ type: "text", text: `Typed text into the focused headless window${win ? ` (${win})` : ""}.` },
+							],
+						}
 					: { content: [{ type: "text", text: `xvfb_type failed: ${res.stderr}` }] };
 			}
 
@@ -2673,9 +2920,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 				await xvfbEnsureServer();
-				const res = await runCmd("xdotool", ["key", params.keys], { env: xvfbEnv() });
+				const win = await xvfbFocusedWindowId();
+				const res = await runCmd("xdotool", buildXvfbKeyArgs(params.keys, win ?? undefined), { env: xvfbEnv() });
 				return res.code === 0
-					? { content: [{ type: "text", text: `Sent keys '${params.keys}' to the headless display.` }] }
+					? {
+							content: [
+								{ type: "text", text: `Sent keys '${params.keys}' to the headless display${win ? ` (${win})` : ""}.` },
+							],
+						}
 					: { content: [{ type: "text", text: `xvfb_key failed: ${res.stderr}` }] };
 			}
 

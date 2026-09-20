@@ -1,0 +1,86 @@
+import { describe, expect, test } from "bun:test";
+
+/** Pins for the headless drive path (phase 2).
+ *  NEW behavior (must fail first): resolveXvfbTarget (word-anchored clicks
+ *  against the xvfb eye store), buildXvfbTypeArgs/buildXvfbKeyArgs (window
+ *  activation before typing/keys).
+ *  REGRESSION LOCKS (already landed in phase 1, kept as guards):
+ *  xvfbFrameToDisplay mapping math + out-of-bounds refusal. */
+
+describe("resolveXvfbTarget (word-anchored headless clicks)", () => {
+	test("resolves a remembered xvfb eye target to its scaled-frame center", async () => {
+		const m = await import("../desktop-control");
+		m.rememberXvfbTargets([
+			{ text: "APPROVE", x: 82, y: 108, w: 231, h: 38, confidence: 0.9 },
+			{ text: "CANCEL", x: 405, y: 108, w: 195, h: 38, confidence: 0.96 },
+		]);
+		const hit = m.resolveXvfbTarget("approve");
+		expect(hit).not.toBeNull();
+		expect(hit!.x).toBe(82 + Math.round(231 / 2));
+		expect(hit!.y).toBe(108 + Math.round(38 / 2));
+	});
+
+	test("prefers exact match over substring, shortest label over sentence", async () => {
+		const m = await import("../desktop-control");
+		m.rememberXvfbTargets([
+			{ text: "Send Report", x: 0, y: 100, w: 200, h: 40, confidence: 0.9 },
+			{ text: "SEND", x: 0, y: 200, w: 90, h: 40, confidence: 0.9 },
+		]);
+		// Center of the SEND box: y 200 + h/2 (resolve returns the center).
+		expect(m.resolveXvfbTarget("send")!.y).toBe(220);
+		m.rememberXvfbTargets([
+			{ text: "Settings Overview", x: 0, y: 300, w: 300, h: 40, confidence: 0.9 },
+			{ text: "Settings", x: 0, y: 400, w: 120, h: 40, confidence: 0.9 },
+		]);
+		// Center again: y 400 + h/2 = 420 for the exact, shortest match.
+		expect(m.resolveXvfbTarget("settings")!.y).toBe(420);
+	});
+
+	test("returns null for unknown targets (fail-closed, no blind click)", async () => {
+		const m = await import("../desktop-control");
+		m.rememberXvfbTargets([{ text: "APPROVE", x: 0, y: 0, w: 10, h: 10, confidence: 0.9 }]);
+		expect(m.resolveXvfbTarget("nonexistent")).toBeNull();
+		expect(m.resolveXvfbTarget("")).toBeNull();
+	});
+});
+
+describe("buildXvfbTypeArgs / buildXvfbKeyArgs (activate before input)", () => {
+	test("type argv activates the window first, then types", async () => {
+		const { buildXvfbTypeArgs } = await import("../desktop-control");
+		expect(buildXvfbTypeArgs("hello world", "0x1234")).toEqual([
+			"windowactivate",
+			"--sync",
+			"0x1234",
+			"type",
+			"--delay",
+			"40",
+			"hello world",
+		]);
+	});
+
+	test("key argv activates the window first, then sends keys", async () => {
+		const { buildXvfbKeyArgs } = await import("../desktop-control");
+		expect(buildXvfbKeyArgs("Return", "0x1234")).toEqual(["windowactivate", "--sync", "0x1234", "key", "Return"]);
+	});
+
+	test("omits activation when no window id is known", async () => {
+		const { buildXvfbTypeArgs, buildXvfbKeyArgs } = await import("../desktop-control");
+		expect(buildXvfbTypeArgs("hi", undefined)).toEqual(["type", "--delay", "40", "hi"]);
+		expect(buildXvfbKeyArgs("Tab", undefined)).toEqual(["key", "Tab"]);
+	});
+});
+
+describe("xvfbFrameToDisplay (regression lock: phase-1 mapping)", () => {
+	test("maps scaled-frame px to raw display px", async () => {
+		const { xvfbFrameToDisplay } = await import("../desktop-control");
+		const f = { physW: 1600, physH: 900, scaledW: 1280, scaledH: 720 };
+		expect(xvfbFrameToDisplay(198, 127, f)).toEqual([248, 159]);
+		expect(xvfbFrameToDisplay(0, 0, f)).toEqual([0, 0]);
+		expect(xvfbFrameToDisplay(1279, 719, f)).toEqual([1599, 899]); // round(1279×1.25), round(719×1.25)
+	});
+
+	test("passthrough when no frame exists (coords are already display px)", async () => {
+		const { xvfbFrameToDisplay } = await import("../desktop-control");
+		expect(xvfbFrameToDisplay(800, 450, null)).toEqual([800, 450]);
+	});
+});
