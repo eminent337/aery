@@ -64,11 +64,11 @@ describe("resolveXvfbTarget (word-anchored headless clicks)", () => {
 	});
 });
 
-describe("buildXvfbTypeArgs / buildXvfbKeyArgs (activate before input)", () => {
-	test("type argv activates the window first, then types", async () => {
+describe("buildXvfbTypeArgs / buildXvfbKeyArgs (focus before input)", () => {
+	test("type argv focuses the window first (windowfocus works without a WM), then types", async () => {
 		const { buildXvfbTypeArgs } = await import("../desktop-control");
 		expect(buildXvfbTypeArgs("hello world", "0x1234")).toEqual([
-			"windowactivate",
+			"windowfocus",
 			"--sync",
 			"0x1234",
 			"type",
@@ -78,12 +78,12 @@ describe("buildXvfbTypeArgs / buildXvfbKeyArgs (activate before input)", () => {
 		]);
 	});
 
-	test("key argv activates the window first, then sends keys", async () => {
+	test("key argv focuses the window first, then sends keys", async () => {
 		const { buildXvfbKeyArgs } = await import("../desktop-control");
-		expect(buildXvfbKeyArgs("Return", "0x1234")).toEqual(["windowactivate", "--sync", "0x1234", "key", "Return"]);
+		expect(buildXvfbKeyArgs("Return", "0x1234")).toEqual(["windowfocus", "--sync", "0x1234", "key", "Return"]);
 	});
 
-	test("omits activation when no window id is known", async () => {
+	test("omits focusing when no window id is known", async () => {
 		const { buildXvfbTypeArgs, buildXvfbKeyArgs } = await import("../desktop-control");
 		expect(buildXvfbTypeArgs("hi", undefined)).toEqual(["type", "--delay", "40", "hi"]);
 		expect(buildXvfbKeyArgs("Tab", undefined)).toEqual(["key", "Tab"]);

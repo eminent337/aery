@@ -546,6 +546,34 @@ async function xvfbFocusedWindowId(): Promise<string | null> {
 	return res.code === 0 && res.stdout ? res.stdout.trim() : null;
 }
 
+/** Where keyboard input should land on the virtual display. With a window
+ *  manager the active window is authoritative. Bare Xvfb has no WM at all:
+ *  nothing ever holds input focus (X focus stays on the root window), so
+ *  activate-before-type silently drops every keystroke into focusless
+ *  space — yad echoed nothing typed, xarchiver's Ctrl+N did nothing. There
+ *  we set input focus explicitly: prefer the window under the pointer
+ *  (click-to-focus semantics), else the first visible named window, via
+ *  windowfocus (XSetInputFocus — needs no WM). Exported for tests. */
+export async function xvfbKeyboardTarget(): Promise<{ id: string; viaActiveWindow: boolean } | null> {
+	const active = await xvfbFocusedWindowId();
+	if (active) return { id: active, viaActiveWindow: true };
+	const mouse = await runCmd("xdotool", ["getmouselocation", "--shell"], { env: xvfbEnv() });
+	if (mouse.code === 0) {
+		const underPointer = mouse.stdout.split("\n").find(l => l.startsWith("WINDOW="))?.slice(7).trim();
+		// The bare root window has no name; a nameless window is not app input.
+		if (underPointer && underPointer !== "0") {
+			const name = await runCmd("xdotool", ["getwindowname", underPointer], { env: xvfbEnv() });
+			if (name.code === 0 && name.stdout.trim()) return { id: underPointer, viaActiveWindow: false };
+		}
+	}
+	const list = await runCmd("xdotool", ["search", "--onlyvisible", "--name", "."], { env: xvfbEnv() });
+	if (list.code !== 0 || !list.stdout.trim()) return null;
+	for (const id of list.stdout.trim().split("\n")) {
+		const named = await runCmd("xdotool", ["getwindowname", id.trim()], { env: xvfbEnv() });
+		if (named.code === 0 && named.stdout.trim()) return { id: id.trim(), viaActiveWindow: false };
+	}
+	return null;
+}
 /** ---------- Headless eye (xvfb) ----------
  * The virtual display's eye: one capture → one downscale → OCR → clickTargets.
  * Mirrors live_eye's contract (text + word targets in scaled-frame px) but
@@ -562,7 +590,6 @@ interface XvfbFrameState {
 }
 let xvfbFrame: XvfbFrameState | null = null;
 let xvfbClickTargets: ClickTarget[] = [];
-/** Bumped by every xvfb_screenshot and xvfb_close; word targets carry the
 /** Bumped by every xvfb_screenshot and xvfb_close; word targets carry the
  *  generation of the reading that produced them, so boxes from an older
  *  reading can never be mapped through a newer frame. `-1` = no valid
@@ -628,6 +655,31 @@ export async function xvfbContentCrop(
  *  content crop and the richer reading wins — word boxes are folded back into
  *  full-frame coordinates through the crop offset, so the coordinate contract
  *  never changes. */
+/** Coverage gate for the segmentation rescue. The trap is words clustered
+ *  in a small region of a big canvas (psm 6 then drops whole rows), which
+ *  the primary pass's own word boxes already tell us: their union bbox is
+ *  free to compute. True when that union covers less than a quarter of the
+ *  frame, or when nothing was read at all. Exported for tests. */
+export function xvfbRescueWanted(
+	words: Array<{ x: number; y: number; w: number; h: number }>,
+	canvasW: number,
+	canvasH: number,
+): boolean {
+	if (words.length === 0) return true;
+	let x0 = Infinity;
+	let y0 = Infinity;
+	let x1 = -Infinity;
+	let y1 = -Infinity;
+	for (const w of words) {
+		x0 = Math.min(x0, w.x);
+		y0 = Math.min(y0, w.y);
+		x1 = Math.max(x1, w.x + w.w);
+		y1 = Math.max(y1, w.y + w.h);
+	}
+	const area = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+	return area / (canvasW * canvasH) < 0.25;
+}
+
 export async function headlessEyeRead(opts: {
 	rawPath: string;
 	physW: number;
@@ -666,7 +718,7 @@ export async function headlessEyeRead(opts: {
 		scaledW: dims?.[0] ?? opts.physW,
 		scaledH: dims?.[1] ?? opts.physH,
 	};
-	// Segmentation rescue: a small text island on a big blank canvas makes
+	// Segmentation rescue: a small text region on a big canvas makes
 	// tesseract's block layout (--psm 6) silently drop whole rows — a 520x200
 	// dialog on a 1600x900 desktop loses its buttons entirely, while the same
 	// pixels read fine once trimmed. Re-read through a fuzz-trimmed,
@@ -674,7 +726,14 @@ export async function headlessEyeRead(opts: {
 	// the crop offset folds every new box back into scaled-frame pixels, so
 	// the coordinate contract is unchanged, and merging means a box the
 	// primary pass already had can never regress.
-	if (wantOcr && !tiny && ocr && (ocr.text ?? "").replace(/\s+/g, "").length < 20) {
+	// The trigger is coverage, not character count: after typing into the
+	// dialog a read can carry well over 20 chars and STILL lose its button
+	// row (yad did exactly that). The trap is words clustered in a small
+	// region of the canvas, which the primary pass's own word boxes already
+	// tell us — xvfbRescueWanted computes their union bbox for free, so
+	// dense captures skip the probe entirely and the fuzz-trim's own
+	// conservative gate stays as the second guard.
+	if (wantOcr && !tiny && ocr && xvfbRescueWanted(ocr.words ?? [], frame.scaledW, frame.scaledH)) {
 		const crop = await xvfbContentCrop(scaledPath);
 		if (crop) {
 			const alt = await ocrFrame(crop.croppedPath);
@@ -788,18 +847,20 @@ export function xvfbFrameToDisplay(
 	return [Math.round((x * frame.physW) / frame.scaledW), Math.round((y * frame.physH) / frame.scaledH)];
 }
 
-/** xdotool argv for xvfb_type: activate (and wait for) the target window
- *  first so keystrokes land in it, then type. Exported for tests. */
+/** xdotool argv for xvfb_type: focus (and wait for) the target window
+ *  first so keystrokes land in it, then type. windowfocus works without a
+ *  window manager; --sync gates on the X focus actually moving. Exported
+ *  for tests. */
 export function buildXvfbTypeArgs(text: string, windowId?: string): string[] {
 	return windowId
-		? ["windowactivate", "--sync", windowId, "type", "--delay", "40", text]
+		? ["windowfocus", "--sync", windowId, "type", "--delay", "40", text]
 		: ["type", "--delay", "40", text];
 }
 
-/** xdotool argv for xvfb_key: same activate-first discipline. Exported for
+/** xdotool argv for xvfb_key: same focus-first discipline. Exported for
  *  tests. */
 export function buildXvfbKeyArgs(keys: string, windowId?: string): string[] {
-	return windowId ? ["windowactivate", "--sync", windowId, "key", keys] : ["key", keys];
+	return windowId ? ["windowfocus", "--sync", windowId, "key", keys] : ["key", keys];
 }
 
 
@@ -3188,13 +3249,28 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 				await xvfbEnsureServer();
-				const win = await xvfbFocusedWindowId();
-				const res = await runCmd("xdotool", buildXvfbTypeArgs(params.keys, win ?? undefined), { env: xvfbEnv() });
+				const kb = await xvfbKeyboardTarget();
+				if (!kb) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Error: no window to type into — the virtual display has no focusable app window. Launch one with xvfb_launch (or take xvfb_screenshot to see what is on screen).",
+							},
+						],
+						details: { error: "no_keyboard_target" },
+					};
+				}
+				const res = await runCmd("xdotool", buildXvfbTypeArgs(params.keys, kb.id), { env: xvfbEnv() });
 				return res.code === 0
 					? {
 							content: [
-								{ type: "text", text: `Typed text into the focused headless window${win ? ` (${win})` : ""}.` },
+								{
+									type: "text",
+									text: `Typed text into the headless window ${kb.id}${kb.viaActiveWindow ? " (active window)" : " (focused for input; no window manager on this display)"}.`,
+								},
 							],
+							details: { window: kb.id, viaActiveWindow: kb.viaActiveWindow, headless: true },
 						}
 					: { content: [{ type: "text", text: `xvfb_type failed: ${res.stderr}` }] };
 			}
@@ -3211,13 +3287,28 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 				await xvfbEnsureServer();
-				const win = await xvfbFocusedWindowId();
-				const res = await runCmd("xdotool", buildXvfbKeyArgs(params.keys, win ?? undefined), { env: xvfbEnv() });
+				const kb = await xvfbKeyboardTarget();
+				if (!kb) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Error: no window to send keys to — the virtual display has no focusable app window. Launch one with xvfb_launch (or take xvfb_screenshot to see what is on screen).",
+							},
+						],
+						details: { error: "no_keyboard_target" },
+					};
+				}
+				const res = await runCmd("xdotool", buildXvfbKeyArgs(params.keys, kb.id), { env: xvfbEnv() });
 				return res.code === 0
 					? {
 							content: [
-								{ type: "text", text: `Sent keys '${params.keys}' to the headless display${win ? ` (${win})` : ""}.` },
+								{
+									type: "text",
+									text: `Sent keys '${params.keys}' to the headless window ${kb.id}${kb.viaActiveWindow ? " (active window)" : " (focused for input; no window manager on this display)"}.`,
+								},
 							],
+							details: { window: kb.id, viaActiveWindow: kb.viaActiveWindow, keys: params.keys, headless: true },
 						}
 					: { content: [{ type: "text", text: `xvfb_key failed: ${res.stderr}` }] };
 			}
@@ -3236,7 +3327,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				await runCmd("pkill", ["Xvfb"]).catch?.(() => {});
 				xvfbServerAlive = false;
 				xvfbFrame = null;
-				xvfbGeneration = ++xvfbGeneration;
+				++xvfbGeneration;
 				rememberXvfbTargets([]);
 				const goneDeadline = Date.now() + 5000;
 				for (;;) {

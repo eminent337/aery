@@ -200,3 +200,34 @@ describe("xvfbCompositeWindows (ARGB fallback)", () => {
 		expect(dy).toBe(450);
 	});
 });
+
+describe("xvfbRescueWanted (coverage gate)", () => {
+	test("clustered words on a big canvas want the rescue (the yad trap)", async () => {
+		const { xvfbRescueWanted } = await import("../desktop-control");
+		// The yad form after typing: rows at y≈250..300 on a 1280x720 canvas —
+		// ~28 chars read fine yet the button row vanished. Coverage, not
+		// character count, is the trap.
+		const words = [
+			{ x: 180, y: 240, w: 300, h: 20 },
+			{ x: 520, y: 240, w: 260, h: 20 },
+			{ x: 180, y: 280, w: 200, h: 18 },
+		];
+		expect(xvfbRescueWanted(words, 1280, 720)).toBe(true);
+	});
+
+	test("words spread across the canvas are dense (no rescue)", async () => {
+		const { xvfbRescueWanted } = await import("../desktop-control");
+		const words = [
+			{ x: 100, y: 100, w: 200, h: 24 },
+			{ x: 1000, y: 120, w: 180, h: 24 },
+			{ x: 120, y: 560, w: 240, h: 24 },
+			{ x: 980, y: 600, w: 200, h: 24 },
+		];
+		expect(xvfbRescueWanted(words, 1280, 720)).toBe(false);
+	});
+
+	test("an empty read always wants the rescue", async () => {
+		const { xvfbRescueWanted } = await import("../desktop-control");
+		expect(xvfbRescueWanted([], 1280, 720)).toBe(true);
+	});
+});
