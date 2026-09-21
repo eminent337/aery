@@ -35,6 +35,7 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import type { AgentTool, AgentToolResult, ToolApprovalDecision } from "@aryee337/aery-core";
 import * as z from "zod/v4";
+import desktopControlDescription from "../prompts/tools/desktop-control.md" with { type: "text" };
 import type { ToolSession } from "./index";
 import {
 	frameToPhysical,
@@ -2778,8 +2779,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 	readonly name = "desktop_control";
 	readonly approval = liveApprovalDecision;
 	readonly label = "Desktop Control";
-	readonly description =
-		"Desktop screen vision and window manager tool. Takes full-screen or window-targeted screenshots with DPI scaling, lists open windows, focuses or closes applications, and manages workspaces.";
+	readonly description = desktopControlDescription;
 	readonly parameters = desktopControlSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";

@@ -1,0 +1,56 @@
+Desktop screen vision and window manager tool. Takes full-screen or window-targeted screenshots with DPI scaling, lists open windows, focuses or closes applications, and manages workspaces.
+
+<instruction>
+- Actions: 'screenshot', 'live_eye', 'highlight', 'list_windows', 'focus_window',
+  'close_window', 'switch_workspace', 'launch_app', 'cursor_pos', 'system_control'
+  (subAction: volume/media/brightness/lock/web_search), plus opt-in live app control
+  ('live_mode_on' then 'live_click'/'live_type'/'live_key'/'live_drag'/'live_scroll').
+- Headless GUI testing — 'xvfb_*' runs an app on a private virtual display, no real
+  desktop touched, fully local: 'xvfb_launch' spawns it (command + optional url),
+  'xvfb_screenshot' captures and OCRs it, 'xvfb_click'/'xvfb_type'/'xvfb_key'/
+  'xvfb_scroll' drive it, 'xvfb_list_windows' lists survivors, 'xvfb_close' tears
+  the display and its apps down.
+- Screenshot first, always: word click targets come from the LAST xvfb_screenshot
+  (or live_eye) reading. After xvfb_launch, a new window, or any state change, take
+  a fresh screenshot before clicking. 'ocr:false' or an empty capture clears all
+  targets — a click then refuses and tells you to screenshot again.
+- Click what the eye actually offers: pass a word target when one matches
+  ('xvfb_click' resolves it to display px for you); fall back to raw frame x/y only
+  for regions OCR missed. Never guess coordinates without a current frame.
+- OCR is honest, not perfect: short labels can mangle ("Save" → "swe"). If the word
+  you want is missing or garbled, click the nearest offered label, or drive the
+  keyboard instead ('xvfb_key Return', app shortcuts) — then VERIFY the effect
+  (re-screenshot, or check the app's own output) before declaring success.
+- Typing works without a window manager: xvfb_type/xvfb_key set input focus on the
+  target window first (active window, else window under the pointer, else first
+  named window) and report which window received the keys. 'no_keyboard_target'
+  means nothing was focusable — screenshot, launch the app, and retry.
+- 'verify: true' (default) attaches a follow-up capture after live_* input so you
+  can self-correct; keep it on for multi-step flows.
+- 'textOnly'/'ocr:false' skip the image read when you only need words; 'maxWidth'/
+  'maxHeight' cap the scaled frame (coordinates still map through it correctly).
+</instruction>
+
+<examples>
+# Launch, read, click a button by its word
+`xvfb_launch {"command":"yad --title Contact --form --field Name --field Email"}`
+`xvfb_screenshot {}` → words include "Name", "Email", "Cancel"
+`xvfb_click {"word":"Name"}` then `xvfb_type {"text":"Ada Lovelace"}`
+
+# Keyboard-driven flow with recovery
+`xvfb_key {"keys":"alt+F4"}` / `xvfb_key {"keys":"Return"}` when a button's OCR box drifted
+
+# Clean up when done — kills the apps too
+`xvfb_close {}` → "Xvfb gone, no lock file, no socket"
+</examples>
+
+<critical>
+- One xvfb display at a time: don't run overlapping xvfb sessions or concurrent
+  OCR-heavy work — capture/OCR pipelines collide.
+- Word targets are frame-bound: they die when the display changes or the reading
+  is superseded; a refused click is the signal to re-screenshot, never to retry blind.
+- Always xvfb_close when finished — it removes the lock file, socket, and spawned
+  apps; leaving them running blocks the next session.
+- Screenshots return the frame geometry in details — trust the returned mapping,
+  don't rescale by hand.
+</critical>
