@@ -19,6 +19,49 @@ async function synth(): Promise<void> {
 	);
 	await run(`convert -size 1600x900 xc:white ${BLANK}`);
 }
+const DARK = "/tmp/aerys-xvfb-eye-dark.png";
+
+async function synthDark(): Promise<void> {
+	// A dark-theme capture: small bright glyphs on black, mostly empty
+	// canvas (the alacritty-shaped trap — the rescue's white pad used to
+	// erase the text flush against it and the read came back empty).
+	await run(
+		`convert -size 1600x900 xc:black -font FreeSans -pointsize 48 -fill white -annotate +40+50 "TERMINAL READY" ${DARK}`,
+	);
+}
+
+describe("headlessEyeRead dark-capture rescue (background-matched pad)", () => {
+	test("a dark-theme island reads instead of coming back empty", async () => {
+		await synthDark();
+		const { headlessEyeRead } = await import("../desktop-control");
+		const r = await headlessEyeRead({ rawPath: DARK, physW: 1600, physH: 900 });
+		expect(r.text).toContain("TERMINAL READY");
+		expect(r.emptyRoot).toBe(false);
+	}, 15000);
+
+	test("dominantColor picks the histogram winner as an srgb spec", async () => {
+		const { dominantColor } = await import("../desktop-control");
+		expect(
+			dominantColor("      996: ( 12, 24, 40) #0C1828 srgb(12,24,40)\n       40: (255,255,255) #FFFFFF white\n"),
+		).toBe("srgb(12,24,40)");
+		expect(dominantColor("garbage")).toBeNull();
+	});
+
+	test("the pad color matches the capture background on dark and light", async () => {
+		await synthDark();
+		await synth();
+		const { xvfbContentCrop } = await import("../desktop-control");
+		for (const f of [DARK, IMG]) {
+			const c = await xvfbContentCrop(f);
+			expect(c).not.toBeNull();
+			const dark = f === DARK;
+			const out = await run(`convert ${c!.croppedPath} -format "%[pixel:p{0,0}]" info:`);
+			expect(out.stdout.includes("gray(255)") || out.stdout.includes("(255,255,255)")).toBe(!dark);
+			expect(out.stdout.includes("gray(0)") || out.stdout.includes("(0,0,0)")).toBe(dark);
+		}
+	});
+
+});
 
 describe("headlessEyeRead (xvfb eye)", () => {
 	test("reads text and words from a synthetic root capture", async () => {

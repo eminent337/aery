@@ -598,14 +598,33 @@ let xvfbClickTargets: ClickTarget[] = [];
 let xvfbGeneration = 0;
 let xvfbTargetsGeneration = -1;
 
-/** Content-bounds view of a capture (fuzz-trimmed to the painted region, then
- *  padded with a white border). Tesseract's page segmentation (--psm 6)
- *  reliably MISSES a small text island sitting on a huge blank canvas — a
- *  520x200 dialog on a 1600x900 desktop loses its button row entirely, while
- *  the identical pixels read fine once trimmed. Trimming recovers that text
- *  and returns where the crop came from, so word boxes can still be folded
- *  back into full-frame coordinates. The padding is essential: tesseract also
- *  drops text flush against the image edge.
+/** Most frequent color in ImageMagick `histogram:info:-` output — the
+ *  background of a trimmed text region (glyph pixels never outnumber
+ *  background pixels). Parses the decimal histogram tuple `(r,g,b)` and
+ *  re-emits it as a `srgb(r,g,b)` color spec; `null` = nothing parseable
+ *  (caller falls back to white). Exported for tests. */
+export function dominantColor(histOutput: string): string | null {
+	let best: { count: number; color: string } | null = null;
+	for (const line of histOutput.split("\n")) {
+		const m = line.match(/^\s*(\d+):\s*\(\s*(\d+),\s*(\d+),\s*(\d+)\s*\)/);
+		if (!m) continue;
+		const count = Number(m[1]);
+		const color = `srgb(${Number(m[2])},${Number(m[3])},${Number(m[4])})`;
+		if (!best || count > best.count) best = { count, color };
+	}
+	return best ? best.color : null;
+}
+/** Content-bounds view of a capture (fuzz-trimmed to the painted region,
+ *  then padded with the capture's own background color). Tesseract's page
+ *  segmentation (--psm 6) reliably MISSES a small text island sitting on a
+ *  huge blank canvas — a 520x200 dialog on a 1600x900 desktop loses its
+ *  button row entirely, while the identical pixels read fine once trimmed.
+ *  Trimming recovers that text and returns where the crop came from, so
+ *  word boxes can still be folded back into full-frame coordinates.
+ *  The padding is essential: tesseract also drops text flush against the
+ *  image edge — and it must match the capture's background, because a
+ *  white border around a dark-theme crop (bright glyphs on black) erases
+ *  the text flush against it and the rescue reads nothing at all.
  *  Returns null when the trim would not shrink the canvas (dense captures
  *  like a full-window app are already well-framed, and trimming them would
  *  only add cost). */
@@ -629,22 +648,49 @@ export async function xvfbContentCrop(
 		.map(Number);
 	if (parts.length !== 4 || !parts.every(Number.isFinite)) return null;
 	const [cw, ch, cx, cy] = parts as [number, number, number, number];
-	if (cw <= 0 || ch <= 0) return null;
+	// Degenerate trims say "nothing to rescue": a blank canvas trims to
+	// nothing and a solid canvas trims to a lone stray pixel. A 1x1 crop
+	// has no text to read (and used to fall through to the byte-size gate,
+	// which only rejected it by accident of its ~300-byte PNG).
+	if (cw < 4 || ch < 4) return null;
 	// Only worth it when the content occupies a small slice of the canvas.
 	if (cw * ch * minAreaGain >= fullW * fullH) return null;
 	const croppedPath = path.join(os.tmpdir(), `aerys-xvfb-content-${Date.now()}.png`);
+	// Pad with the capture's own background, not white: the crop bounds the
+	// painted region, and for a dark-theme app (bright glyphs on black) a
+	// white border erases the glyphs flush against it — tesseract then reads
+	// nothing at all, defeating the rescue. The crop's DOMINANT color is that
+	// background (glyph pixels never outnumber background pixels), which
+	// keeps the glyph/background contract the crop had; fall back to white
+	// for unparseable output (the pre-dark-theme behavior).
+	const hist = await runCmd("convert", [
+		imgPath,
+		"-crop",
+		`${cw}x${ch}+${Math.max(0, cx)}+${Math.max(0, cy)}`,
+		"+repage",
+		"-format",
+		"%c",
+		"histogram:info:-",
+	]);
+	const bgColor = dominantColor(hist.stdout) ?? "white";
 	const crop = await runCmd("convert", [
 		imgPath,
 		"-crop",
 		`${cw}x${ch}+${Math.max(0, cx)}+${Math.max(0, cy)}`,
 		"+repage",
 		"-bordercolor",
-		"white",
+		bgColor,
 		"-border",
 		String(pad),
 		croppedPath,
 	]);
-	if (crop.code !== 0 || !fs.existsSync(croppedPath) || fs.statSync(croppedPath).size <= 500) return null;
+	// Validity is dimensional, not byte-size: a solid-color crop (e.g. a
+	// black rectangle trimmed from a light capture, padded to match) PNGs to
+	// ~300 bytes, which the old `size <= 500` gate misread as failure.
+	const cropDims = await identifyDims(croppedPath);
+	if (crop.code !== 0 || !fs.existsSync(croppedPath) || !cropDims) return null;
+	const [gotW, gotH] = cropDims;
+	if (Math.abs(gotW - (cw + 2 * pad)) > 2 || Math.abs(gotH - (ch + 2 * pad)) > 2) return null;
 	return { croppedPath, x: Math.max(0, cx), y: Math.max(0, cy), w: cw, h: ch, pad };
 }
 
