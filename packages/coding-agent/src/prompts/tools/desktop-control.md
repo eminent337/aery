@@ -7,16 +7,22 @@ Desktop screen vision and window manager tool. Takes full-screen or window-targe
   ('live_mode_on' then 'live_click'/'live_type'/'live_key'/'live_drag'/'live_scroll').
 - Headless GUI testing — 'xvfb_*' runs an app on a private virtual display, no real
   desktop touched, fully local: 'xvfb_launch' spawns it (command + optional url),
-  'xvfb_screenshot' captures and OCRs it, 'xvfb_click'/'xvfb_type'/'xvfb_key'/
-  'xvfb_scroll' drive it, 'xvfb_list_windows' lists survivors, 'xvfb_close' tears
-  the display and its apps down.
+  'xvfb_screenshot' captures and OCRs it, 'xvfb_click'/'xvfb_drag'/'xvfb_type'/
+  'xvfb_key' drive it, 'xvfb_list_windows' lists survivors, 'xvfb_close' tears
+  the display and its apps down. 'xvfb_drag' sweeps press-to-release for text
+  selection ('target' + 'target2' for word-to-word, or x/y + x2/y2 raw).
 - Screenshot first, always: word click targets come from the LAST xvfb_screenshot
   (or live_eye) reading. After xvfb_launch, a new window, or any state change, take
   a fresh screenshot before clicking. 'ocr:false' or an empty capture clears all
   targets — a click then refuses and tells you to screenshot again.
-- Click what the eye actually offers: pass a word target when one matches
-  ('xvfb_click' resolves it to display px for you); fall back to raw frame x/y only
-  for regions OCR missed. Never guess coordinates without a current frame.
+- Click or drag what the eye actually offers: pass a word target when one matches
+  ('xvfb_click' resolves it to display px for you; 'xvfb_drag' takes 'target' for
+  the press word and 'target2' for the release word). Fall back to raw frame x/y
+  (and x2/y2 for a drag) only for regions OCR missed. Never guess coordinates
+  without a current frame.
+- Dragging selects: 'xvfb_drag' presses at the start anchor, travels the held sweep
+  (eased, never a yank), dwells, then releases — that is what makes a text field
+  select instead of hover. Verify the selection from the app's own state.
 - OCR is honest, not perfect: short labels can mangle ("Save" → "swe"). If the word
   you want is missing or garbled, click the nearest offered label, or drive the
   keyboard instead ('xvfb_key Return', app shortcuts) — then VERIFY the effect

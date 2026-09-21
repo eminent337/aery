@@ -168,3 +168,65 @@ describe("xvfbTargetsAreCurrent (frame/target generation binding)", () => {
 		expect(m.resolveXvfbTarget("B2")).toBeNull();
 	});
 });
+
+describe("xvfbDragScript (held-drag batch choreography)", () => {
+	test("keeps the button down for the whole sweep — approach, press, travel, dwell, release", async () => {
+		const m = await import("../desktop-control");
+		const script = m.xvfbDragScript(
+			[{ x: 100, y: 100, waitMs: 10 }],
+			[
+				{ x: 300, y: 200, waitMs: 15 },
+				{ x: 400, y: 220, waitMs: 18 },
+			],
+			{ button: "1", settleMs: 120, pressHoldMs: 80, endHoldMs: 120, afterMs: 80 },
+		);
+		const lines = script.trim().split("\n");
+		// Approach, settle, press + hold.
+		expect(lines[0]).toBe("mousemove --sync 100 100");
+		expect(lines).toContain("sleep 0.120");
+		expect(lines).toContain("mousedown 1");
+		expect(lines).toContain("sleep 0.080");
+		// The sweep travels with the button still down: no mouseup before
+		// the last travel step, and exactly one release after the dwell.
+		const downIdx = lines.indexOf("mousedown 1");
+		const upIdx = lines.indexOf("mouseup 1");
+		expect(upIdx).toBeGreaterThan(downIdx);
+		expect(lines.filter(l => l === "mouseup 1")).toHaveLength(1);
+		expect(lines.filter(l => l === "mousedown 1")).toHaveLength(1);
+		const sweepIdx = lines.findIndex(l => l === "mousemove --sync 400 220");
+		expect(sweepIdx).toBeGreaterThan(downIdx);
+		expect(sweepIdx).toBeLessThan(upIdx);
+		expect(lines[upIdx - 1]).toBe("sleep 0.120");
+		expect(lines[upIdx + 1]).toBe("sleep 0.080");
+	});
+
+	test("an empty approach still presses at the sweep start", async () => {
+		const m = await import("../desktop-control");
+		const script = m.xvfbDragScript([], [{ x: 400, y: 220, waitMs: 18 }], {
+			button: "1",
+			settleMs: 120,
+			pressHoldMs: 80,
+			endHoldMs: 120,
+			afterMs: 80,
+		});
+		const lines = script.trim().split("\n");
+		expect(lines).toContain("mousedown 1");
+		expect(lines.indexOf("mousedown 1")).toBeLessThan(lines.indexOf("mousemove --sync 400 220"));
+	});
+
+	test("holds and releases the SAME button it was told to drag", async () => {
+		const m = await import("../desktop-control");
+		const script = m.xvfbDragScript([{ x: 100, y: 100, waitMs: 10 }], [{ x: 400, y: 220, waitMs: 18 }], {
+			button: "3",
+			settleMs: 120,
+			pressHoldMs: 80,
+			endHoldMs: 120,
+			afterMs: 80,
+		});
+		const lines = script.trim().split("\n");
+		expect(lines).toContain("mousedown 3");
+		expect(lines).toContain("mouseup 3");
+		expect(lines.filter(l => /^mouse(up|down) /.test(l))).toHaveLength(2);
+	});
+});
+

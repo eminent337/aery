@@ -67,6 +67,15 @@ import {
 	ydoPageScroll,
 	ydoMoveRelative,
 } from "./live-input";
+import {
+	CLICK_CHOREOGRAPHY,
+	clickPath,
+	DEFAULT_MOTION_CONFIG,
+	DRAG_CHOREOGRAPHY,
+	dragPath,
+	type MotionStep,
+	windMousePath,
+} from "./mouse-motion";
 
 const execFileAsync = promisify(execFile);
 export interface DesktopWindowInfo {
@@ -121,6 +130,7 @@ const desktopControlSchema = z.object({
 			"xvfb_screenshot",
 			"xvfb_list_windows",
 			"xvfb_click",
+			"xvfb_drag",
 			"xvfb_type",
 			"xvfb_key",
 			"xvfb_close",
@@ -180,11 +190,15 @@ const desktopControlSchema = z.object({
 		.int()
 		.optional()
 		.describe(
-			"X pixel coordinate — 'xvfb_click' frame (virtual display origin top-left) or 'live_click'/'live_drag'/'live_move' model-visible screenshot frame px.",
+			"X pixel coordinate — 'xvfb_click'/'xvfb_drag' frame (virtual display origin top-left) or 'live_click'/'live_drag'/'live_move' model-visible screenshot frame px. For 'xvfb_drag' this is the press (start) point.",
 		),
 	y: z.number().int().optional().describe("Y pixel coordinate — see 'x'."),
-	x2: z.number().int().optional().describe("End X pixel coordinate for 'live_drag' (same frame as 'x')."),
-	y2: z.number().int().optional().describe("End Y pixel coordinate for 'live_drag' (same frame as 'y')."),
+	x2: z.number().int().optional().describe("End X pixel coordinate for 'live_drag' (same frame as 'x') or 'xvfb_drag' (same frame as 'x' — the release point)."),
+	y2: z.number().int().optional().describe("End Y pixel coordinate — see 'x2'."),
+	target2: z
+		.string()
+		.optional()
+		.describe("Optional end-anchor word for 'xvfb_drag' (resolved like 'target'); when present with 'target', drags word-to-word. Without it, 'target'+x2/y2 drags word-to-point."),
 	modifiers: z
 		.array(z.enum(["shift"]))
 		.max(1)
@@ -202,7 +216,7 @@ const desktopControlSchema = z.object({
 	button: z
 		.enum(["left", "right", "middle"])
 		.optional()
-		.describe("Mouse button for 'live_click'/'live_drag' (default: left)."),
+		.describe("Mouse button for 'live_click'/'live_drag'/'xvfb_click'/'xvfb_drag' (default: left)."),
 	count: z
 		.number()
 		.int()
@@ -214,7 +228,7 @@ const desktopControlSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			"Target selector, meaning depends on action: for 'live_click'/'live_move' it is click-target text matched against an OCR word from the last eye/screenshot (e.g. \"Compose\", \"Send\") and resolved to that word's frame-px center instead of raw x/y; for 'live_eye'/'screenshot' it is what to look at ('fullscreen' — default for the eye — 'active_window', or a substring of a window title/class).",
+			"Target selector, meaning depends on action: for 'live_click'/'live_move' it is click-target text matched against an OCR word from the last eye/screenshot (e.g. \"Compose\", \"Send\") and resolved to that word's frame-px center instead of raw x/y; for 'xvfb_click'/'xvfb_drag' it is a word from the last xvfb_screenshot reading ('target2' is the optional end anchor for 'xvfb_drag'); for 'live_eye'/'screenshot' it is what to look at ('fullscreen' — default for the eye — 'active_window', or a substring of a window title/class).",
 		),
 	direction: z
 		.enum(["up", "down"])
@@ -574,6 +588,111 @@ export async function xvfbKeyboardTarget(): Promise<{ id: string; viaActiveWindo
 		if (named.code === 0 && named.stdout.trim()) return { id: id.trim(), viaActiveWindow: false };
 	}
 	return null;
+}
+
+/** Current pointer position on the virtual display (X,Y) — null when unknown.
+ *  Used as the origin of a smooth approach; a missing read means we fall back
+ *  to an uncurved path from the target itself (never a blind jump). */
+export async function xvfbPointerPosition(): Promise<{ x: number; y: number } | null> {
+	const res = await runCmd("xdotool", ["getmouselocation", "--shell"], { env: xvfbEnv() });
+	if (res.code !== 0) return null;
+	const x = Number(res.stdout.match(/^X=(-?\d+)/m)?.[1]);
+	const y = Number(res.stdout.match(/^Y=(-?\d+)/m)?.[1]);
+	if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+	return { x, y };
+}
+
+/**
+ * Play a motion path through a SINGLE `xdotool -` process: one mousemove per
+ * step with an inline `sleep` carrying that step's wait, then a button
+ * choreography. Streaming beats per-step spawns by ~17x (measured 0.43 vs
+ * 7.13 ms/step) and `sleep` paces the steps for real, which is what makes the
+ * sweep read as motion instead of a teleport.
+ *
+ * Two choreographies, one vocabulary:
+ * - click (press===release): approach steps, settle, press, hold, release,
+ *   trailing settle. The pointer is already settled when the button goes down.
+ * - drag (approach + sweep): approach steps to the press point, settle, press
+ *   with its own hold, the held sweep, an end dwell, release, trailing settle.
+ */
+export function xvfbPathScript(
+	steps: MotionStep[],
+	options: { press?: string; release?: string; settleMs?: number; holdMs?: number } = {},
+): string {
+	const lines: string[] = [];
+	for (const s of steps) {
+		lines.push(`mousemove --sync ${Math.round(s.x)} ${Math.round(s.y)}`);
+		const sleepMs = Math.max(1, Math.round(s.waitMs)) / 1000;
+		if (sleepMs > 0) lines.push(`sleep ${sleepMs.toFixed(3)}`);
+	}
+	if (options.settleMs && options.settleMs > 0) {
+		lines.push(`sleep ${(options.settleMs / 1000).toFixed(3)}`);
+	}
+	if (options.press) {
+		lines.push(`mousedown ${options.press}`);
+		if (options.holdMs && options.holdMs > 0) lines.push(`sleep ${(options.holdMs / 1000).toFixed(3)}`);
+	}
+	if (options.release) lines.push(`mouseup ${options.release}`);
+	if (options.release && options.settleMs && options.settleMs > 0) {
+		lines.push(`sleep ${(options.settleMs / 1000).toFixed(3)}`);
+	}
+	return `${lines.join("\n")}\n`;
+}
+
+export async function xvfbInjectPath(
+	steps: MotionStep[],
+	options: { press?: string; release?: string; settleMs?: number; holdMs?: number } = {},
+): Promise<{ code: number; stderr: string }> {
+	const script = xvfbPathScript(steps, options);
+	// runCmd cannot feed stdin, so the batch is handed to `xdotool -` through a
+	// printf pipe. This is the single injection point for every paced path.
+	const piped = await runCmd("sh", ["-c", `printf '%s' "$MOTION" | DISPLAY=${XVFB_DISPLAY} xdotool -`], {
+		env: { ...xvfbEnv(), MOTION: script },
+		timeout: 30_000,
+	});
+	return { code: piped.code, stderr: piped.stderr };
+}
+
+/**
+ * Build the full held-drag batch script: paced approach to the press point,
+ * press+hold, the held sweep itself as paced steps (no release yet), the end
+ * dwell, release, trailing settle. The sweep keeps the button down for the
+ * whole travel — that is what makes the app select instead of hover.
+ */
+export function xvfbDragScript(
+	approach: MotionStep[],
+	sweep: MotionStep[],
+	options: { button: string; settleMs: number; pressHoldMs: number; endHoldMs: number; afterMs: number },
+): string {
+	// Approach ends with mousedown + the press hold (no release yet), so the
+	// sweep below starts with the button already down and held visibly.
+	const head = xvfbPathScript(approach, {
+		press: options.button,
+		settleMs: options.settleMs,
+		holdMs: options.pressHoldMs,
+	}).trimEnd();
+	const lines: string[] = head ? [head] : [];
+	for (const s of sweep) {
+		lines.push(`mousemove --sync ${Math.round(s.x)} ${Math.round(s.y)}`);
+		lines.push(`sleep ${(Math.max(1, Math.round(s.waitMs)) / 1000).toFixed(3)}`);
+	}
+	lines.push(`sleep ${(options.endHoldMs / 1000).toFixed(3)}`);
+	lines.push(`mouseup ${options.button}`);
+	lines.push(`sleep ${(options.afterMs / 1000).toFixed(3)}`);
+	return `${lines.join("\n")}\n`;
+}
+
+export async function xvfbInjectDrag(
+	approach: MotionStep[],
+	sweep: MotionStep[],
+	options: { button: string; settleMs: number; pressHoldMs: number; endHoldMs: number; afterMs: number },
+): Promise<{ code: number; stderr: string }> {
+	const script = xvfbDragScript(approach, sweep, options);
+	const piped = await runCmd("sh", ["-c", `printf '%s' "$MOTION" | DISPLAY=${XVFB_DISPLAY} xdotool -`], {
+		env: { ...xvfbEnv(), MOTION: script },
+		timeout: 30_000,
+	});
+	return { code: piped.code, stderr: piped.stderr };
 }
 /** ---------- Headless eye (xvfb) ----------
  * The virtual display's eye: one capture → one downscale → OCR → clickTargets.
@@ -3271,20 +3390,174 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// XTEST buttons are numeric: named buttons fail with BadValue.
 				const btnName = params.button ?? "left";
 				const btn = btnName === "right" ? "3" : btnName === "middle" ? "2" : "1";
-				const res = await runCmd("xdotool", ["mousemove", String(dx), String(dy), "click", btn], {
-					env: xvfbEnv(),
+				// Human-like approach: curve and ease from wherever the pointer is
+				// to the target, settle, then press/hold/release — instead of a
+				// teleport-and-fire. A missing origin read still yields a real
+				// (uncurved) path from the target itself, never a blind jump.
+				const origin = await xvfbPointerPosition();
+				const path = clickPath(origin?.x ?? dx, origin?.y ?? dy, dx, dy, DEFAULT_MOTION_CONFIG);
+				const injected = await xvfbInjectPath(path.steps, {
+					press: btn,
+					release: btn,
+					settleMs: CLICK_CHOREOGRAPHY.settleMs,
+					holdMs: CLICK_CHOREOGRAPHY.holdMs,
 				});
-				if (res.code !== 0) {
-					return { content: [{ type: "text", text: `xvfb_click failed: ${res.stderr}` }] };
+				if (injected.code !== 0) {
+					return { content: [{ type: "text", text: `xvfb_click failed: ${injected.stderr}` }] };
+				}
+				const motionNote =
+					path.steps.length > 1
+						? ` (${path.steps.length}-step eased approach, ${path.totalMs}ms)`
+						: "";
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Clicked ${btnName} ${anchor}at display ${dx},${dy} (frame ${sx},${sy}) on the headless display${motionNote}.`,
+						},
+					],
+					details: {
+						button: btnName,
+						frame: [sx, sy],
+						display: [dx, dy],
+						headless: true,
+						motion: { steps: path.steps.length, totalMs: path.totalMs, origin },
+					},
+				};
+			}
+
+			case "xvfb_drag": {
+				// Word-anchored drag wins for the start, target2 for the end; raw
+				// x/y/x2/y2 is the fallback. Anchors resolve against the LAST
+				// xvfb eye reading (fail-closed, same as xvfb_click).
+				await xvfbEnsureServer();
+				let sx: number | undefined = params.x;
+				let sy: number | undefined = params.y;
+				let ex: number | undefined = params.x2;
+				let ey: number | undefined = params.y2;
+				let startAnchor = "";
+				let endAnchor = "";
+				if (!xvfbTargetsAreCurrent() && (params.target || params.target2)) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error: no current word targets — the last reading did not produce any (ocr:false or an empty capture). Take xvfb_screenshot again before dragging '${params.target ?? ""}'→'${params.target2 ?? ""}'.`,
+							},
+						],
+						details: { error: "stale_targets", target: params.target, target2: params.target2 },
+					};
+				}
+				if (params.target) {
+					const hit = resolveXvfbTarget(params.target);
+					if (!hit) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Error: '${params.target}' was not found in the last xvfb eye reading — take xvfb_screenshot first (no blind drag).`,
+								},
+							],
+							details: { error: "unknown_target", target: params.target },
+						};
+					}
+					sx = hit.x;
+					sy = hit.y;
+					startAnchor = `"${hit.box.text}" `;
+				}
+				if (params.target2) {
+					const hit = resolveXvfbTarget(params.target2);
+					if (!hit) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Error: '${params.target2}' was not found in the last xvfb eye reading — take xvfb_screenshot first (no blind drag).`,
+								},
+							],
+							details: { error: "unknown_target", target2: params.target2 },
+						};
+					}
+					ex = hit.x;
+					ey = hit.y;
+					endAnchor = `"${hit.box.text}" `;
+				}
+				if (sx === undefined || sy === undefined) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Error: pass 'target' (a word from the last xvfb_screenshot) or 'x' and 'y' pixel coordinates for the xvfb_drag start point.",
+							},
+						],
+						details: { error: "missing_coordinates" },
+					};
+				}
+				if (ex === undefined || ey === undefined) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Error: pass 'target2' (a word from the last xvfb_screenshot) or 'x2' and 'y2' pixel coordinates for the xvfb_drag end point.",
+							},
+						],
+						details: { error: "missing_xy2" },
+					};
+				}
+				const [sdx, sdy] = xvfbFrameToDisplay(sx, sy, xvfbFrame);
+				const [edx, edy] = xvfbFrameToDisplay(ex, ey, xvfbFrame);
+				const [physW, physH] = xvfbGeometry();
+				const inside = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < physW && y < physH;
+				if (!inside(sdx, sdy) || !inside(edx, edy)) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error: mapped drag (${sdx},${sdy})→(${edx},${edy}) is outside the virtual display ${physW}x${physH} — refusing out-of-bounds injection.`,
+							},
+						],
+						details: { error: "out_of_bounds", start: [sdx, sdy], end: [edx, edy] },
+					};
+				}
+				// Human-like drag: eased approach from the current pointer to the
+				// press point, settle, press+hold, then the held sweep itself at
+				// full (steady) pacing — never a yank. A missing origin read still
+				// yields a real path from the start anchor, never a blind jump.
+				// XTEST buttons are numeric: named buttons fail with BadValue.
+				const dragBtnName = params.button ?? "left";
+				const dragBtn = dragBtnName === "right" ? "3" : dragBtnName === "middle" ? "2" : "1";
+				const origin = await xvfbPointerPosition();
+				const approach = clickPath(origin?.x ?? sdx, origin?.y ?? sdy, sdx, sdy, DEFAULT_MOTION_CONFIG);
+				const sweep = dragPath(sdx, sdy, edx, edy, DEFAULT_MOTION_CONFIG);
+				const injected = await xvfbInjectDrag(approach.steps, sweep.steps, {
+					button: dragBtn,
+					settleMs: DRAG_CHOREOGRAPHY.settleMs,
+					pressHoldMs: DRAG_CHOREOGRAPHY.pressHoldMs,
+					endHoldMs: DRAG_CHOREOGRAPHY.endHoldMs,
+					afterMs: DRAG_CHOREOGRAPHY.afterMs,
+				});
+				if (injected.code !== 0) {
+					return { content: [{ type: "text", text: `xvfb_drag failed: ${injected.stderr}` }] };
 				}
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Clicked ${btnName} ${anchor}at display ${dx},${dy} (frame ${sx},${sy}) on the headless display.`,
+							text: `Dragged ${startAnchor}frame (${sx},${sy}) → ${endAnchor}frame (${ex},${ey}) on the headless display (${approach.steps.length}+${sweep.steps.length}-step eased sweep, ${approach.totalMs + sweep.totalMs}ms).`,
 						},
 					],
-					details: { button: btnName, frame: [sx, sy], display: [dx, dy], headless: true },
+					details: {
+						button: dragBtnName,
+						start: { frame: [sx, sy], display: [sdx, sdy] },
+						end: { frame: [ex, ey], display: [edx, edy] },
+						headless: true,
+						motion: {
+							approachSteps: approach.steps.length,
+							sweepSteps: sweep.steps.length,
+							totalMs: approach.totalMs + sweep.totalMs,
+							origin,
+						},
+					},
 				};
 			}
 
