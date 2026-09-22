@@ -1416,6 +1416,32 @@ export function cursorVerifyNote(aimed: { x: number; y: number }, read: { x: num
 		? ` Cursor verify OK (Δ${dx},${dy}px ≤2).`
 		: ` Cursor verify MISMATCH: aimed (${aimed.x},${aimed.y}), read (${read.x},${read.y}) (Δ${dx},${dy}px) — re-eye and retry before clicking.`;
 }
+/**
+ * Eased aim glide for the live pointer: intermediate waypoints from `from`
+ * to `to` (same space, logical px on Hyprland) so the compositor warp reads
+ * as motion instead of a teleport. Short hops (≤24px) land in one step —
+ * no point easing a nudge. Longer glides ease out over up to 5 intermediates
+ * (fast start, gentle landing, like a hand decelerating onto a target); the
+ * final waypoint is always exactly `to`. Pure — exported for tests.
+ */
+export function liveAimGlide(from: { x: number; y: number }, to: { x: number; y: number }): Array<{ x: number; y: number }> {
+	const dx = to.x - from.x;
+	const dy = to.y - from.y;
+	const dist = Math.hypot(dx, dy);
+	if (dist <= 24) return [{ x: Math.round(to.x), y: Math.round(to.y) }];
+	const n = Math.min(5, 2 + Math.floor(dist / 200));
+	const pts: Array<{ x: number; y: number }> = [];
+	for (let i = 1; i <= n; i++) {
+		// easeOutCubic: covers ground fast, then settles onto the target.
+		const t = 1 - Math.pow(1 - i / n, 3);
+		pts.push({ x: Math.round(from.x + dx * t), y: Math.round(from.y + dy * t) });
+	}
+	// Rounding can duplicate the final waypoint — collapse it.
+	const last = pts[pts.length - 1];
+	if (last.x === Math.round(to.x) && last.y === Math.round(to.y)) return pts;
+	pts.push({ x: Math.round(to.x), y: Math.round(to.y) });
+	return pts;
+}
 
 /** Anchor the session observation to the last successful window reading.
  *  Fail-closed by construction: only a frame carrying an exact window
@@ -1565,6 +1591,9 @@ export function clickTargetsFromOcr(words: OcrWordBox[] | undefined, frame: Inpu
 	if (!words || words.length === 0 || !frame) return [];
 	const targets: ClickTarget[] = [];
 	for (const b of words) {
+		// Junk filter first: symbol-only specks and low-confidence fragments
+		// crowd the cap on dense windows and push real labels out.
+		if (isJunkTargetWord(b.text, b.confidence)) continue;
 		const x = Math.max(0, Math.round(b.x));
 		const y = Math.max(0, Math.round(b.y));
 		const w = Math.round(b.w);
@@ -1590,29 +1619,60 @@ export function formatClickTargets(targets: ClickTarget[], max = 20): string {
 }
 
 /** Remember this reading's click targets for `target`-based live_* calls.
+ *  Bumps the target generation so stale glances stop resolving: targets
+ *  die with the glance that produced them (frame-bound contract).
  *  Exported for tests to seed the matcher, and used by eye/screenshot. */
 export function rememberClickTargets(targets: ClickTarget[]): void {
-	lastClickTargets = targets;
+	clickTargetGen++;
+	lastClickTargets = targets.map(t => ({ ...t, gen: clickTargetGen }));
+}
+/** A remembered click target with its reading generation — targets die with
+ *  the glance that produced them unless re-observed (frame-bound contract). */
+interface GenerationalTarget extends ClickTarget {
+	gen: number;
+}
+
+/** Monotonic generation of the last anchored reading (eye/screenshot). */
+let clickTargetGen = 0;
+
+/** Junk-word filter for the target pool: symbol-only specks and low-confidence
+ *  fragments crowd the 40-cap on dense windows (browser tabs full of mangled
+ *  titles) and push real labels out. A word is junk when it has no letter or
+ *  digit AND low confidence — real icon labels ("+", "=") survive via the
+ *  confidence check only when OCR is sure of them. Exported for tests. */
+export function isJunkTargetWord(text: string, confidence: number): boolean {
+	if (/[A-Za-z0-9]/.test(text)) return false;
+	return confidence < 0.7;
 }
 
 /** Resolve a `target` text ("Compose", "Send") to the best remembered click
- *  target. Case-insensitive substring match; prefers earlier (topmost)
- *  matches so "OK" hits the dialog button, not body text. Returns frame-px
- *  center of the box. */
+ *  target. Exact match wins; then word-boundary/phrase matches ("Send"
+ *  matches "Send message" but NOT "Resend" or "Sender"); substring is the
+ *  last resort. Within a tier, prefers shorter text (a button label beats a
+ *  sentence containing the word), then topmost. Only targets from the
+ *  CURRENT reading generation are eligible — stale glances never drive
+ *  input. Returns frame-px center of the box. */
 export function resolveClickTarget(text: string): { x: number; y: number; box: ClickTarget } | null {
 	const q = text.trim().toLowerCase();
 	if (!q) return null;
-	const matches = lastClickTargets.filter(t => t.text.toLowerCase().includes(q));
+	const pool = lastClickTargets.filter(t => (t as GenerationalTarget).gen === clickTargetGen);
+	if (pool.length === 0) return null;
+	const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const wordRe = new RegExp(`\\b${esc}\\b`);
+	const tier = (t: string): number => {
+		const l = t.toLowerCase();
+		if (l === q) return 0;
+		if (wordRe.test(l)) return 1;
+		if (l.includes(q)) return 2;
+		return 3;
+	};
+	const matches = pool.map(t => ({ t, tier: tier(t.text) })).filter(m => m.tier < 3);
 	if (matches.length === 0) return null;
-	// Prefer exact match, then shortest text (a button label beats a
-	// sentence containing the word), then topmost.
 	const best = matches.sort((a, b) => {
-		const ea = a.text.toLowerCase() === q ? 0 : 1;
-		const eb = b.text.toLowerCase() === q ? 0 : 1;
-		if (ea !== eb) return ea - eb;
-		if (a.text.length !== b.text.length) return a.text.length - b.text.length;
-		return a.y - b.y || a.x - b.x;
-	})[0];
+		if (a.tier !== b.tier) return a.tier - b.tier;
+		if (a.t.text.length !== b.t.text.length) return a.t.text.length - b.t.text.length;
+		return a.t.y - b.t.y || a.t.x - b.t.x;
+	})[0].t;
 	return { x: best.x + Math.round(best.w / 2), y: best.y + Math.round(best.h / 2), box: best };
 }
 
@@ -2784,10 +2844,25 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		const logical = physicalToLogical(pt.x, pt.y, scale);
 		// Aim with the compositor (exact); ydotool absolute moves are unreliable on
 		// Hyprland (no ABS cap on the virtual device — relative deltas + accel skew).
-		const aim = detectPlatformDriver().id === "hyprland" ? hyprMoveCursor(logical.x, logical.y) : null;
+		// Glide, don't teleport: step the warp through eased intermediates so the
+		// motion is visible in verify frames (agents can see the cursor travel
+		 // instead of jumping). Short hops land in one step; long ones ease.
+		const aimSteps: string[][] = [];
+		if (detectPlatformDriver().id === "hyprland") {
+			try {
+				const from = await detectPlatformDriver().capture.cursorPos();
+				if (from) {
+					for (const s of liveAimGlide(from, logical)) aimSteps.push(hyprMoveCursor(s.x, s.y));
+				}
+			} catch {
+				// cursor read failed — fall back to a single warp below
+			}
+			if (aimSteps.length === 0) aimSteps.push(hyprMoveCursor(logical.x, logical.y));
+		}
+		const aim = aimSteps.length > 0 ? aimSteps[aimSteps.length - 1] : null;
 		if (action === "live_move") {
 			const fail = await runSteps(
-				aim ? [aim] : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
+				aimSteps.length > 0 ? aimSteps : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
 				30,
 				win.address,
 			);
@@ -2814,7 +2889,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			const steps =
 				backend === "ydotool"
 					? aim
-						? [aim, ydoClickButton(code, count)]
+						? [...aimSteps, ydoClickButton(code, count)]
 						: [ydoMove(pt.x, pt.y), ydoClickButton(code, count)]
 					: [xdoClick(pt.x, pt.y, button, count)];
 			const fail = await runSteps(steps, 30, win.address);
@@ -2835,7 +2910,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 				// real anchor because compositor warps deliver no held-button
 				// motion events, and ydotool absolute is delta+accel skewed.
 				const anchor = aim
-					? (await runSteps([aim], 0, win.address)) === null
+					? (await runSteps(aimSteps, 0, win.address)) === null
 						? await detectPlatformDriver().capture.cursorPos()
 						: null
 					: null;
@@ -4038,7 +4113,6 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						}
 					}
 				}
-
 				// Capture via the platform driver (grim on Hyprland, import/scrot on X11).
 				const shotDriver = detectPlatformDriver();
 				const capRes = await shotDriver.capture.capture(tmpRaw, geometry).catch((e: unknown) => ({ code: 1, stderr: String(e) }));
@@ -4081,13 +4155,19 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						base64 = buf.toString("base64");
 					} catch {}
 				}
-
 				// OCR layer (mirrors live_eye): automatic for a visionless model so
 				// a captured screenshot reads as text instead of dead pixels;
-				// opt-out via ocr:false. Vision-capable callers keep the
-				// pixel-first result unless they pass ocr:true.
+				// opt-out via ocr:false. Cursor fix (P0): click targets are ALSO
+				// computed for vision-capable callers whenever the capture
+				// anchors pointer input — the old vision-default skip-OCR path
+				// starved target-based clicks (TARGETS: [] while 148 words
+				// visible). Cost is one tesseract pass on the scaled frame.
 				const shotModelSeesImages = this.session?.supportsVision?.() ?? true;
-				const shotWantOcr = params.ocr ?? !shotModelSeesImages;
+				// Vision-capable callers get targets but not the full text dump:
+				// they already see the pixels, so keep the result small — only
+				// the clickable-word list rides along (short lines, capped).
+				const shotWantOcr = params.ocr ?? true;
+				const shotTextForVision = params.ocr ?? !shotModelSeesImages;
 				let shotOcrText = "";
 				let shotOcrError: string | undefined;
 				let shotOcrMode: "native" | "upscaled" | undefined;
@@ -4116,11 +4196,13 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const shotTextParts = [
 					`Captured screenshot of ${shotTargetDesc} (saved to ${finalPath}).${frameNote}`,
 				];
-				if (shotOcrText) {
+				if (shotOcrText && shotTextForVision) {
 					shotTextParts.push(
 						`On-screen text (${shotOcrText.length} chars, tesseract ${shotOcrMode ?? "native"}):`,
 						shotOcrText.length > 8000 ? `${shotOcrText.slice(0, 8000)}\n…[truncated]` : shotOcrText,
 					);
+				}
+				if (shotOcrText || shotClickTargets.length > 0) {
 					const ct = formatClickTargets(shotClickTargets);
 					if (ct) shotTextParts.push(ct);
 				} else if (shotWantOcr && shotOcrError) {

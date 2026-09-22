@@ -3,6 +3,8 @@ import {
 	clickTargetsFromOcr,
 	cursorVerifyNote,
 	formatClickTargets,
+	isJunkTargetWord,
+	liveAimGlide,
 	rememberClickTargets,
 	resolveClickTarget,
 } from "../desktop-control";
@@ -92,5 +94,85 @@ describe("cursorVerifyNote (≤2px, same-space)", () => {
 	});
 	test("null read (unsupported backend) yields no note", () => {
 		expect(cursorVerifyNote({ x: 512, y: 288 }, null)).toBe("");
+	});
+});
+
+describe("cursor fix: word-boundary tier matching", () => {
+	test("phrase match beats substring ('Send' hits 'Send message', not 'Resend')", () => {
+		rememberClickTargets([
+			{ text: "Resend", x: 10, y: 10, w: 60, h: 20, confidence: 0.9 },
+			{ text: "Send message", x: 10, y: 100, w: 120, h: 20, confidence: 0.9 },
+		]);
+		expect(resolveClickTarget("Send")?.box.text).toBe("Send message");
+	});
+	test("exact match still wins over phrase", () => {
+		rememberClickTargets([
+			{ text: "Send message", x: 10, y: 10, w: 120, h: 20, confidence: 0.9 },
+			{ text: "Send", x: 10, y: 100, w: 50, h: 20, confidence: 0.9 },
+		]);
+		expect(resolveClickTarget("Send")?.box.text).toBe("Send");
+	});
+	test("pure substring is the last resort, not a miss", () => {
+		rememberClickTargets([{ text: "Resend", x: 10, y: 10, w: 60, h: 20, confidence: 0.9 }]);
+		expect(resolveClickTarget("Send")?.box.text).toBe("Resend");
+	});
+	test("stale generations stop resolving (frame-bound contract)", () => {
+		rememberClickTargets([{ text: "Old", x: 10, y: 10, w: 40, h: 20, confidence: 0.9 }]);
+		expect(resolveClickTarget("Old")).not.toBeNull();
+		rememberClickTargets([{ text: "New", x: 20, y: 20, w: 40, h: 20, confidence: 0.9 }]);
+		expect(resolveClickTarget("Old")).toBeNull();
+		expect(resolveClickTarget("New")).not.toBeNull();
+	});
+});
+
+describe("cursor fix: junk-word filter", () => {
+	test("words with letters/digits are never junk (even mangled titles)", () => {
+		expect(isJunkTargetWord("G&=", 0)).toBe(false);
+		expect(isJunkTargetWord("0%", 0.55)).toBe(false);
+	});
+	test("symbol-only low-confidence words are junk", () => {
+		expect(isJunkTargetWord("&=", 0)).toBe(true);
+		expect(isJunkTargetWord("(=", 0.3)).toBe(true);
+	});
+	test("symbol-only high-confidence words survive (real icon labels)", () => {
+		expect(isJunkTargetWord("+", 0.95)).toBe(false);
+		expect(isJunkTargetWord("=", 0.8)).toBe(false);
+	});
+	test("junk words never become targets", () => {
+		const t = clickTargetsFromOcr(
+			[
+				{ text: "&=", x: 10, y: 10, w: 60, h: 14, confidence: 0 },
+				{ text: "Save", x: 100, y: 100, w: 50, h: 20, confidence: 0.9 },
+			],
+			FRAME_1280,
+		);
+		expect(t.map(x => x.text)).toEqual(["Save"]);
+	});
+});
+
+describe("cursor fix: liveAimGlide eased waypoints", () => {
+	test("short hops land in one step", () => {
+		expect(liveAimGlide({ x: 100, y: 100 }, { x: 110, y: 108 })).toEqual([{ x: 110, y: 108 }]);
+	});
+	test("long glides ease out and land exactly on target", () => {
+		const pts = liveAimGlide({ x: 0, y: 0 }, { x: 600, y: 0 });
+		expect(pts.length).toBeGreaterThan(1);
+		expect(pts.length).toBeLessThanOrEqual(6);
+		const last = pts[pts.length - 1];
+		expect(last).toEqual({ x: 600, y: 0 });
+		// easeOut: first step covers more ground than the last
+		const firstHop = Math.hypot(pts[0].x, pts[0].y);
+		const prev = pts[pts.length - 2];
+		const lastHop = Math.hypot(last.x - prev.x, last.y - prev.y);
+		expect(firstHop).toBeGreaterThan(lastHop);
+	});
+	test("waypoints stay on the segment (no overshoot)", () => {
+		const pts = liveAimGlide({ x: 100, y: 200 }, { x: 500, y: 800 });
+		for (const p of pts) {
+			expect(p.x).toBeGreaterThanOrEqual(100);
+			expect(p.x).toBeLessThanOrEqual(500);
+			expect(p.y).toBeGreaterThanOrEqual(200);
+			expect(p.y).toBeLessThanOrEqual(800);
+		}
 	});
 });

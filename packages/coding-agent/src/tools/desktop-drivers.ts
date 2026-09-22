@@ -265,7 +265,10 @@ const hyprlandDriver: DesktopDriver = {
 	},
 	capture: {
 		async capture(tmpPath: string, geometry?: string) {
-			const args = geometry ? ["-g", geometry, tmpPath] : [tmpPath];
+			// -c paints the cursor into the frame: without it agents literally
+			// cannot see where the pointer is (verified: with/without differ
+			// by ~0.02 RMSE, cursor near-invisible in the downscaled frame).
+			const args = geometry ? ["-c", "-g", geometry, tmpPath] : ["-c", tmpPath];
 			// Short timeout: a locked/wedged compositor must fail fast so
 			// settle() degrades instead of hanging the drive loop.
 			const res = await runCmd("grim", args, { timeout: 4000 });
