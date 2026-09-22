@@ -11,6 +11,21 @@ Desktop screen vision and window manager tool. Takes full-screen or window-targe
   'xvfb_key' drive it, 'xvfb_list_windows' lists survivors, 'xvfb_close' tears
   the display and its apps down. 'xvfb_drag' sweeps press-to-release for text
   selection ('target' + 'target2' for word-to-word, or x/y + x2/y2 raw).
+- Project to the user when they should see or do it themselves — 'xvfb_project'
+  streams the headless display onto the real desktop (live, ~12fps, with a cursor
+  overlay so your clicks/drags are visible) and forwards the user's mouse and
+  keyboard back in, so they can type INTO the headless app. Use it when the user
+  asks to watch, and whenever a step needs a HUMAN — a password, sudo, an SSH
+  passphrase, 2FA/PIN, a captcha or any secret you must never handle. Modes:
+  'start' (default; optional 'target' = a window name, else the whole workspace),
+  'status', 'stop'.
+- The user types; you never read it. The projection exists so secrets stay between
+  the user and the app: do NOT OCR, screenshot-crop, clipboard-read or log that
+  window while they type, and never ask them to tell you the secret. When they say
+  they're done, verify success from the app's OWN state (a file it wrote, its
+  exit code, a change in its output) — never from the keystrokes.
+- Stop the projection when the handoff is over ('mode':'stop'); 'xvfb_close' also
+  stops it. One projection at a time.
 - Screenshot first, always: word click targets come from the LAST xvfb_screenshot
   (or live_eye) reading. After xvfb_launch, a new window, or any state change, take
   a fresh screenshot before clicking. 'ocr:false' or an empty capture clears all
@@ -46,6 +61,16 @@ Desktop screen vision and window manager tool. Takes full-screen or window-targe
 # Keyboard-driven flow with recovery
 `xvfb_key {"keys":"alt+F4"}` / `xvfb_key {"keys":"Return"}` when a button's OCR box drifted
 
+# A step needs the user's password — project it and hand over
+`xvfb_launch {"command":"sudo apt upgrade"}` → prompt appears
+`xvfb_project {}` → "Projection live…" (user sees it, types the password)
+# …user types on their own keyboard…
+`xvfb_project {"mode":"status"}` → frames climbing, inputs forwarded
+`xvfb_project {"mode":"stop"}` when done, then verify from the app's own output
+
+# Project one window only
+`xvfb_project {"target":"Contact"}` → just the Contact window is mirrored
+
 # Clean up when done — kills the apps too
 `xvfb_close {}` → "Xvfb gone, no lock file, no socket"
 </examples>
@@ -59,4 +84,8 @@ Desktop screen vision and window manager tool. Takes full-screen or window-targe
   apps; leaving them running blocks the next session.
 - Screenshots return the frame geometry in details — trust the returned mapping,
   don't rescale by hand.
+- A projection is one-way for secrets: the user's keystrokes cross into the headless
+  session and never come back through you. Don't capture, OCR or log the projected
+  window while the user is typing credentials — the app's own state is the only
+  proof of success you may read.
 </critical>

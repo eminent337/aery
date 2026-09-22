@@ -28,7 +28,7 @@ import {
  * steers, fallback chains, preAuthorize, frame math — is driver-agnostic.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -133,10 +133,11 @@ const desktopControlSchema = z.object({
 			"xvfb_drag",
 			"xvfb_type",
 			"xvfb_key",
+			"xvfb_project",
 			"xvfb_close",
 		])
 		.describe(
-			"Actions: 'live_eye' is your own eyes, exactly like a human's — look whenever you want to look, any time, any reason, no permission needed. A fast sub-second glance at the environment: active window, fullscreen, a window by name, or a physical-pixel region. The glance attaches to your context as a hidden reading — OCR text on every visionless model, pixels + OCR on vision-capable models — and never renders in the transcript. Eye views are ephemeral: each glance sweeps the previous one from context, so glance freely and as often as you want. Other actions: 'screenshot' captures display/window and returns the frame inline in the result (visible), 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
+			"Actions: 'live_eye' is your own eyes, exactly like a human's — look whenever you want to look, any time, any reason, no permission needed. A fast sub-second glance at the environment: active window, fullscreen, a window by name, or a physical-pixel region. The glance attaches to your context as a hidden reading — OCR text on every visionless model, pixels + OCR on vision-capable models — and never renders in the transcript. Eye views are ephemeral: each glance sweeps the previous one from context, so glance freely and as often as you want. Other actions: 'screenshot' captures display/window and returns the frame inline in the result (visible), 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_project' streams that headless display onto the real desktop so the USER can watch and TYPE INTO it (use when a step needs them — a password, sudo, a passphrase, 2FA), 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
 		),
 	region: z
 		.object({
@@ -261,6 +262,12 @@ const desktopControlSchema = z.object({
 			"For 'live_mode_on': pre-authorize these live input kinds NOW (skip the first-use approval prompt for them this session). Use when you know the automation flow ahead (e.g. [\"live_click\",\"live_type\",\"live_key\"]) so multi-step app driving doesn't deadlock on a mid-flow prompt. Only these six injection kinds are accepted.",
 		),
 	query: z.string().optional().describe("Window address, title, or class query for 'focus_window' or 'close_window'."),
+	mode: z
+		.enum(["start", "stop", "status"])
+		.optional()
+		.describe(
+			"For 'xvfb_project': 'start' (default) begins projecting the headless display to the real desktop; 'stop' ends it; 'status' reports whether a projection is live.",
+		),
 	workspace: z.string().optional().describe("Workspace identifier for 'switch_workspace' (e.g. '1', '2', 'special')."),
 	subAction: z
 		.enum([
@@ -420,6 +427,107 @@ async function xvfbEnsureServer(): Promise<void> {
 	const check = await runCmd("sh", ["-c", `DISPLAY=${XVFB_DISPLAY} xdotool getdisplaygeometry`]);
 	if (check.code !== 0) throw new Error("Xvfb started but not responding");
 	xvfbServerAlive = true;
+}
+
+/**
+ * ---------- Live projection to the real desktop (xvfb_project) ----------
+ * Streams the headless Xvfb display (or one of its windows) to the user's REAL
+ * desktop via xvfb-mirror.py, and forwards the user's mouse/keyboard back into
+ * the headless session. The point: the user can SEE what the agent is doing
+ * and TYPE INTO the headless app themselves — including secrets (passwords,
+ * passphrases) the agent must never read. The agent verifies success only from
+ * the app's own state, never from the secret.
+ *
+ * One projection at a time. Stopped by xvfb_project stop and by xvfb_close.
+ */
+let xvfbMirrorProc: { pid: number; log: string } | null = null;
+const XVFB_MIRROR_TITLE = "AERY headless LIVE";
+
+/** Resolve the xvfb-mirror.py asset path (shipped next to this file). */
+function xvfbMirrorScript(): string {
+	return path.join(import.meta.dirname ?? "", "xvfb-mirror.py");
+}
+
+/** True when the tracked mirror process is still alive. */
+function xvfbMirrorAlive(): boolean {
+	if (!xvfbMirrorProc) return false;
+	try {
+		process.kill(xvfbMirrorProc.pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Last STAT line from the mirror log (frames + forwarded inputs). */
+async function xvfbMirrorStat(): Promise<string> {
+	if (!xvfbMirrorProc) return "no projection";
+	try {
+		const raw = fs.readFileSync(xvfbMirrorProc.log, "utf-8");
+		const lines = raw.split("\n").filter(l => l.startsWith("STAT"));
+		return lines.length ? lines[lines.length - 1] : "starting";
+	} catch {
+		return "no log";
+	}
+}
+
+/** Stop the projection if one is live. Safe to call when none is. */
+async function xvfbMirrorStop(): Promise<void> {
+	if (!xvfbMirrorProc) return;
+	const pid = xvfbMirrorProc.pid;
+	try {
+		process.kill(pid, "SIGTERM");
+	} catch {
+		/* already gone */
+	}
+	const deadline = Date.now() + 3000;
+	for (;;) {
+		let alive = false;
+		try {
+			process.kill(pid, 0);
+			alive = true;
+		} catch {
+			break;
+		}
+		if (!alive || Date.now() >= deadline) break;
+		await new Promise(r => setTimeout(r, 100));
+	}
+	try {
+		process.kill(pid, "SIGKILL");
+	} catch {
+		/* already gone */
+	}
+	xvfbMirrorProc = null;
+}
+
+/**
+ * Detect an on-screen credential prompt from OCR text — the signal that a step
+ * needs the USER (a password, sudo, an SSH passphrase, a PIN/2FA, a key
+ * passphrase). Deliberately conservative: only strong, unambiguous phrasings
+ * count, and we never read what is typed into the prompt.
+ */
+export function xvfbAuthPromptHint(ocrText: string | undefined): string | null {
+	if (!ocrText) return null;
+	const t = ocrText.toLowerCase();
+	const patterns: Array<[RegExp, string]> = [
+		// Most specific first: the generic "password:" is last so it cannot
+		// shadow a better label.
+		[/\[sudo\] password|(^|\n)\s*sudo\b[^\n]*password/, "sudo password"],
+		[/\S+@\S+'s password|password for \S+@\S+/, "ssh password"],
+		[/\bpassphrase\b/, "passphrase"],
+		[/enter\s+(your\s+)?(password|passphrase)/, "password entry"],
+		[/authentication (is )?required/, "authentication required"],
+		[/\bpin\b\s*[:=]|enter\s+(your\s+)?pin\b/, "PIN entry"],
+		[/two[- ]factor|2fa|verification code|one[- ]time (code|password)/, "2FA / verification code"],
+		[/\bunlock\b.*\b(password|key)\b|\bkey\s+passphrase\b/, "unlock secret"],
+		// Last resort: any "password:"/"passphrase:"-style label. Allows trailing
+		// glyphs (a cursor or shell prompt echo, e.g. "Password: ||").
+		[/\bpass(word|phrase)\s*[:=]/, "password prompt"],
+	];
+	for (const [re, label] of patterns) {
+		if (re.test(t)) return label;
+	}
+	return null;
 }
 
 function xvfbCommandFixup(cmd: string): string {
@@ -3277,6 +3385,15 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					} else if (!wantOcr) {
 						lines.push("OCR skipped (ocr:false).");
 					}
+					// Auth trigger: a credential prompt on screen means the next
+					// step is the USER's to do. Tell the agent to offer the
+					// projection rather than guessing or asking for the secret.
+					const authHint = wantOcr ? xvfbAuthPromptHint(eye.text) : null;
+					if (authHint) {
+						lines.push(
+							`Auth needed (${authHint}): this step is the user's to do. Offer to project the session — xvfb_project {} — so they can type it themselves. Never ask them to tell you the secret; verify success from the app's own state afterwards.`,
+						);
+					}
 					return {
 						content: [
 							{ type: "text", text: lines.join("\n") },
@@ -3300,6 +3417,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 									}
 								: {}),
 							...(eye.targets.length > 0 ? { clickTargets: eye.targets } : {}),
+							...(authHint ? { authPrompt: authHint } : {}),
 						},
 					};
 				} catch (err) {
@@ -3632,11 +3750,112 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					: { content: [{ type: "text", text: `xvfb_key failed: ${res.stderr}` }] };
 			}
 
+			case "xvfb_project": {
+				const mode = params.mode ?? "start";
+				if (mode === "status") {
+					const stat = await xvfbMirrorStat();
+					const alive = xvfbMirrorAlive();
+					return {
+						content: [{ type: "text", text: alive ? `Projection live (${stat}).` : "No projection running." }],
+						details: { running: alive, stat, headless: true },
+					};
+				}
+				if (mode === "stop") {
+					const wasAlive = xvfbMirrorAlive();
+					await xvfbMirrorStop();
+					return {
+						content: [{ type: "text", text: wasAlive ? "Projection stopped." : "No projection was running." }],
+						details: { wasRunning: wasAlive, headless: true },
+					};
+				}
+				// ---- start ----
+				await xvfbEnsureServer();
+				if (xvfbMirrorAlive()) {
+					return {
+						content: [{ type: "text", text: "A projection is already live. Stop it first (mode 'stop') or check status." }],
+						details: { error: "already_running", headless: true },
+					};
+				}
+				// Resolve the target: a specific window by name, or the whole
+				// workspace when no target given.
+				let windowId = "";
+				if (params.target) {
+					const wanted = params.target.toLowerCase();
+					const wins = await xvfbListWindows();
+					const match = wins.find(w => w.toLowerCase().includes(wanted));
+					if (!match) {
+						return {
+							content: [{ type: "text", text: `No headless window matches '${params.target}'. Visible windows: ${wins.join(" | ") || "none"}.` }],
+							details: { error: "unknown_target", headless: true },
+						};
+					}
+					const idRes = await runCmd("xdotool", ["search", "--name", match], { env: xvfbEnv() });
+					windowId = idRes.stdout.split("\n").pop() ?? "";
+				}
+				const script = xvfbMirrorScript();
+				if (!fs.existsSync(script)) {
+					return {
+						content: [{ type: "text", text: `xvfb-mirror.py not found at ${script}.` }],
+						details: { error: "mirror_missing", headless: true },
+					};
+				}
+				const logPath = `/tmp/aerys-xvfb-mirror-${Date.now()}.log`;
+				const out = fs.openSync(logPath, "a");
+				const child = spawn("python3", [
+					script,
+					"--target", XVFB_DISPLAY,
+					...(windowId ? ["--window", windowId] : []),
+					"--width", "960",
+					"--fps", "12",
+					"--title", XVFB_MIRROR_TITLE,
+				], { detached: true, stdio: ["ignore", out, out] });
+				child.unref();
+				// Gate on the painted frame signal (FRAME1), never a fixed sleep.
+				const deadline = Date.now() + 15000;
+				let ready = false;
+				for (;;) {
+					if (child.pid === undefined) break;
+					try {
+						process.kill(child.pid, 0);
+					} catch {
+						break;
+					}
+					try {
+						if (fs.readFileSync(logPath, "utf-8").includes("FRAME1")) {
+							ready = true;
+							break;
+						}
+					} catch {
+						/* log not yet written */
+					}
+					if (Date.now() >= deadline) break;
+					await new Promise(r => setTimeout(r, 200));
+				}
+				if (!ready) {
+					await xvfbMirrorStop();
+					return {
+						content: [{ type: "text", text: "Projection failed to start (mirror never painted a frame). Check the log." }],
+						details: { error: "mirror_timeout", log: logPath, headless: true },
+					};
+				}
+				xvfbMirrorProc = { pid: child.pid ?? 0, log: logPath };
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Projection live: the user can see the headless session in real time (window titled '${XVFB_MIRROR_TITLE}') and type into it. Never read or log anything the user types there — verify outcomes from the app's own state instead.`,
+						},
+					],
+					details: { pid: child.pid, log: logPath, window: windowId || "workspace", headless: true },
+				};
+			}
+
 			case "xvfb_close": {
 				// Close all windows, kill the server, then WAIT for it to be
 				// actually gone. Returning while Xvfb is still dying races the
 				// next xvfbEnsureServer probe: a half-dead display answers just
 				// long enough to look alive, and the restart never happens.
+				await xvfbMirrorStop();
 				const wins = await xvfbListWindows();
 				const env = xvfbEnv();
 				for (const w of wins) {

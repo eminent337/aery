@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { xvfbAuthPromptHint } from "../desktop-control";
 
 /** Pins for the headless drive path (phase 2).
  *  NEW behavior (must fail first): resolveXvfbTarget (word-anchored clicks
@@ -230,3 +231,36 @@ describe("xvfbDragScript (held-drag batch choreography)", () => {
 	});
 });
 
+
+describe("xvfbAuthPromptHint (credential-prompt detection)", () => {
+	const cases: Array<[string, string | null]> = [
+		["[sudo] password for aryee:", "sudo password"],
+		["Password: ", "password prompt"],
+		["Enter passphrase for key '/home/aryee/.ssh/id_ed25519':", "passphrase"],
+		["Enter password: ", "password entry"],
+		["Authentication required", "authentication required"],
+		["Enter your PIN:", "PIN entry"],
+		["Two-factor authentication code:", "2FA / verification code"],
+		["Verification code: ", "2FA / verification code"],
+		["bash-5.3$ ls -la", null],
+		["File saved successfully.", null],
+		["", null],
+		["user@host's password:", "ssh password"],
+	];
+	for (const [text, want] of cases) {
+		test(`${JSON.stringify(text)} → ${want}`, () => {
+			const got = xvfbAuthPromptHint(text || undefined);
+			if (want === null) expect(got).toBeNull();
+			else expect(got).toBe(want);
+		});
+	}
+});
+
+describe("xvfbAuthPromptHint — real OCR output shapes", () => {
+	test("detects a prompt with a trailing cursor glyph (dark-theme OCR)", () => {
+		expect(xvfbAuthPromptHint("bash-5.3$ bash /tmp/auth-fixture.sh\nPassword: ||")).toBe("password prompt");
+	});
+	test("a clean shell transcript is not a prompt", () => {
+		expect(xvfbAuthPromptHint("bash-5.3$ echo hi\nhi\nbash-5.3$")).toBeNull();
+	});
+});
