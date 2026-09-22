@@ -1350,11 +1350,20 @@ async function identifyDims(filePath: string): Promise<[number, number] | null> 
 		: null;
 }
 
+/** Scaled frame file of the most recent capture — the lazy target hydration
+ *  reads it (once) when a `target:` click arrives without remembered words. */
+let lastFramePath: string | null = null;
+/** The last capture explicitly opted out of OCR (ocr:false) — its words are
+ *  deliberately unread, so lazy target hydration must not re-OCR it. */
+let lastCaptureOcrOptOut = false;
+
+
 /** Record the coordinate frame of a finished capture (window or fullscreen).
  *  `geometry` is the grim-style "X,Y WxH" crop string; when the capture was a
  *  plain region (no window), the frame anchors at the CROP ORIGIN — otherwise
  *  a region view's frame px would map clicks to the top-left of the screen
- *  instead of where the crop actually sits. */
+ *  instead of where the crop actually sits. Also remembers the scaled file
+ *  path so target resolution can OCR it lazily. */
 async function rememberFrame(
 	win: DesktopWindowInfo | undefined,
 	geometry: string | undefined,
@@ -1393,6 +1402,7 @@ async function rememberFrame(
 		};
 	}
 	lastInputFrame = frame;
+	lastFramePath = finalPath;
 	return frame;
 }
 
@@ -2005,7 +2015,7 @@ export function validateInjection(params: {
 			if (!hit) {
 				return {
 					ok: false,
-					error: `No remembered OCR word matches "${params.target}". Take an eye/screenshot of the window first; live_click target matches words from the last reading (e.g. "Compose", "Send").`,
+					error: `No remembered OCR word matches "${params.target}". Take an eye/screenshot of the window first (vision sessions: pass ocr:true so words are read), then match against its Clickable words list (e.g. "Compose", "Send").`,
 					code: "target_not_found",
 				};
 			}
@@ -2815,6 +2825,26 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		freshFrame: lastInputFrame && lastInputFrame.address === win.address ? lastInputFrame : null,
 		activeGeometry: { at: win.at, size: win.size },
 	});
+	// Lazy click-target hydration (cursor fix): vision callers skip OCR on
+	// screenshots for latency, so a target: click can arrive with an EMPTY
+	// pool — the old refusal looped ("re-eye" → screenshot → still no words).
+	// OCR the already-saved scaled frame ONCE here; later clicks hit the pool.
+	// Skipped when words already exist (a miss then means the word is truly
+	// absent), when the capture opted out via ocr:false, or when the
+	// observation isn't fresh (validation will refuse anyway).
+	if (
+		isPointer && params.target && lastClickTargets.length === 0 &&
+		lastFramePath && lastInputFrame && !lastCaptureOcrOptOut &&
+		obsStatus.state === "fresh"
+	) {
+		try {
+			const ocr = await ocrFrame(lastFramePath, {});
+			const targets = clickTargetsFromOcr(ocr.words, lastInputFrame);
+			if (targets.length > 0) rememberClickTargets(targets);
+		} catch {
+			// hydration is best-effort — the refusal below still lands
+		}
+	}
 	const validation = validateInjection({
 		action,
 		x: params.x,
@@ -4157,17 +4187,17 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				}
 				// OCR layer (mirrors live_eye): automatic for a visionless model so
 				// a captured screenshot reads as text instead of dead pixels;
-				// opt-out via ocr:false. Cursor fix (P0): click targets are ALSO
-				// computed for vision-capable callers whenever the capture
-				// anchors pointer input — the old vision-default skip-OCR path
-				// starved target-based clicks (TARGETS: [] while 148 words
-				// visible). Cost is one tesseract pass on the scaled frame.
+				// opt-out via ocr:false. Vision-capable callers keep the
+				// pixel-first FAST result (a tesseract pass costs 4-5s here);
+				// their click targets hydrate LAZILY on the first target: click
+				// (executeLiveAction OCRs lastFramePath once) instead of making
+				// every screenshot pay OCR. Visionless callers OCR as before.
 				const shotModelSeesImages = this.session?.supportsVision?.() ?? true;
-				// Vision-capable callers get targets but not the full text dump:
-				// they already see the pixels, so keep the result small — only
-				// the clickable-word list rides along (short lines, capped).
-				const shotWantOcr = params.ocr ?? true;
-				const shotTextForVision = params.ocr ?? !shotModelSeesImages;
+				const shotWantOcr = params.ocr ?? !shotModelSeesImages;
+				// Explicit ocr:false = "words deliberately unread" → block lazy
+				// target hydration for this capture (the documented contract:
+				// ocr:false clears targets, a click then refuses).
+				lastCaptureOcrOptOut = params.ocr === false;
 				let shotOcrText = "";
 				let shotOcrError: string | undefined;
 				let shotOcrMode: "native" | "upscaled" | undefined;
@@ -4196,7 +4226,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const shotTextParts = [
 					`Captured screenshot of ${shotTargetDesc} (saved to ${finalPath}).${frameNote}`,
 				];
-				if (shotOcrText && shotTextForVision) {
+				if (shotOcrText) {
 					shotTextParts.push(
 						`On-screen text (${shotOcrText.length} chars, tesseract ${shotOcrMode ?? "native"}):`,
 						shotOcrText.length > 8000 ? `${shotOcrText.slice(0, 8000)}\n…[truncated]` : shotOcrText,
@@ -4368,6 +4398,10 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			// textOnly means "words, not pixels" — it must imply OCR, otherwise a
 			// vision-default caller asking textOnly gets neither pixels nor text.
 			const wantOcr = params.ocr ?? (!modelSeesImages || textOnly);
+			// Explicit ocr:false on the eye = words deliberately unread →
+			// block lazy target hydration for this reading (contract: ocr:false
+			// clears targets, a click then refuses).
+			lastCaptureOcrOptOut = params.ocr === false;
 			const ocrMs0 = Date.now();
 
 			// ---- OCR every view concurrently; per-view text + click targets ----
