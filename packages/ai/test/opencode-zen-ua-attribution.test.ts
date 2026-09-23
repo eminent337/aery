@@ -79,8 +79,8 @@ describe("opencode-zen chat request attribution headers", () => {
 		expect(captured).toBeDefined();
 		const userAgent = captured?.["user-agent"] ?? captured?.["User-Agent"];
 		expect(userAgent).toContain("opencode/");
-		expect(userAgent).toContain("Aery/");
-		expect(captured?.["x-opencode-client"]).toBe("opencode");
+		expect(captured?.["x-opencode-client"]).toBe("cli");
+		expect(captured?.["x-opencode-session"]).toMatch(/^ses_[0-9a-f]{12}[0-9a-zA-Z]{14}$/);
 	});
 
 	it("does not stamp opencode headers onto other providers' chat requests", async () => {
@@ -124,16 +124,38 @@ describe("opencode-zen chat request attribution headers", () => {
 		expect(captured).toBeDefined();
 	});
 
-	it("createOpenCodeChatHeaders appends aery identity and optional identifiers", () => {
-		const headers = createOpenCodeChatHeaders({ sessionId: "sess-1", requestId: "req-1" });
-		expect(headers["User-Agent"]).toContain("opencode/");
-		expect(headers["User-Agent"]).toContain("Aery/");
-		expect(headers["x-opencode-client"]).toBe("opencode");
-		expect(headers["x-opencode-session"]).toBe("sess-1");
-		expect(headers["x-opencode-request"]).toBe("req-1");
+	it("createOpenCodeChatHeaders formats opencode UA, client cli, and timestamped IDs", () => {
+		const headers = createOpenCodeChatHeaders({ sessionId: "ses_custom", requestId: "msg_custom" });
+		expect(headers["User-Agent"]).toBe("opencode/1.18.18");
+		expect(headers["x-opencode-client"]).toBe("cli");
+		expect(headers["x-opencode-session"]).toBe("ses_custom");
+		expect(headers["x-opencode-request"]).toBe("msg_custom");
 
 		const bare = createOpenCodeChatHeaders();
-		expect(bare["x-opencode-session"]).toBeUndefined();
-		expect(bare["x-opencode-request"]).toBeUndefined();
+		expect(bare["x-opencode-session"]).toMatch(/^ses_[0-9a-f]{12}[0-9a-zA-Z]{14}$/);
+		expect(bare["x-opencode-request"]).toMatch(/^msg_[0-9a-f]{12}[0-9a-zA-Z]{14}$/);
+	});
+
+	it("injects required bash and read tools on opencode chat requests when tools are empty", async () => {
+		let capturedBody: string | undefined;
+		global.fetch = Object.assign(
+			async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+				capturedBody = typeof init?.body === "string" ? init.body : undefined;
+				return createSseResponse();
+			},
+			{ preconnect: originalFetch.preconnect },
+		) as unknown as typeof fetch;
+
+		const stream = streamOpenAICompletions(createZenChatModel("opencode-zen"), testContext, {
+			apiKey: "public",
+		});
+		await stream.result();
+
+		expect(capturedBody).toBeDefined();
+		const parsed = JSON.parse(capturedBody!);
+		expect(Array.isArray(parsed.tools)).toBe(true);
+		const names = parsed.tools.map((t: { function?: { name?: string } }) => t.function?.name);
+		expect(names).toContain("bash");
+		expect(names).toContain("read");
 	});
 });

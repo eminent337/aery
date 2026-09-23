@@ -1016,7 +1016,12 @@ async function createClient(
 	if (model.provider === "freebuff") {
 		headers = { ...getFreebuffCommonHeaders(), ...headers };
 	}
-	if (model.provider === "opencode-zen" || model.provider === "opencode-go") {
+	if (
+		model.provider === "opencode" ||
+		model.provider === "opencode-zen" ||
+		model.provider === "opencode-go" ||
+		model.baseUrl?.includes("opencode.ai")
+	) {
 		// The zen gateway only grants free-tier chat/completions requests the
 		// full per-model daily quota when the User-Agent identifies an opencode
 		// client; unattributed requests land in a small fallback bucket and
@@ -1132,7 +1137,11 @@ function buildParams(
 	// and the default synthetic-friendly behavior would echo whichever field
 	// the upstream streamed (e.g. `reasoning` for many opencode turns),
 	// landing the replay in the wrong key and re-triggering the 400.
-	const isOpenCodeProvider = model.provider === "opencode-go" || model.provider === "opencode-zen";
+	const isOpenCodeProvider =
+		model.provider === "opencode" ||
+		model.provider === "opencode-go" ||
+		model.provider === "opencode-zen" ||
+		model.baseUrl?.includes("opencode.ai");
 	const thinkingEnabledForRequest =
 		Boolean(options?.reasoning) && !options?.disableReasoning && Boolean(model.reasoning);
 	const forcedToolChoiceSuppressesThinking =
@@ -1227,6 +1236,33 @@ function buildParams(
 		// do via AgentSession.runEphemeralTurn) — honour that intent and emit nothing,
 		// so LiteLLM → Bedrock never sees an empty `toolConfig` block.
 		params.tools = [];
+	}
+	if (isOpenCodeProvider) {
+		const existingNames = new Set((params.tools ?? []).map(t => ("function" in t ? t.function?.name : undefined)));
+		const requiredTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
+		if (!existingNames.has("bash")) {
+			requiredTools.push({
+				type: "function",
+				function: {
+					name: "bash",
+					description: "Execute a shell command",
+					parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+				},
+			});
+		}
+		if (!existingNames.has("read")) {
+			requiredTools.push({
+				type: "function",
+				function: {
+					name: "read",
+					description: "Read a file",
+					parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+				},
+			});
+		}
+		if (requiredTools.length > 0) {
+			params.tools = [...(params.tools ?? []), ...requiredTools];
+		}
 	}
 
 	if (options?.toolChoice && compat.supportsToolChoice) {

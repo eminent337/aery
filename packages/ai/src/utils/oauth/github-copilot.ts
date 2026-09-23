@@ -2,17 +2,49 @@
  * GitHub Copilot OAuth flow (opencode OAuth app)
  */
 import { scheduler } from "node:timers/promises";
-import packageJson from "../../../package.json" with { type: "json" };
 import { getBundledModels } from "../../models";
 import type { OAuthCredentials } from "./types";
 
 const CLIENT_ID = "Ov23li8tweQw6odWQebz";
 
 export const COPILOT_USER_AGENT = "opencode/1.3.15" as const;
+export const OPENCODE_USER_AGENT = "opencode/1.18.18" as const;
 
 export const OPENCODE_HEADERS = {
 	"User-Agent": COPILOT_USER_AGENT,
 } as const;
+
+const OPENCODE_ID_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+let lastOpenCodeTimestamp = 0;
+let openCodeCounter = 0;
+
+export function generateOpenCodeIdentifier(descending: boolean, timestamp = Date.now()): string {
+	if (timestamp !== lastOpenCodeTimestamp) {
+		lastOpenCodeTimestamp = timestamp;
+		openCodeCounter = 0;
+	}
+	openCodeCounter++;
+
+	const current = BigInt(timestamp) * 0x1000n + BigInt(openCodeCounter);
+	const value = descending ? ~current : current;
+	const timeHex = Array.from({ length: 6 }, (_, index) =>
+		Number((value >> BigInt(40 - 8 * index)) & 0xffn)
+			.toString(16)
+			.padStart(2, "0"),
+	).join("");
+
+	const randomBytes = crypto.getRandomValues(new Uint8Array(14));
+	const randomChars = Array.from(randomBytes, byte => OPENCODE_ID_CHARS[byte % 62]).join("");
+	return timeHex + randomChars;
+}
+
+export function generateOpenCodeSessionId(timestamp = Date.now()): string {
+	return `ses_${generateOpenCodeIdentifier(true, timestamp)}`;
+}
+
+export function generateOpenCodeRequestId(timestamp = Date.now()): string {
+	return `msg_${generateOpenCodeIdentifier(false, timestamp)}`;
+}
 
 /**
  * Attribution headers for chat requests to opencode-hosted gateways (zen,
@@ -32,11 +64,15 @@ export function createOpenCodeChatHeaders(identifiers?: {
 	requestId?: string;
 }): Record<string, string> {
 	const headers: Record<string, string> = {
-		"User-Agent": `${COPILOT_USER_AGENT} Aery/${packageJson.version}`,
-		"x-opencode-client": "opencode",
+		"User-Agent": OPENCODE_USER_AGENT,
+		"x-opencode-client": "cli",
+		"x-opencode-session": identifiers?.sessionId?.startsWith("ses_")
+			? identifiers.sessionId
+			: generateOpenCodeSessionId(),
+		"x-opencode-request": identifiers?.requestId?.startsWith("msg_")
+			? identifiers.requestId
+			: generateOpenCodeRequestId(),
 	};
-	if (identifiers?.sessionId) headers["x-opencode-session"] = identifiers.sessionId;
-	if (identifiers?.requestId) headers["x-opencode-request"] = identifiers.requestId;
 	return headers;
 }
 

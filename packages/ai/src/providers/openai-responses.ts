@@ -358,7 +358,12 @@ function createClient(
 	const rawApiKey = apiKey;
 
 	const headers = { ...(model.headers ?? {}), ...(extraHeaders ?? {}) };
-	if (model.provider === "opencode-zen" || model.provider === "opencode-go") {
+	const isOpenCodeProvider =
+		model.provider === "opencode" ||
+		model.provider === "opencode-zen" ||
+		model.provider === "opencode-go" ||
+		model.baseUrl?.includes("opencode.ai");
+	if (isOpenCodeProvider) {
 		// Mirror the opencode CLI's attribution headers. Only chat/completions
 		// enforces the UA gate today, but keep responses traffic attributed the
 		// same way in case the gateway extends the check (see
@@ -489,6 +494,36 @@ function buildParams(
 		// the spec requires — but the platform API offers no finer knob.
 		if (params.tools.some(t => (t as { type?: string }).type === "custom")) {
 			params.parallel_tool_calls = false;
+		}
+	}
+	const isOpenCodeProvider =
+		model.provider === "opencode" ||
+		model.provider === "opencode-zen" ||
+		model.provider === "opencode-go" ||
+		model.baseUrl?.includes("opencode.ai");
+	if (isOpenCodeProvider) {
+		const existingNames = new Set((params.tools ?? []).map(t => (t as { name?: string }).name));
+		const requiredTools: OpenAITool[] = [];
+		if (!existingNames.has("bash")) {
+			requiredTools.push({
+				type: "function",
+				name: "bash",
+				description: "Execute a shell command",
+				parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+				strict: null,
+			} as unknown as OpenAITool);
+		}
+		if (!existingNames.has("read")) {
+			requiredTools.push({
+				type: "function",
+				name: "read",
+				description: "Read a file",
+				parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+				strict: null,
+			} as unknown as OpenAITool);
+		}
+		if (requiredTools.length > 0) {
+			params.tools = [...(params.tools ?? []), ...requiredTools];
 		}
 	}
 

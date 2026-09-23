@@ -57,7 +57,7 @@ import { isFoundryEnabled } from "../utils/foundry";
 import { finalizeErrorMessage, type RawHttpRequestDump, rewriteCopilotError } from "../utils/http-inspector";
 import { getStreamFirstEventTimeoutMs, getStreamIdleTimeoutMs, iterateWithIdleTimeout } from "../utils/idle-iterator";
 import { parseJsonWithRepair, parseStreamingJson, parseStreamingJsonThrottled } from "../utils/json-parse";
-import { parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
+import { createOpenCodeChatHeaders, parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
 import { notifyProviderResponse } from "../utils/provider-response";
 import { isCopilotTransientModelError } from "../utils/retry";
 import { COMBINATOR_KEYS, NO_STRICT, normalizeSchemaForAnthropic, toolWireSchema } from "../utils/schema";
@@ -1956,14 +1956,26 @@ export function buildAnthropicClientOptions(args: AnthropicClientOptionsArgs): A
 
 	// OpenCode's Anthropic-compatible gateway accepts bearer auth only; leaving
 	// apiKey set lets the SDK add X-Api-Key, which upstream Alibaba rejects.
-	if (model.provider === "opencode-go" || model.provider === "opencode-zen") {
+	if (
+		model.provider === "opencode" ||
+		model.provider === "opencode-go" ||
+		model.provider === "opencode-zen" ||
+		baseUrl?.includes("opencode.ai")
+	) {
+		const opencodeHeaders: Record<string, string> = {
+			...createOpenCodeChatHeaders(),
+			...defaultHeaders,
+		};
+		if (apiKey) {
+			opencodeHeaders.authorization = `Bearer ${apiKey}`;
+		}
 		return {
 			isOAuthToken: false,
 			apiKey: null,
 			authToken: null,
 			baseURL: baseUrl,
 			maxRetries: 5,
-			defaultHeaders,
+			defaultHeaders: opencodeHeaders,
 			...(debugFetch ? { fetch: debugFetch } : {}),
 			...(tlsFetchOptions ? { fetchOptions: tlsFetchOptions } : {}),
 		};

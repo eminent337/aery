@@ -101,10 +101,15 @@ export function detectOpenAICompat(model: Model<"openai-completions">, resolvedB
 		isZhipu ||
 		isKilo ||
 		isQwen ||
+		provider === "opencode" ||
 		provider === "opencode-zen" ||
 		provider === "opencode-go" ||
 		baseUrl.includes("opencode.ai");
-	const isOpenCodeProvider = provider === "opencode-go" || provider === "opencode-zen";
+	const isOpenCodeProvider =
+		provider === "opencode" ||
+		provider === "opencode-go" ||
+		provider === "opencode-zen" ||
+		baseUrl.includes("opencode.ai");
 
 	const useMaxTokens =
 		provider === "mistral" ||
