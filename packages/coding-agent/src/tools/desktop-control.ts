@@ -209,6 +209,12 @@ const desktopControlSchema = z.object({
 		.describe(
 			"For 'live_move': 2-64 waypoints traversed as ONE continuous, paced glide in a single call (frame px of the last eye/screenshot — same space as 'x'/'y'). Mutually exclusive with x/y. The pointer eases off the current position, keeps even speed ACROSS waypoints (no stop-and-start at each one), settles onto the final point, and is cursor-verified there (Δ≤2px). One focus/freshness guard and one verify frame for the whole journey.",
 		),
+	pace: z
+		.enum(["brisk", "natural", "deliberate"])
+		.optional()
+		.describe(
+			"Only with 'path' on 'live_move': how hard the continuous glide works. 'brisk' (shortest hops, tightest cap) for quick point-to-point hops, 'natural' (default — the shipped even, unhurried pace), 'deliberate' (slower ground speed, wider corner easing, longer cap) for careful tracing or when the user is watching. Every pace still eases off the start, turns smoothly through every waypoint, settles onto the final point, and is cursor-verified there (Δ≤2px).",
+		),
 	target2: z
 		.string()
 		.optional()
@@ -372,6 +378,13 @@ const desktopControlSchema = z.object({
 			}
 			if (params.target !== undefined) {
 				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["path"], message: "pass either path or target, not both." });
+			}
+		}
+		if (params.pace !== undefined) {
+			if (params.path === undefined) {
+				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pace"], message: "pace is supported only together with path." });
+			} else if (params.action !== "live_move") {
+				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pace"], message: "pace is supported only for live_move." });
 			}
 		}
 	});
@@ -1485,6 +1498,30 @@ export interface LivePathHop {
 	gapMs: number;
 }
 
+/** Pacing profile for a continuous path glide. The `natural` entry is the
+ *  shipped default and MUST stay byte-identical to the pre-pace behavior
+ *  (hopPx 24 / gapMs 16 / maxTotalMs 4000 / spawnMs 18) so existing callers,
+ *  tests, and the byte-identical port are unaffected. */
+export interface LivePathPace {
+	/** Target px between rendered hops. */
+	hopPx: number;
+	/** Dwell between hops away from waypoints. */
+	gapMs: number;
+	/** Wall-clock cap for the whole glide incl. per-step injection overhead. */
+	maxTotalMs: number;
+	/** Extra px around each waypoint that get clustered samples + slower pacing,
+	 *  so the direction change happens at near-zero ground speed (a hand
+	 *  easing through a turn) instead of an instant full-speed flip. */
+	cornerPx: number;
+}
+
+const LIVE_PATH_PACES: Record<"brisk" | "natural" | "deliberate", LivePathPace> = {
+	brisk: { hopPx: 30, gapMs: 10, maxTotalMs: 2600, cornerPx: 16 },
+	// Shipped defaults — do not change these numbers.
+	natural: { hopPx: 24, gapMs: 16, maxTotalMs: 4000, cornerPx: 24 },
+	deliberate: { hopPx: 16, gapMs: 24, maxTotalMs: 8000, cornerPx: 40 },
+};
+
 export interface LivePathOptions {
 	/** Target px between rendered hops (default 24). Budgeting may grow it. */
 	hopPx?: number;
@@ -1496,30 +1533,55 @@ export interface LivePathOptions {
 	maxTotalMs?: number;
 	/** Estimated per-step spawn overhead used only for budgeting (default 18ms — measured hyprctl round-trip). */
 	spawnMs?: number;
+	/** Pacing profile name. When absent, explicit opts (or their defaults) win;
+	 *  when present, the profile supplies hopPx/gapMs/maxTotalMs/cornerPx
+	 *  and explicit opts still override per-key. */
+	pace?: "brisk" | "natural" | "deliberate";
+	/** Extra px around each waypoint that get clustered samples + slower pacing. */
+	cornerPx?: number;
+}
+
+/** Resolve a pace name to its profile (default 'natural' = shipped constants). */
+export function livePathPace(name: "brisk" | "natural" | "deliberate" | undefined): LivePathPace {
+	return LIVE_PATH_PACES[name ?? "natural"] ?? LIVE_PATH_PACES.natural;
 }
 
 /**
  * Continuous multi-waypoint trajectory (pure — exported for tests).
  *
- * Walks the polyline `from → ...waypoints` as ONE journey: arc-length
- * sampling keeps ground speed even ACROSS segment corners (the pointer
- * sweeps through a waypoint instead of stopping and restarting there —
- * no per-segment teleport seams like chaining liveAimGlide would make).
- * A smoothstep warp over the whole run eases off the start and settles
- * onto the final point (fast middle, gentle landing), and the last hop is
- * always exactly the final waypoint rounded. Budget: hops scale up (with
- * gapMs floor of 8) until N×(gap+spawn) fits `maxTotalMs`, so long paths
- * stay a single snappy call. Round-trip: every returned hop is integer px.
+ * Walks the polyline `from → ...waypoints` as ONE journey. A smoothstep warp
+ * over the whole run eases off the start and settles onto the final point
+ * (fast middle, gentle landing), and the last hop is always exactly the final
+ * waypoint rounded.
+ *
+ * Corner feel: a polyline is only a sequence of straight segments, so an
+ * even arc-length sampling still flips DIRECTION at full speed on every
+ * waypoint — that instant flip is what reads as robotic. (A curve cannot be
+ * tangent to both segments while also passing exactly through the vertex,
+ * so true fillets are not available here.) Instead every waypoint gets an
+ * EXACT sample — the path is never cut and no waypoint is skipped — plus
+ * clustered samples within `cornerPx` of it whose per-hop dwell is tapered
+ * UP, so the direction change happens at near-zero ground speed the way a
+ * hand eases through a turn. Straights keep the even base speed.
+ *
+ * Budget: hop count, corner clustering, and the dwell taper all shrink (in
+ * that order) until N×(gap+spawn) fits `maxTotalMs`; for an absurdly long
+ * path the wall-clock cap wins over the hop bound, so hops grow rather than
+ * letting a call hang. Round-trip: every returned hop is integer px.
  */
 export function livePathTrajectory(
 	from: { x: number; y: number },
 	waypoints: Array<{ x: number; y: number }>,
 	opts: LivePathOptions = {},
 ): LivePathHop[] {
-	const hopPx = Math.max(4, opts.hopPx ?? 24);
-	const gapMs = Math.max(8, opts.gapMs ?? 16);
-	const maxTotalMs = Math.max(200, opts.maxTotalMs ?? 4000);
+	const profile = livePathPace(opts.pace);
+	let hopPx = Math.max(4, opts.hopPx ?? profile.hopPx);
+	const gapMs = Math.max(8, opts.gapMs ?? profile.gapMs);
+	const maxTotalMs = Math.max(200, opts.maxTotalMs ?? profile.maxTotalMs);
 	const spawnMs = Math.max(0, opts.spawnMs ?? 18);
+	// Cluster radius is capped at the hop bound so a corner sample pair can
+	// never itself violate the hop bound.
+	const cornerPx = Math.max(0, Math.min(opts.cornerPx ?? profile.cornerPx, hopPx * 2));
 	// Polyline in integer px, dropping consecutive duplicates (<1px apart).
 	const pts: Array<{ x: number; y: number }> = [{ x: Math.round(from.x), y: Math.round(from.y) }];
 	for (const w of waypoints) {
@@ -1527,24 +1589,19 @@ export function livePathTrajectory(
 		if (Math.hypot(p.x - pts[pts.length - 1].x, p.y - pts[pts.length - 1].y) >= 1) pts.push(p);
 	}
 	const final = pts[pts.length - 1];
-	// Cumulative arc lengths for constant-speed sampling along the polyline.
+	// Cumulative arc lengths for even-speed sampling along the polyline.
 	const segLens: number[] = [];
+	const arcAtVertex: number[] = [];
 	let total = 0;
 	for (let i = 1; i < pts.length; i++) {
 		const l = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
 		segLens.push(l);
 		total += l;
+		arcAtVertex.push(total);
 	}
 	if (total < 1) return [{ x: final.x, y: final.y, gapMs }];
-	// Sample count: smoothstep peaks at 1.5× mean speed, so budget hops off
-	// that peak to keep every rendered hop ≤ hopPx; then scale up until the
-	// journey fits the wall-clock cap (gap can't go below 8ms).
-	let n = Math.max(2, Math.ceil((1.5 * total) / hopPx));
-	let gap = gapMs;
-	while (n * (gap + spawnMs) > maxTotalMs && gap > 8) gap = Math.max(8, gap - 4);
-	while (n * (gap + spawnMs) > maxTotalMs) n = Math.max(2, Math.ceil(n * 0.85));
 	const atArc = (s: number): { x: number; y: number } => {
-		let rem = s;
+		let rem = Math.max(0, Math.min(s, total));
 		for (let i = 0; i < segLens.length; i++) {
 			if (rem <= segLens[i] || i === segLens.length - 1) {
 				const t = segLens[i] === 0 ? 1 : Math.min(1, rem / segLens[i]);
@@ -1557,18 +1614,113 @@ export function livePathTrajectory(
 		}
 		return { x: final.x, y: final.y };
 	};
-	const hops: LivePathHop[] = [];
-	for (let i = 1; i <= n; i++) {
-		const u = i / n;
-		const eased = u * u * (3 - 2 * u); // smoothstep: soft start, soft landing
-		const p = i === n ? final : atArc(eased * total);
-		const q = { x: Math.round(p.x), y: Math.round(p.y) };
-		const prev = hops[hops.length - 1];
-		if (prev && prev.x === q.x && prev.y === q.y) {
-			prev.gapMs += gap; // rounded duplicate — keep the pacing, skip the warp
-			continue;
+	// Sample set + pacing, then a compression ladder (documented below) that
+	// shrinks the journey until the REAL emitted cost fits `maxTotalMs`.
+	// hopPx is mutable because the ladder widens it in lockstep with density.
+	const interior = arcAtVertex.slice(0, -1);
+	const build = (n: number, gap: number, radius: number, boostScale: number): LivePathHop[] => {
+		const arcs: number[] = [0];
+		for (let i = 1; i <= n; i++) {
+			const u = i / n;
+			arcs.push(i === n ? total : u * u * (3 - 2 * u) * total); // smoothstep
 		}
-		hops.push({ x: q.x, y: q.y, gapMs: gap });
+		const clusterStep = radius > 0 ? Math.min(hopPx, radius / 2) : 0;
+		for (const s of interior) {
+			if (clusterStep > 0) {
+				for (let d = clusterStep; d <= radius + 1e-6; d += clusterStep) {
+					if (s - d > 0) arcs.push(s - d);
+					if (s + d < total) arcs.push(s + d);
+				}
+			}
+			arcs.push(s); // exact waypoint sample — never cut, never skip
+		}
+		arcs.sort((a, b) => a - b);
+		// Dwell taper: a hop whose midpoint sits inside a corner zone gets a
+		// longer dwell (1× the base at the waypoint → 0 boost at the zone edge),
+		// so ground speed dips through the turn while straights stay even.
+		const boost = gap * boostScale;
+		const hopGap = (arcA: number, arcB: number): number => {
+			if (radius <= 0 || boostScale <= 0) return gap;
+			const mid = (arcA + arcB) / 2;
+			let w = 0;
+			for (const s of interior) {
+				const d = Math.abs(mid - s);
+				if (d < radius) w = Math.max(w, 1 - d / radius);
+			}
+			return Math.round(gap + boost * w);
+		};
+		const hops: LivePathHop[] = [];
+		let prevArc = 0;
+		for (let i = 1; i < arcs.length; i++) {
+			const s = arcs[i]!;
+			if (s - prevArc < 0.5) continue; // dedupe near-identical arc positions
+			const p = s >= total ? final : atArc(s);
+			const q = { x: Math.round(p.x), y: Math.round(p.y) };
+			const dwell = hopGap(prevArc, s);
+			const prev = hops[hops.length - 1];
+			if (prev && prev.x === q.x && prev.y === q.y) {
+				prev.gapMs += dwell; // rounded duplicate — keep the pacing, skip the warp
+			} else {
+				hops.push({ x: q.x, y: q.y, gapMs: dwell });
+			}
+			prevArc = s;
+		}
+		return hops;
+	};
+	const cost = (hops: LivePathHop[]): number => hops.reduce((sum, h) => sum + h.gapMs + spawnMs, 0);
+	// Base density from the even (smoothstep-warped) sampling the shipped
+	// feature used; the ladder only ever makes it sparser.
+	let n = Math.max(2, Math.ceil((1.5 * total) / hopPx));
+	let gap = gapMs;
+	let radius = cornerPx;
+	let boostScale = 3;
+	let hops = build(n, gap, radius, boostScale);
+	// Compression ladder, cheapest sacrifice first.
+	//
+	// Note on the hop bound: the even base sampling needs
+	// n ≥ 1.5·total/hopPx for the smoothstep's 1.5× mid-run peak to keep every
+	// rendered hop within hopPx. So reducing density to fit the cap NECESSARILY
+	// widens the spacing — cap and bound cannot both hold for a very long
+	// path. The ladder therefore spends the cheap rungs first and only gives
+	// up the bound as a last resort (tracked explicitly in hopPx, never
+	// silently):
+	//   1. corner cluster radius — the extra samples that give the taper fine
+	//      spatial resolution (the taper itself survives: a turn still slows)
+	//   2. the gap floor — slower straights, still even
+	//   3. base density — widens the hop bound
+	//   4. the dwell taper — the easing itself, only on paths too long for
+	//      anything else to fit
+	//   5. oversized hops — a call can never hang
+	// Radius halves in WHOLE pixels (a float halving never reaches 0 and
+	// would keep the cluster loop iterating at denormal steps), floor 2 → 0.
+	while (cost(hops) > maxTotalMs && radius >= 2) {
+		radius = Math.floor(radius / 2);
+		hops = build(n, gap, radius, boostScale);
+	}
+	if (cost(hops) > maxTotalMs && radius > 0) {
+		radius = 0; // exact waypoint samples only
+		hops = build(n, gap, radius, boostScale);
+	}
+	while (cost(hops) > maxTotalMs && gap > 8) {
+		gap = Math.max(8, gap - 4);
+		hops = build(n, gap, radius, boostScale);
+	}
+	// Density (and with it the hop bound) is now the next-cheapest thing to
+	// give: hopPx moves as one with n so the reported bound always matches the
+	// spacing actually emitted.
+	while (cost(hops) > maxTotalMs && n > 2) {
+		n = Math.max(2, Math.ceil(n * 0.85));
+		hopPx = Math.max(hopPx, Math.ceil((1.5 * total) / n));
+		hops = build(n, gap, radius, boostScale);
+	}
+	while (cost(hops) > maxTotalMs && boostScale > 0) {
+		boostScale -= 1;
+		hops = build(n, gap, radius, boostScale);
+	}
+	// Last rung: oversized hops rather than a call that hangs.
+	while (cost(hops) > maxTotalMs && n > 1) {
+		n = Math.max(1, Math.ceil(n * 0.7));
+		hops = build(n, gap, radius, boostScale);
 	}
 	return hops;
 }
@@ -2090,6 +2242,7 @@ export function validateInjection(params: {
 	x2?: number;
 	y2?: number;
 	path?: Array<{ x: number; y: number }>;
+	pace?: "brisk" | "natural" | "deliberate";
 	target?: string;
 	keys?: string;
 	modifiers?: unknown;
@@ -2112,6 +2265,15 @@ export function validateInjection(params: {
 	}
 	if (params.path !== undefined && params.target !== undefined) {
 		return { ok: false, error: "Pass either path (waypoint glide) or target, not both.", code: "path_xor_target" };
+	}
+	// pace only means something for a live_move path glide.
+	if (params.pace !== undefined) {
+		if (params.path === undefined) {
+			return { ok: false, error: "'pace' only applies to a continuous path glide — pass it with 'path'.", code: "pace_needs_path" };
+		}
+		if (params.action !== "live_move") {
+			return { ok: false, error: "'pace' is only supported on live_move.", code: "pace_wrong_action" };
+		}
 	}
 	// Restricted-app check needs the window — represented here by class/title
 	// passed via keys-free params; the live path re-checks with the real win.
@@ -3002,6 +3164,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		x2: params.x2,
 		y2: params.y2,
 		path: params.path,
+		pace: params.pace,
 		target: params.target,
 		keys: params.keys,
 		modifiers: params.modifiers,
@@ -3039,7 +3202,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			} catch {
 				// cursor read unsupported — begin at waypoint 0
 			}
-			const hops = livePathTrajectory(start, targets);
+			const hops = livePathTrajectory(start, targets, { pace: params.pace });
 			// ONE focus guard for the whole journey (per spec) — hops are pure
 			// pointer moves (hyprctl movecursor / absolute warp), so no input can
 			// leak even if focus changes mid-run; the landing is still grounded

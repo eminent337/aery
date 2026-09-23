@@ -47,11 +47,17 @@ Desktop screen vision and window manager tool. Takes full-screen or window-targe
   named window) and report which window received the keys. 'no_keyboard_target'
   means nothing was focusable — screenshot, launch the app, and retry.
 - Crossing the screen or tracing a route? Glide there as ONE motion — 'live_move'
-  with 'path' (2-64 frame-px waypoints) eases off the current cursor, keeps even
-  speed ACROSS waypoints (no stop-and-start between them), settles onto the final
-  point and cursor-verifies it (Δ≤2px): a single focus/freshness guard and one
-  verify frame for the whole journey. Plain x/y stays a single eased aim. 'path'
-  mixes with neither x/y nor target.
+  with 'path' (2-64 frame-px waypoints) eases off the current cursor, sweeps
+  through EVERY waypoint (never cutting a corner), eases through each turn
+  instead of snapping direction at full speed, settles onto the final point and
+  cursor-verifies it (Δ≤2px): a single focus/freshness guard and one verify
+  frame for the whole journey. Plain x/y stays a single eased aim. 'path' mixes
+  with neither x/y nor target.
+- Set 'pace' with 'path' to choose the effort: 'brisk' for quick hops,
+  'natural' (default) for the even unhurried glide, 'deliberate' when the user
+  is watching or you want careful tracing — it slows the straights and widens
+  the turn easing. Every pace stays wall-clock capped (on a very long route the
+  cap wins over the easing, so it never hangs). 'pace' without 'path' is refused.
 - 'verify: true' (default) attaches a follow-up capture after live_* input so you
   can self-correct; keep it on for multi-step flows.
 - 'textOnly'/'ocr:false' skip the image read when you only need words; 'maxWidth'/
@@ -68,6 +74,8 @@ Desktop screen vision and window manager tool. Takes full-screen or window-targe
 `xvfb_key {"keys":"alt+F4"}` / `xvfb_key {"keys":"Return"}` when a button's OCR box drifted
 # One continuous, paced glide across the screen (not N separate moves)
 `live_move {"path":[{"x":60,"y":690},{"x":640,"y":360},{"x":1200,"y":80}]}`
+# Slower, more deliberate tracing when the user is watching (corners ease through)
+`live_move {"path":[{"x":60,"y":690},{"x":640,"y":360},{"x":1200,"y":80}],"pace":"deliberate"}`
 
 # A step needs the user's password — project it and hand over
 `xvfb_launch {"command":"sudo apt upgrade"}` → prompt appears

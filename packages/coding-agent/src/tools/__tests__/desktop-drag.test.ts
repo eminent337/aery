@@ -155,6 +155,48 @@ describe("continuous path glide validation", () => {
 	});
 });
 
+describe("pace parameter validation", () => {
+	const PATH = [
+		{ x: 10, y: 10 },
+		{ x: 400, y: 300 },
+		{ x: 900, y: 700 },
+	];
+	const BASE = { action: "live_move" as const, path: PATH, frame: FRAME, focusedAddress: "win1" };
+
+	test("schema accepts the three paces on live_move and defaults to natural", () => {
+		for (const pace of ["brisk", "natural", "deliberate"] as const) {
+			expect(schema.parse({ action: "live_move", path: PATH, pace }).pace).toBe(pace);
+		}
+		expect(schema.parse({ action: "live_move", path: PATH }).pace).toBeUndefined();
+		expect(schema.safeParse({ action: "live_move", path: PATH, pace: "ludicrous" }).success).toBe(false);
+	});
+
+	test("schema refuses pace without path and on other actions", () => {
+		expect(schema.safeParse({ action: "live_move", x: 5, y: 5, pace: "brisk" }).success).toBe(false);
+		expect(schema.safeParse({ action: "live_click", x: 5, y: 5, pace: "brisk" }).success).toBe(false);
+	});
+
+	test("runtime enforces pace without path and on other actions when schema is bypassed", () => {
+		expect(validateInjection({ action: "live_move", x: 5, y: 5, frame: FRAME, focusedAddress: "win1", pace: "brisk" })).toMatchObject({
+			ok: false,
+			code: "pace_needs_path",
+		});
+		// With a path present on a non-live_move action, the path guard fires
+		// first (pace_wrong_action is the unreachable-behind-it fallback —
+		// defense in depth, both refuse).
+		expect(validateInjection({ ...BASE, action: "live_click", pace: "natural" })).toMatchObject({
+			ok: false,
+			code: "path_wrong_action",
+		});
+	});
+
+	test("runtime accepts each pace with a path", () => {
+		for (const pace of ["brisk", "natural", "deliberate"] as const) {
+			expect(validateInjection({ ...BASE, pace })).toEqual({ ok: true });
+		}
+	});
+});
+
 describe("immediate focused-window guard", () => {
 	test("allows an input batch only when the exact Hyprland address still matches", () => {
 		expect(focusGuardRefusal("0xexpected", { address: "0xexpected", class: "brave-browser", title: "Bench" })).toBeNull();

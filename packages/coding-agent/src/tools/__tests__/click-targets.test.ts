@@ -5,6 +5,7 @@ import {
 	formatClickTargets,
 	isJunkTargetWord,
 	liveAimGlide,
+	livePathPace,
 	livePathTrajectory,
 	rememberClickTargets,
 	resolveClickTarget,
@@ -243,5 +244,155 @@ describe("continuous path: livePathTrajectory", () => {
 		expect(livePathTrajectory({ x: 5, y: 5 }, [{ x: 5, y: 5 }, { x: 5, y: 5 }])).toEqual([
 			{ x: 5, y: 5, gapMs: 16 },
 		]);
+	});
+});
+
+describe("continuous path: pace profiles and corner easing", () => {
+	const L = (x: number, y: number) => ({ x, y });
+	const dwellOf = (hops: Array<{ gapMs: number }>) => hops.reduce((s, h) => s + h.gapMs, 0);
+	const L_SHAPE = [L(200, 100), L(700, 100), L(700, 600), L(200, 600)];
+
+	test("natural is the default and carries the shipped constants exactly", () => {
+		expect(livePathPace(undefined)).toEqual({ hopPx: 24, gapMs: 16, maxTotalMs: 4000, cornerPx: 24 });
+		expect(livePathPace("natural")).toEqual({ hopPx: 24, gapMs: 16, maxTotalMs: 4000, cornerPx: 24 });
+	});
+
+	test("an omitted pace emits exactly what the pre-pace default emitted", () => {
+		// No pace AND pace:"natural" must agree hop for hop — that is the
+		// backward-compatibility guarantee for already-shipped callers.
+		const a = livePathTrajectory(L(0, 0), L_SHAPE);
+		const b = livePathTrajectory(L(0, 0), L_SHAPE, { pace: "natural" });
+		expect(b).toEqual(a);
+	});
+
+	test("deliberate is measurably slower than natural but lands exactly", () => {
+		const from = L(0, 0);
+		const natural = livePathTrajectory(from, L_SHAPE, { pace: "natural" });
+		const deliberate = livePathTrajectory(from, L_SHAPE, { pace: "deliberate" });
+		expect(dwellOf(deliberate)).toBeGreaterThan(dwellOf(natural) * 1.5);
+		const last = deliberate[deliberate.length - 1];
+		expect(last.x).toBe(200);
+		expect(last.y).toBe(600);
+	});
+
+	test("brisk is the quickest of the three", () => {
+		const from = L(0, 0);
+		const brisk = dwellOf(livePathTrajectory(from, L_SHAPE, { pace: "brisk" }));
+		const natural = dwellOf(livePathTrajectory(from, L_SHAPE, { pace: "natural" }));
+		const deliberate = dwellOf(livePathTrajectory(from, L_SHAPE, { pace: "deliberate" }));
+		expect(brisk).toBeLessThan(natural);
+		expect(natural).toBeLessThan(deliberate);
+	});
+
+	for (const pace of ["brisk", "natural", "deliberate"] as const) {
+		test(`${pace}: every waypoint is an EXACT emitted hop (never cut, never skipped)`, () => {
+			const from = L(30, 40);
+			const hops = livePathTrajectory(from, L_SHAPE, { pace });
+			for (const w of L_SHAPE) {
+				expect(hops.some(h => h.x === w.x && h.y === w.y)).toBe(true);
+			}
+		});
+
+		test(`${pace}: hops are integer px, bounded, and land exactly on the final waypoint`, () => {
+			const from = L(30, 40);
+			const hops = livePathTrajectory(from, L_SHAPE, { pace });
+			const bound = livePathPace(pace).hopPx + 1;
+			let prev = from;
+			for (const h of hops) {
+				expect(Number.isInteger(h.x)).toBe(true);
+				expect(Number.isInteger(h.y)).toBe(true);
+				expect(Math.hypot(h.x - prev.x, h.y - prev.y)).toBeLessThanOrEqual(bound);
+				prev = h;
+			}
+			const last = hops[hops.length - 1]!;
+			expect(last.x).toBe(200);
+			expect(last.y).toBe(600);
+		});
+
+		test(`${pace}: total dwell stays within the pace's own cap`, () => {
+			const waypoints: Array<{ x: number; y: number }> = [];
+			for (let i = 0; i < 64; i++) waypoints.push(L(i % 2 ? 1900 : 20, 20 + i * 16));
+			const cap = livePathPace(pace).maxTotalMs;
+			const hops = livePathTrajectory(L(20, 20), waypoints, { pace });
+			expect(dwellOf(hops)).toBeLessThanOrEqual(cap);
+			const last = hops[hops.length - 1]!;
+			expect(last.x).toBe(waypoints[waypoints.length - 1]!.x);
+			expect(last.y).toBe(waypoints[waypoints.length - 1]!.y);
+		});
+	}
+
+	test("at a pace with budget for easing, the turn slows well below the straights", () => {
+		// 'deliberate' (8000ms cap) is the pace that guarantees the corner
+		// easing. The signature is a Dwell RAMP into each waypoint: gaps climb
+		// from the base toward the waypoint and fall back after it, so the
+		// slowest hops in the journey are the turn cores. Compare the slowest
+		// hop AT each interior waypoint against the fastest hop on a
+		// mid-straight — the entry/exit ramps are part of the design, not
+		// "straights".
+		const from = L(0, 0);
+		const hops = livePathTrajectory(from, L_SHAPE, { pace: "deliberate" });
+		const base = livePathPace("deliberate").gapMs;
+		// Fastest hop that sits at the base dwell AND is away from every
+		// waypoint taper zone — i.e. a genuinely full-speed straight hop.
+		let fastestStraight = 0;
+		for (let i = 0; i < hops.length; i++) {
+			const h = hops[i]!;
+			if (h.gapMs > base) continue; // in a taper zone
+			const d = Math.hypot(h.x - from.x, h.y - from.y);
+			if (L_SHAPE.some(w => Math.hypot(h.x - w.x, h.y - w.y) < livePathPace("deliberate").cornerPx + 20)) continue;
+			const a = i === 0 ? from : hops[i - 1]!;
+			fastestStraight = Math.max(fastestStraight, Math.hypot(h.x - a.x, h.y - a.y) / (h.gapMs + 18));
+		}
+		expect(fastestStraight).toBeGreaterThan(0);
+		// Slowest hop sitting exactly on an interior waypoint.
+		let slowestTurn = Infinity;
+		for (const w of L_SHAPE.slice(0, -1)) {
+			const on = hops.find(h => h.x === w.x && h.y === w.y);
+			expect(on).toBeDefined();
+			slowestTurn = Math.min(slowestTurn, on!.gapMs);
+		}
+		expect(slowestTurn).toBeGreaterThan(base * 2);
+		// ... and the turn-core speed is below the fastest straight speed.
+		const turnSpeed = livePathPace("deliberate").hopPx / (slowestTurn + 18);
+		expect(turnSpeed).toBeLessThan(fastestStraight);
+	});
+
+	test("a deliberately tight cap wins over the easing, never the other way round", () => {
+		// Documented tradeoff: for a path long enough that easing would blow
+		// the wall-clock cap, the cap wins — the glide gets faster and coarser
+		// rather than hanging. Asserted so the tradeoff can't drift silently.
+		const tight = livePathTrajectory(L(0, 0), L_SHAPE, { pace: "natural", maxTotalMs: 1200 });
+		const eased = livePathTrajectory(L(0, 0), L_SHAPE, { pace: "natural", maxTotalMs: 1200, cornerPx: 0 });
+		expect(dwellOf(tight)).toBeLessThanOrEqual(1200);
+		expect(tight.length).toBeLessThanOrEqual(eased.length + 2);
+		const last = tight[tight.length - 1]!;
+		expect(last.x).toBe(200);
+		expect(last.y).toBe(600);
+	});
+
+	test("the corner slowdown is confined to a bounded neighborhood of the waypoint", () => {
+		const hops = livePathTrajectory(L(0, 0), L_SHAPE, { pace: "deliberate" });
+		const base = livePathPace("deliberate").gapMs;
+		const slowed = hops.filter(h => h.gapMs > base + 1);
+		expect(slowed.length).toBeGreaterThan(0);
+		// Every slowed hop is within one corner radius of a waypoint.
+		const radius = livePathPace("natural").cornerPx;
+		for (const h of slowed) {
+			const near = L_SHAPE.some(w => Math.hypot(h.x - w.x, h.y - w.y) <= radius + livePathPace("natural").hopPx);
+			expect(near).toBe(true);
+		}
+	});
+
+	test("all hops stay inside the frame bounding box (fills never leave the path)", () => {
+		const xs = [30, 700, 700, 200];
+		const ys = [40, 100, 600, 600];
+		for (const pace of ["brisk", "natural", "deliberate"] as const) {
+			for (const h of livePathTrajectory(L(30, 40), L_SHAPE, { pace })) {
+				expect(h.x).toBeGreaterThanOrEqual(Math.min(...xs) - 1);
+				expect(h.x).toBeLessThanOrEqual(Math.max(...xs) + 1);
+				expect(h.y).toBeGreaterThanOrEqual(Math.min(...ys) - 1);
+				expect(h.y).toBeLessThanOrEqual(Math.max(...ys) + 1);
+			}
+		}
 	});
 });
