@@ -104,6 +104,57 @@ describe("Shift drag preserves frame and endpoint guardrails", () => {
 	});
 });
 
+describe("continuous path glide validation", () => {
+	const PATH = [
+		{ x: 10, y: 10 },
+		{ x: 400, y: 300 },
+		{ x: 900, y: 700 },
+	];
+	const BASE = { action: "live_move" as const, path: PATH, frame: FRAME, focusedAddress: "win1" };
+
+	test("schema accepts 2-64 waypoints on live_move only", () => {
+		expect(schema.parse({ action: "live_move", path: PATH }).path).toEqual(PATH);
+		expect(schema.safeParse({ action: "live_move", path: [{ x: 1, y: 1 }] }).success).toBe(false);
+		expect(
+			schema.safeParse({ action: "live_move", path: Array.from({ length: 65 }, (_, i) => ({ x: 1, y: i })) }).success,
+		).toBe(false);
+		expect(schema.safeParse({ action: "live_click", path: PATH }).success).toBe(false);
+	});
+
+	test("schema refuses path mixed with x/y or target", () => {
+		expect(schema.safeParse({ action: "live_move", path: PATH, x: 5 }).success).toBe(false);
+		expect(schema.safeParse({ action: "live_move", path: PATH, y: 5 }).success).toBe(false);
+		expect(schema.safeParse({ action: "live_move", path: PATH, target: "Send" }).success).toBe(false);
+	});
+
+	test("runtime accepts an all-in-bounds path with no single tx/ty", () => {
+		expect(validateInjection(BASE)).toEqual({ ok: true });
+	});
+
+	test("runtime enforces the same exclusivity when schema parsing is bypassed", () => {
+		expect(validateInjection({ ...BASE, action: "live_click" })).toMatchObject({ ok: false, code: "path_wrong_action" });
+		expect(validateInjection({ ...BASE, x: 5 })).toMatchObject({ ok: false, code: "path_xor_xy" });
+		expect(validateInjection({ ...BASE, y: 5 })).toMatchObject({ ok: false, code: "path_xor_xy" });
+		expect(validateInjection({ ...BASE, target: "Compose" })).toMatchObject({ ok: false, code: "path_xor_target" });
+	});
+
+	test("bounds-checks every waypoint fail-closed", () => {
+		expect(validateInjection({ ...BASE, path: [PATH[0]!, { x: -1, y: 5 }] })).toMatchObject({ ok: false, code: "out_of_bounds" });
+		expect(validateInjection({ ...BASE, path: [PATH[0]!, { x: 5, y: FRAME.scaledH }] })).toMatchObject({
+			ok: false,
+			code: "out_of_bounds",
+		});
+		expect(validateInjection({ ...BASE, path: [PATH[0]!, { x: FRAME.scaledW - 1, y: FRAME.scaledH - 1 }] })).toEqual({
+			ok: true,
+		});
+	});
+
+	test("refuses a degenerate path when schema parsing is bypassed", () => {
+		expect(validateInjection({ ...BASE, path: [{ x: 5, y: 5 }] })).toMatchObject({ ok: false, code: "path_too_short" });
+		expect(validateInjection({ ...BASE, path: [] })).toMatchObject({ ok: false, code: "path_too_short" });
+	});
+});
+
 describe("immediate focused-window guard", () => {
 	test("allows an input batch only when the exact Hyprland address still matches", () => {
 		expect(focusGuardRefusal("0xexpected", { address: "0xexpected", class: "brave-browser", title: "Bench" })).toBeNull();

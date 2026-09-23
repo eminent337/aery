@@ -196,6 +196,19 @@ const desktopControlSchema = z.object({
 	y: z.number().int().optional().describe("Y pixel coordinate — see 'x'."),
 	x2: z.number().int().optional().describe("End X pixel coordinate for 'live_drag' (same frame as 'x') or 'xvfb_drag' (same frame as 'x' — the release point)."),
 	y2: z.number().int().optional().describe("End Y pixel coordinate — see 'x2'."),
+	path: z
+		.array(
+			z.object({
+				x: z.number().int(),
+				y: z.number().int(),
+			}),
+		)
+		.min(2)
+		.max(64)
+		.optional()
+		.describe(
+			"For 'live_move': 2-64 waypoints traversed as ONE continuous, paced glide in a single call (frame px of the last eye/screenshot — same space as 'x'/'y'). Mutually exclusive with x/y. The pointer eases off the current position, keeps even speed ACROSS waypoints (no stop-and-start at each one), settles onto the final point, and is cursor-verified there (Δ≤2px). One focus/freshness guard and one verify frame for the whole journey.",
+		),
 	target2: z
 		.string()
 		.optional()
@@ -349,6 +362,17 @@ const desktopControlSchema = z.object({
 				path: ["modifiers"],
 				message: "modifiers is supported only for live_drag.",
 			});
+		}
+		if (params.path !== undefined) {
+			if (params.action !== "live_move") {
+				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["path"], message: "path is supported only for live_move." });
+			}
+			if (params.x !== undefined || params.y !== undefined) {
+				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["path"], message: "pass either path or x/y, not both." });
+			}
+			if (params.target !== undefined) {
+				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["path"], message: "pass either path or target, not both." });
+			}
 		}
 	});
 
@@ -1453,6 +1477,102 @@ export function liveAimGlide(from: { x: number; y: number }, to: { x: number; y:
 	return pts;
 }
 
+/** One paced hop of a continuous path glide: where to land + how long to
+ *  dwell before it. Pure data — exported for tests alongside the builder. */
+export interface LivePathHop {
+	x: number;
+	y: number;
+	gapMs: number;
+}
+
+export interface LivePathOptions {
+	/** Target px between rendered hops (default 24). Budgeting may grow it. */
+	hopPx?: number;
+	/** Dwell between hops (default 16ms). */
+	gapMs?: number;
+	/** Wall-clock cap for the whole glide incl. per-step injection overhead
+	 *  (default 4000ms) — a journey that would overrun gets FEWER, larger
+	 *  hops rather than a call that hangs. */
+	maxTotalMs?: number;
+	/** Estimated per-step spawn overhead used only for budgeting (default 18ms — measured hyprctl round-trip). */
+	spawnMs?: number;
+}
+
+/**
+ * Continuous multi-waypoint trajectory (pure — exported for tests).
+ *
+ * Walks the polyline `from → ...waypoints` as ONE journey: arc-length
+ * sampling keeps ground speed even ACROSS segment corners (the pointer
+ * sweeps through a waypoint instead of stopping and restarting there —
+ * no per-segment teleport seams like chaining liveAimGlide would make).
+ * A smoothstep warp over the whole run eases off the start and settles
+ * onto the final point (fast middle, gentle landing), and the last hop is
+ * always exactly the final waypoint rounded. Budget: hops scale up (with
+ * gapMs floor of 8) until N×(gap+spawn) fits `maxTotalMs`, so long paths
+ * stay a single snappy call. Round-trip: every returned hop is integer px.
+ */
+export function livePathTrajectory(
+	from: { x: number; y: number },
+	waypoints: Array<{ x: number; y: number }>,
+	opts: LivePathOptions = {},
+): LivePathHop[] {
+	const hopPx = Math.max(4, opts.hopPx ?? 24);
+	const gapMs = Math.max(8, opts.gapMs ?? 16);
+	const maxTotalMs = Math.max(200, opts.maxTotalMs ?? 4000);
+	const spawnMs = Math.max(0, opts.spawnMs ?? 18);
+	// Polyline in integer px, dropping consecutive duplicates (<1px apart).
+	const pts: Array<{ x: number; y: number }> = [{ x: Math.round(from.x), y: Math.round(from.y) }];
+	for (const w of waypoints) {
+		const p = { x: Math.round(w.x), y: Math.round(w.y) };
+		if (Math.hypot(p.x - pts[pts.length - 1].x, p.y - pts[pts.length - 1].y) >= 1) pts.push(p);
+	}
+	const final = pts[pts.length - 1];
+	// Cumulative arc lengths for constant-speed sampling along the polyline.
+	const segLens: number[] = [];
+	let total = 0;
+	for (let i = 1; i < pts.length; i++) {
+		const l = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+		segLens.push(l);
+		total += l;
+	}
+	if (total < 1) return [{ x: final.x, y: final.y, gapMs }];
+	// Sample count: smoothstep peaks at 1.5× mean speed, so budget hops off
+	// that peak to keep every rendered hop ≤ hopPx; then scale up until the
+	// journey fits the wall-clock cap (gap can't go below 8ms).
+	let n = Math.max(2, Math.ceil((1.5 * total) / hopPx));
+	let gap = gapMs;
+	while (n * (gap + spawnMs) > maxTotalMs && gap > 8) gap = Math.max(8, gap - 4);
+	while (n * (gap + spawnMs) > maxTotalMs) n = Math.max(2, Math.ceil(n * 0.85));
+	const atArc = (s: number): { x: number; y: number } => {
+		let rem = s;
+		for (let i = 0; i < segLens.length; i++) {
+			if (rem <= segLens[i] || i === segLens.length - 1) {
+				const t = segLens[i] === 0 ? 1 : Math.min(1, rem / segLens[i]);
+				return {
+					x: pts[i].x + (pts[i + 1].x - pts[i].x) * t,
+					y: pts[i].y + (pts[i + 1].y - pts[i].y) * t,
+				};
+			}
+			rem -= segLens[i];
+		}
+		return { x: final.x, y: final.y };
+	};
+	const hops: LivePathHop[] = [];
+	for (let i = 1; i <= n; i++) {
+		const u = i / n;
+		const eased = u * u * (3 - 2 * u); // smoothstep: soft start, soft landing
+		const p = i === n ? final : atArc(eased * total);
+		const q = { x: Math.round(p.x), y: Math.round(p.y) };
+		const prev = hops[hops.length - 1];
+		if (prev && prev.x === q.x && prev.y === q.y) {
+			prev.gapMs += gap; // rounded duplicate — keep the pacing, skip the warp
+			continue;
+		}
+		hops.push({ x: q.x, y: q.y, gapMs: gap });
+	}
+	return hops;
+}
+
 /** Anchor the session observation to the last successful window reading.
  *  Fail-closed by construction: only a frame carrying an exact window
  *  address anchors; fullscreen/region frames (no address) replace the
@@ -1969,6 +2089,7 @@ export function validateInjection(params: {
 	y?: number;
 	x2?: number;
 	y2?: number;
+	path?: Array<{ x: number; y: number }>;
 	target?: string;
 	keys?: string;
 	modifiers?: unknown;
@@ -1982,6 +2103,16 @@ export function validateInjection(params: {
 	if (refusal) return { ok: false, error: refusal, code: "guardrail_refusal" };
 	const modifiersError = modifierRefusal(params.action, params.modifiers);
 	if (modifiersError) return { ok: false, error: modifiersError, code: "invalid_modifiers" };
+	// path is live_move-only, and mutually exclusive with single x/y and target.
+	if (params.path !== undefined && params.action !== "live_move") {
+		return { ok: false, error: "'path' (continuous multi-waypoint glide) is only supported on live_move.", code: "path_wrong_action" };
+	}
+	if (params.path !== undefined && (params.x !== undefined || params.y !== undefined)) {
+		return { ok: false, error: "Pass either path (waypoint glide) or a single x/y, not both.", code: "path_xor_xy" };
+	}
+	if (params.path !== undefined && params.target !== undefined) {
+		return { ok: false, error: "Pass either path (waypoint glide) or target, not both.", code: "path_xor_target" };
+	}
 	// Restricted-app check needs the window — represented here by class/title
 	// passed via keys-free params; the live path re-checks with the real win.
 	// 1b. Continuous-observation freshness: when the caller supplies the
@@ -2022,10 +2153,29 @@ export function validateInjection(params: {
 			tx = hit.x;
 			ty = hit.y;
 		}
+		if (params.path) {
+			// Path mode: bounds-check EVERY waypoint fail-closed. No single
+			// tx/ty here — the executor glides the whole list, then verifies
+			// the final landing itself.
+			if (params.path.length < 2) {
+				return { ok: false, error: "path needs at least 2 waypoints for a glide.", code: "path_too_short" };
+			}
+			for (let i = 0; i < params.path.length; i++) {
+				const w = params.path[i]!;
+				if (w.x < 0 || w.y < 0 || w.x >= params.frame.scaledW || w.y >= params.frame.scaledH) {
+					return {
+						ok: false,
+						error: `Path waypoint ${i} (${w.x},${w.y}) is outside the ${params.frame.scaledW}x${params.frame.scaledH} frame — re-eye and re-aim. Refusing to inject blind.`,
+						code: "out_of_bounds",
+					};
+				}
+			}
+			return { ok: true };
+		}
 		if (tx === undefined || ty === undefined) {
 			return {
 				ok: false,
-				error: `${params.action} requires x and y (frame px from the last screenshot), or target (OCR word from the last eye/screenshot).`,
+				error: `${params.action} requires x and y (frame px from the last screenshot), target (OCR word from the last eye/screenshot), or — for a continuous multi-waypoint glide on live_move — path.`,
 				code: "missing_xy",
 			};
 		}
@@ -2851,6 +3001,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		y: params.y,
 		x2: params.x2,
 		y2: params.y2,
+		path: params.path,
 		target: params.target,
 		keys: params.keys,
 		modifiers: params.modifiers,
@@ -2863,6 +3014,65 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 	}
 	if (isPointer) {
 		const frame = lastInputFrame!;
+		if (params.path) {
+			// Continuous multi-waypoint glide (path xor x/y, enforced by
+			// validateInjection): ONE focus-guarded run with per-hop pacing
+			// from livePathTrajectory — no stop-and-start between segments —
+			// a single cursor verify and one verify frame at the landing.
+			const path = params.path;
+			const pathScale = await detectOutputScale();
+			const hypr = detectPlatformDriver().id === "hyprland";
+			// LOGICAL space on hyprland (hyprctl movecursor); PHYSICAL capture
+			// px elsewhere (ydoMove/xdoMove absolute) — same mapping as the
+			// single-aim path below.
+			const targets = path.map((w) => {
+				const phys = frameToPhysical(frame, w.x, w.y);
+				return hypr ? physicalToLogical(phys.x, phys.y, pathScale) : phys;
+			});
+			// Start at the live cursor so pacing and entry edges stay
+			// continuous; fall back to waypoint 0 when the cursor is unreadable
+			// (still an in-bounds start — validateInjection checked all hops).
+			let start = targets[0]!;
+			try {
+				const cur = await detectPlatformDriver().capture.cursorPos();
+				if (cur) start = { x: cur.x, y: cur.y };
+			} catch {
+				// cursor read unsupported — begin at waypoint 0
+			}
+			const hops = livePathTrajectory(start, targets);
+			// ONE focus guard for the whole journey (per spec) — hops are pure
+			// pointer moves (hyprctl movecursor / absolute warp), so no input can
+			// leak even if focus changes mid-run; the landing is still grounded
+			// by the cursor verify + address-exact verify frame below. Re-assert
+			// once after the run: a changed focus then FAILS the report.
+			const focusError = await assertInputFocus(win.address);
+			if (focusError) return errObserve(action, focusError);
+			for (const hop of hops) {
+				const cmd = hypr
+					? hyprMoveCursor(hop.x, hop.y)
+					: backend === "ydotool"
+						? ydoMove(hop.x, hop.y)
+						: xdoMove(hop.x, hop.y);
+				const res = await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
+				if (res.code !== 0) return errText(`Glide step ${cmd.slice(1).join(" ")} failed: ${res.stderr || res.stdout}`, "glide_failed");
+				if (hop.gapMs > 0) await new Promise(r => setTimeout(r, hop.gapMs));
+			}
+			const focusAfter = await assertInputFocus(win.address);
+			if (focusAfter) return errObserve(action, focusAfter);
+			liveAuthorizedKinds.add(action);
+			const lastW = path[path.length - 1]!;
+			const physLast = frameToPhysical(frame, lastW.x, lastW.y);
+			const lastT = targets[targets.length - 1]!;
+			let posNote = "";
+			try {
+				posNote = cursorVerifyNote(lastT, await detectPlatformDriver().capture.cursorPos());
+			} catch {
+				// reads unsupported — verify frame still covers us
+			}
+			return withVerify(
+				`Glided through ${path.length} waypoints (${hops.length} eased hops) landing frame (${lastW.x},${lastW.y}) → physical (${physLast.x},${physLast.y}).${posNote}`,
+			);
+		}
 		const tx = validation.ok ? (validation.tx ?? params.x) : params.x;
 		const ty = validation.ok ? (validation.ty ?? params.y) : params.y;
 		const pt = frameToPhysical(frame, tx as number, ty as number);

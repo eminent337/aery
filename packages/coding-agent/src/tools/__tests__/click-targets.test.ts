@@ -5,6 +5,7 @@ import {
 	formatClickTargets,
 	isJunkTargetWord,
 	liveAimGlide,
+	livePathTrajectory,
 	rememberClickTargets,
 	resolveClickTarget,
 } from "../desktop-control";
@@ -174,5 +175,73 @@ describe("cursor fix: liveAimGlide eased waypoints", () => {
 			expect(p.y).toBeGreaterThanOrEqual(200);
 			expect(p.y).toBeLessThanOrEqual(800);
 		}
+	});
+});
+
+describe("continuous path: livePathTrajectory", () => {
+	test("final hop is exactly the final waypoint (rounded)", () => {
+		const hops = livePathTrajectory({ x: 0, y: 0 }, [
+			{ x: 100, y: 50 },
+			{ x: 233.6, y: 177.4 },
+		]);
+		const last = hops[hops.length - 1];
+		expect(last.x).toBe(234);
+		expect(last.y).toBe(177);
+	});
+
+	test("every hop is integer px and hops never teleport (≤ budgeted peak)", () => {
+		const hops = livePathTrajectory({ x: 10, y: 10 }, [
+			{ x: 600, y: 40 },
+			{ x: 620, y: 500 },
+			{ x: 60, y: 520 },
+		]);
+		for (const h of hops) {
+			expect(Number.isInteger(h.x)).toBe(true);
+			expect(Number.isInteger(h.y)).toBe(true);
+		}
+		// Consecutive hops stay under hopPx+1 (smoothstep peak budgeted in) —
+		// a corner sweep must not turn into a jump.
+		let maxHop = 0;
+		let prev = { x: 10, y: 10 };
+		for (const h of hops) {
+			maxHop = Math.max(maxHop, Math.hypot(h.x - prev.x, h.y - prev.y));
+			prev = h;
+		}
+		expect(maxHop).toBeLessThanOrEqual(25);
+	});
+
+	test("sweeps THROUGH intermediate waypoints (no stop-and-start seams)", () => {
+		// Journey passes exactly through the corner (300,300): some hop must
+		// land within a hop of it, and hops on either side of it are normal-
+		// sized — i.e. the corner is traversed, not teleported across.
+		const hops = livePathTrajectory({ x: 0, y: 0 }, [{ x: 300, y: 300 }, { x: 600, y: 0 }]);
+		let prev = { x: 0, y: 0 };
+		for (const h of hops) {
+			expect(Math.hypot(h.x - prev.x, h.y - prev.y)).toBeLessThanOrEqual(25);
+			prev = h;
+		}
+		const nearCorner = hops.some(h => Math.hypot(h.x - 300, h.y - 300) <= 25);
+		expect(nearCorner).toBe(true);
+	});
+
+	test("total dwell honors the wall-clock cap on a very long path", () => {
+		const waypoints: Array<{ x: number; y: number }> = [];
+		// ~20k px of travel across 64 waypoints.
+		for (let i = 0; i < 64; i++) waypoints.push({ x: (i % 2 ? 1900 : 20), y: 20 + i * 16 });
+		const hops = livePathTrajectory({ x: 20, y: 20 }, waypoints, { maxTotalMs: 4000 });
+		const dwell = hops.reduce((s, h) => s + h.gapMs, 0);
+		// N×(gap+spawn) was budgeted ≤4000; summed gaps alone are ≤ that.
+		expect(dwell).toBeLessThanOrEqual(4000);
+		expect(hops.length).toBeGreaterThan(2);
+		const last = hops[hops.length - 1];
+		const wLast = waypoints[waypoints.length - 1];
+		expect(last.x).toBe(wLast.x);
+		expect(last.y).toBe(wLast.y);
+	});
+
+	test("degenerate: a no-travel request yields one hop on the spot", () => {
+		expect(livePathTrajectory({ x: 5, y: 5 }, [{ x: 5, y: 5 }, { x: 5, y: 5 }])).toEqual([
+			{ x: 5, y: 5, gapMs: 16 },
+		]);
 	});
 });
