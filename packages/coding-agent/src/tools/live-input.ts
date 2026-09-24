@@ -22,6 +22,8 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+import * as net from "node:net";
+
 /** --- Backend probe ---------------------------------------------------- */
 
 export interface BackendProbe {
@@ -458,6 +460,124 @@ export function xdoWheelScroll(direction: ScrollDirection, count = 1): string[][
 export function xdoMove(x: number, y: number): string[] {
 	return ["xdotool", "mousemove", "--sync", String(Math.round(x)), String(Math.round(y))];
 }
+
+/** Paced glide script for ONE `xdotool -` process: a `mousemove --sync` per
+ *  hop with that hop's dwell inline. The whole journey costs a single spawn
+ *  and the cadence is exact — measured 0.66 ms/hop of overhead versus
+ *  6.19 ms when spawning xdotool per hop, and unlike a spawn loop the sleep is
+ *  real rather than a race against process startup. */
+export function xdoGlideScript(hops: Array<{ x: number; y: number; gapMs: number }>): string {
+	const lines: string[] = [];
+	for (const h of hops) {
+		lines.push(`mousemove --sync ${Math.round(h.x)} ${Math.round(h.y)}`);
+		if (h.gapMs > 0) lines.push(`sleep ${(h.gapMs / 1000).toFixed(3)}`);
+	}
+	return `${lines.join("\n")}\n`;
+}
+
+/** Absolute path of the Hyprland command socket for this session, or null when
+ *  the compositor did not advertise a usable instance signature. */
+export function hyprCommandSocketPath(env: NodeJS.ProcessEnv = process.env): string | null {
+	const sig = env.HYPRLAND_INSTANCE_SIGNATURE;
+	if (!sig) return null;
+	const runtime = env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.() ?? 1000}`;
+	return `${runtime}/hypr/${sig}/.socket.sock`;
+}
+
+/**
+ * One Hyprland IPC command over its unix socket. The compositor CLOSES the
+ * connection after answering a single request (verified: a second write on the
+ * same socket raises EPIPE), so each command gets its own connection — still
+ * ~0.82 ms measured against ~12-15 ms for a `hyprctl` spawn, because it skips
+ * fork/exec entirely.
+ */
+function hyprIpcDispatch(cmd: string, timeoutMs = 3000): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const sockPath = hyprCommandSocketPath();
+		if (!sockPath) {
+			reject(new Error("HYPRLAND_INSTANCE_SIGNATURE is not set"));
+			return;
+		}
+		const socket = net.connect(sockPath);
+		let out = "";
+		let settled = false;
+		const finish = (err: Error | null, value: string): void => {
+			if (settled) return;
+			settled = true;
+			socket.destroy();
+			if (err) reject(err);
+			else resolve(value);
+		};
+		socket.setTimeout(timeoutMs, () => finish(new Error(`hyprland IPC timed out: ${cmd}`), ""));
+		socket.on("error", err => finish(err, ""));
+		socket.on("data", chunk => {
+			out += chunk.toString("utf8");
+		});
+		// Hyprland replies and then closes the connection itself, so resolve on
+		// 'close' — it always fires after the final 'data' chunk has arrived.
+		socket.on("close", () => finish(null, out));
+		socket.on("connect", () => socket.write(cmd));
+	});
+}
+
+/** Errors from a paced socket glide, with the hop index that failed (or how
+ *  many hops actually landed before an early stop). */
+export interface HyprGlideResult {
+	ok: boolean;
+	/** Hops the compositor acknowledged. */
+	applied: number;
+	error?: string;
+}
+
+/**
+ * Glide through a whole trajectory as ONE operation: each hop is a `movecursor`
+ * dispatch over the Hyprland IPC socket, with our own dwell between hops.
+ *
+ * Why not `hyprctl --batch`: batching is faster still (~0.26 ms/hop) but it
+ * cannot carry an inter-hop delay, so the pointer would arrive in a single
+ * compositor tick — a teleport, not a glide. The socket keeps the visible
+ * cadence while removing the per-hop process spawn that dominated the wall
+ * clock. The caller's focus guard runs before and after, so a journey that
+ * loses focus mid-run still fails its final report.
+ */
+export async function hyprGlidePaced(
+	hops: Array<{ x: number; y: number; gapMs: number }>,
+	options: {
+		timeoutMs?: number;
+	} = {},
+): Promise<HyprGlideResult> {
+	const timeoutMs = options.timeoutMs ?? 8000;
+	let applied = 0;
+	// Spend the round trip OUT of the dwell. `hop.gapMs` stays the pause that
+	// follows that hop — the trajectory's corner taper is written against it —
+	// but the IPC round trip, which previously piled on top (cadence was
+	// dwell + spawn), is now deducted from it. Spacing therefore equals the
+	// dwell itself, the same cadence the per-hop xdotool script produces. A
+	// round trip that outlasts the dwell just skips that pause: one late hop,
+	// never a catch-up burst, because every hop is anchored to its own
+	// dispatch rather than to a schedule it can fall behind.
+	for (const [i, hop] of hops.entries()) {
+		const dispatched = performance.now();
+		try {
+			const reply = await hyprIpcDispatch(
+				`dispatch movecursor ${Math.round(hop.x)} ${Math.round(hop.y)}`,
+				timeoutMs,
+			);
+			// A successful dispatch answers `ok`; anything else is a refusal
+			// (e.g. `Invalid dispatcher`) and fails the whole journey closed.
+			if (reply.trim() !== "ok") {
+				return { ok: false, applied, error: `hop ${i} refused: ${reply.trim().slice(0, 120)}` };
+			}
+		} catch (err: unknown) {
+			return { ok: false, applied, error: `hop ${i} failed: ${err instanceof Error ? err.message : String(err)}` };
+		}
+		applied++;
+		const wait = hop.gapMs - (performance.now() - dispatched);
+		if (wait > 0) await new Promise<void>(resolve => setTimeout(resolve, wait));
+	}
+	return { ok: true, applied };
+}
+
 /** Exact pointer warp via the compositor (Hyprland). ydotool's virtual device has no
  * ABS_X/ABS_Y capability — "absolute" moves are relative-delta accumulations that
  * pointer-accel skew, so never use them to aim; position with movecursor, inject

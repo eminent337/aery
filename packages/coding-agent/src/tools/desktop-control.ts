@@ -40,6 +40,7 @@ import type { ToolSession } from "./index";
 import {
 	frameToPhysical,
 	hyprMoveCursor,
+	hyprGlidePaced,
 	type InputFrame,
 	type InputKind,
 	isDirectTypeable,
@@ -53,6 +54,7 @@ import {
 	splitForEnterTyping,
 	wtypeChord,
 	xdoClick,
+	xdoGlideScript,
 	xdoMove,
 	xdoWheelScroll,
 	YDO_CTRL_V,
@@ -1462,6 +1464,61 @@ export function cursorVerifyNote(aimed: { x: number; y: number }, read: { x: num
 	return dx <= 2 && dy <= 2
 		? ` Cursor verify OK (Δ${dx},${dy}px ≤2).`
 		: ` Cursor verify MISMATCH: aimed (${aimed.x},${aimed.y}), read (${read.x},${read.y}) (Δ${dx},${dy}px) — re-eye and retry before clicking.`;
+}
+
+/** Outcome of converging the pointer onto its intended target. */
+export interface CursorLanding {
+	/** Final cursor reading, or null when the platform cannot read it. */
+	read: { x: number; y: number } | null;
+	/** Corrections actually applied (0 when the first landing was already inside tolerance). */
+	corrections: number;
+}
+
+/**
+ * Converge the cursor onto `aimed` exactly, then report. The glide normally
+ * lands within a pixel already; this closes the last one so a click that
+ * follows a move cannot be off-by-one.
+ *
+ * Bounded and fail-closed: gives up after `maxCorrections` and returns the
+ * final reading, so `cursorVerifyNote` still reports MISMATCH for a platform
+ * that cannot land exactly — it never loops and never claims success. A pass
+ * that fails to reduce the error stops immediately, because an unreadable or
+ * quantised axis would otherwise burn the whole budget to no effect.
+ */
+export async function convergeCursorLanding(
+	aimed: { x: number; y: number },
+	opts: {
+		read: () => Promise<{ x: number; y: number } | null>;
+		move: (p: { x: number; y: number }) => Promise<void>;
+		/** Allowed error before a correction is applied (default 0 — land exact). */
+		tolerancePx?: number;
+		/** Maximum corrective moves after the initial landing (default 2). */
+		maxCorrections?: number;
+	},
+): Promise<CursorLanding> {
+	const tolerance = Math.max(0, opts.tolerancePx ?? 0);
+	const budget = Math.max(0, opts.maxCorrections ?? 2);
+	let best: { x: number; y: number } | null = null;
+	let previousError: number | null = null;
+	let corrections = 0;
+	for (let attempt = 0; attempt <= budget; attempt++) {
+		let read: { x: number; y: number } | null;
+		try {
+			read = await opts.read();
+		} catch {
+			read = null;
+		}
+		if (!read) return { read: null, corrections };
+		best = read;
+		const error = Math.hypot(read.x - aimed.x, read.y - aimed.y);
+		if (error <= tolerance) return { read, corrections };
+		if (attempt === budget) break;
+		if (previousError !== null && error >= previousError) break; // no progress — stop
+		previousError = error;
+		await opts.move(aimed);
+		corrections++;
+	}
+	return { read: best, corrections };
 }
 /**
  * Eased aim glide for the live pointer: intermediate waypoints from `from`
@@ -3210,15 +3267,38 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			// once after the run: a changed focus then FAILS the report.
 			const focusError = await assertInputFocus(win.address);
 			if (focusError) return errObserve(action, focusError);
-			for (const hop of hops) {
-				const cmd = hypr
-					? hyprMoveCursor(hop.x, hop.y)
-					: backend === "ydotool"
-						? ydoMove(hop.x, hop.y)
-						: xdoMove(hop.x, hop.y);
-				const res = await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
-				if (res.code !== 0) return errText(`Glide step ${cmd.slice(1).join(" ")} failed: ${res.stderr || res.stdout}`, "glide_failed");
-				if (hop.gapMs > 0) await new Promise(r => setTimeout(r, hop.gapMs));
+			// Emit the WHOLE journey as one operation per backend instead of
+			// spawning a process per hop. Measured cost per hop: hyprctl spawn
+			// 11.6-15.0 ms, hyprland IPC socket 0.82 ms, chained xdotool
+			// 0.66 ms — spawn was ~half of every glide's wall clock and its
+			// variance was what made the cadence uneven.
+			if (hypr) {
+				// Socket, not `hyprctl --batch`: the batch runs every hop in one
+				// compositor tick, which teleports instead of gliding.
+				const outcome = await hyprGlidePaced(hops, { timeoutMs: 8000 });
+				if (!outcome.ok) {
+					return errText(`Glide failed after ${outcome.applied}/${hops.length} hops: ${outcome.error ?? "unknown error"}`, "glide_failed");
+				}
+			} else if (backend === "ydotool") {
+				// ydoMove is an absolute mapped move; ydotoold has no ABS cap, so
+				// these stay sequential spawns (correctness over speed here).
+				for (const hop of hops) {
+					const cmd = ydoMove(hop.x, hop.y);
+					const res = await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
+					if (res.code !== 0) return errText(`Glide step ${cmd.slice(1).join(" ")} failed: ${res.stderr || res.stdout}`, "glide_failed");
+					if (hop.gapMs > 0) await new Promise(r => setTimeout(r, hop.gapMs));
+				}
+			} else {
+				// One `xdotool -` process for the entire journey; the inline
+				// sleeps carry each hop's dwell exactly.
+				const script = xdoGlideScript(hops);
+				const res = await runCmd("sh", ["-c", `printf '%s' "$GLIDE" | xdotool -`], {
+					env: { GLIDE: script },
+					timeout: 30_000,
+				});
+				if (res.code !== 0) {
+					return errText(`Glide failed: ${res.stderr || res.stdout || `exit ${res.code}`}`, "glide_failed");
+				}
 			}
 			const focusAfter = await assertInputFocus(win.address);
 			if (focusAfter) return errObserve(action, focusAfter);
@@ -3226,9 +3306,24 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			const lastW = path[path.length - 1]!;
 			const physLast = frameToPhysical(frame, lastW.x, lastW.y);
 			const lastT = targets[targets.length - 1]!;
+			// Land EXACT: read the cursor, then nudge the residual out so the
+			// landing reports Δ0,0 instead of a 1px near-miss. Bounded and
+			// fail-closed — an unreadable or unmoving cursor falls through to
+			// cursorVerifyNote, which still reports MISMATCH.
+			const warpTo = async (p: { x: number; y: number }): Promise<void> => {
+				const cmd = hypr ? hyprMoveCursor(p.x, p.y) : backend === "ydotool" ? ydoMove(p.x, p.y) : xdoMove(p.x, p.y);
+				await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
+			};
 			let posNote = "";
 			try {
-				posNote = cursorVerifyNote(lastT, await detectPlatformDriver().capture.cursorPos());
+				const landing = await convergeCursorLanding(lastT, {
+					read: () => detectPlatformDriver().capture.cursorPos(),
+					move: warpTo,
+				});
+				posNote = cursorVerifyNote(lastT, landing.read);
+				if (landing.corrections > 0 && landing.read) {
+					posNote += ` Landing converged in ${landing.corrections} correction${landing.corrections === 1 ? "" : "s"}.`;
+				}
 			} catch {
 				// reads unsupported — verify frame still covers us
 			}
@@ -3275,9 +3370,21 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			// cursor back and demand ≤2px error vs the aim point (same space:
 			// hyprland logical, x11 pixels). Null/throw → reads unsupported,
 			// skip silently — the verify frame still covers us.
+			const hyprAim = detectPlatformDriver().id === "hyprland";
+			const warpTo = async (p: { x: number; y: number }): Promise<void> => {
+				const cmd = hyprAim ? hyprMoveCursor(p.x, p.y) : backend === "ydotool" ? ydoMove(p.x, p.y) : xdoMove(p.x, p.y);
+				await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
+			};
 			let posNote = "";
 			try {
-				posNote = cursorVerifyNote(logical, await detectPlatformDriver().capture.cursorPos());
+				const landing = await convergeCursorLanding(logical, {
+					read: () => detectPlatformDriver().capture.cursorPos(),
+					move: warpTo,
+				});
+				posNote = cursorVerifyNote(logical, landing.read);
+				if (landing.corrections > 0 && landing.read) {
+					posNote += ` Landing converged in ${landing.corrections} correction${landing.corrections === 1 ? "" : "s"}.`;
+				}
 			} catch {
 				// reads unsupported — verify frame still covers us
 			}
