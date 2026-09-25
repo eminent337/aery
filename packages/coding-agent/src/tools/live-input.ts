@@ -465,14 +465,107 @@ export function xdoMove(x: number, y: number): string[] {
  *  hop with that hop's dwell inline. The whole journey costs a single spawn
  *  and the cadence is exact — measured 0.66 ms/hop of overhead versus
  *  6.19 ms when spawning xdotool per hop, and unlike a spawn loop the sleep is
- *  real rather than a race against process startup. */
-export function xdoGlideScript(hops: Array<{ x: number; y: number; gapMs: number }>): string {
+ *  real rather than a race against process startup.
+ *
+ *  When `frame` is supplied, each sleep is rounded UP to a whole number of
+ *  display frames so every hop is revealed on a frame boundary (no skipped
+ *  frames, no ragged 1px/2px/0px frame-to-frame advance). Omitting `frame`
+ *  reproduces the unaligned script byte-for-byte. */
+export function xdoGlideScript(
+	hops: Array<{ x: number; y: number; gapMs: number }>,
+	frame?: number,
+): string {
 	const lines: string[] = [];
 	for (const h of hops) {
 		lines.push(`mousemove --sync ${Math.round(h.x)} ${Math.round(h.y)}`);
-		if (h.gapMs > 0) lines.push(`sleep ${(h.gapMs / 1000).toFixed(3)}`);
+		const gap = frame !== undefined && frame > 0 ? frameAlignedGap(h.gapMs, frame) : h.gapMs;
+		if (gap > 0) lines.push(`sleep ${(gap / 1000).toFixed(3)}`);
 	}
 	return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Display frame interval in ms, detected once from the compositor and cached.
+ *
+ * A pointer hop is only VISIBLE if the compositor renders a frame after it, so
+ * the true cadence floor is one frame. A cadence that isn't frame-aligned makes
+ * some frames advance the pointer 1px, others 2px, others 0px — a visible
+ * beat. Frame-aligning every hop removes that. Defaults to 60Hz (16.667ms) when
+ * detection is unavailable; detection failures are non-fatal by design.
+ */
+let frameMsCache: number | null = null;
+
+export function cachedFrameMs(): number | null {
+	return frameMsCache;
+}
+
+/** Test seam: inject a known frame interval (positive ms) or null to clear. */
+export function setFrameMsForTesting(ms: number | null): void {
+	frameMsCache = ms !== null && Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
+/**
+ * Parse the frame interval (ms) out of `hyprctl monitors` output. The active
+ * mode looks like `1920x1080@60.04900 at 0x0`; we take the FIRST monitor's
+ * refresh, which is the focused/primary display. Returns null when the output
+ * doesn't contain a usable rate.
+ */
+export function parseFrameMs(monitorsOut: string): number | null {
+	// Match the first `WxH@<rate>` token; the rate may be `60.04900` or `60`.
+	const m = /@\s*(\d+(?:\.\d+)?)/.exec(monitorsOut);
+	if (!m) return null;
+	const hz = Number(m[1]);
+	if (!Number.isFinite(hz) || hz <= 0) return null;
+	return 1000 / hz;
+}
+
+/**
+ * The effective frame interval, detecting it from the compositor on first use.
+ * Never throws: any failure falls back to the 60Hz default.
+ */
+export async function frameMs(): Promise<number> {
+	if (frameMsCache !== null) return frameMsCache;
+	try {
+		const { stdout } = await execFileAsync("hyprctl", ["monitors"], { timeout: 3000 });
+		const parsed = parseFrameMs(stdout);
+		if (parsed !== null) {
+			frameMsCache = parsed;
+			return parsed;
+		}
+	} catch {
+		/* hyprctl unavailable (e.g. X11/other compositor) — use the default */
+	}
+	frameMsCache = 1000 / 60;
+	return frameMsCache;
+}
+
+/**
+ * Frame-align an inter-hop dwell: the wait AFTER a hop, before the next one.
+ *
+ * The compositor only reveals the pointer on a frame boundary, so a hop wait
+ * that isn't a whole number of frames either skips a frame (invisible) or
+ * straddles one (visible beat). Rounding the wait UP to the next whole frame
+ * boundary makes every hop land on a frame while NEVER dispatching a hop
+ * earlier than the profile asked for (a hop is not allowed to overtake its own
+ * requested pace).
+ *
+ * Rounding UP (ceil, not round) is what preserves the pace ladder on 60Hz:
+ *   brisk      10ms -> 1 frame (16.65ms)  [was sub-frame, read as one frame]
+ *   natural    16ms -> 1 frame (16.65ms)  [already essentially frame-locked]
+ *   deliberate 24ms -> 2 frames (33.30ms) [24ms is not representable at 60Hz]
+ * Pace is additionally carried by the spatial hopPx (brisk 30 / natural 24 /
+ * deliberate 16), so the three paces stay distinct even where their dwell
+ * collapses to the same frame multiple: on 60Hz that is 1.80 / 1.44 px per ms
+ * for brisk/natural, and 0.48 for deliberate (whose dwell doubles to 2 frames).
+ *
+ * `gapMs` of 0 (the no-dwell benchmark ceiling) stays 0 — it deliberately
+ * measures raw emission cost, not paced motion.
+ */
+export function frameAlignedGap(gapMs: number, frame: number): number {
+	if (gapMs <= 0) return 0;
+	if (!(frame > 0)) return gapMs;
+	const frames = Math.max(1, Math.ceil(gapMs / frame - 1e-9));
+	return Math.round(frames * frame * 1000) / 1000; // 3dp like the xdo script
 }
 
 /** Absolute path of the Hyprland command socket for this session, or null when
@@ -544,9 +637,15 @@ export async function hyprGlidePaced(
 	hops: Array<{ x: number; y: number; gapMs: number }>,
 	options: {
 		timeoutMs?: number;
+		/** Display frame interval (ms) to frame-lock the cadence to. When
+		 *  omitted, NO frame lock is applied and the pacing is exactly the
+		 *  pre-frame-lock behaviour (the emitter then sends no extra compositor
+		 *  request). Production callers pass the value from `frameMs()`. */
+		frameMs?: number;
 	} = {},
 ): Promise<HyprGlideResult> {
 	const timeoutMs = options.timeoutMs ?? 8000;
+	const frame = options.frameMs !== undefined && options.frameMs > 0 ? options.frameMs : null;
 	let applied = 0;
 	// Spend the round trip OUT of the dwell. `hop.gapMs` stays the pause that
 	// follows that hop — the trajectory's corner taper is written against it —
@@ -556,6 +655,14 @@ export async function hyprGlidePaced(
 	// round trip that outlasts the dwell just skips that pause: one late hop,
 	// never a catch-up burst, because every hop is anchored to its own
 	// dispatch rather than to a schedule it can fall behind.
+	//
+	// FRAME LOCK: the next hop is additionally held to the next display frame
+	// boundary, so every hop is revealed on a frame (none is skipped, and no
+	// frame advances the pointer by a ragged 1px/2px/0px). The lock only ever
+	// pushes a hop LATER to the next boundary — never earlier than the profile's
+	// requested dwell — and because it is anchored to THIS hop's own dispatch,
+	// an overrunning round trip still yields exactly one late hop, never a
+	// catch-up burst.
 	for (const [i, hop] of hops.entries()) {
 		const dispatched = performance.now();
 		try {
@@ -572,7 +679,10 @@ export async function hyprGlidePaced(
 			return { ok: false, applied, error: `hop ${i} failed: ${err instanceof Error ? err.message : String(err)}` };
 		}
 		applied++;
-		const wait = hop.gapMs - (performance.now() - dispatched);
+		const earliestNext = dispatched + hop.gapMs;
+		const wait = frame === null
+			? hop.gapMs - (performance.now() - dispatched)
+			: Math.max(earliestNext, Math.ceil(earliestNext / frame) * frame) - performance.now();
 		if (wait > 0) await new Promise<void>(resolve => setTimeout(resolve, wait));
 	}
 	return { ok: true, applied };

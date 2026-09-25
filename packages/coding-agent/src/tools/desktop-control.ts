@@ -38,6 +38,8 @@ import * as z from "zod/v4";
 import desktopControlDescription from "../prompts/tools/desktop-control.md" with { type: "text" };
 import type { ToolSession } from "./index";
 import {
+	frameAlignedGap,
+	frameMs,
 	frameToPhysical,
 	hyprMoveCursor,
 	hyprGlidePaced,
@@ -1555,6 +1557,133 @@ export interface LivePathHop {
 	gapMs: number;
 }
 
+/**
+ * Centripetal Catmull-Rom (alpha = 0.5) through p1→p2, evaluated at t in [0,1].
+ *
+ * Centripetal parameterization is chosen over uniform (alpha = 0) and chordal
+ * (alpha = 1) because it provably has no cusps and no self-intersections on
+ * non-uniformly spaced control points — which matters here because waypoints
+ * arrive from arbitrary OCR/frame picks with uneven spacing. The curve
+ * interpolates its control points EXACTLY, so every waypoint is still hit.
+ */
+function catmullRomPoint(
+	p0: { x: number; y: number },
+	p1: { x: number; y: number },
+	p2: { x: number; y: number },
+	p3: { x: number; y: number },
+	t: number,
+): { x: number; y: number } {
+	const knot = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
+		Math.pow(Math.hypot(b.x - a.x, b.y - a.y), 0.5) || 1e-6;
+	const t0 = 0;
+	const t1 = t0 + knot(p0, p1);
+	const t2 = t1 + knot(p1, p2);
+	const t3 = t2 + knot(p2, p3);
+	const tt = t1 + (t2 - t1) * t;
+	// Non-uniform linear interpolation between successive knots.
+	const mix = (
+		a: { x: number; y: number },
+		b: { x: number; y: number },
+		ta: number,
+		tb: number,
+	): { x: number; y: number } => {
+		const u = (tt - ta) / (tb - ta || 1e-6);
+		return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u };
+	};
+	const a1 = mix(p0, p1, t0, t1);
+	const a2 = mix(p1, p2, t1, t2);
+	const a3 = mix(p2, p3, t2, t3);
+	const b1 = mix(a1, a2, t0, t2);
+	const b2 = mix(a2, a3, t1, t3);
+	return mix(b1, b2, t1, t2);
+}
+
+/**
+ * Build an arc-length lookup over a centripetal Catmull-Rom spline through
+ * `pts` (integer control points), with reflected end tangents so the curve
+ * leaves the first point along the first segment and arrives at the last along
+ * the last segment. Sampled densely, so the piecewise-linear walk between
+ * samples is sub-pixel and heading changes stay continuous.
+ *
+ * Returns `at(s)` (arc length -> point), the curve's `total` length, and
+ * `controlArc[k]` — the EXACT arc length at which control point `pts[k]` lies.
+ * Each spline segment's endpoint is exactly a control point, so these are read
+ * off the cumulative grid rather than searched for, which keeps the exact
+ * waypoint samples the builder relies on exact.
+ */
+export function catmullRomArcSampler(
+	pts: ReadonlyArray<{ x: number; y: number }>,
+	samplesPerSegment = 128,
+): {
+	at: (s: number) => { x: number; y: number };
+	total: number;
+	controlArc: number[];
+} {
+	if (pts.length < 2) {
+		const only = pts[0] ?? { x: 0, y: 0 };
+		return { at: () => ({ x: only.x, y: only.y }), total: 0, controlArc: [0] };
+	}
+	const first = pts[0]!;
+	const second = pts[1]!;
+	const lastPt = pts[pts.length - 1]!;
+	const prevLast = pts[pts.length - 2]!;
+	// Reflected ghost endpoints give a natural entry/exit tangent instead of a
+	// zero one (which would make the curve hesitate at the journey's ends).
+	const ext: Array<{ x: number; y: number }> = [
+		{ x: 2 * first.x - second.x, y: 2 * first.y - second.y },
+		...pts,
+		{ x: 2 * lastPt.x - prevLast.x, y: 2 * lastPt.y - prevLast.y },
+	];
+	const dense: Array<{ x: number; y: number }> = [];
+	for (let i = 0; i + 3 < ext.length; i++) {
+		for (let sIdx = 0; sIdx < samplesPerSegment; sIdx++) {
+			dense.push(catmullRomPoint(ext[i]!, ext[i + 1]!, ext[i + 2]!, ext[i + 3]!, sIdx / samplesPerSegment));
+		}
+	}
+	dense.push({ x: lastPt.x, y: lastPt.y });
+	const cum: number[] = [0];
+	for (let i = 1; i < dense.length; i++) {
+		cum.push(cum[i - 1]! + Math.hypot(dense[i]!.x - dense[i - 1]!.x, dense[i]!.y - dense[i - 1]!.y));
+	}
+	const total = cum[cum.length - 1]!;
+	// Control point k sits at the junction between the segments that span it,
+	// which is dense index k * samplesPerSegment. The final control point is the
+	// dense array's last entry.
+	const controlArc: number[] = [];
+	for (let k = 0; k < pts.length; k++) {
+		const idx = Math.min(k * samplesPerSegment, dense.length - 1);
+		controlArc.push(cum[idx]!);
+	}
+	const at = (s: number): { x: number; y: number } => {
+		const target = Math.max(0, Math.min(s, total));
+		let lo = 0;
+		let hi = cum.length - 1;
+		while (lo + 1 < hi) {
+			const mid = (lo + hi) >> 1;
+			if (cum[mid]! <= target) lo = mid;
+			else hi = mid;
+		}
+		const u = (target - cum[lo]!) / (cum[hi]! - cum[lo]! || 1e-6);
+		return {
+			x: dense[lo]!.x + (dense[hi]!.x - dense[lo]!.x) * u,
+			y: dense[lo]!.y + (dense[hi]!.y - dense[lo]!.y) * u,
+		};
+	};
+	return { at, total, controlArc };
+}
+
+/**
+ * Smootherstep: 6t^5 - 15t^4 + 10t^3. Its first AND second derivatives vanish
+ * at t=0 and t=1, so acceleration ramps in and out continuously — this is the
+ * C2 contribution that the previous cubic smoothstep lacked (its second
+ * derivative is non-zero at the endpoints, giving a visible kick at start and
+ * landing). Monotonic on [0,1], so it never reverses.
+ */
+function smootherstep(u: number): number {
+	const t = Math.max(0, Math.min(1, u));
+	return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
 /** Pacing profile for a continuous path glide. The `natural` entry is the
  *  shipped default and MUST stay byte-identical to the pre-pace behavior
  *  (hopPx 24 / gapMs 16 / maxTotalMs 4000 / spawnMs 18) so existing callers,
@@ -1606,20 +1735,27 @@ export function livePathPace(name: "brisk" | "natural" | "deliberate" | undefine
 /**
  * Continuous multi-waypoint trajectory (pure — exported for tests).
  *
- * Walks the polyline `from → ...waypoints` as ONE journey. A smoothstep warp
- * over the whole run eases off the start and settles onto the final point
- * (fast middle, gentle landing), and the last hop is always exactly the final
- * waypoint rounded.
+ * Walks `from → ...waypoints` as ONE journey along a C2-continuous path. The
+ * position path is a CENTRIPETAL CATMULL-ROM spline through the integer
+ * waypoints, sampled by its own arc length, and a SMOOTHERSTEP warp
+ * (6t^5−15t^4+10t^3) over the whole run places the samples. Smootherstep's
+ * first AND second derivatives vanish at both ends, so the glide starts and
+ * lands with zero acceleration instead of the cubic smoothstep's visible kick.
  *
- * Corner feel: a polyline is only a sequence of straight segments, so an
- * even arc-length sampling still flips DIRECTION at full speed on every
- * waypoint — that instant flip is what reads as robotic. (A curve cannot be
- * tangent to both segments while also passing exactly through the vertex,
- * so true fillets are not available here.) Instead every waypoint gets an
- * EXACT sample — the path is never cut and no waypoint is skipped — plus
- * clustered samples within `cornerPx` of it whose per-hop dwell is tapered
- * UP, so the direction change happens at near-zero ground speed the way a
- * hand eases through a turn. Straights keep the even base speed.
+ * Why the spline: a polyline only ever has straight segments, so an even
+ * arc-length sampling flips DIRECTION abruptly at every waypoint (measured up
+ * to ~120° between adjacent hops) — that instant flip is what reads as
+ * robotic, and no amount of speed tapering removes it. Catmull-Rom passes
+ * through every waypoint EXACTLY (so the path is never cut and no waypoint is
+ * skipped) while spreading each vertex turn into local curvature, so
+ * consecutive hops share a heading and the direction change becomes smooth.
+ * Centripetal (alpha=0.5) parameterization is used because it has no cusps or
+ * self-intersections on non-uniformly spaced waypoints.
+ *
+ * Corner feel: the spline already rounds the geometry, and the dwell taper
+ * (a longer pause within `cornerPx` of each waypoint, tapering to 0 at the
+ * zone edge) still drops ground speed through a turn the way a hand eases
+ * through it, while straights keep the even base speed.
  *
  * Budget: hop count, corner clustering, and the dwell taper all shrink (in
  * that order) until N×(gap+spawn) fits `maxTotalMs`; for an absurdly long
@@ -1645,32 +1781,22 @@ export function livePathTrajectory(
 		const p = { x: Math.round(w.x), y: Math.round(w.y) };
 		if (Math.hypot(p.x - pts[pts.length - 1].x, p.y - pts[pts.length - 1].y) >= 1) pts.push(p);
 	}
-	const final = pts[pts.length - 1];
-	// Cumulative arc lengths for even-speed sampling along the polyline.
-	const segLens: number[] = [];
-	const arcAtVertex: number[] = [];
-	let total = 0;
-	for (let i = 1; i < pts.length; i++) {
-		const l = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-		segLens.push(l);
-		total += l;
-		arcAtVertex.push(total);
-	}
+	const final = pts[pts.length - 1]!;
+	// C2-continuous position path: a centripetal Catmull-Rom spline through the
+	// integer control points. The curve passes through every waypoint exactly,
+	// but rounds the polyline's sharp vertex turns into distributed curvature,
+	// so consecutive emitted hops share a heading instead of snapping up to
+	// ~120° in one step (the defect the old speed-only taper left behind).
+	// Sampling is by the CURVE's own arc length, so speed stays even in space.
+	const curve = catmullRomArcSampler(pts);
+	const total = curve.total;
+	// Arc position of each waypoint on the curve. The spline passes through
+	// every control point exactly, so these are read straight off the sampler's
+	// cumulative grid — no nearest-point search, and exact-waypoint samples and
+	// corner clusters land precisely on the waypoints.
+	const arcAtVertex = curve.controlArc;
 	if (total < 1) return [{ x: final.x, y: final.y, gapMs }];
-	const atArc = (s: number): { x: number; y: number } => {
-		let rem = Math.max(0, Math.min(s, total));
-		for (let i = 0; i < segLens.length; i++) {
-			if (rem <= segLens[i] || i === segLens.length - 1) {
-				const t = segLens[i] === 0 ? 1 : Math.min(1, rem / segLens[i]);
-				return {
-					x: pts[i].x + (pts[i + 1].x - pts[i].x) * t,
-					y: pts[i].y + (pts[i + 1].y - pts[i].y) * t,
-				};
-			}
-			rem -= segLens[i];
-		}
-		return { x: final.x, y: final.y };
-	};
+	const atArc = (s: number): { x: number; y: number } => curve.at(s);
 	// Sample set + pacing, then a compression ladder (documented below) that
 	// shrinks the journey until the REAL emitted cost fits `maxTotalMs`.
 	// hopPx is mutable because the ladder widens it in lockstep with density.
@@ -1679,7 +1805,7 @@ export function livePathTrajectory(
 		const arcs: number[] = [0];
 		for (let i = 1; i <= n; i++) {
 			const u = i / n;
-			arcs.push(i === n ? total : u * u * (3 - 2 * u) * total); // smoothstep
+			arcs.push(i === n ? total : smootherstep(u) * total); // C2: zero end-acceleration
 		}
 		const clusterStep = radius > 0 ? Math.min(hopPx, radius / 2) : 0;
 		for (const s of interior) {
@@ -3275,23 +3401,27 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			if (hypr) {
 				// Socket, not `hyprctl --batch`: the batch runs every hop in one
 				// compositor tick, which teleports instead of gliding.
-				const outcome = await hyprGlidePaced(hops, { timeoutMs: 8000 });
+				const outcome = await hyprGlidePaced(hops, { timeoutMs: 8000, frameMs: await frameMs() });
 				if (!outcome.ok) {
 					return errText(`Glide failed after ${outcome.applied}/${hops.length} hops: ${outcome.error ?? "unknown error"}`, "glide_failed");
 				}
 			} else if (backend === "ydotool") {
 				// ydoMove is an absolute mapped move; ydotoold has no ABS cap, so
 				// these stay sequential spawns (correctness over speed here).
+				// Dwell is frame-aligned so each hop lands on a display frame.
+				const frame = await frameMs();
 				for (const hop of hops) {
 					const cmd = ydoMove(hop.x, hop.y);
 					const res = await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
 					if (res.code !== 0) return errText(`Glide step ${cmd.slice(1).join(" ")} failed: ${res.stderr || res.stdout}`, "glide_failed");
-					if (hop.gapMs > 0) await new Promise(r => setTimeout(r, hop.gapMs));
+					const gap = frameAlignedGap(hop.gapMs, frame);
+					if (gap > 0) await new Promise(r => setTimeout(r, gap));
 				}
 			} else {
 				// One `xdotool -` process for the entire journey; the inline
-				// sleeps carry each hop's dwell exactly.
-				const script = xdoGlideScript(hops);
+				// sleeps carry each hop's dwell exactly, frame-aligned so every
+				// hop is revealed on a display frame boundary.
+				const script = xdoGlideScript(hops, await frameMs());
 				const res = await runCmd("sh", ["-c", `printf '%s' "$GLIDE" | xdotool -`], {
 					env: { GLIDE: script },
 					timeout: 30_000,

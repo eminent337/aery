@@ -4,8 +4,20 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { convergeCursorLanding, cursorVerifyNote } from "../desktop-control";
-import { hyprCommandSocketPath, hyprGlidePaced, xdoGlideScript } from "../live-input";
+import {
+	catmullRomArcSampler,
+	convergeCursorLanding,
+	cursorVerifyNote,
+	livePathPace,
+	livePathTrajectory,
+} from "../desktop-control";
+import {
+	frameAlignedGap,
+	hyprCommandSocketPath,
+	hyprGlidePaced,
+	parseFrameMs,
+	xdoGlideScript,
+} from "../live-input";
 
 /** Reply the fake compositor sends for command `index`; a delayed reply keeps
  *  the client's socket open to model a compositor that stalls. */
@@ -176,6 +188,32 @@ describe("hyprGlidePaced", () => {
 		expect(spacing[2]).toBeGreaterThan(gapMs * 0.5);
 		expect(spacing[2]).toBeLessThan(gapMs + 60);
 	});
+
+	test("frame lock holds every hop to a frame boundary and never bursts", async () => {
+		// 10ms requested dwell is sub-frame at 60Hz: the frame lock must stretch
+		// it to one whole frame (never shorten it) and keep the cadence even.
+		const gapMs = 10;
+		const frame = 16.667;
+		const fake = await startFakeCompositor(() => "ok");
+		cleanups.push(fake.cleanup);
+
+		const result = await hyprGlidePaced(hops(5, gapMs), { frameMs: frame });
+
+		expect(result.ok).toBe(true);
+		expect(result.applied).toBe(5);
+		const spacing = fake.arrivals.slice(1).map((at, i) => at - fake.arrivals[i]!);
+		// Every hop waits at least the requested dwell AND is pushed out to the
+		// next frame boundary — so spacing lands near one frame, never below the
+		// 10ms request and never a catch-up burst.
+		for (const gap of spacing) {
+			expect(gap).toBeGreaterThanOrEqual(gapMs - 5);
+			expect(gap).toBeLessThan(frame + 90);
+		}
+		// Spacing must be CONSISTENT (frame-locked), not ragged 1-frame/2-frame
+		// alternation: every gap within one frame of the others.
+		const maxSpacing = Math.max(...spacing);
+		expect(maxSpacing - Math.min(...spacing)).toBeLessThan(frame + 20);
+	});
 });
 
 describe("convergeCursorLanding", () => {
@@ -252,5 +290,157 @@ describe("convergeCursorLanding", () => {
 		);
 		expect(landing).toEqual({ read: null, corrections: 0 });
 		expect(cursorVerifyNote({ x: 1, y: 1 }, landing.read)).toBe("");
+	});
+});
+
+function worstEmittedHeadingChangeDeg(
+	from: { x: number; y: number },
+	hops: Array<{ x: number; y: number }>,
+): { worstDegrees: number; comparablePairs: number } {
+	const points = [{ x: Math.round(from.x), y: Math.round(from.y) }, ...hops];
+	const legs = points.slice(0, -1).map((point, i) => {
+		const next = points[i + 1]!;
+		return { x: next.x - point.x, y: next.y - point.y };
+	});
+	let worstDegrees = 0;
+	let comparablePairs = 0;
+	for (let i = 0; i + 1 < legs.length; i++) {
+		const a = legs[i]!;
+		const b = legs[i + 1]!;
+		if (Math.hypot(a.x, a.y) <= 1.5 || Math.hypot(b.x, b.y) <= 1.5) continue;
+		comparablePairs++;
+		const cross = a.x * b.y - a.y * b.x;
+		const dot = a.x * b.x + a.y * b.y;
+		const degrees = Math.abs(Math.atan2(cross, dot) * (180 / Math.PI));
+		worstDegrees = Math.max(worstDegrees, degrees);
+	}
+	return { worstDegrees, comparablePairs };
+}
+
+describe("C2-continuous glide curve", () => {
+	const controlPoints = [
+		{ x: 0, y: 0 },
+		{ x: 80, y: 20 },
+		{ x: 150, y: 160 },
+		{ x: 260, y: 130 },
+		{ x: 360, y: 280 },
+		{ x: 500, y: 220 },
+	];
+
+	test("passes through every control point and has strictly increasing arc lengths", () => {
+		const curve = catmullRomArcSampler(controlPoints);
+
+		expect(curve.controlArc).toHaveLength(controlPoints.length);
+		expect(curve.controlArc[0]).toBe(0);
+		for (const [k, arc] of curve.controlArc.entries()) {
+			const point = curve.at(arc);
+			const controlPoint = controlPoints[k]!;
+			expect(Math.hypot(point.x - controlPoint.x, point.y - controlPoint.y)).toBeLessThan(1e-9);
+		}
+		for (let k = 1; k < curve.controlArc.length; k++) {
+			expect(curve.controlArc[k]!).toBeGreaterThan(curve.controlArc[k - 1]!);
+		}
+		expect(curve.controlArc[curve.controlArc.length - 1]!).toBeCloseTo(curve.total, 9);
+	});
+
+	test("bows meaningfully away from the straight endpoint chord", () => {
+		const curve = catmullRomArcSampler(controlPoints);
+		const midpoint = curve.at(curve.total / 2);
+		const first = controlPoints[0]!;
+		const last = controlPoints[controlPoints.length - 1]!;
+		const chordMidpoint = { x: (first.x + last.x) / 2, y: (first.y + last.y) / 2 };
+
+		expect(Math.hypot(midpoint.x - chordMidpoint.x, midpoint.y - chordMidpoint.y)).toBeGreaterThan(10);
+	});
+
+	test("keeps headings continuous across four interior corners at every pace", () => {
+		const from = controlPoints[0]!;
+		const waypoints = controlPoints.slice(1);
+		for (const pace of ["brisk", "natural", "deliberate"] as const) {
+			const trajectory = livePathTrajectory(from, waypoints, { pace });
+			const { worstDegrees, comparablePairs } = worstEmittedHeadingChangeDeg(from, trajectory);
+
+			// Guard against a vacuous pass if rounding ever leaves no comparable legs.
+			expect(comparablePairs).toBeGreaterThan(0);
+			expect(worstDegrees).toBeLessThan(45);
+		}
+	});
+
+	test("lands exactly on every rounded waypoint at every pace", () => {
+		const from = { x: 0.49, y: 0.49 };
+		const waypoints = [
+			{ x: 80.49, y: 20.49 },
+			{ x: 150.6, y: 160.6 },
+			{ x: 260.49, y: 130.49 },
+			{ x: 360.6, y: 280.6 },
+			{ x: 500.49, y: 220.49 },
+		];
+		const rounded = [{ x: Math.round(from.x), y: Math.round(from.y) }, ...waypoints].map(point => ({
+			x: Math.round(point.x),
+			y: Math.round(point.y),
+		}));
+
+		for (const pace of ["brisk", "natural", "deliberate"] as const) {
+			const trajectory = livePathTrajectory(from, waypoints, { pace });
+			const landing = trajectory[trajectory.length - 1]!;
+			expect({ x: landing.x, y: landing.y }).toEqual(rounded[rounded.length - 1]);
+			for (const waypoint of rounded.slice(1, -1)) {
+				expect(trajectory.some(hop => hop.x === waypoint.x && hop.y === waypoint.y)).toBe(true);
+			}
+		}
+	});
+
+	test("emits integer coordinates only", () => {
+		const from = controlPoints[0]!;
+		const waypoints = controlPoints.slice(1);
+		for (const pace of ["brisk", "natural", "deliberate"] as const) {
+			const trajectory = livePathTrajectory(from, waypoints, { pace });
+			expect(trajectory.length).toBeGreaterThan(0);
+			for (const hop of trajectory) {
+				expect(Number.isInteger(hop.x)).toBe(true);
+				expect(Number.isInteger(hop.y)).toBe(true);
+			}
+		}
+	});
+});
+
+describe("frame-cadence pacing", () => {
+	test("parses real refresh rates and rejects unusable output", () => {
+		expect(parseFrameMs("1920x1080@60.04900 at 0x0")).toBeCloseTo(16.6531, 3);
+		expect(parseFrameMs("3840x2160@144.00 at 0x0")).toBeCloseTo(6.9444, 3);
+		expect(parseFrameMs("garbage")).toBeNull();
+		expect(parseFrameMs("1920x1080@0 at 0x0")).toBeNull();
+		expect(parseFrameMs("1920x1080@-60 at 0x0")).toBeNull();
+	});
+
+	test("aligns gaps to whole frames without shortening or epsilon drift", () => {
+		const frame = 16.667;
+		expect(frameAlignedGap(0, frame)).toBe(0);
+		expect(frameAlignedGap(-5, frame)).toBe(0);
+		expect(frameAlignedGap(24, 0)).toBe(24);
+		expect(frameAlignedGap(24, -frame)).toBe(24);
+		expect(frameAlignedGap(frame, frame)).toBe(frame);
+		expect(frameAlignedGap(frame * 2, frame)).toBe(frame * 2);
+
+		for (const frameMs of [16.65, 16.667, 6.94, 33.33, 8.33]) {
+			for (let gapMs = 1; gapMs <= 200; gapMs++) {
+				expect(frameAlignedGap(gapMs, frameMs)).toBeGreaterThanOrEqual(gapMs);
+			}
+		}
+	});
+
+	test("maps each real pace gap to its expected whole-frame dwell", () => {
+		const frame = 16.653;
+		const expectedFrames = { brisk: 1, natural: 1, deliberate: 2 } as const;
+		for (const pace of ["brisk", "natural", "deliberate"] as const) {
+			const requestedGap = livePathPace(pace).gapMs;
+			expect(frameAlignedGap(requestedGap, frame)).toBeCloseTo(frame * expectedFrames[pace], 3);
+		}
+	});
+
+	test("keeps the unaligned xdotool script compatible and frame-aligns only when asked", () => {
+		const pacedHops = [{ x: 5, y: 5, gapMs: 24 }];
+		expect(xdoGlideScript(pacedHops)).toBe("mousemove --sync 5 5\nsleep 0.024\n");
+		expect(xdoGlideScript(pacedHops, 16.653)).toBe("mousemove --sync 5 5\nsleep 0.033\n");
 	});
 });
