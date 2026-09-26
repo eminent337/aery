@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+	beginGlide,
+	endGlide,
 	finalActionHit,
+	glideInFlight,
 	guardrailRefusal,
 	looksLikePasswordPrompt,
 	rememberClickTargets,
@@ -133,5 +136,62 @@ describe("validateInjection (fail-closed, pre-injection)", () => {
 			ok: false, code: "missing_keys",
 		});
 		expect(validateInjection({ action: "live_key", keys: "Return", frame: FRAME, focusedAddress: "win1" }).ok).toBe(true);
+	});
+});
+
+describe("glide-in-flight refusal (D002: never inject into a moving pointer)", () => {
+	// Same-turn calls dispatch as "shared" and never wait on each other, so a
+	// click/type can arrive while a path glide still owns the pointer. The
+	// press would land mid-path, at a coordinate the model never chose.
+	test("click refuses while a glide holds the pointer", () => {
+		beginGlide();
+		try {
+			const v = validateInjection({ action: "live_click", x: 100, y: 100, frame: FRAME, focusedAddress: "win1" });
+			expect(v).toMatchObject({ ok: false, code: "glide_in_flight" });
+			if (!v.ok) expect(v.error).toContain("mid-path");
+		} finally {
+			endGlide();
+		}
+	});
+	test("type and key refuse too — every press is blocked, not just clicks", () => {
+		beginGlide();
+		try {
+			expect(validateInjection({ action: "live_type", keys: "hello", frame: FRAME, focusedAddress: "win1" })).toMatchObject({
+				ok: false,
+				code: "glide_in_flight",
+			});
+			expect(validateInjection({ action: "live_key", keys: "Return", frame: FRAME, focusedAddress: "win1" })).toMatchObject({
+				ok: false,
+				code: "glide_in_flight",
+			});
+		} finally {
+			endGlide();
+		}
+	});
+	test("the pointer itself stays legal — a second glide must not deadlock", () => {
+		beginGlide();
+		try {
+			expect(validateInjection({ action: "live_move", x: 100, y: 100, frame: FRAME, focusedAddress: "win1" }).ok).toBe(true);
+		} finally {
+			endGlide();
+		}
+	});
+	test("overlapping glides need matching releases (counter, not boolean)", () => {
+		beginGlide();
+		beginGlide();
+		endGlide();
+		// Still held: a boolean would have cleared the first glide's hold here
+		// and let a press through mid-glide.
+		expect(glideInFlight()).toBe(true);
+		const v = validateInjection({ action: "live_click", x: 100, y: 100, frame: FRAME, focusedAddress: "win1" });
+		expect(v).toMatchObject({ ok: false, code: "glide_in_flight" });
+		endGlide();
+		expect(glideInFlight()).toBe(false);
+		expect(validateInjection({ action: "live_click", x: 100, y: 100, frame: FRAME, focusedAddress: "win1" }).ok).toBe(true);
+	});
+	test("an extra release can never go negative", () => {
+		endGlide();
+		endGlide();
+		expect(glideInFlight()).toBe(false);
 	});
 });

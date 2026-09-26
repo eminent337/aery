@@ -311,4 +311,45 @@ describe("execute()-level eye-cursor concurrency (fake compositor)", () => {
 		const landedOnTarget = Math.hypot(endX - 180, endY - 700) <= 2;
 		expect(landedOnTarget).toBe(false);
 	}, 120000);
+
+	test("same-turn [glide + click]: the click refuses, no press mid-path", async () => {
+		const tool = new DesktopControlTool(undefined);
+		await tool.execute("anchor2", { action: "screenshot" });
+		const readCursor = (): [number, number] => {
+			const [x, y] = fs.readFileSync(path.join(stateDir, "cursor"), "utf8").trim().split(",").map(Number);
+			return [x, y];
+		};
+
+		// Long journey so the click is guaranteed to arrive while the pointer
+		// is genuinely still stepping — the race window, not a theoretical one.
+		const glideP = tool.execute("glide-race", {
+			action: "live_move",
+			path: [
+				{ x: 60, y: 60 },
+				{ x: 460, y: 60 },
+				{ x: 460, y: 300 },
+				{ x: 60, y: 300 },
+			],
+			pace: "deliberate",
+		});
+		// Give the glide a moment to take the pointer, then race the press.
+		await new Promise(r => setTimeout(r, 250));
+		const beforeClick = readCursor();
+		const clickR = await tool.execute("click-race", { action: "live_click", x: 200, y: 200 });
+		const afterClick = readCursor();
+		const glideR = await glideP;
+
+		const clickDetails = (clickR.details ?? {}) as { error?: string };
+		expect(clickDetails.error).toBe("glide_in_flight");
+		expect(textOf(clickR)).toContain("mid-path");
+		// The refused press did not move the pointer: the only thing that can
+		// move it is the still-running glide, so compare only that the click
+		// did not WARP to its own target (200,200) frame → (300,300) physical.
+		expect(afterClick[0]).not.toBe(300);
+		expect(afterClick[1]).not.toBe(300);
+		expect(beforeClick.length).toBe(2);
+		// The glide itself completed normally — the refusal is surgical.
+		expect(textOf(glideR)).toContain("Glided through 4 waypoints");
+		expect(glideCaptureNice()).toBe(0);
+	}, 120000);
 });

@@ -1236,6 +1236,34 @@ const LIVE_GATE_ACTIONS = new Set<string>([
 ]);
 const liveAuthorizedKinds = new Set<string>();
 
+/** --- In-flight glide registry (D002: never inject into a moving pointer) ---
+ *
+ * Same-turn tool calls dispatch as `"shared"` concurrency and never wait on
+ * each other (agent-loop.ts), so a live_click/live_type can land WHILE a path
+ * glide is still stepping the pointer. The click then presses at a coordinate
+ * the model never chose — somewhere mid-path. The eye is exempt: a capture is
+ * a pure read and never perturbs the pointer (that is the eye+glide pairing).
+ *
+ * A counter, not a boolean: two glides may legitimately overlap, and a
+ * boolean would let the first one to finish clear the other's hold.
+ */
+let inFlightGlides = 0;
+
+/** Hold the "pointer is under glide control" flag for one glide run. */
+export function beginGlide(): void {
+	inFlightGlides++;
+}
+
+/** Release a hold taken by {@link beginGlide}. Idempotent per call site. */
+export function endGlide(): void {
+	if (inFlightGlides > 0) inFlightGlides--;
+}
+
+/** True while at least one glide is stepping the pointer. Exported for tests. */
+export function glideInFlight(): boolean {
+	return inFlightGlides > 0;
+}
+
 /** --- Drive loop: per-action safety counters (clippy ScreenAgent pattern) - */
 
 /**
@@ -2522,6 +2550,18 @@ export function validateInjection(params: {
 	if (refusal) return { ok: false, error: refusal, code: "guardrail_refusal" };
 	const modifiersError = modifierRefusal(params.action, params.modifiers);
 	if (modifiersError) return { ok: false, error: modifiersError, code: "invalid_modifiers" };
+	// 1a. Never inject while a glide owns the pointer (D002). A same-turn
+	// click/type is dispatched in parallel with a path glide; the press
+	// would land at whatever mid-path coordinate the pointer occupied,
+	// not where the model aimed. The eye is deliberately NOT blocked —
+	// a capture is a read and the eye+glide pairing depends on it.
+	if (glideInFlight() && params.action !== "live_move") {
+		return {
+			ok: false,
+			error: `A cursor glide is still in flight, so ${params.action} would press at a mid-path coordinate the model never chose. Wait for the glide to land, then re-issue — or drop the 'path' and use single-aim live_move.`,
+			code: "glide_in_flight",
+		};
+	}
 	// path is live_move-only, and mutually exclusive with single x/y and target.
 	if (params.path !== undefined && params.action !== "live_move") {
 		return { ok: false, error: "'path' (continuous multi-waypoint glide) is only supported on live_move.", code: "path_wrong_action" };
@@ -3528,6 +3568,11 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		// and inflates every hop's IPC ack (measured 78ms → 16ms median). Every
 		// exit — abort, glide failure, throw — disarms via finally.
 		setGlideCaptureNice(true);
+		// Hold the in-flight flag for the whole pointer run (D002): a
+		// same-turn click/type must refuse rather than press at a mid-path
+		// coordinate. Same try/finally as the capture-nice arm, so abort
+		// and failure both release it.
+		beginGlide();
 		try {
 			if (hypr) {
 				// Socket, not `hyprctl --batch`: the batch runs every hop in one
@@ -3591,6 +3636,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			}
 		} finally {
 			setGlideCaptureNice(false);
+			endGlide();
 		}
 		// Mid-flight captures ran concurrently with the glide; collect them
 		// now (bounded ≤4, each already settled or failed by this point).
