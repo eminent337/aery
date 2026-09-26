@@ -33,9 +33,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import type { AgentTool, AgentToolResult, ToolApprovalDecision } from "@aryee337/aery-core";
+import type { AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolApprovalDecision } from "@aryee337/aery-core";
 import * as z from "zod/v4";
 import desktopControlDescription from "../prompts/tools/desktop-control.md" with { type: "text" };
+import { execFileNiced, setGlideCaptureNice } from "./capture-priority";
 import type { ToolSession } from "./index";
 import {
 	frameAlignedGap,
@@ -401,7 +402,7 @@ async function runCmd(
 	options: { env?: NodeJS.ProcessEnv; timeout?: number } = {},
 ): Promise<{ stdout: string; stderr: string; code: number }> {
 	try {
-		const { stdout, stderr } = await execFileAsync(cmd, args, {
+		const { stdout, stderr } = await execFileNiced(cmd, args, {
 			env: { ...process.env, ...options.env },
 			timeout: options.timeout ?? 10_000,
 		});
@@ -3047,6 +3048,7 @@ async function executeLiveAction(
 	params: DesktopControlParams,
 	session?: ToolSession,
 	signal?: AbortSignal,
+	onUpdate?: AgentToolUpdateCallback,
 ): Promise<AgentToolResult> {
 	// Identity of THIS injection step — used both by the abort gate (does the
 	// incoming attempt repeat the stuck step?) and by the observers (does the
@@ -3505,6 +3507,28 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 				captureLiveFrame(`Mid-flight: hop ${applied}/${hops.length}.`).catch(() => ({ error: "mid-flight capture failed" })),
 			);
 		};
+		// Streaming progress partial (stream-only — the final result replaces
+		// it, so nothing lands in model context). First hop emits immediately;
+		// after that at most one update per 500ms. The xdotool backend below
+		// has no per-hop hook, so it reports no partials.
+		let lastProgressAt = 0;
+		const reportProgress = (applied: number): void => {
+			if (!onUpdate) return;
+			const now = performance.now();
+			if (applied > 1 && now - lastProgressAt < 500) return;
+			lastProgressAt = now;
+			const pace = params.pace ?? "natural";
+			onUpdate({
+				content: [{ type: "text", text: `Gliding… ${applied}/${hops.length} hops (${pace} pace).` }],
+				details: { glideProgress: { applied, total: hops.length, pace } },
+			});
+		};
+		// Capture children run niced while the pointer moves (capture-priority):
+		// our own convert/tesseract/grim churn otherwise starves the compositor
+		// and inflates every hop's IPC ack (measured 78ms → 16ms median). Every
+		// exit — abort, glide failure, throw — disarms via finally.
+		setGlideCaptureNice(true);
+		try {
 			if (hypr) {
 				// Socket, not `hyprctl --batch`: the batch runs every hop in one
 				// compositor tick, which teleports instead of gliding.
@@ -3512,10 +3536,11 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 				timeoutMs: 8000,
 				frameMs: await frameMs(),
 				signal,
-				onHop: applied => {
-					midApplied = applied;
-					onMidHop(applied);
-				},
+			onHop: applied => {
+				midApplied = applied;
+				onMidHop(applied);
+				reportProgress(applied);
+			},
 			});
 			if (outcome.aborted) {
 				glideAborted = true;
@@ -3539,6 +3564,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 					if (res.code !== 0) return errText(`Glide step ${cmd.slice(1).join(" ")} failed: ${res.stderr || res.stdout}`, "glide_failed");
 				midApplied++;
 				onMidHop(midApplied);
+				reportProgress(midApplied);
 					const gap = frameAlignedGap(hop.gapMs, frame);
 					if (gap > 0) await new Promise(r => setTimeout(r, gap));
 				}
@@ -3549,7 +3575,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			} else {
 			// X11 fallback: the whole journey is ONE xdotool script (its
 			// inline sleeps carry the dwell), so there is no per-hop hook —
-			// mid-flight captures and abort are NOT supported on this
+			// mid-flight captures, progress partials, and abort are NOT supported on this
 			// backend; the script runs to completion (30s timeout bound).
 				// One `xdotool -` process for the entire journey; the inline
 				// sleeps carry each hop's dwell exactly, frame-aligned so every
@@ -3563,6 +3589,9 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 					return errText(`Glide failed: ${res.stderr || res.stdout || `exit ${res.code}`}`, "glide_failed");
 				}
 			}
+		} finally {
+			setGlideCaptureNice(false);
+		}
 		// Mid-flight captures ran concurrently with the glide; collect them
 		// now (bounded ≤4, each already settled or failed by this point).
 		const midResults = await Promise.all(midCapturePromises);
@@ -3934,7 +3963,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 		this.session = session;
 	}
 
-	async execute(_id: string, params: DesktopControlParams, signal?: AbortSignal): Promise<AgentToolResult> {
+	async execute(_id: string, params: DesktopControlParams, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback): Promise<AgentToolResult> {
 		const modifiersError = modifierRefusal(params.action, params.modifiers);
 		if (modifiersError) {
 			return { content: [{ type: "text", text: modifiersError }], details: { error: "invalid_modifiers" } };
@@ -3950,7 +3979,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "live_type":
 			case "live_key":
 			case "live_scroll":
-				return executeLiveAction(params.action, params, this.session, signal);
+				return executeLiveAction(params.action, params, this.session, signal, onUpdate);
 			case "list_windows": {
 				const listDriver = detectPlatformDriver();
 				if (listDriver.id !== "hyprland" && listDriver.id !== "x11") {

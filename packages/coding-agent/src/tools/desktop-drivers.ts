@@ -11,10 +11,7 @@
  * sandbox path already proves xdotool works here); (3) macOS / Windows
  * stubs report honest capability gaps until implemented.
  */
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
-
-const execFileAsync = promisify(execFile);
+import { execFileNiced } from "./capture-priority";
 
 export type PlatformId = "hyprland" | "x11" | "macos" | "windows" | "unknown";
 
@@ -178,7 +175,7 @@ export function detectPlatformId(env: NodeJS.ProcessEnv = process.env, platform:
 
 async function runCmd(cmd: string, args: string[], opts?: { timeout?: number; env?: NodeJS.ProcessEnv }): Promise<{ code: number; stdout: string; stderr: string }> {
 	try {
-		const res = await execFileAsync(cmd, args, {
+		const res = await execFileNiced(cmd, args, {
 			timeout: opts?.timeout ?? 15000,
 			env: { ...process.env, ...opts?.env },
 		});

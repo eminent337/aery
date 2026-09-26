@@ -12,13 +12,10 @@
 //     sparse (<20 non-whitespace chars) and the frame is <1200px wide, upscale
 //     2x and retry, keeping whichever pass reads more.
 
-import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { execFileNiced } from "./capture-priority";
 
 /** One OCR word and its bounding box in the frame's native pixel space.
  *  Click-target primitive: the model matches `text` to a UI label, then
@@ -52,7 +49,7 @@ async function runCmd(
 	options: { env?: NodeJS.ProcessEnv; timeout?: number } = {},
 ): Promise<{ stdout: string; stderr: string; code: number }> {
 	try {
-		const { stdout, stderr } = await execFileAsync(cmd, args, {
+		const { stdout, stderr } = await execFileNiced(cmd, args, {
 			env: { ...process.env, ...options.env },
 			timeout: options.timeout ?? 10_000,
 		});
