@@ -1,13 +1,19 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
 	clickTargetsFromOcr,
 	cursorVerifyNote,
 	formatClickTargets,
+	framesCoherent,
 	isJunkTargetWord,
 	liveAimGlide,
 	livePathPace,
 	livePathTrajectory,
 	rememberClickTargets,
+	rememberFrame,
 	resolveClickTarget,
 } from "../desktop-control";
 
@@ -215,7 +221,10 @@ describe("continuous path: livePathTrajectory", () => {
 		// Journey passes exactly through the corner (300,300): some hop must
 		// land within a hop of it, and hops on either side of it are normal-
 		// sized — i.e. the corner is traversed, not teleported across.
-		const hops = livePathTrajectory({ x: 0, y: 0 }, [{ x: 300, y: 300 }, { x: 600, y: 0 }]);
+		const hops = livePathTrajectory({ x: 0, y: 0 }, [
+			{ x: 300, y: 300 },
+			{ x: 600, y: 0 },
+		]);
 		let prev = { x: 0, y: 0 };
 		for (const h of hops) {
 			expect(Math.hypot(h.x - prev.x, h.y - prev.y)).toBeLessThanOrEqual(25);
@@ -228,7 +237,7 @@ describe("continuous path: livePathTrajectory", () => {
 	test("total dwell honors the wall-clock cap on a very long path", () => {
 		const waypoints: Array<{ x: number; y: number }> = [];
 		// ~20k px of travel across 64 waypoints.
-		for (let i = 0; i < 64; i++) waypoints.push({ x: (i % 2 ? 1900 : 20), y: 20 + i * 16 });
+		for (let i = 0; i < 64; i++) waypoints.push({ x: i % 2 ? 1900 : 20, y: 20 + i * 16 });
 		const hops = livePathTrajectory({ x: 20, y: 20 }, waypoints, { maxTotalMs: 4000 });
 		const dwell = hops.reduce((s, h) => s + h.gapMs, 0);
 		// N×(gap+spawn) was budgeted ≤4000; summed gaps alone are ≤ that.
@@ -241,9 +250,12 @@ describe("continuous path: livePathTrajectory", () => {
 	});
 
 	test("degenerate: a no-travel request yields one hop on the spot", () => {
-		expect(livePathTrajectory({ x: 5, y: 5 }, [{ x: 5, y: 5 }, { x: 5, y: 5 }])).toEqual([
-			{ x: 5, y: 5, gapMs: 16 },
-		]);
+		expect(
+			livePathTrajectory({ x: 5, y: 5 }, [
+				{ x: 5, y: 5 },
+				{ x: 5, y: 5 },
+			]),
+		).toEqual([{ x: 5, y: 5, gapMs: 16 }]);
 	});
 });
 
@@ -394,5 +406,113 @@ describe("continuous path: pace profiles and corner easing", () => {
 				expect(h.y).toBeLessThanOrEqual(Math.max(...ys) + 1);
 			}
 		}
+	});
+});
+
+describe("same-turn reading coherence (eye + cursor together)", () => {
+	// rememberFrame derives frame dims by running `identify` on real files —
+	// the same ImageMagick dependency the xvfb suites already rely on.
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pairing-"));
+	const png = (name: string, size: string): string => {
+		const p = path.join(dir, name);
+		execFileSync("convert", ["-size", size, "xc:white", p]);
+		return p;
+	};
+	const A1 = png("a1.png", "8x6");
+	const A2 = png("a2.png", "8x6");
+	const B = png("b.png", "12x9");
+	afterAll(() => {
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+	const WIN_A = {
+		address: "0xA",
+		title: "Mail",
+		class: "mail-app",
+		workspace: 1,
+		at: [10, 20] as [number, number],
+		size: [8, 6] as [number, number],
+		focused: true,
+	};
+	const WIN_B = {
+		address: "0xB",
+		title: "Editor",
+		class: "editor-app",
+		workspace: 2,
+		at: [0, 0] as [number, number],
+		size: [12, 9] as [number, number],
+		focused: true,
+	};
+	const box = { text: "Send", x: 10, y: 10, w: 40, h: 12, confidence: 0.9 };
+	const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+	test("a coherent frame/target pair resolves to the box center", async () => {
+		const f = await rememberFrame(WIN_A, "10,20 8x6", A1, A1);
+		expect(f).not.toBeNull();
+		rememberClickTargets([box], f);
+		expect(resolveClickTarget("Send")?.x).toBe(30); // 10 + 40/2
+	});
+
+	test("a same-window re-capture keeps the pool alive (value coherence)", async () => {
+		const f1 = await rememberFrame(WIN_A, "10,20 8x6", A1, A1);
+		rememberClickTargets([box], f1);
+		const f2 = await rememberFrame(WIN_A, "10,20 8x6", A2, A2);
+		expect(f2).not.toBeNull();
+		expect(framesCoherent(f1, f2)).toBe(true);
+		// Same surface, identical mapping: the exact box still resolves —
+		// ordinary serial flows (click → verify → click) never regress.
+		expect(resolveClickTarget("Send")).not.toBeNull();
+	});
+
+	test("a window swap fails closed instead of mapping old boxes through new coordinates", async () => {
+		const f1 = await rememberFrame(WIN_A, "10,20 8x6", A1, A1);
+		rememberClickTargets([box], f1);
+		const f2 = await rememberFrame(WIN_B, "0,0 12x9", B, B);
+		expect(f2).not.toBeNull();
+		expect(framesCoherent(f1, f2)).toBe(false);
+		expect(resolveClickTarget("Send")).toBeNull();
+	});
+
+	test("concurrent publishers end coherent-or-refused, never corrupted (screenshot during an in-flight glide)", async () => {
+		// Publisher 1 = a slow screenshot: captures, "OCRs" (delayed), then
+		// publishes its targets against ITS OWN frame. Publisher 2 = the
+		// glide's verify capture, publishing a different window's frame
+		// while publisher 1 is still mid-"OCR".
+		await Promise.all([
+			(async () => {
+				const f = await rememberFrame(WIN_A, "10,20 8x6", A1, A1);
+				await sleep(30); // OCR time
+				rememberClickTargets([box], f);
+			})(),
+			(async () => {
+				await sleep(10); // the glide's verify lands mid-"OCR"
+				await rememberFrame(WIN_B, "0,0 12x9", B, B);
+			})(),
+		]);
+		// Final frame = B (published last), targets paired with A → refused:
+		// the pool is never resolved through foreign coordinates.
+		expect(resolveClickTarget("Send")).toBeNull();
+
+		// Same-surface variant: both publishers describe window A, so the
+		// interleaving stays coherent and the exact box survives.
+		await Promise.all([
+			(async () => {
+				const f = await rememberFrame(WIN_A, "10,20 8x6", A1, A1);
+				await sleep(30);
+				rememberClickTargets([box], f);
+			})(),
+			(async () => {
+				await sleep(10);
+				await rememberFrame(WIN_A, "10,20 8x6", A2, A2);
+			})(),
+		]);
+		expect(resolveClickTarget("Send")?.y).toBe(16); // 10 + 12/2
+	});
+
+	test("framesCoherent requires both readings and full surface equality", () => {
+		expect(framesCoherent(null, FRAME_1280)).toBe(false);
+		expect(framesCoherent(FRAME_1280, { ...FRAME_1280 })).toBe(true);
+		expect(framesCoherent(FRAME_1280, { ...FRAME_1280, address: "other" })).toBe(false);
+		expect(framesCoherent(FRAME_1280, { ...FRAME_1280, physW: 1279 })).toBe(false);
+		expect(framesCoherent(FRAME_1280, { ...FRAME_1280, atX: 5 })).toBe(false);
 	});
 });

@@ -620,6 +620,9 @@ export interface HyprGlideResult {
 	/** Hops the compositor acknowledged. */
 	applied: number;
 	error?: string;
+	/** True when the glide stopped because its AbortSignal fired — the caller
+	 *  should report a cancellation, not a backend failure. */
+	aborted?: boolean;
 }
 
 /**
@@ -642,6 +645,14 @@ export async function hyprGlidePaced(
 		 *  pre-frame-lock behaviour (the emitter then sends no extra compositor
 		 *  request). Production callers pass the value from `frameMs()`. */
 		frameMs?: number;
+		/** Cooperative cancellation, checked at the top of every iteration.
+		 *  Aborting never shortens a dispatched hop's dwell and never induces
+		 *  a catch-up burst — the glide simply stops before the NEXT hop. */
+		signal?: AbortSignal;
+		/** Called after each acknowledged hop, before its dwell:
+		 *  (applied, total). Exceptions are swallowed so a progress observer
+		 *  can never break the glide itself. */
+		onHop?: (applied: number, total: number) => void;
 	} = {},
 ): Promise<HyprGlideResult> {
 	const timeoutMs = options.timeoutMs ?? 8000;
@@ -664,6 +675,15 @@ export async function hyprGlidePaced(
 	// an overrunning round trip still yields exactly one late hop, never a
 	// catch-up burst.
 	for (const [i, hop] of hops.entries()) {
+		// Abort is checked BEFORE dispatching a hop, never during a dwell:
+		// a hop that was already revealed keeps its full frame-locked pause
+		// (the lock's never-shorter contract), then the glide stops cleanly
+		// at the top of the next iteration — bounded by one hop's cadence,
+		// with no catch-up burst possible (each hop anchors to its own
+		// dispatch, and no further dispatch happens).
+		if (options.signal?.aborted) {
+			return { ok: false, applied, error: "aborted", aborted: true };
+		}
 		const dispatched = performance.now();
 		try {
 			const reply = await hyprIpcDispatch(
@@ -679,6 +699,12 @@ export async function hyprGlidePaced(
 			return { ok: false, applied, error: `hop ${i} failed: ${err instanceof Error ? err.message : String(err)}` };
 		}
 		applied++;
+		try {
+			options.onHop?.(applied, hops.length);
+		} catch {
+			// Progress observers are advisory — a throwing observer must
+			// never fail or stall the glide.
+		}
 		const earliestNext = dispatched + hop.gapMs;
 		const wait = frame === null
 			? hop.gapMs - (performance.now() - dispatched)

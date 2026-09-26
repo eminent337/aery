@@ -58,6 +58,14 @@ Desktop screen vision and window manager tool. Takes full-screen or window-targe
   is watching or you want careful tracing — it slows the straights and widens
   the turn easing. Every pace stays wall-clock capped (on a very long route the
   cap wins over the easing, so it never hangs). 'pace' without 'path' is refused.
+- Eye and cursor run TOGETHER: a 'screenshot'/'live_eye' issued in the same
+  turn as an in-flight 'live_move' executes concurrently and returns a
+  mid-motion frame — pair them to WATCH the pointer travel instead of waiting
+  blind. Glide results carry 'midFlightFrames' (paths of up to 4 captures
+  taken DURING the journey) in details; a cancelled glide reports
+  aborted/applied/total with focus re-asserted and no landing warp. Reading
+  state stays coherent under concurrency: a target pool measured against a
+  different window refuses to resolve — re-eye and retry, never force it.
 - 'verify: true' (default) attaches a follow-up capture after live_* input so you
   can self-correct; keep it on for multi-step flows.
 - 'textOnly'/'ocr:false' skip the image read when you only need words; 'maxWidth'/
@@ -76,6 +84,9 @@ Desktop screen vision and window manager tool. Takes full-screen or window-targe
 `live_move {"path":[{"x":60,"y":690},{"x":640,"y":360},{"x":1200,"y":80}]}`
 # Slower, more deliberate tracing when the user is watching (corners ease through)
 `live_move {"path":[{"x":60,"y":690},{"x":640,"y":360},{"x":1200,"y":80}],"pace":"deliberate"}`
+# Eye + cursor in ONE turn: watch the glide while it runs
+`live_move {"path":[{"x":60,"y":690},{"x":640,"y":360}]}` together with `screenshot {}`
+→ the screenshot returns the pointer mid-transit; the glide keeps going.
 
 # A step needs the user's password — project it and hand over
 `xvfb_launch {"command":"sudo apt upgrade"}` → prompt appears

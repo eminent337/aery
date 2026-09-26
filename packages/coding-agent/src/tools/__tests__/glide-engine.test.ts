@@ -214,6 +214,96 @@ describe("hyprGlidePaced", () => {
 		const maxSpacing = Math.max(...spacing);
 		expect(maxSpacing - Math.min(...spacing)).toBeLessThan(frame + 20);
 	});
+	test("an abort stops before the next hop and never shortens the in-flight dwell", async () => {
+		const gapMs = 40;
+		const fake = await startFakeCompositor(() => "ok");
+		cleanups.push(fake.cleanup);
+		const controller = new AbortController();
+		const seen: number[] = [];
+
+		const started = performance.now();
+		const result = await hyprGlidePaced(hops(6, gapMs), {
+			signal: controller.signal,
+			onHop: applied => {
+				seen.push(applied);
+				// Cancel DURING hop 2's dwell: hop 2 was already dispatched, so
+				// its full frame-locked pause must still elapse (never-shorter),
+	// and hop 3 must never reach the compositor.
+				if (applied === 2) controller.abort();
+			},
+		});
+		const elapsed = performance.now() - started;
+
+		expect(result.ok).toBe(false);
+		expect(result.aborted).toBe(true);
+		expect(result.error).toBe("aborted");
+		expect(result.applied).toBe(2);
+		expect(seen).toEqual([1, 2]);
+		expect(fake.received).toHaveLength(2);
+		// Bounded by ONE hop's cadence past hop 2's own dwell: both dispatched
+		// dwells ran (never shortened), and no third dispatch/dwell happened.
+		expect(elapsed).toBeGreaterThanOrEqual(gapMs * 2 - 15);
+		expect(elapsed).toBeLessThan(gapMs * 3 + 120);
+	});
+
+	test("a signal aborted before the start dispatches nothing", async () => {
+		const fake = await startFakeCompositor(() => "ok");
+		cleanups.push(fake.cleanup);
+		const controller = new AbortController();
+		controller.abort();
+
+		const result = await hyprGlidePaced(hops(3, 0), { signal: controller.signal });
+
+		expect(result).toEqual({ ok: false, applied: 0, error: "aborted", aborted: true });
+		expect(fake.received).toHaveLength(0);
+	});
+
+	test("onHop fires once per applied hop in order; a throwing observer never breaks the glide", async () => {
+		const fake = await startFakeCompositor(() => "ok");
+		cleanups.push(fake.cleanup);
+		const seen: Array<[number, number]> = [];
+
+		const result = await hyprGlidePaced(hops(4, 0), {
+			onHop: (applied, total) => {
+				seen.push([applied, total]);
+				if (applied === 2) throw new Error("observer exploded");
+			},
+		});
+
+		expect(result).toEqual({ ok: true, applied: 4 });
+		expect(seen).toEqual([
+			[1, 4],
+			[2, 4],
+			[3, 4],
+			[4, 4],
+		]);
+	});
+
+	test("slow observer work started in onHop never extends the glide wall clock", async () => {
+		const gapMs = 30;
+		const n = 5;
+		const fake = await startFakeCompositor(() => "ok");
+		cleanups.push(fake.cleanup);
+		const controller = new AbortController();
+
+		const started = performance.now();
+		const result = await hyprGlidePaced(hops(n, gapMs), {
+			signal: controller.signal,
+			onHop: () => {
+				// Models the mid-flight captureLiveFrame: slow async work that
+	// is scheduled, never awaited inside the hop loop.
+				void new Promise<string>(resolve => setTimeout(() => resolve("frame"), 400));
+			},
+		});
+		const elapsed = performance.now() - started;
+
+		expect(result.ok).toBe(true);
+		expect(result.applied).toBe(n);
+		// Dwell-bound: n×gap ± tolerance. If the observer were awaited (or the
+		// signal path cost anything), the 400ms task would push this past it.
+		expect(elapsed).toBeGreaterThanOrEqual(gapMs * n - 15);
+		expect(elapsed).toBeLessThan(gapMs * n + 150);
+	});
 });
 
 describe("convergeCursorLanding", () => {

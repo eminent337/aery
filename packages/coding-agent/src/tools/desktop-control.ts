@@ -1405,7 +1405,7 @@ let lastCaptureOcrOptOut = false;
  *  a region view's frame px would map clicks to the top-left of the screen
  *  instead of where the crop actually sits. Also remembers the scaled file
  *  path so target resolution can OCR it lazily. */
-async function rememberFrame(
+export async function rememberFrame(
 	win: DesktopWindowInfo | undefined,
 	geometry: string | undefined,
 	rawPath: string,
@@ -1801,6 +1801,21 @@ export function livePathTrajectory(
 	// shrinks the journey until the REAL emitted cost fits `maxTotalMs`.
 	// hopPx is mutable because the ladder widens it in lockstep with density.
 	const interior = arcAtVertex.slice(0, -1);
+	// Geometric envelope: the control polyline's bounding box (integer, so
+	// clamping never introduces fractional hops). Spline overshoot may bulge
+	// beyond the polyline — intermediate hops are clamped INTO this box so no
+	// emitted hop ever leaves the journey's envelope (waypoints are vertices,
+	// so clamping never moves them; validateInjection bounds-checks only the
+	// waypoints, leaving intermediates to this guard).
+	const envMinX = Math.min(...pts.map(p => p.x));
+	const envMaxX = Math.max(...pts.map(p => p.x));
+	const envMinY = Math.min(...pts.map(p => p.y));
+	const envMaxY = Math.max(...pts.map(p => p.y));
+	// Waypoint positions for the geometric taper — interior waypoints only:
+	// the journey's START and FINAL points are not corners (the start gets
+	// its ease-in from the warp itself, the final from the ease-out), and the
+	// corner-slowdown contract scopes the taper to actual waypoints.
+	const cornerPoints = pts.slice(1, -1);
 	const build = (n: number, gap: number, radius: number, boostScale: number): LivePathHop[] => {
 		const arcs: number[] = [0];
 		for (let i = 1; i <= n; i++) {
@@ -1818,27 +1833,67 @@ export function livePathTrajectory(
 			arcs.push(s); // exact waypoint sample — never cut, never skip
 		}
 		arcs.sort((a, b) => a - b);
+	// Subdivide arc steps that would render a hop beyond the bound: the
+	// smootherstep warp's 1.875× mid-run peak (the old cubic peaked at 1.5×,
+	// which the 1.5× base density absorbed exactly) would otherwise emit a
+	// ~1.25×hopPx jump at full speed — "a corner sweep must not turn into a
+	// jump". Halving in ARC space needs no extra geometry (atArc renders it)
+	// and only touches the fast middle, so the dwell budget barely moves.
+	let sub = 1;
+	while (sub < arcs.length) {
+		const a = arcs[sub - 1]!;
+		const b = arcs[sub]!;
+		if (b - a > hopPx) arcs.splice(sub, 0, (a + b) / 2);
+		else sub++;
+	}
+	// Desubdivide the warp's slow ends back out: smootherstep packs samples
+	// where speed is already low (steps far below hopPx), and those tiny hops
+	// are wasted budget. Merging them pairwise — never past hopPx, never
+	// touching a waypoint/cluster anchor — pays for the peak-zone splits
+	// above, so the total hop count stays near the old density and the
+	// budget ladder never has to gut the taper or the cadence to fit.
+	const isAnchor = (s: number): boolean => s === 0 || s === total || interior.some(v => Math.abs(s - v) < 1e-9);
+	let m = 1;
+	while (m < arcs.length - 1) {
+		const a = arcs[m - 1]!;
+		const b = arcs[m]!;
+		const c = arcs[m + 1]!;
+		if (b - a < hopPx * 0.75 && !isAnchor(b) && c - a <= hopPx) {
+			arcs.splice(m, 1);
+		} else {
+			m++;
+		}
+	}
 		// Dwell taper: a hop whose midpoint sits inside a corner zone gets a
 		// longer dwell (1× the base at the waypoint → 0 boost at the zone edge),
 		// so ground speed dips through the turn while straights stay even.
 		const boost = gap * boostScale;
-		const hopGap = (arcA: number, arcB: number): number => {
-			if (radius <= 0 || boostScale <= 0) return gap;
-			const mid = (arcA + arcB) / 2;
-			let w = 0;
-			for (const s of interior) {
-				const d = Math.abs(mid - s);
-				if (d < radius) w = Math.max(w, 1 - d / radius);
-			}
-			return Math.round(gap + boost * w);
-		};
+	const hopGap = (arcA: number, arcB: number): number => {
+		if (radius <= 0 || boostScale <= 0) return gap;
+		const mp = atArc((arcA + arcB) / 2);
+		let w = 0;
+		// GEOMETRIC (not arc) distance: a spline bulge can sit far from the
+		// vertex along the arc while passing right next to it in space, and
+		// vice versa — the slowdown tracks where the curve IS, so every
+		// slowed hop lands within `radius` of a waypoint on screen.
+		for (const v of cornerPoints) {
+			const d = Math.hypot(mp.x - v.x, mp.y - v.y);
+			if (d < radius) w = Math.max(w, 1 - d / radius);
+		}
+		return Math.round(gap + boost * w);
+	};
 		const hops: LivePathHop[] = [];
 		let prevArc = 0;
 		for (let i = 1; i < arcs.length; i++) {
 			const s = arcs[i]!;
 			if (s - prevArc < 0.5) continue; // dedupe near-identical arc positions
 			const p = s >= total ? final : atArc(s);
-			const q = { x: Math.round(p.x), y: Math.round(p.y) };
+			// Clamp into the waypoint envelope: spline overshoot may bulge past
+			// the polyline's box; a rendered hop must never leave it.
+			const q = {
+				x: Math.min(envMaxX, Math.max(envMinX, Math.round(p.x))),
+				y: Math.min(envMaxY, Math.max(envMinY, Math.round(p.y))),
+			};
 			const dwell = hopGap(prevArc, s);
 			const prev = hops[hops.length - 1];
 			if (prev && prev.x === q.x && prev.y === q.y) {
@@ -2087,9 +2142,13 @@ export function formatClickTargets(targets: ClickTarget[], max = 20): string {
  *  Bumps the target generation so stale glances stop resolving: targets
  *  die with the glance that produced them (frame-bound contract).
  *  Exported for tests to seed the matcher, and used by eye/screenshot. */
-export function rememberClickTargets(targets: ClickTarget[]): void {
+export function rememberClickTargets(targets: ClickTarget[], frame?: InputFrame | null): void {
 	clickTargetGen++;
 	lastClickTargets = targets.map(t => ({ ...t, gen: clickTargetGen }));
+	// Pairing: remember WHICH reading the boxes were measured against, so a
+	// concurrent same-turn capture that supersedes the frame can't leave
+	// stale boxes resolving through newer coordinates (eye+cursor together).
+	clickTargetsFrame = frame === undefined ? lastInputFrame : frame;
 }
 /** A remembered click target with its reading generation — targets die with
  *  the glance that produced them unless re-observed (frame-bound contract). */
@@ -2099,6 +2158,9 @@ interface GenerationalTarget extends ClickTarget {
 
 /** Monotonic generation of the last anchored reading (eye/screenshot). */
 let clickTargetGen = 0;
+/** The reading `lastClickTargets` were measured against — the pairing key
+ *  for resolveClickTarget's frame-coherence guard. */
+let clickTargetsFrame: InputFrame | null = null;
 
 /** Junk-word filter for the target pool: symbol-only specks and low-confidence
  *  fragments crowd the 40-cap on dense windows (browser tabs full of mangled
@@ -2110,6 +2172,20 @@ export function isJunkTargetWord(text: string, confidence: number): boolean {
 	return confidence < 0.7;
 }
 
+/** True when two readings describe the SAME capture surface: same window
+ *  (address), origin, and physical/scaled dimensions — boxes measured
+ *  against `a` therefore map correctly through `b`. Value-based (not
+ *  reference) so an ordinary same-window re-capture keeps the pool alive
+ *  while a window swap or resize fails closed. Exported for tests. */
+export function framesCoherent(a: InputFrame | null, b: InputFrame | null): boolean {
+	if (!a || !b) return false;
+	return (
+		a.address === b.address &&
+		a.atX === b.atX && a.atY === b.atY &&
+		a.physW === b.physW && a.physH === b.physH &&
+		a.scaledW === b.scaledW && a.scaledH === b.scaledH
+	);
+}
 /** Resolve a `target` text ("Compose", "Send") to the best remembered click
  *  target. Exact match wins; then word-boundary/phrase matches ("Send"
  *  matches "Send message" but NOT "Resend" or "Sender"); substring is the
@@ -2120,6 +2196,12 @@ export function isJunkTargetWord(text: string, confidence: number): boolean {
 export function resolveClickTarget(text: string): { x: number; y: number; box: ClickTarget } | null {
 	const q = text.trim().toLowerCase();
 	if (!q) return null;
+	// Frame coherence (eye+cursor together): a same-turn capture may have
+	// superseded the frame the boxes were measured against. When BOTH are
+	// known and describe different surfaces, resolving would map old boxes
+	// through new coordinates — refuse. Legacy seeds with no paired frame
+	// stay permitted; production call sites always pair.
+	if (clickTargetsFrame && lastInputFrame && !framesCoherent(clickTargetsFrame, lastInputFrame)) return null;
 	const pool = lastClickTargets.filter(t => (t as GenerationalTarget).gen === clickTargetGen);
 	if (pool.length === 0) return null;
 	const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -3333,9 +3415,13 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		obsStatus.state === "fresh"
 	) {
 		try {
+			// Pin the pairing frame BEFORE the await: a concurrent same-turn
+			// capture may swap lastInputFrame while OCR runs, and boxes must
+			// stay paired to the file they were read from.
+			const readingFrame = lastInputFrame;
 			const ocr = await ocrFrame(lastFramePath, {});
-			const targets = clickTargetsFromOcr(ocr.words, lastInputFrame);
-			if (targets.length > 0) rememberClickTargets(targets);
+			const targets = clickTargetsFromOcr(ocr.words, readingFrame);
+			if (targets.length > 0) rememberClickTargets(targets, readingFrame);
 		} catch {
 			// hydration is best-effort — the refusal below still lands
 		}
@@ -3398,26 +3484,73 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			// 11.6-15.0 ms, hyprland IPC socket 0.82 ms, chained xdotool
 			// 0.66 ms — spawn was ~half of every glide's wall clock and its
 			// variance was what made the cadence uneven.
+		// Mid-flight observation (eye+cursor together): bounded captures
+		// launched CONCURRENTLY with the glide — never awaited inside the
+		// hop loop, so a capture can never stall the cadence. Milestones are
+		// hop counts (the pointer is genuinely in motion when they fire).
+		// Paths only in details; the single image block stays the
+		// post-landing verify frame.
+		const MID_CAPTURE_MAX = 4;
+		const midCapturePromises: Array<Promise<LiveCapture | { error: string }>> = [];
+		const midAt = new Set<number>();
+		for (let k = 1; k <= MID_CAPTURE_MAX; k++) {
+			midAt.add(Math.ceil((hops.length * k) / (MID_CAPTURE_MAX + 1)));
+		}
+		let midApplied = 0;
+		let glideAborted = false;
+		let glideApplied = hops.length;
+		const onMidHop = (applied: number): void => {
+			if (!midAt.has(applied) || midCapturePromises.length >= MID_CAPTURE_MAX) return;
+			midCapturePromises.push(
+				captureLiveFrame(`Mid-flight: hop ${applied}/${hops.length}.`).catch(() => ({ error: "mid-flight capture failed" })),
+			);
+		};
 			if (hypr) {
 				// Socket, not `hyprctl --batch`: the batch runs every hop in one
 				// compositor tick, which teleports instead of gliding.
-				const outcome = await hyprGlidePaced(hops, { timeoutMs: 8000, frameMs: await frameMs() });
-				if (!outcome.ok) {
-					return errText(`Glide failed after ${outcome.applied}/${hops.length} hops: ${outcome.error ?? "unknown error"}`, "glide_failed");
-				}
+			const outcome = await hyprGlidePaced(hops, {
+				timeoutMs: 8000,
+				frameMs: await frameMs(),
+				signal,
+				onHop: applied => {
+					midApplied = applied;
+					onMidHop(applied);
+				},
+			});
+			if (outcome.aborted) {
+				glideAborted = true;
+				glideApplied = outcome.applied;
+			} else if (!outcome.ok) {
+				return errText(`Glide failed after ${outcome.applied}/${hops.length} hops: ${outcome.error ?? "unknown error"}`, "glide_failed");
+			}
 			} else if (backend === "ydotool") {
 				// ydoMove is an absolute mapped move; ydotoold has no ABS cap, so
 				// these stay sequential spawns (correctness over speed here).
 				// Dwell is frame-aligned so each hop lands on a display frame.
 				const frame = await frameMs();
+			let ydoAborted = false;
 				for (const hop of hops) {
+				if (signal?.aborted) {
+					ydoAborted = true;
+					break;
+				}
 					const cmd = ydoMove(hop.x, hop.y);
 					const res = await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
 					if (res.code !== 0) return errText(`Glide step ${cmd.slice(1).join(" ")} failed: ${res.stderr || res.stdout}`, "glide_failed");
+				midApplied++;
+				onMidHop(midApplied);
 					const gap = frameAlignedGap(hop.gapMs, frame);
 					if (gap > 0) await new Promise(r => setTimeout(r, gap));
 				}
+				if (ydoAborted) {
+					glideAborted = true;
+					glideApplied = midApplied;
+				}
 			} else {
+			// X11 fallback: the whole journey is ONE xdotool script (its
+			// inline sleeps carry the dwell), so there is no per-hop hook —
+			// mid-flight captures and abort are NOT supported on this
+			// backend; the script runs to completion (30s timeout bound).
 				// One `xdotool -` process for the entire journey; the inline
 				// sleeps carry each hop's dwell exactly, frame-aligned so every
 				// hop is revealed on a display frame boundary.
@@ -3430,8 +3563,23 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 					return errText(`Glide failed: ${res.stderr || res.stdout || `exit ${res.code}`}`, "glide_failed");
 				}
 			}
+		// Mid-flight captures ran concurrently with the glide; collect them
+		// now (bounded ≤4, each already settled or failed by this point).
+		const midResults = await Promise.all(midCapturePromises);
+		const midPaths = midResults.flatMap(c => ("error" in c ? [] : [c.framePath]));
+		const midNote = midPaths.length > 0 ? ` Captured ${midPaths.length} mid-flight frame${midPaths.length === 1 ? "" : "s"}.` : "";
 			const focusAfter = await assertInputFocus(win.address);
 			if (focusAfter) return errObserve(action, focusAfter);
+		if (glideAborted) {
+			// Cancelled mid-run: fail-closed but graceful — focus is already
+			// re-asserted above, the landing warp is skipped (the pointer is
+			// wherever the last acknowledged hop left it), and the collected
+			// mid-flight frames still ship so the model can see the journey.
+			return okText(
+				`Glide aborted after ${glideApplied}/${hops.length} hops (cancel signal); focus re-asserted, landing warp skipped.${midNote}`,
+				{ aborted: true, applied: glideApplied, total: hops.length, midFlightFrames: midPaths },
+			);
+		}
 			liveAuthorizedKinds.add(action);
 			const lastW = path[path.length - 1]!;
 			const physLast = frameToPhysical(frame, lastW.x, lastW.y);
@@ -3457,9 +3605,10 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			} catch {
 				// reads unsupported — verify frame still covers us
 			}
-			return withVerify(
-				`Glided through ${path.length} waypoints (${hops.length} eased hops) landing frame (${lastW.x},${lastW.y}) → physical (${physLast.x},${physLast.y}).${posNote}`,
-			);
+		return withVerify(
+			`Glided through ${path.length} waypoints (${hops.length} eased hops) landing frame (${lastW.x},${lastW.y}) → physical (${physLast.x},${physLast.y}).${posNote}${midNote}`,
+			{ midFlightFrames: midPaths },
+		);
 		}
 		const tx = validation.ok ? (validation.tx ?? params.x) : params.x;
 		const ty = validation.ok ? (validation.ty ?? params.y) : params.y;
@@ -4826,7 +4975,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					// Clickable-OCR: word boxes → frame-px click targets the model
 					// can pass to live_move/live_click (or target: "Compose").
 					shotClickTargets = clickTargetsFromOcr(shotOcr.words, remembered);
-					if (shotClickTargets.length > 0) rememberClickTargets(shotClickTargets);
+					if (shotClickTargets.length > 0) rememberClickTargets(shotClickTargets, remembered);
 				}
 				const shotTargetDesc = targetWindow
 					? `window "${targetWindow.title}" (${targetWindow.class}) [${targetWindow.size[0]}x${targetWindow.size[1]}]`
@@ -5063,7 +5212,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			// views differ, the reading header says which frame each word
 			// belongs to via per-view click-target lists).
 			const allTargets = readings.flatMap(r => r.targets);
-			if (allTargets.length > 0) rememberClickTargets(allTargets);
+			if (allTargets.length > 0) rememberClickTargets(allTargets, readings[readings.length - 1]?.frame ?? null);
 			if (wantOcr) {
 				for (const r of readings) {
 					if (r.text) rememberOcrText(r.text);
