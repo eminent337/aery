@@ -1264,6 +1264,63 @@ export function glideInFlight(): boolean {
 	return inFlightGlides > 0;
 }
 
+/** --- Injection queue (D003: same-turn presses keep submission order) ---
+ *
+ * The agent loop dispatches same-turn tool calls as "shared" and never waits
+ * on each other, so a live_click and a live_type in one turn inject
+ * CONCURRENTLY — the keystrokes can land before the click's focus. Presses
+ * therefore take a FIFO slot and run one at a time, in the order the model
+ * issued them.
+ *
+ * Deliberately narrow:
+ *  • Only PRESSES queue (live_click/type/key/drag/scroll). Reads (screenshot,
+ *    live_eye) and live_move never touch the chain, so the eye+glide pairing
+ *    stays fully parallel and the pointer is never blocked behind a keyboard.
+ *  • The queue is acquired AFTER the cheap gates (mode, approval, drive-loop,
+ *    guardrails) so an instant refusal never occupies a slot, and BEFORE the
+ *    focus probe — a queued action must re-read focus after its predecessor
+ *    moved it, not inject against a pre-queue reading.
+ *  • This is NOT the D002 glide flag: a glide does not queue, so a press
+ *    arriving mid-glide still refuses (glide_in_flight) rather than queueing
+ *    behind a possibly-aborted journey.
+ */
+let injectionChain: Promise<void> = Promise.resolve();
+
+/**
+ * Press actions — the ones that inject a real event. Only these serialize
+ * through {@link withInjectionQueue}. live_move is deliberately absent (it
+ * only steps the pointer, and a second glide must never queue behind a
+ * keyboard), as are the read-tier actions.
+ */
+const LIVE_PRESS_ACTIONS = new Set<string>(["live_click", "live_type", "live_key", "live_drag", "live_scroll"]);
+
+let injectionQueueDepth_ = 0;
+
+/** Presses queued or running right now. Exported for tests. */
+export function injectionQueueDepth(): number {
+	return injectionQueueDepth_;
+}
+
+/**
+ * Run `task` in the press queue, after every previously queued press.
+ * Resolves with the task's value; a throwing task still releases the chain.
+ */
+export function withInjectionQueue<T>(task: () => Promise<T>): Promise<T> {
+	injectionQueueDepth_++;
+	const run = injectionChain.then(task, task);
+	// Release the slot on BOTH outcomes, and never let a rejection poison the
+	// chain for the next queued press.
+	injectionChain = run.then(
+		() => {
+			injectionQueueDepth_--;
+		},
+		() => {
+			injectionQueueDepth_--;
+		},
+	);
+	return run;
+}
+
 /** --- Drive loop: per-action safety counters (clippy ScreenAgent pattern) - */
 
 /**
@@ -3089,6 +3146,11 @@ async function executeLiveAction(
 	session?: ToolSession,
 	signal?: AbortSignal,
 	onUpdate?: AgentToolUpdateCallback,
+	/**
+	 * Internal re-entrancy flag: a queued press re-enters this function to
+	 * run its body once the queue hands over. Not part of the tool contract.
+	 */
+	queued = false,
 ): Promise<AgentToolResult> {
 	// Identity of THIS injection step — used both by the abort gate (does the
 	// incoming attempt repeat the stuck step?) and by the observers (does the
@@ -3188,6 +3250,17 @@ async function executeLiveAction(
 	const refusal = guardrailRefusal(action, { target: params.target, keys: params.keys });
 	if (refusal) {
 		return errText(refusal, "guardrail_refusal");
+	}
+	// D003 — press queue. Same-turn presses arrive in submission order but
+	// are dispatched in parallel; take a FIFO slot so "click the field, then
+	// type" behaves as written. Reads and live_move skip the queue entirely.
+	// The wait is abort-aware: a cancelled press leaves the queue instead of
+	// blocking every press behind it until the turn is torn down.
+	if (!queued && LIVE_PRESS_ACTIONS.has(action)) {
+		if (signal?.aborted) {
+			return errText("Cancelled while waiting for the injection queue — nothing was injected.", "aborted");
+		}
+		return withInjectionQueue(() => executeLiveAction(action, params, session, signal, onUpdate, true));
 	}
 	const probe = await probeBackends();
 	const win = await getDriverActiveWindow();

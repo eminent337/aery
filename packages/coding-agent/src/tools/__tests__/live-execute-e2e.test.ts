@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { glideCaptureNice } from "../capture-priority";
-import { DesktopControlTool } from "../desktop-control";
+import { DesktopControlTool, injectionQueueDepth } from "../desktop-control";
 import { setFrameMsForTesting } from "../live-input";
 
 /** execute()-level E2E for eye-cursor concurrency, against a FAKE compositor.
@@ -104,6 +104,25 @@ fi
 exit 0
 `;
 
+// Injector shims: the injection backends (xdotool/ydotool/wtype) are real
+// binaries on the host running this suite, so a live click/type would
+// otherwise press and type on the developer's ACTUAL desktop. These log
+// their argv instead — no input is ever injected, and the log doubles as
+// the ordering witness for the D003 press-queue test.
+const LOG = '[ -n "$FAKE_STATE_DIR" ] && printf "%s\\n" "$*" >> "$FAKE_STATE_DIR/injections.log"; exit 0';
+const XDOTOOL_SHIM = `#!/bin/sh
+# A click is made artificially SLOW. Under parallel dispatch the later
+# live_type would log first; serialized, the click must log first.
+case "$*" in *click*) sleep 0.25;; esac
+${LOG}
+`;
+const YDOTOOL_SHIM = `#!/bin/sh
+${LOG}
+`;
+const WTYPE_SHIM = `#!/bin/sh
+${LOG}
+`;
+
 beforeAll(async () => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "live-e2e-"));
 	shimDir = path.join(root, "shim");
@@ -113,6 +132,10 @@ beforeAll(async () => {
 	for (const [name, content] of Object.entries(STATE_FILES)) fs.writeFileSync(path.join(stateDir, name), content);
 	fs.writeFileSync(path.join(shimDir, "hyprctl"), HYPRCTL_SHIM, { mode: 0o755 });
 	fs.writeFileSync(path.join(shimDir, "grim"), GRIM_SHIM, { mode: 0o755 });
+	// Shadow the real injectors FIRST on PATH so nothing reaches the desktop.
+	fs.writeFileSync(path.join(shimDir, "xdotool"), XDOTOOL_SHIM, { mode: 0o755 });
+	fs.writeFileSync(path.join(shimDir, "ydotool"), YDOTOOL_SHIM, { mode: 0o755 });
+	fs.writeFileSync(path.join(shimDir, "wtype"), WTYPE_SHIM, { mode: 0o755 });
 
 	// Synthetic screen with readable text (OCR paths must have something).
 	const screen = path.join(root, "screen.png");
@@ -350,6 +373,73 @@ describe("execute()-level eye-cursor concurrency (fake compositor)", () => {
 		expect(beforeClick.length).toBe(2);
 		// The glide itself completed normally — the refusal is surgical.
 		expect(textOf(glideR)).toContain("Glided through 4 waypoints");
+		expect(glideCaptureNice()).toBe(0);
+	}, 120000);
+
+	test("same-turn [click + type]: presses serialize in submission order (D003)", async () => {
+		const tool = new DesktopControlTool(undefined);
+		await tool.execute("anchor3", { action: "screenshot" });
+		const logFile = path.join(stateDir, "injections.log");
+		fs.writeFileSync(logFile, "");
+
+		// Click first, then type — the classic "click the field, then type
+		// into it" flow. The click shim sleeps 250ms, so under parallel
+		// dispatch the type would log FIRST; the queue forces the click to
+		// finish before the type is injected.
+		const clickP = tool.execute("q-click", { action: "live_click", x: 200, y: 200, verify: false });
+		const typeP = tool.execute("q-type", { action: "live_type", keys: "hello there", verify: false });
+		const [clickR, typeR] = await Promise.all([clickP, typeP]);
+
+		expect((clickR.details ?? {}).error).toBeUndefined();
+		expect((typeR.details ?? {}).error).toBeUndefined();
+
+		const lines = fs.readFileSync(logFile, "utf8").split("\n").filter(Boolean);
+		expect(lines.length).toBeGreaterThanOrEqual(2);
+		// The first logged injection is the CLICK, not the type — proof the
+		// press queue honored submission order instead of racing.
+		expect(lines[0]).toContain("click");
+		expect(lines.some(l => l.includes("hello there"))).toBe(true);
+		expect(injectionQueueDepth()).toBe(0);
+	}, 60000);
+
+	test("a read still overlaps a press — reads never enter the queue", async () => {
+		const tool = new DesktopControlTool(undefined);
+		await tool.execute("anchor4", { action: "screenshot" });
+		// Baseline: how long a capture takes with NOTHING else running. The
+		// read-parallelism claim is that adding a queued click + a long glide
+		// does not inflate that time — reads never wait on the press queue.
+		const t0 = performance.now();
+		const baseline = await tool.execute("eye-base", { action: "screenshot" });
+		const baselineMs = performance.now() - t0;
+		expect(textOf(baseline)).toContain("Captured screenshot");
+
+		// Now the same capture, with a deliberate glide (long pole) and a
+		// queued click (250ms shim) issued in the same turn.
+		const t1 = performance.now();
+		const glideP = tool.execute("glide-read", {
+			action: "live_move",
+			path: [
+				{ x: 60, y: 60 },
+				{ x: 460, y: 60 },
+				{ x: 460, y: 300 },
+			],
+			pace: "deliberate",
+		});
+		const clickP = tool.execute("click-read", { action: "live_click", x: 200, y: 200, verify: false });
+		const shot = await tool.execute("eye-read", { action: "screenshot" });
+		const shotMs = performance.now() - t1;
+		const clickR = await clickP;
+		const glideR = await glideP;
+
+		expect(textOf(shot)).toContain("Captured screenshot");
+		// Captures are real work (grim+convert), so compare against the
+		// unloaded baseline rather than an absolute bound. Generous factor:
+		// the claim is only that the read did not serialize behind the 250ms
+		// press plus the multi-second glide.
+		expect(shotMs).toBeLessThan(Math.max(baselineMs * 3, baselineMs + 200));
+		expect((clickR.details ?? {}).error).toBeUndefined();
+		expect(textOf(glideR)).toContain("Glided through 3 waypoints");
+		expect(injectionQueueDepth()).toBe(0);
 		expect(glideCaptureNice()).toBe(0);
 	}, 120000);
 });

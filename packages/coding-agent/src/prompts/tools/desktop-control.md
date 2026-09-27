@@ -66,16 +66,15 @@ Desktop screen vision and window manager tool. Takes full-screen or window-targe
   aborted/applied/total with focus re-asserted and no landing warp. Reading
   state stays coherent under concurrency: a target pool measured against a
   different window refuses to resolve — re-eye and retry, never force it.
-- Same-turn calls run in PARALLEL, so pair a read with a write but never two
-  writes: pair an eye/'screenshot' with a 'live_move' or a 'live_type' freely —
-  the capture is a read and cannot perturb the input. But two INJECTIONS in one
-  turn race each other: "click the field, then type into it" needs two separate
-  turns, because the keystrokes would otherwise fire before the click's focus
-  lands. Same-turn order is not a queue.
-- While a path glide owns the pointer, any press ('live_click'/'live_type'/
-  'live_key'/'live_drag') refuses with 'glide_in_flight' rather than pressing
-  at a mid-path coordinate — wait for the glide to land, then re-issue. The eye
-  is never blocked by this.
+- Same-turn calls run in PARALLEL, but PRESSES ('live_click'/'live_type'/
+  'live_key'/'live_drag'/'live_scroll') are serialized in the order you issue
+  them — so "click the field, then type into it" works in ONE turn, exactly as
+  written. Reads ('screenshot'/'live_eye') and 'live_move' never queue, so pair
+  an eye with any action freely and the eye still returns mid-motion.
+- While a path glide owns the pointer, any press refuses with
+  'glide_in_flight' rather than pressing at a mid-path coordinate — 'live_move'
+  does not queue behind a keyboard, so wait for the glide to land, then
+  re-issue. The eye is never blocked by this.
 - 'verify: true' (default) attaches a follow-up capture after live_* input so you
   can self-correct; keep it on for multi-step flows.
 - 'textOnly'/'ocr:false' skip the image read when you only need words; 'maxWidth'/
