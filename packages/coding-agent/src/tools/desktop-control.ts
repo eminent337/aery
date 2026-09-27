@@ -423,6 +423,28 @@ function isSupportedDriver(): boolean {
 	return id === "hyprland" || id === "x11";
 }
 
+/**
+ * ImageMagick args that make a downscale PNG cheaper to write.
+ *
+ * The downscale's cost is almost entirely the PNG deflate ENCODE, not the
+ * decode: measured on a 1920x1080 grim capture, decode is ~75ms of a ~630ms
+ * `convert -resize` run, and dropping the deflate level removes the rest.
+ * Interleaved 9-trial A/B: 585ms -> 447ms median (-138ms, 23.6%), faster in
+ * every trial.
+ *
+ * PNG is lossless, so this changes ONLY the file encoding, never the pixels:
+ * verified 0 differing pixels vs the default encode, identical md5 of the raw
+ * RGB, and byte-identical tesseract output (1193 chars both arms). OCR quality
+ * and the click-target boxes are untouched by construction.
+ *
+ * Cost: the file grows ~16% (577KB -> 670KB at 1280x800). That is bytes only
+ * — vision APIs bill on image DIMENSIONS, so the token count is unchanged.
+ * Only the base64 upload on the vision path gets slightly larger.
+ */
+function downscaleArgs(): string[] {
+	return ["-define", "png:compression-level=1"];
+}
+
 /** ---------- Headless desktop apps (Xvfb virtual display) ----------
  * Runs GUI apps into an invisible virtual X display. Everything the agent
  * needs is baked in: the display stays up across calls, Wayland-native apps
@@ -1020,7 +1042,7 @@ export async function headlessEyeRead(opts: {
 	const maxH = opts.maxHeight ?? 800;
 	// ONE downscale pass: OCR and clickTargets both read the scaled image, so
 	// every coordinate the model sees (and clicks with) is scaled-frame px.
-	const conv = await runCmd("convert", [opts.rawPath, "-resize", `${maxW}x${maxH}>`, scaledPath]);
+	const conv = await runCmd("convert", [opts.rawPath, "-resize", `${maxW}x${maxH}>`, ...downscaleArgs(), scaledPath]);
 	const tiny = conv.code !== 0 || !fs.existsSync(scaledPath) || fs.statSync(scaledPath).size <= 500;
 	const wantOcr = opts.ocr ?? true;
 	let ocr = tiny || !wantOcr ? null : await ocrFrame(scaledPath);
@@ -2761,7 +2783,7 @@ async function captureLiveFrame(lead: string): Promise<LiveCapture | { error: st
 	const scaledPath = path.join(os.tmpdir(), `aerys-live-${stamp}.png`);
 	const cap = await driver.capture.capture(rawPath, geometry);
 	if (cap.code !== 0) return { error: `capture failed (${driver.id}): ${cap.stderr}` };
-	const conv = await runCmd("convert", [rawPath, "-resize", "1280x800>", scaledPath]);
+	const conv = await runCmd("convert", [rawPath, "-resize", "1280x800>", ...downscaleArgs(), scaledPath]);
 	const finalPath = conv.code === 0 && fs.existsSync(scaledPath) ? scaledPath : rawPath;
 	const frame = await rememberFrame(win, geometry, rawPath, finalPath);
 	let base64 = "";
@@ -5065,7 +5087,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const maxHeight = params.maxHeight ?? 800;
 
 				let finalPath = tmpRaw;
-				const resizeRes = await runCmd("convert", [tmpRaw, "-resize", `${maxWidth}x${maxHeight}>`, tmpScaled]);
+				const resizeRes = await runCmd("convert", [tmpRaw, "-resize", `${maxWidth}x${maxHeight}>`, ...downscaleArgs(), tmpScaled]);
 				if (resizeRes.code === 0 && fs.existsSync(tmpScaled)) {
 					finalPath = tmpScaled;
 				}
@@ -5277,7 +5299,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					const finalPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}.png`);
 					const capRes = await eyeDriver.capture.capture(rawPath, v.geometry).catch((e: unknown) => ({ code: 1, stderr: String(e) }));
 					if (capRes.code !== 0) return { spec: v, rawPath, finalPath, error: `capture failed (${eyeDriver.id}): ${capRes.stderr}` };
-					const resizeRes = await runCmd("convert", [rawPath, "-resize", `${maxWidth}x${maxHeight}>`, finalPath]);
+					const resizeRes = await runCmd("convert", [rawPath, "-resize", `${maxWidth}x${maxHeight}>`, ...downscaleArgs(), finalPath]);
 					const out = resizeRes.code === 0 && fs.existsSync(finalPath) ? finalPath : rawPath;
 					let frame: InputFrame | null = null;
 					try {
