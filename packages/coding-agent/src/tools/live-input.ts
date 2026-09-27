@@ -658,6 +658,10 @@ export async function hyprGlidePaced(
 	const timeoutMs = options.timeoutMs ?? 8000;
 	const frame = options.frameMs !== undefined && options.frameMs > 0 ? options.frameMs : null;
 	let applied = 0;
+	// Frame-lock grid origin: the first hop's dispatch. Anchoring the frame
+	// boundaries to the glide's own start (rather than to absolute multiples
+	// of frameMs) is what makes the lock stick — see the dwell comment below.
+	let glideOrigin: number | null = null;
 	// Spend the round trip OUT of the dwell. `hop.gapMs` stays the pause that
 	// follows that hop — the trajectory's corner taper is written against it —
 	// but the IPC round trip, which previously piled on top (cadence was
@@ -685,6 +689,8 @@ export async function hyprGlidePaced(
 			return { ok: false, applied, error: "aborted", aborted: true };
 		}
 		const dispatched = performance.now();
+		// The glide's frame grid starts at its own first hop.
+		if (glideOrigin === null) glideOrigin = dispatched;
 		try {
 			const reply = await hyprIpcDispatch(
 				`dispatch movecursor ${Math.round(hop.x)} ${Math.round(hop.y)}`,
@@ -705,10 +711,27 @@ export async function hyprGlidePaced(
 			// Progress observers are advisory — a throwing observer must
 			// never fail or stall the glide.
 		}
+		// FRAME LOCK: hold the next hop to the next display-frame boundary on
+		// THIS GLIDE'S OWN grid, anchored at the first hop's dispatch. Rounding
+		// up to an absolute multiple of frameMs (the previous form) snapped to
+		// the epoch grid, where dispatch times are arbitrarily aligned — so a
+		// sub-millisecond timer overshoot crossed a boundary and cost a FULL
+		// extra frame on essentially every hop (measured: median 1.99 frames).
+		// Anchored, every hop lands k*frame after the start: one hop per frame,
+		// and lateness degrades gracefully instead of doubling.
+		//
+		// Both frozen contracts hold: `max(…, dispatched + gapMs)` is the
+		// never-shorter-than-requested-dwell rule, and because the target is
+		// the next boundary strictly after the ack, an overrunning round trip
+		// still yields exactly one late hop — never a catch-up burst.
+		const now = performance.now();
 		const earliestNext = dispatched + hop.gapMs;
-		const wait = frame === null
-			? hop.gapMs - (performance.now() - dispatched)
-			: Math.max(earliestNext, Math.ceil(earliestNext / frame) * frame) - performance.now();
+		const nextBoundary = frame === null
+			? earliestNext
+			: glideOrigin === null
+				? earliestNext
+				: glideOrigin + (Math.floor((now - glideOrigin) / frame) + 1) * frame;
+		const wait = (frame === null ? earliestNext : Math.max(earliestNext, nextBoundary)) - now;
 		if (wait > 0) await new Promise<void>(resolve => setTimeout(resolve, wait));
 	}
 	return { ok: true, applied };

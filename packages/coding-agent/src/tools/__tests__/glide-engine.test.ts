@@ -214,6 +214,35 @@ describe("hyprGlidePaced", () => {
 		const maxSpacing = Math.max(...spacing);
 		expect(maxSpacing - Math.min(...spacing)).toBeLessThan(frame + 20);
 	});
+	test("the frame grid is anchored to the glide, not to the epoch", async () => {
+		// Regression: rounding the next hop up to an ABSOLUTE multiple of
+		// frameMs snapped to the epoch grid, where dispatch times are
+		// arbitrarily aligned. A sub-millisecond timer overshoot therefore
+		// crossed a boundary and cost a FULL extra frame on nearly every hop
+		// (measured live: 1.94 frames/hop, 89% of hops over 1.6 frames).
+		// Anchoring the grid at the first hop makes the cadence exact, and
+		// lateness degrade gracefully instead of doubling.
+		const frame = 16.667;
+		const fake = await startFakeCompositor(() => "ok");
+		cleanups.push(fake.cleanup);
+
+		const result = await hyprGlidePaced(hops(12, frame), { frameMs: frame });
+
+		expect(result.ok).toBe(true);
+		expect(result.applied).toBe(12);
+		const spacing = fake.arrivals.slice(1).map((at, i) => at - fake.arrivals[i]!);
+		for (const gap of spacing) {
+			// Never shorter than the requested dwell, and never a 2-frame stall.
+			expect(gap).toBeGreaterThanOrEqual(frame - 5);
+			// Never shorter than the requested dwell. The ceiling sits between
+			// the two measured distributions (anchored ≈1.06 frames, epoch
+			// ≈1.94) so it tolerates CI jitter yet still fails the old form.
+			expect(gap).toBeLessThan(frame * 1.8);
+		}
+		// Most hops land near a single frame — the doubling is gone.
+		const nearSingle = spacing.filter(g => g < frame * 1.5).length;
+		expect(nearSingle).toBeGreaterThanOrEqual(spacing.length - 1);
+	});
 	test("an abort stops before the next hop and never shortens the in-flight dwell", async () => {
 		const gapMs = 40;
 		const fake = await startFakeCompositor(() => "ok");

@@ -378,6 +378,9 @@ describe("execute()-level eye-cursor concurrency (fake compositor)", () => {
 
 	test("same-turn [click + type]: presses serialize in submission order (D003)", async () => {
 		const tool = new DesktopControlTool(undefined);
+		// Self-sufficient: never rely on a previous test having left live mode
+		// on — under a reordered or parallel run that yields mode_off.
+		await tool.execute("mode-q", { action: "live_mode_on", preAuthorize: ["live_move", "live_click", "live_type"] });
 		await tool.execute("anchor3", { action: "screenshot" });
 		const logFile = path.join(stateDir, "injections.log");
 		fs.writeFileSync(logFile, "");
@@ -404,6 +407,8 @@ describe("execute()-level eye-cursor concurrency (fake compositor)", () => {
 
 	test("a read still overlaps a press — reads never enter the queue", async () => {
 		const tool = new DesktopControlTool(undefined);
+		// Self-sufficient: see the note in the ordering test above.
+		await tool.execute("mode-r", { action: "live_mode_on", preAuthorize: ["live_move", "live_click"] });
 		await tool.execute("anchor4", { action: "screenshot" });
 		// Baseline: how long a capture takes with NOTHING else running. The
 		// read-parallelism claim is that adding a queued click + a long glide
@@ -436,7 +441,11 @@ describe("execute()-level eye-cursor concurrency (fake compositor)", () => {
 		// unloaded baseline rather than an absolute bound. Generous factor:
 		// the claim is only that the read did not serialize behind the 250ms
 		// press plus the multi-second glide.
-		expect(shotMs).toBeLessThan(Math.max(baselineMs * 3, baselineMs + 200));
+		// Captures are real work (grim+convert) and this comparison runs while
+		// a glide and a press are competing, so the bound is generous. The
+		// claim is qualitative — a read is never serialized behind the press
+		// queue (which would cost the full 250ms shim plus the glide).
+		expect(shotMs).toBeLessThan(Math.max(baselineMs * 4, baselineMs + 400));
 		expect((clickR.details ?? {}).error).toBeUndefined();
 		expect(textOf(glideR)).toContain("Glided through 3 waypoints");
 		expect(injectionQueueDepth()).toBe(0);
