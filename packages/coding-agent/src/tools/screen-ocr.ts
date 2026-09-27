@@ -32,6 +32,10 @@ export interface OcrWordBox {
 	 *  which folds either scale to 0..1. Rescaling a fraction is exactly how
 	 *  every real frame read as motion-smeared on a news page. */
 	confidence: number;
+	/** TSV structural ids (page/block/par/line) identifying the text line
+	 *  this word sits on. Present only when parsed from TSV; used to rebuild
+	 *  the reading in order without a second tesseract pass. */
+	lineKey?: string;
 }
 
 export interface OcrFrameResult {
@@ -99,7 +103,6 @@ async function runTessTsv(
 		env: ocrThreadEnv(),
 	});
 }
-
 /**
  * Parse tesseract TSV into word boxes. TSV columns:
  * level page block par line word left top width height conf text.
@@ -107,6 +110,10 @@ async function runTessTsv(
  * come back in the image's own pixel space; `divisor` folds an upscaled
  * pass back to native pixels. Rows with empty text, non-finite or
  * non-positive geometry are dropped.
+ *
+ * The block/par/line ids ride along on each box so the text layer can be
+ * rebuilt from the SAME pass (see textFromTsvWords) without re-running
+ * tesseract.
  */
 export function parseTsvWordBoxes(tsv: string, divisor = 1): OcrWordBox[] {
 	const boxes: OcrWordBox[] = [];
@@ -132,9 +139,54 @@ export function parseTsvWordBoxes(tsv: string, divisor = 1): OcrWordBox[] {
 			w: Math.max(1, Math.round(width / d)),
 			h: Math.max(1, Math.round(height / d)),
 			confidence: Math.round(conf) / 100,
+			lineKey: `${cols[1]}/${cols[2]}/${cols[3]}/${cols[4]}`,
 		});
 	}
 	return boxes;
+}
+
+/**
+ * Reconstruct the text layer from TSV word boxes.
+ *
+ * Tesseract's TSV output already carries every recognized word in its text
+ * column, so a single TSV pass is enough for BOTH the reading and the click
+ * targets — the separate plain-text pass is redundant work. Words are
+ * regrouped into lines by their block/par/line ids and ordered top-to-bottom,
+ * left-to-right, so the reconstructed text reads like a document rather than
+ * an unordered bag of words.
+ *
+ * Returns '' when there is nothing to reconstruct, so callers can tell
+ * "no words" from "reconstruction produced text".
+ */
+export function textFromTsvWords(boxes: OcrWordBox[]): string {
+	if (boxes.length === 0) return "";
+	// Group by the TSV line id when present — that is tesseract's own notion
+	// of "these words share a text line", which is more reliable than any
+	// geometry guess. Boxes synthesized by callers (no lineKey) fall back to
+	// a coarse vertical bucket so the function never throws.
+	const lines: Array<{ key: string; words: OcrWordBox[] }> = [];
+	const byKey = new Map<string, { key: string; words: OcrWordBox[] }>();
+	for (const box of boxes) {
+		const key = box.lineKey ?? `~${Math.round(box.y / Math.max(1, Math.round(box.h * 0.6)))}`;
+		let group = byKey.get(key);
+		if (!group) {
+			group = { key, words: [] };
+			byKey.set(key, group);
+			lines.push(group);
+		}
+		group.words.push(box);
+	}
+	// Reading order: top-to-bottom, then left-to-right within a line.
+	lines.sort((a, b) => a.words[0]!.y - b.words[0]!.y || a.words[0]!.x - b.words[0]!.x);
+	return lines
+		.map(group =>
+			[...group.words]
+				.sort((a, b) => a.x - b.x)
+				.map(w => w.text)
+				.join(" "),
+		)
+		.filter(line => line.length > 0)
+		.join("\n");
 }
 
 async function runTess(
@@ -148,10 +200,19 @@ async function runTess(
 }
 
 /**
- * OCR a captured frame. Adaptive: native first, then a 2x upscaled retry only
- * when the first pass is sparse (<20 non-ws chars) AND the frame is <1200px
- * wide. Keeps whichever pass reads more. Returns text ('' when none/error),
- * the mode used, timing, and an error string when tesseract is missing/fails.
+ * OCR a captured frame. ONE tesseract pass produces BOTH the reading and the
+ * click-target boxes: the TSV output already carries every recognized word in
+ * its text column, so the text layer is rebuilt from the boxes rather than
+ * paid for with a second, redundant plain-text pass.
+ *
+ * Adaptive: native first, then a 2x upscaled retry only when the first pass
+ * is sparse (<20 non-ws chars) AND the frame is <1200px wide. Keeps whichever
+ * pass reads more. Returns text ('' when none/error), the mode used, timing,
+ * and an error string when tesseract is missing/fails.
+ *
+ * Failure contract: if the single TSV pass fails outright, one plain-text
+ * pass is run as a fallback so a reading is still produced (without boxes).
+ * The reading is never silently lost to a speed optimization.
  */
 export async function ocrFrame(
 	imgPath: string,
@@ -163,18 +224,21 @@ export async function ocrFrame(
 	let mode: "native" | "upscaled" = "native";
 	let words: OcrWordBox[] | undefined;
 
-	const [res, tsv] = await Promise.all([runTess(imgPath, opts), runTessTsv(imgPath, opts)]);
-	if (res.code === 0) {
-		text = res.stdout.trim();
+	// Single pass: TSV yields the words AND the text layer.
+	const tsv = await runTessTsv(imgPath, opts);
+	if (tsv.code === 0) {
+		words = parseTsvWordBoxes(tsv.stdout);
+		text = textFromTsvWords(words);
 	} else {
-		error = res.stderr || `tesseract exit ${res.code}`;
+		error = tsv.stderr || `tesseract exit ${tsv.code}`;
+		// Fail-safe: the boxes are unavailable, but a reading is still worth
+		// one extra pass. Degraded (no click targets), never empty.
+		const fallback = await runTess(imgPath, opts);
+		if (fallback.code === 0) {
+			text = fallback.stdout.trim();
+			error = undefined;
+		}
 	}
-
-	// Word boxes ride on the native pass by default; the upscaled branch
-	// below re-runs TSV (divisor 2) only when it wins the text comparison.
-	// Text + boxes run concurrently in separate tesseract processes, so the
-	// pair costs ~one pass instead of two serial passes.
-	if (tsv.code === 0) words = parseTsvWordBoxes(tsv.stdout);
 
 	const sparse = nonWs(text) < 20;
 	const dims = await identifyDims(imgPath);
@@ -182,15 +246,18 @@ export async function ocrFrame(
 		const upscale = path.join(os.tmpdir(), `aerys-screen-ocr-${Date.now()}-2x.png`);
 		const up = await runCmd("convert", [imgPath, "-resize", "200%", upscale]);
 		if (up.code === 0 && fs.existsSync(upscale)) {
-			const upRes = await runTess(upscale, opts);
-			if (upRes.code === 0 && nonWs(upRes.stdout.trim()) > nonWs(text)) {
-				text = upRes.stdout.trim();
-				error = undefined;
-				mode = "upscaled";
-				// Boxes must land in native pixels: re-run TSV on the upscaled
-				// image and fold coords back with divisor 2.
-				const upTsv = await runTessTsv(upscale, opts);
-				if (upTsv.code === 0) words = parseTsvWordBoxes(upTsv.stdout, 2);
+			// One pass on the upscaled image: it must re-derive BOTH layers,
+			// because the native pass came back sparse.
+			const upTsv = await runTessTsv(upscale, opts);
+			if (upTsv.code === 0) {
+				const upWords = parseTsvWordBoxes(upTsv.stdout, 2);
+				const upText = textFromTsvWords(upWords);
+				if (nonWs(upText) > nonWs(text)) {
+					text = upText;
+					words = upWords;
+					error = undefined;
+					mode = "upscaled";
+				}
 			}
 		}
 		fs.rm(upscale, { force: true }, () => {});

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseTsvWordBoxes } from "../screen-ocr";
+import { parseTsvWordBoxes, textFromTsvWords } from "../screen-ocr";
 
 const TSV = `level	page	block	par	line	word	left	top	width	height	conf	text
 5	1	1	1	1	1	100	200	120	30	92.5	Compose
@@ -50,6 +50,53 @@ describe("parseTsvWordBoxes", () => {
 	});
 });
 
+describe("textFromTsvWords", () => {
+	// Same visual block: three lines of words, TSV emits them in reading order
+	// but the middle line's words are x-sorted out of order on purpose.
+	const MULTILINE = `level	page	block	par	line	word	left	top	width	height	conf	text
+5	1	1	1	1	1	100	10	60	20	95	Hello
+5	1	1	1	1	2	170	10	60	20	95	world
+5	1	1	1	2	1	100	40	60	20	93	Second
+5	1	1	1	2	2	170	40	60	20	93	line
+5	1	1	1	3	1	100	70	60	20	91	Third
+5	1	1	1	3	2	170	70	60	20	91	line`;
+
+	test("rebuilds the reading in line order, left-to-right within a line", () => {
+		const text = textFromTsvWords(parseTsvWordBoxes(MULTILINE));
+		expect(text).toBe("Hello world\nSecond line\nThird line");
+	});
+
+	test("keeps paragraph and block boundaries as separate lines", () => {
+		const TWO_BLOCKS = `level	page	block	par	line	word	left	top	width	height	conf	text
+5	1	1	1	1	1	10	10	50	18	90	Alpha
+5	1	2	1	1	1	10	90	50	18	90	Beta`;
+		const text = textFromTsvWords(parseTsvWordBoxes(TWO_BLOCKS));
+		expect(text).toBe("Alpha\nBeta");
+	});
+
+	test("returns '' for no words so callers can distinguish empty from failure", () => {
+		expect(textFromTsvWords([])).toBe("");
+	});
+
+	test("falls back to a vertical bucket when a box carries no lineKey", () => {
+		// Synthesized boxes (no TSV origin) must still reconstruct, not throw.
+		const boxes: Array<{ text: string; x: number; y: number; w: number; h: number; confidence: number }> = [
+			{ text: "one", x: 0, y: 0, w: 40, h: 20, confidence: 0.9 },
+			{ text: "two", x: 50, y: 2, w: 40, h: 20, confidence: 0.9 },
+			{ text: "next", x: 0, y: 100, w: 40, h: 20, confidence: 0.9 },
+		];
+		expect(textFromTsvWords(boxes)).toBe("one two\nnext");
+	});
+
+	test("orders lines top-to-bottom even when TSV emitted them out of order", () => {
+		const SHUFFLED = `level	page	block	par	line	word	left	top	width	height	conf	text
+5	1	1	1	2	1	100	60	60	20	95	Lower
+5	1	1	1	1	1	100	10	60	20	95	Upper`;
+		const text = textFromTsvWords(parseTsvWordBoxes(SHUFFLED));
+		expect(text).toBe("Upper\nLower");
+	});
+});
+
 describe("ocrFrame never silently discards produced text", () => {
 	test("when tesseract succeeds, the returned text and words are non-empty", async () => {
 		const { ocrFrame } = await import("../screen-ocr");
@@ -57,7 +104,21 @@ describe("ocrFrame never silently discards produced text", () => {
 		const exec = util.promisify((await import("node:child_process")).execFile);
 		// Synthesize a crisp frame: big black-on-white words, no desktop needed.
 		const img = "/tmp/ocr-smoke.png";
-		await exec("convert", ["-size", "800x300", "xc:white", "-font", "FreeSans", "-pointsize", "48", "-fill", "black", "-annotate", "+60+120", "Cookie Bank Store", img]);
+		await exec("convert", [
+			"-size",
+			"800x300",
+			"xc:white",
+			"-font",
+			"FreeSans",
+			"-pointsize",
+			"48",
+			"-fill",
+			"black",
+			"-annotate",
+			"+60+120",
+			"Cookie Bank Store",
+			img,
+		]);
 		const r = await ocrFrame(img);
 		expect(r.error).toBeUndefined();
 		expect(r.text.length).toBeGreaterThan(10);
