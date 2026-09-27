@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
 	buildEyeGeometry,
 	describeEyeTarget,
+	type EyeWindow,
 	eyeMarkPresent,
+	shouldUseFocusedFrame,
 } from "../live-eye";
 
 describe("live_eye geometry + targeting (pure logic)", () => {
@@ -72,6 +74,45 @@ describe("live_eye vision auto-detection (pure logic)", () => {
 
 	test("unknown capability defaults to vision-keeping behavior", () => {
 		expect(decide(undefined, undefined, false)).toEqual({ modelSeesImages: true, wantOcr: false });
+	});
+});
+
+describe("focusFirst framing opt-in (pure logic)", () => {
+	const win: EyeWindow = { at: [524, 586], size: [540, 472], title: "Dialog", class: "yad" };
+
+	test("upgrades a bare fullscreen glance to the focused window", () => {
+		expect(shouldUseFocusedFrame("fullscreen", true, win)).toBe(true);
+	});
+
+	test("default (focusFirst off) never changes the frame", () => {
+		expect(shouldUseFocusedFrame("fullscreen", false, win)).toBe(false);
+	});
+
+	test("never rewrites a target the caller named explicitly", () => {
+		expect(shouldUseFocusedFrame("active_window", true, win)).toBe(false);
+		expect(shouldUseFocusedFrame("kitty", true, win)).toBe(false);
+		expect(shouldUseFocusedFrame("my window title", true, win)).toBe(false);
+	});
+
+	test("falls back to fullscreen when no window is focused", () => {
+		expect(shouldUseFocusedFrame("fullscreen", true, undefined)).toBe(false);
+	});
+
+	test("a window that cannot be cropped never becomes the frame", () => {
+		// A 0x0 or missing-size window would produce a degenerate capture; the
+		// eye must degrade to fullscreen instead of framing nothing.
+		const zero: EyeWindow = { at: [0, 0], size: [0, 0] };
+		const flat: EyeWindow = { at: [0, 0], size: [540, 0] };
+		const negative: EyeWindow = { at: [0, 0], size: [-5, 100] };
+		const noSize: EyeWindow = { at: [0, 0] };
+		expect(shouldUseFocusedFrame("fullscreen", true, zero)).toBe(false);
+		expect(shouldUseFocusedFrame("fullscreen", true, flat)).toBe(false);
+		expect(shouldUseFocusedFrame("fullscreen", true, negative)).toBe(false);
+		expect(shouldUseFocusedFrame("fullscreen", true, noSize)).toBe(false);
+	});
+
+	test("a window with a real rect and no position still frames (origin 0,0)", () => {
+		expect(shouldUseFocusedFrame("fullscreen", true, { size: [800, 600] })).toBe(true);
 	});
 });
 

@@ -1,7 +1,7 @@
 import { CameraWatchLoop } from "./camera-control";
 import { ObservationController, type ObservationSnapshot, type WindowRect } from "./live-observe";
 import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
-import { buildEyeGeometry, describeEyeTarget, type EyeRegion } from "./live-eye";
+import { buildEyeGeometry, describeEyeTarget, shouldUseFocusedFrame, type EyeRegion } from "./live-eye";
 import { type OcrWordBox, ocrFrame } from "./screen-ocr";
 import { formatScrollReadDigest, normalizeOcrConfidence, scrollFrameQuality } from "./scroll-reading";
 import {
@@ -335,6 +335,12 @@ const desktopControlSchema = z.object({
 		.optional()
 		.describe(
 			"For 'live_eye': skip the base64 image read entirely and return OCR text + clickTargets only (child-process drives read words, not pixels). Cuts ~100-300ms of PNG read/encode per glance.",
+		),
+	focusFirst: z
+		.boolean()
+		.optional()
+		.describe(
+			"For 'live_eye': when a view targets 'fullscreen' but a window is focused, read THAT window's frame instead — a tight crop keeps small windows' text at native scale, so OCR recovers labels a whole-desktop read garbles (measured: 3/3 phrases in ~0.5s vs 2/3 in ~3.0s for a 540x472 dialog on a 1920x1080 desktop). Default false, which captures the whole display. Opt in when you care about a specific app's text; the returned frame and clickTargets are then that window's, and the reading header says so.",
 		),
 	highlight: z
 		.object({
@@ -5228,6 +5234,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				resetDriveLoop();
 			const includeBase64 = params.includeBase64 ?? true;
 			const textOnly = params.textOnly ?? false;
+			const focusFirst = params.focusFirst ?? false;
 			const timestamp = Date.now();
 			const maxWidth = params.maxWidth ?? 1280;
 			const maxHeight = params.maxHeight ?? 800;
@@ -5285,6 +5292,17 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								windows.find(w => w.address.toLowerCase() === q) ||
 								windows.find(w => w.class.toLowerCase().includes(q)) ||
 								windows.find(w => w.title.toLowerCase().includes(q));
+						} else {
+							// Opt-in framing upgrade: a fullscreen glance with a
+							// focused window reads THAT window's frame instead, so
+							// its text survives the downscale at native scale. Only
+							// the implicit fullscreen default is upgradeable — an
+							// explicit region/window query is never rewritten.
+							// Only pay for the active-window probe when it can be used.
+							if (focusFirst) {
+								const active = await getDriverActiveWindow();
+								if (shouldUseFocusedFrame(target, focusFirst, active)) window = active;
+							}
 						}
 						geometry = buildEyeGeometry(undefined, window);
 					}

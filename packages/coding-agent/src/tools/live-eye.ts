@@ -49,6 +49,38 @@ export function describeEyeTarget(
 }
 
 /**
+ * Decide whether an opt-in `focusFirst` glance should read the focused
+ * window's frame instead of the whole display.
+ *
+ * Why this exists (measured, not assumed): a fullscreen read captures the
+ * whole 1920x1080 desktop and downscales it to 1280x800, so a 540x472
+ * dialog is only ~7% of the canvas and its text lands below psm 6's reliable
+ * floor — the button row comes back as a near-miss ("confirm th action").
+ * Reading the SAME pixels cropped to the window keeps that text at native
+ * scale: 3/3 phrases in ~0.5s versus 2/3 in ~3.0s.
+ *
+ * Deliberately conservative — it upgrades ONLY a bare `fullscreen` target,
+ * and only when the window has a real, non-degenerate rect. Anything the
+ * caller named explicitly (a region, a window query, an explicit
+ * `active_window`) is left alone, and a window that cannot produce a crop
+ * falls back to fullscreen rather than to a 0x0 frame. An explicit opt-in
+ * must never change what the caller asked for beyond this one upgrade.
+ */
+export function shouldUseFocusedFrame(
+	target: string,
+	focusFirst: boolean,
+	activeWindow: EyeWindow | undefined,
+): boolean {
+	if (!focusFirst) return false;
+	// Only the implicit default is upgradeable.
+	if (target !== "fullscreen") return false;
+	if (!activeWindow) return false;
+	// A window that cannot be cropped must not become the frame.
+	if (!activeWindow.size || activeWindow.size[0] <= 0 || activeWindow.size[1] <= 0) return false;
+	return true;
+}
+
+/**
  * Runtime check for the ephemeral-eye marker in a tool result's details.
  * Unknown input tolerated — anything that isn't a marker object is false.
  */
