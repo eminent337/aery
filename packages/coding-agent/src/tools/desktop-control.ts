@@ -255,6 +255,43 @@ const desktopControlSchema = z.object({
 		.describe(
 			"Target selector, meaning depends on action: for 'live_click'/'live_move' it is click-target text matched against an OCR word from the last eye/screenshot (e.g. \"Compose\", \"Send\") and resolved to that word's frame-px center instead of raw x/y; for 'xvfb_click'/'xvfb_drag' it is a word from the last xvfb_screenshot reading ('target2' is the optional end anchor for 'xvfb_drag'); for 'live_eye'/'screenshot' it is what to look at ('fullscreen' — default for the eye — 'active_window', or a substring of a window title/class).",
 		),
+		steps: z
+			.array(
+				z.object({
+					target: z
+						.string()
+						.optional()
+						.describe("OCR word from the last reading, resolved like the scalar 'target'."),
+					x: z.number().optional().describe("Frame-px x, like the scalar 'x'."),
+					y: z.number().optional().describe("Frame-px y, like the scalar 'y'."),
+					button: z
+						.enum(["left", "right", "middle"])
+						.optional()
+						.describe("Mouse button for THIS step (default: left)."),
+					count: z
+						.number()
+						.int()
+						.min(1)
+						.max(20)
+						.optional()
+						.describe("Repeat count for THIS step (default: 1) — a double-click is one step with count 2."),
+					settleMs: z
+						.number()
+						.int()
+						.min(0)
+						.max(5000)
+						.optional()
+						.describe(
+							"Pause AFTER this step, before the next one (default: 120ms). Raises only the delay — it does NOT re-observe, so a longer wait will not make a not-yet-visible target resolvable.",
+						),
+				}),
+			)
+			.min(1)
+			.max(12)
+			.optional()
+			.describe(
+				"For 'live_click' only: perform SEVERAL distinct clicks in ONE call, in order, instead of one click per call. Each entry clicks one place (a 'target' word OR an 'x'/'y' pair — never neither, never both) and may set its own button/count/settleMs. Mutually exclusive with the scalar 'target'/'x'/'y'. The whole plan is validated BEFORE any click is injected, then steps run in order and the FIRST failure stops the rest. The result names the failing step index and whether the cause is transient (retry) or permanent (re-aim). IMPORTANT: all steps must belong to the SAME screen. Word targets are resolved against the reading you last took, and a batch does NOT re-observe between steps — so a step that depends on an earlier step's effect (clicking a menu item that only exists after opening the menu) will not resolve. For those, take a fresh eye first. Use batches for several independent controls on one screen, then re-eye to confirm the result.",
+			),
 	direction: z
 		.enum(["up", "down"])
 		.optional()
@@ -397,6 +434,65 @@ const desktopControlSchema = z.object({
 			} else if (params.action !== "live_move") {
 				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pace"], message: "pace is supported only for live_move." });
 			}
+		}
+		if (params.steps !== undefined) {
+			if (params.action !== "live_click") {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["steps"],
+					message: "steps is supported only for live_click.",
+				});
+			}
+			if (params.target !== undefined) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["steps"],
+					message: "pass either steps or a single target, not both.",
+				});
+			}
+			if (params.x !== undefined || params.y !== undefined) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["steps"],
+					message: "pass either steps or a single x/y, not both.",
+				});
+			}
+			if (params.path !== undefined) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["steps"],
+					message: "pass either steps or path, not both.",
+				});
+			}
+			// Each step must name exactly ONE place to click. A step with
+			// neither is unresolvable; with both, the target silently wins in
+			// the single-click path — inside a batch that silent precedence
+			// would apply N times, so refuse it up front instead.
+			params.steps.forEach((s, i) => {
+				const hasTarget = s.target !== undefined;
+				const hasXy = s.x !== undefined || s.y !== undefined;
+				if (hasTarget && hasXy) {
+					ctx.addIssue({
+						code: z.ZodIssueCode.custom,
+						path: ["steps", i],
+						message: `step ${i + 1}: pass either target or x/y, not both.`,
+					});
+				}
+				if (!hasTarget && !hasXy) {
+					ctx.addIssue({
+						code: z.ZodIssueCode.custom,
+						path: ["steps", i],
+						message: `step ${i + 1}: needs a target word or an x/y pair to click.`,
+					});
+				}
+				if (hasXy && (s.x === undefined || s.y === undefined)) {
+					ctx.addIssue({
+						code: z.ZodIssueCode.custom,
+						path: ["steps", i],
+						message: `step ${i + 1}: pass both x and y, not just one.`,
+					});
+				}
+			});
 		}
 	});
 
@@ -2767,6 +2863,239 @@ export function validateInjection(params: {
 	return { ok: true };
 }
 
+/* --- Multi-click batches (live_click `steps`) ---------------------------- */
+
+/**
+ * Whether a batch failure is worth retrying unchanged.
+ *
+ * A batch stops at its first failing step, so the model has to know whether
+ * re-issuing the same call can work. TRANSIENT failures are races with the
+ * world (a glide still owns the pointer, the observation aged out, focus
+ * moved) — the identical retry usually succeeds. PERMANENT ones are facts
+ * about the request itself (that word is not on screen, those coordinates are
+ * outside the frame) — retrying the same call fails identically forever, so
+ * the model must re-aim instead of looping.
+ *
+ * Exported for tests: the classification is a contract the abort message
+ * depends on, so it is asserted directly rather than only through a batch.
+ */
+export type BatchFailureKind = "transient" | "permanent";
+
+const BATCH_TRANSIENT_CODES: ReadonlySet<string> = new Set([
+	"glide_in_flight",
+	"frame_stale",
+	"observation_stale",
+	"observation_superseded",
+	"observation_mismatch",
+	"observation_geometry_mismatch",
+	"no_observation",
+	"focus_lost",
+	"input_failed",
+]);
+
+/** Classify a failure code from validateInjection or the injection step. */
+export function batchFailureKind(code: string | undefined): BatchFailureKind {
+	return code !== undefined && BATCH_TRANSIENT_CODES.has(code) ? "transient" : "permanent";
+}
+
+/** One planned click in a batch, fully resolved. */
+export interface PlannedClickStep {
+	/** Zero-based index into the caller's `steps` array. */
+	index: number;
+	/** Frame px of the click centre (what a single click would resolve to). */
+	tx: number;
+	ty: number;
+	button: "left" | "right" | "middle";
+	count: number;
+	/** Pause AFTER this step, before the next one. */
+	settleMs: number;
+	/** The OCR word this step anchored to, when it was word-anchored. */
+	target?: string;
+}
+
+export type ClickBatchPlan =
+	| { ok: true; planned: PlannedClickStep[] }
+	| {
+			ok: false;
+			/** Zero-based index of the step that failed, or -1 for a batch-level refusal. */
+			failedAt: number;
+			code: string;
+			error: string;
+			kind: BatchFailureKind;
+			/** How many steps had already been validated before this one failed. */
+			plannedBefore: number;
+	  };
+
+/** Default pause after a step. Long enough for a menu to paint, short enough
+ *  that a 3-step batch still beats three round trips. */
+export const BATCH_DEFAULT_SETTLE_MS = 120;
+export const BATCH_MAX_STEPS = 12;
+
+export interface ClickBatchStepInput {
+	target?: string;
+	x?: number;
+	y?: number;
+	button?: "left" | "right" | "middle";
+	count?: number;
+	settleMs?: number;
+}
+
+/**
+ * Plan a whole click batch BEFORE injecting anything.
+ *
+ * Every step is validated up front and in order, so a batch whose step 3 is
+ * refused (a final-action word, coordinates outside the frame) injects
+ * NOTHING at all — not even step 1. That is the property the single-click
+ * path cannot offer: there is no earlier step to have already fired.
+ *
+ * This function is deliberately PURE. It performs no injection, no I/O, and
+ * reads no clock — `resolve` and the frame arrive as arguments, so the whole
+ * planner is testable with no desktop, and its "validates before it acts"
+ * property is structural rather than a promise.
+ *
+ * The executor re-queries each word target immediately before running its
+ * step, so a target that DISAPPEARS under an earlier step is caught before
+ * the press. Read that claim narrowly, though: re-querying is not the same as
+ * re-observing. `resolve` answers from the click-target pool, and that pool is
+ * written ONLY by `rememberClickTargets` (eye/screenshot). Nothing captures a
+ * frame between batch steps, so the pool is frozen for the whole batch. A
+ * target that step 1 REVEALS is therefore still unresolvable, and a target
+ * that step 1 MOVES still resolves to its old box and clicks the wrong place.
+ *
+ * Consequence: batches are safe for steps aimed at ONE stable screen, and
+ * unsafe for chains whose later steps depend on an earlier step's effect.
+ * The single-click path shares the frozen pool but is immune in practice,
+ * because one click changes nothing that the pool describes.
+ */
+export function planClickBatch(
+	steps: readonly ClickBatchStepInput[],
+	ctx: {
+		frame: { scaledW: number; scaledH: number; kind: string; address?: string } | null;
+		focusedAddress: string | undefined;
+		/** Resolve an OCR word to its frame-px centre; null when it is gone. */
+		resolve: (word: string) => { x: number; y: number } | null;
+	},
+): ClickBatchPlan {
+	if (!ctx.frame) {
+		return {
+			ok: false,
+			failedAt: -1,
+			code: "no_frame",
+			error: "No screenshot frame yet. Take a desktop_control screenshot of the target window (default active_window) first — batch steps are frame px of that image.",
+			kind: "permanent",
+			plannedBefore: 0,
+		};
+	}
+	if (steps.length === 0) {
+		return {
+			ok: false,
+			failedAt: -1,
+			code: "empty_batch",
+			error: "A click batch needs at least one step.",
+			kind: "permanent",
+			plannedBefore: 0,
+		};
+	}
+	if (steps.length > BATCH_MAX_STEPS) {
+		return {
+			ok: false,
+			failedAt: -1,
+			code: "batch_too_long",
+			error: `A click batch may hold at most ${BATCH_MAX_STEPS} steps (got ${steps.length}). Split it — a longer sequence should be re-eyed between batches anyway.`,
+			kind: "permanent",
+			plannedBefore: 0,
+		};
+	}
+	// The single-click path refuses a frame that no longer belongs to the
+	// focused window. A batch inherits that: every step maps through this
+	// one frame, so a frame that went stale invalidates all of them.
+	if (ctx.frame.kind === "window" && ctx.frame.address !== ctx.focusedAddress) {
+		return {
+			ok: false,
+			failedAt: -1,
+			code: "frame_stale",
+			error: "The focused window changed since the last screenshot. Retake a screenshot of the target window, then retry the batch.",
+			kind: "transient",
+			plannedBefore: 0,
+		};
+	}
+
+	const planned: PlannedClickStep[] = [];
+	for (let i = 0; i < steps.length; i++) {
+		const s = steps[i]!;
+		// Guardrails BEFORE resolution and bounds, matching the single-click
+		// order in validateInjection: a final-action word is refused even when
+		// its coordinates would also be out of frame.
+		const refusal = guardrailRefusal("live_click", { target: s.target });
+		if (refusal) {
+			return {
+				ok: false,
+				failedAt: i,
+				code: "guardrail_refusal",
+				error: refusal,
+				kind: "permanent",
+				plannedBefore: planned.length,
+			};
+		}
+		let tx: number | undefined = s.x;
+		let ty: number | undefined = s.y;
+		if (s.target !== undefined) {
+			if (tx !== undefined || ty !== undefined) {
+				return {
+					ok: false,
+					failedAt: i,
+					code: "step_target_xor_xy",
+					error: `Step ${i + 1} names both a target word and x/y. Pass one or the other.`,
+					kind: "permanent",
+					plannedBefore: planned.length,
+				};
+			}
+			const hit = ctx.resolve(s.target);
+			if (!hit) {
+				return {
+					ok: false,
+					failedAt: i,
+					code: "target_not_found",
+					error: `Step ${i + 1}: no remembered OCR word matches "${s.target}". Take an eye/screenshot of the window first (vision sessions: pass ocr:true so words are read), then match against its Clickable words list. Nothing was clicked.`,
+					kind: "permanent",
+					plannedBefore: planned.length,
+				};
+			}
+			tx = hit.x;
+			ty = hit.y;
+		}
+		if (tx === undefined || ty === undefined) {
+			return {
+				ok: false,
+				failedAt: i,
+				code: "missing_xy",
+				error: `Step ${i + 1} needs a target word or an x/y pair to click. Nothing was clicked.`,
+				kind: "permanent",
+				plannedBefore: planned.length,
+			};
+		}
+		if (tx < 0 || ty < 0 || tx >= ctx.frame.scaledW || ty >= ctx.frame.scaledH) {
+			return {
+				ok: false,
+				failedAt: i,
+				code: "out_of_bounds",
+				error: `Step ${i + 1} resolves to (${tx},${ty}), outside the ${ctx.frame.scaledW}x${ctx.frame.scaledH} frame — re-eye and re-aim. Nothing was clicked.`,
+				kind: "permanent",
+				plannedBefore: planned.length,
+			};
+		}
+		planned.push({
+			index: i,
+			tx,
+			ty,
+			button: s.button ?? "left",
+			count: s.count ?? 1,
+			settleMs: s.settleMs ?? BATCH_DEFAULT_SETTLE_MS,
+			target: s.target,
+		});
+	}
+	return { ok: true, planned };
+}
 type LiveImageBlock = Extract<AgentToolResult["content"][number], { type: "image" }>;
 
 interface LiveCapture {
@@ -3167,6 +3496,100 @@ export async function runScrollBurst(
 	return { failure: null, completedSteps, samples };
 }
 
+/**
+ * Run a planned click batch, one guarded step at a time.
+ *
+ * Mirrors {@link runScrollBurst}: the per-step mechanics (abort check, focus
+ * re-assertion, execute, settle) are exported and injectable so they can be
+ * tested with no desktop, while the caller wires in the real aim/press.
+ *
+ * Two rules make a batch safe, and both live here rather than in the caller:
+ *
+ * 1. RE-QUERY before every step. The plan was computed against the screen as
+ *     it was READ, and this batch's own earlier steps have changed it — so
+ *     each step re-resolves its word against the live pool and re-asserts
+ *     focus immediately before it fires. Trusting the plan's snapshot would
+ *     mean clicking a place the model never re-chose.
+ *
+ *     KNOWN LIMIT, not a bug in this function: the pool is frozen for the
+ *     batch (only `rememberClickTargets` writes it, and nothing captures a
+ *     frame mid-batch), so re-querying catches a target that VANISHED but
+ *     cannot catch one that APPEARED or MOVED. See the note on
+ *     {@link planClickBatch}. A caller that needs chains whose later steps
+ *     depend on an earlier step's effect must re-capture itself.
+ * 2. HALT on the first failure. Later steps assumed a screen state an
+ *     earlier step never produced, so pressing them anyway is a blind press
+ *     at a stale location. The failure names how many steps DID run, because
+ *     "stopped at 0 of 3" and "stopped at 2 of 3" need different recoveries.
+ */
+export async function runClickBatch(
+	planned: readonly PlannedClickStep[],
+	options: {
+		expectedWindowAddress: string | undefined;
+		signal?: AbortSignal;
+		/** Perform one step at frame px. Resolves null on success, or an error string. */
+		click: (step: PlannedClickStep) => Promise<string | null>;
+		/** Re-resolve a word target against the CURRENT target pool. */
+		resolve?: (word: string) => { x: number; y: number } | null;
+		assertFocus?: (expected: string | undefined) => Promise<string | null>;
+		sleep?: (ms: number) => Promise<void>;
+	},
+): Promise<{
+	failure: { code: string; error: string; at: number } | null;
+	completedSteps: number;
+	applied: Array<{ index: number; target?: string; frame: [number, number] }>;
+}> {
+	const assertFocus = options.assertFocus ?? assertInputFocus;
+	const sleep = options.sleep ?? (async (ms: number) => void (await new Promise(r => setTimeout(r, ms))));
+	const applied: Array<{ index: number; target?: string; frame: [number, number] }> = [];
+	for (let i = 0; i < planned.length; i++) {
+		const step = planned[i]!;
+		if (options.signal?.aborted) {
+			return {
+				failure: { code: "aborted", error: `Cancelled before step ${i + 1} of ${planned.length}.`, at: i },
+				completedSteps: i,
+				applied,
+			};
+		}
+		const focusError = await assertFocus(options.expectedWindowAddress);
+		if (focusError) {
+			return { failure: { code: "focus_lost", error: focusError, at: i }, completedSteps: i, applied };
+		}
+		// Re-resolve against the live pool so a word that moved (or vanished
+		// under an earlier step's click) is caught BEFORE the press.
+		let live = step;
+		if (step.target !== undefined && options.resolve) {
+			const hit = options.resolve(step.target);
+			if (!hit) {
+				return {
+					failure: {
+						code: "target_not_found",
+						error: `Step ${i + 1}: "${step.target}" is not on screen any more${i > 0 ? ` — the ${i} earlier step${i === 1 ? "" : "s"} changed the screen` : ""}.`,
+						at: i,
+					},
+					completedSteps: i,
+					applied,
+				};
+			}
+			live = { ...step, tx: hit.x, ty: hit.y };
+		}
+		const stepFailure = await options.click(live);
+		if (stepFailure) {
+			return {
+				failure: { code: "input_failed", error: `Step ${i + 1}: ${stepFailure}`, at: i },
+				completedSteps: i,
+				applied,
+			};
+		}
+		applied.push({ index: step.index, target: step.target, frame: [live.tx, live.ty] });
+		// Settle before the NEXT step only — never after the last (nothing
+		// waits on it) and never on the way to a failure.
+		if (i < planned.length - 1 && step.settleMs > 0) {
+			await sleep(step.settleMs);
+		}
+	}
+	return { failure: null, completedSteps: planned.length, applied };
+}
 /** Execute one live_* action (module-level so the execute() switch stays tiny). */
 async function executeLiveAction(
 	action: string,
@@ -3199,6 +3622,36 @@ async function executeLiveAction(
 	const errObserve = (actionName: string, text: string, code?: string): AgentToolResult => {
 		driveLoopObserve(actionName, false, actionName === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
 		return errText(text, code);
+	};
+	const batchAbort = (
+		actionName: string,
+		completed: number,
+		total: number,
+		applied: Array<{ index: number; target?: string; frame: [number, number] }>,
+		fail: { code: string; error: string },
+	): AgentToolResult => {
+		driveLoopObserve(actionName, false, undefined, stepKey);
+		const kind = batchFailureKind(fail.code);
+		const advice =
+			kind === "transient"
+				? "Re-issue the batch once the race clears."
+				: "Re-eye to see what the earlier steps actually did, then re-aim — retrying unchanged will fail the same way.";
+		return {
+			content: [
+				{
+					type: "text",
+					text: `Batch stopped after ${completed}/${total} step${total === 1 ? "" : "s"}. ${fail.error} [${kind}] ${advice}`,
+				},
+			],
+			details: {
+				error: fail.code,
+				batchFailureKind: kind,
+				stepsCompleted: completed,
+				stepsTotal: total,
+				batch: { steps: applied, total },
+				driveLoop: driveLoopStatus(),
+			},
+		};
 	};
 
 	if (action === "live_mode_on") {
@@ -3569,6 +4022,35 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			// hydration is best-effort — the refusal below still lands
 		}
 	}
+	// ---- Click batches: plan the WHOLE sequence before injecting any of it.
+	// A batch is the one input shape where a refusal can arrive AFTER steps
+	// that would already have fired, so the plan is built and fully validated
+	// here — before the single-click validator, before the aim, before any
+	// press. If any step is bad, NOTHING is injected (not even step 1).
+	const batchPlan = params.steps
+		? planClickBatch(params.steps, {
+				frame: lastInputFrame,
+				focusedAddress: win.address,
+				resolve: word => {
+					const hit = resolveClickTarget(word);
+					return hit ? { x: hit.x, y: hit.y } : null;
+				},
+			})
+		: null;
+	if (batchPlan && !batchPlan.ok) {
+		const where =
+			batchPlan.failedAt >= 0
+				? `Step ${batchPlan.failedAt + 1} of ${params.steps!.length} refused; no clicks were injected.`
+				: "The batch was refused; no clicks were injected.";
+		return errText(
+			`${where} ${batchPlan.error} [${batchPlan.kind === "transient" ? "transient" : "permanent"}] ${
+				batchPlan.kind === "transient"
+					? "Re-issue the same batch once the race clears."
+					: "Re-eye and re-aim — the same batch will fail identically."
+			}`,
+			batchPlan.code,
+		);
+	}
 	const validation = validateInjection({
 		action,
 		x: params.x,
@@ -3813,6 +4295,81 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			if (aimSteps.length === 0) aimSteps.push(hyprMoveCursor(logical.x, logical.y));
 		}
 		const aim = aimSteps.length > 0 ? aimSteps[aimSteps.length - 1] : null;
+		const clickAt = async (
+			fx: number,
+			fy: number,
+			button: "left" | "right" | "middle",
+			count: number,
+		): Promise<string | null> => {
+			const phys = frameToPhysical(frame, fx, fy);
+			const outScale = await detectOutputScale();
+			const point = physicalToLogical(phys.x, phys.y, outScale);
+			const glide: string[][] = [];
+			if (detectPlatformDriver().id === "hyprland") {
+				try {
+					const from = await detectPlatformDriver().capture.cursorPos();
+					if (from) for (const s of liveAimGlide(from, point)) glide.push(hyprMoveCursor(s.x, s.y));
+				} catch {
+					// cursor read failed — fall back to a single warp below
+				}
+				if (glide.length === 0) glide.push(hyprMoveCursor(point.x, point.y));
+			}
+			const code = button === "right" ? YDO_RIGHT : button === "middle" ? YDO_MIDDLE : YDO_LEFT;
+			const seq =
+				backend === "ydotool"
+					? glide.length > 0
+						? [...glide, ydoClickButton(code, count)]
+						: [ydoMove(phys.x, phys.y), ydoClickButton(code, count)]
+					: [xdoClick(phys.x, phys.y, button, count)];
+			return runSteps(seq, 30, win.address);
+		};
+		// ---- Multi-click batch (live_click with `steps`) ------------------
+		// The whole plan was already validated and refused-if-bad BEFORE this
+		// point (see the steps handling above validateInjection), so reaching
+		// here means no step is known-bad. That is the property that lets a
+		// batch be safe: a late refusal never leaves earlier steps injected.
+		if (action === "live_click" && params.steps && batchPlan?.ok) {
+			const planned = batchPlan.planned;
+			// Drive-loop: a batch counts as ONE step for repeat-streak purposes
+			// (re-issuing the same batch is a model stuck on one plan), and
+			// per-step accounting would let a 12-step batch trip the streak
+			// inside a single call, aborting a legitimate flow as a false
+			// "stuck" verdict. A batch that fails still observes once, as a
+			// failure, so a repeatedly-failing batch does trip the guard.
+			const run = await runClickBatch(batchPlan.planned, {
+				expectedWindowAddress: win.address,
+				signal,
+				click: step => clickAt(step.tx, step.ty, step.button, step.count),
+				resolve: word => {
+					const hit = resolveClickTarget(word);
+					return hit ? { x: hit.x, y: hit.y } : null;
+				},
+				// Frame-aligned so the next step lands on a display frame,
+				// the same reason the glide hops align.
+				sleep: async ms => {
+					const framePeriod = await frameMs();
+					await new Promise(r => setTimeout(r, frameAlignedGap(ms, framePeriod)));
+				},
+			});
+			if (run.failure) {
+				return batchAbort(
+					action,
+					run.completedSteps,
+					run.applied.length || planned.length,
+					run.applied,
+					run.failure,
+				);
+			}
+			liveAuthorizedKinds.add(action);
+			driveLoopObserve(action, true, undefined, stepKey);
+			const summary = run.applied
+				.map(a => `${a.target ? `"${a.target}" ` : ""}@${a.frame[0]},${a.frame[1]}`)
+				.join(" → ");
+			return withVerify(
+				`${planned.length} clicks in order on "${win.title}": ${summary}. Intermediate screens were not observed — re-eye to confirm the result.`,
+				{ batch: { steps: run.applied, total: planned.length } },
+			);
+		}
 		if (action === "live_move") {
 			const fail = await runSteps(
 				aimSteps.length > 0 ? aimSteps : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
