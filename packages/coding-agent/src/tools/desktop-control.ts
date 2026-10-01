@@ -1664,6 +1664,25 @@ function parseGeometryOrigin(geometry: string): { x: number; y: number } {
 }
 
 /**
+ * Inverse of `frameToPhysical`: map a compositor/capture pixel back into the
+ * scaled frame's px space — the space the OCR click-target pool and every
+ * live_* coordinate live in.
+ *
+ * Needed when a position was obtained OUTSIDE frame space (a cursor read is in
+ * logical compositor px) but must be looked up against the pool. Applying
+ * frame-space coordinates to a logical-space point would silently match the
+ * wrong box on any scaled display, so this conversion is not cosmetic.
+ */
+function physicalToFrame(p: { x: number; y: number }, frame: InputFrame): { x: number; y: number } {
+	const sx = frame.physW > 0 ? frame.scaledW / frame.physW : 1;
+	const sy = frame.physH > 0 ? frame.scaledH / frame.physH : 1;
+	return {
+		x: Math.round((p.x - frame.atX) * sx),
+		y: Math.round((p.y - frame.atY) * sy),
+	};
+}
+
+/**
  * Format the cursor-position verify verdict (nuphus mouse_verify pattern).
  * Aimed and read positions must be in the SAME space (hyprland: logical,
  * since cursorpos shares movecursor's space — probed identical 30ms apart;
@@ -2565,6 +2584,64 @@ export function hoverNote(hit: { text: string; distancePx: number } | null): str
 	return hit.distancePx === 0
 		? ` Pointer is over "${hit.text}".`
 		: ` Pointer is ${hit.distancePx}px from "${hit.text}".`;
+}
+
+/**
+ * What the pointer passes OVER on its way from `from` to `to` — the ordered,
+ * de-duplicated targets the glide crosses, sampled along the real eased path
+ * `liveAimGlide` will take. Both points are in FRAME px.
+ *
+ * This is motion telemetry WITHOUT a background process and WITHOUT a single
+ * extra subprocess. Absolute cursor position is only knowable by asking the
+ * compositor, which costs a fork per read; but the PATH is already computed
+ * in-process before the glide runs, and naming what lies along it needs
+ * nothing but the remembered pool. So the "live view of the movement" the
+ * model was missing is available for free at the moment the move is planned.
+ *
+ * Returns [] when nothing is crossed, so callers stay silent rather than
+ * padding the report with "passed over nothing". Pure — exported for tests.
+ */
+export function pathTargetsCrossed(
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+	targets: readonly ClickTarget[],
+	currentGen?: number,
+): Array<{ text: string; at: { x: number; y: number } }> {
+	const pool =
+		currentGen === undefined
+			? targets
+			: targets.filter(t => (t as GenerationalTarget).gen === currentGen);
+	if (pool.length === 0) return [];
+	// Sample the real glide path. A straight line between endpoints can clip a
+	// control the eased curve actually passes over, so walk the same waypoints
+	// the move will take rather than interpolating independently.
+	const samples: Array<{ x: number; y: number }> = [from, ...liveAimGlide(from, to)];
+	const seen = new Set<string>();
+	const crossed: Array<{ text: string; at: { x: number; y: number } }> = [];
+	for (const s of samples) {
+		const hit = hoverTargetAt(s, pool, currentGen);
+		if (!hit) continue;
+		// De-duplicate by label AND position, so passing the same button twice
+		// does not repeat it while two distinct "Save" buttons both show up.
+		const key = `${hit.text}@${hit.box.x},${hit.box.y}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		crossed.push({ text: hit.text, at: { x: s.x, y: s.y } });
+	}
+	return crossed;
+}
+
+/**
+ * Format crossed targets for a move report. Silent when the path crosses
+ * nothing, because "passed over nothing" is noise on a move that was merely
+ * short. Capped so a long glide across a dense window cannot flood the
+ * report. Exported for tests.
+ */
+export function pathCrossedNote(crossed: Array<{ text: string }>, max = 6): string {
+	if (crossed.length === 0) return "";
+	const names = crossed.slice(0, max).map(c => `"${c.text}"`);
+	const extra = crossed.length > max ? ` +${crossed.length - max} more` : "";
+	return ` Path crossed: ${names.join(" → ")}${extra}.`;
 }
 
 /** --- Guardrails: final-action denylist + password-field detection ------- */
@@ -4417,10 +4494,16 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		// motion is visible in verify frames (agents can see the cursor travel
 		 // instead of jumping). Short hops land in one step; long ones ease.
 		const aimSteps: string[][] = [];
+		// Where the glide starts, in FRAME px, so the path it takes can be
+		// sampled against the OCR pool when the move reports. Captured here
+		// because this is the only place the start point is read — asking again
+		// later would cost another fork for a value we already had.
+		let glideFromFrame: { x: number; y: number } | null = null;
 		if (detectPlatformDriver().id === "hyprland") {
 			try {
 				const from = await detectPlatformDriver().capture.cursorPos();
 				if (from) {
+					glideFromFrame = physicalToFrame(from, frame);
 					for (const s of liveAimGlide(from, logical)) aimSteps.push(hyprMoveCursor(s.x, s.y));
 				}
 			} catch {
@@ -4539,8 +4622,16 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			// the model can re-aim BEFORE committing to a click. This is the
 			// hover-awareness path — the model sees the destination named
 			// instead of inferring it from pixels.
+			//
+			// The CROSSED list answers "what did it travel over", sampled along
+			// the same eased path the glide takes. It costs nothing: that path is
+			// already computed above and the pool lookup is pure, so this is
+			// motion telemetry with no background process and no extra fork.
+			const crossed = glideFromFrame
+				? pathTargetsCrossed(glideFromFrame, { x: tx as number, y: ty as number }, lastClickTargets, clickTargetGen)
+				: [];
 			return withVerify(
-				`Moved pointer to ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}).${posNote}${hoverNote(liveHoverTarget({ x: tx as number, y: ty as number }))}`,
+				`Moved pointer to ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}).${posNote}${pathCrossedNote(crossed)}${hoverNote(liveHoverTarget({ x: tx as number, y: ty as number }))}`,
 			);
 		}
 		if (action === "live_click") {
