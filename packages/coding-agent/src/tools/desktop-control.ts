@@ -2473,6 +2473,100 @@ export function resolveClickTarget(text: string): { x: number; y: number; box: C
 	return { x: best.x + Math.round(best.w / 2), y: best.y + Math.round(best.h / 2), box: best };
 }
 
+/**
+ * What the pointer is resting on, in FRAME px — the inverse of
+ * `resolveClickTarget`. That answers "where do I click to hit X?"; this
+ * answers "if I click right now, what do I hit?", which is the question a
+ * model cannot answer from a screenshot alone because the screenshot does
+ * not show where the pointer is.
+ *
+ * Only the CURRENT reading generation is eligible, and the same frame
+ * coherence guard applies: a hover name is only trustworthy if it describes
+ * the same surface the coordinates came from. Overlapping boxes are common
+ * in dense windows, so the winner is the smallest box containing the point
+ * (the most specific hit), with reading order breaking exact ties.
+ *
+ * Returns null when the pointer is over nothing we recognised — the honest
+ * answer, and the one that should stop a blind click. Pure — exported for
+ * tests.
+ */
+export function hoverTargetAt(
+	point: { x: number; y: number },
+	targets: readonly ClickTarget[],
+	currentGen?: number,
+): { text: string; box: ClickTarget; distancePx: number } | null {
+	const pool =
+		currentGen === undefined
+			? targets
+			: targets.filter(t => (t as GenerationalTarget).gen === currentGen);
+	if (pool.length === 0) return null;
+	let best: { t: ClickTarget; distance: number } | null = null;
+	for (const t of pool) {
+		const inside = point.x >= t.x && point.x < t.x + t.w && point.y >= t.y && point.y < t.y + t.h;
+		// The pointer can rest just outside a box after a click nudges it, so
+		// also consider the nearest box within a small slack and report how far
+		// off it was — a caller can then treat "nearly on" differently from
+		// "nowhere near".
+		// Axis-aware gap: a point diagonally off the corner is NOT a hit, and
+		// Euclidean distance would round it to 0 — indistinguishable from a
+		// true hit. Per-axis overflow keeps "outside by 1px on both axes"
+		// reporting as 1px, so a near miss never reads as a clean landing.
+		const gapX = Math.max(t.x - point.x, 0, point.x - (t.x + t.w));
+		const gapY = Math.max(t.y - point.y, 0, point.y - (t.y + t.h));
+		const distance = inside ? 0 : Math.max(gapX, gapY);
+		if (!inside && distance > HOVER_SLACK_PX) continue;
+		if (!best) {
+			best = { t, distance };
+			continue;
+		}
+		// Contained beats merely near; among equals prefer the tighter box.
+		const bestInside = best.distance === 0;
+		if (inside && !bestInside) {
+			best = { t, distance };
+			continue;
+		}
+		if (inside === bestInside) {
+			const bestArea = best.t.w * best.t.h;
+			const area = t.w * t.h;
+			if (area < bestArea || (area === bestArea && distance < best.distance)) best = { t, distance };
+		}
+	}
+	return best ? { text: best.t.text, box: best.t, distancePx: Math.round(best.distance) } : null;
+}
+
+/** How far outside a box still counts as "resting on it", in frame px. A
+ *  click often leaves the pointer a pixel or two proud of the target, and
+ *  reporting nothing there would make hover look broken. */
+export const HOVER_SLACK_PX = 6;
+
+/**
+ * Hover name for a live pointer position, using the remembered pool of the
+ * CURRENT reading. `point` is in FRAME px (the space live_* coordinates use).
+ *
+ * Applies the same frame-coherence guard as `resolveClickTarget`: if a
+ * same-turn capture superseded the frame these boxes were measured against,
+ * naming a target would be describing a screen that no longer exists, so we
+ * return null and let the caller re-eye.
+ */
+export function liveHoverTarget(point: { x: number; y: number }): { text: string; box: ClickTarget; distancePx: number } | null {
+	if (clickTargetsFrame && lastInputFrame && !framesCoherent(clickTargetsFrame, lastInputFrame)) return null;
+	return hoverTargetAt(point, lastClickTargets, clickTargetGen);
+}
+
+/**
+ * One-line hover summary for a tool report, or "" when nothing is under the
+ * pointer. Phrased as an observation ("Pointer is over ...") rather than a
+ * guarantee, because the pool is OCR-derived: it names the nearest word we
+ * recognised, which for a dense window is usually but not always the control
+ * the user sees. Exported for tests.
+ */
+export function hoverNote(hit: { text: string; distancePx: number } | null): string {
+	if (!hit) return " Pointer is over no recognised target.";
+	return hit.distancePx === 0
+		? ` Pointer is over "${hit.text}".`
+		: ` Pointer is ${hit.distancePx}px from "${hit.text}".`;
+}
+
 /** --- Guardrails: final-action denylist + password-field detection ------- */
 
 /**
@@ -4440,8 +4534,13 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			} catch {
 				// reads unsupported — verify frame still covers us
 			}
+			// A move is the cheapest moment to learn what the pointer is now
+			// over: nothing is pressed, so the answer is pure information and
+			// the model can re-aim BEFORE committing to a click. This is the
+			// hover-awareness path — the model sees the destination named
+			// instead of inferring it from pixels.
 			return withVerify(
-				`Moved pointer to ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}).${posNote}`,
+				`Moved pointer to ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}).${posNote}${hoverNote(liveHoverTarget({ x: tx as number, y: ty as number }))}`,
 			);
 		}
 		if (action === "live_click") {
@@ -4501,8 +4600,16 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			} catch {
 				// reads unsupported — verify frame still covers us
 			}
+			// Name what the press actually landed on. The OCR pool is in FRAME
+			// px, and `tx/ty` are the frame coordinates of the aim, so they can
+			// be looked up directly — the logical/physical cursor read above is
+			// a different space and must NOT be used here. The AIM point is
+			// used rather than the post-press sample because the press may have
+			// moved the pointer; the question is "what did I hit", and the aim
+			// is what the press was aimed at.
+			const hoverHit = liveHoverTarget({ x: tx as number, y: ty as number });
 			return withVerify(
-				`${count > 1 ? `${count}× ` : ""}${button} click ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}) on "${win.title}".${clickLandingNote(pre, post, logical)}`,
+				`${count > 1 ? `${count}× ` : ""}${button} click ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}) on "${win.title}".${clickLandingNote(pre, post, logical)}${hoverNote(hoverHit)}`,
 			);
 		}
 		if (action === "live_drag") {
