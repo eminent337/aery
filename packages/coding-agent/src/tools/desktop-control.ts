@@ -1678,6 +1678,46 @@ export function cursorVerifyNote(aimed: { x: number; y: number }, read: { x: num
 		: ` Cursor verify MISMATCH: aimed (${aimed.x},${aimed.y}), read (${read.x},${read.y}) (Δ${dx},${dy}px) — re-eye and retry before clicking.`;
 }
 
+/**
+ * Format the cursor feedback appended to a `live_click` report: where the
+ * pointer was steered before the press, and where it was measured afterwards.
+ *
+ * Two samples, because they answer different questions. The PRE sample is
+ * taken after converging but before the press, so it proves the click was
+ * aimed at the point the model was told. The POST sample is taken after the
+ * press, so it reports where the pointer genuinely rests — which may legally
+ * differ (a control can capture or move the pointer) and must therefore be
+ * reported rather than "corrected". The post sample is reported ONLY when it
+ * differs from the pre sample; an identical second verdict is pure noise.
+ *
+ * A null sample means the platform cannot read the cursor; that contributes no
+ * text, so a backend without read-back keeps its historical wording byte-for-
+ * byte. With no pre sample at all the function returns "" — a post-only
+ * reading cannot certify an aim that was never verified. Pure, exported for
+ * tests.
+ */
+export function clickLandingNote(
+	pre: { read: { x: number; y: number } | null; corrections: number } | null,
+	post: { x: number; y: number } | null,
+	aimed: { x: number; y: number },
+): string {
+	let note = "";
+	if (!pre) return note; // no verified aim — a lone post sample proves nothing
+	note += cursorVerifyNote(aimed, pre.read);
+	if (pre.corrections > 0 && pre.read) {
+		note += ` Converged in ${pre.corrections} correction${pre.corrections === 1 ? "" : "s"}.`;
+	}
+	// The post-press sample only earns a sentence when it DISAGREES with the
+	// pre-press one. Repeating "OK" twice tells the model nothing and trains it
+	// to skim past the verdict; a difference is the signal that the press
+	// moved the pointer somewhere the model did not aim.
+	if (post) {
+		const drifted = !pre.read || Math.hypot(post.x - pre.read.x, post.y - pre.read.y) > 0;
+		if (drifted) note += cursorVerifyNote(aimed, post);
+	}
+	return note;
+}
+
 /** Outcome of converging the pointer onto its intended target. */
 export interface CursorLanding {
 	/** Final cursor reading, or null when the platform cannot read it. */
@@ -4408,6 +4448,38 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			const button = params.button ?? "left";
 			const count = params.count ?? 1;
 			const code = button === "right" ? YDO_RIGHT : button === "middle" ? YDO_MIDDLE : YDO_LEFT;
+			// Close the loop BEFORE the click. The click steps already glide the
+			// pointer onto the aim point, but a glide is a request, not a fact:
+			// the compositor may clamp at a screen edge, a window may have moved
+			// since the frame was captured, and the xdotool branch warps blind.
+			// Reading back and converging here means the press lands where the
+			// model was told — instead of the click being *reported* at a point
+			// the pointer never reached. Unreadable cursors fall through to the
+			// historical behaviour (no note) rather than failing a real click.
+			const readCursor = async (): Promise<{ x: number; y: number } | null> => {
+				try {
+					return await detectPlatformDriver().capture.cursorPos();
+				} catch {
+					return null;
+				}
+			};
+			let pre: { read: { x: number; y: number } | null; corrections: number } | null = null;
+			try {
+				pre = await convergeCursorLanding(logical, {
+					read: readCursor,
+					move: async p => {
+						const cmd =
+							detectPlatformDriver().id === "hyprland"
+								? hyprMoveCursor(p.x, p.y)
+								: backend === "ydotool"
+									? ydoMove(p.x, p.y)
+									: xdoMove(p.x, p.y);
+						await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
+					},
+				});
+			} catch {
+				// reads unsupported — verify frame still covers us
+			}
 			const steps =
 				backend === "ydotool"
 					? aim
@@ -4417,8 +4489,20 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			const fail = await runSteps(steps, 30, win.address);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
+			// One read-back after the press: sample the pointer where it now
+			// actually rests. A single sample is the honest measurement — the
+			// click may legally have moved the cursor (a control can capture
+			// the pointer), and re-converging here would "fix" a position the
+			// user may be looking at. We report what we measured and let the
+			// caller re-aim.
+			let post: { x: number; y: number } | null = null;
+			try {
+				post = await readCursor();
+			} catch {
+				// reads unsupported — verify frame still covers us
+			}
 			return withVerify(
-				`${count > 1 ? `${count}× ` : ""}${button} click ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}) on "${win.title}".`,
+				`${count > 1 ? `${count}× ` : ""}${button} click ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → physical (${pt.x},${pt.y}) on "${win.title}".${clickLandingNote(pre, post, logical)}`,
 			);
 		}
 		if (action === "live_drag") {
