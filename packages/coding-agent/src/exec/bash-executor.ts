@@ -12,6 +12,9 @@ import { OutputSink } from "../session/streaming-output";
 import { resolveOutputMaxColumns, resolveOutputSinkHeadBytes } from "../tools/output-meta";
 import { getOrCreateSnapshot } from "../utils/shell-snapshot";
 import { NON_INTERACTIVE_ENV } from "./non-interactive-env";
+import type { SandboxConfig } from "../sandbox/types";
+import { wrapWithSandbox } from "../sandbox/bwrap-driver";
+import { getDefaultPolicyGuardian } from "../security/policy-guardian";
 
 export interface BashExecutorOptions {
 	cwd?: string;
@@ -19,6 +22,10 @@ export interface BashExecutorOptions {
 	onChunk?: (chunk: string) => void;
 	chunkThrottleMs?: number;
 	signal?: AbortSignal;
+	/** Optional bubblewrap filesystem & network sandbox configuration */
+	sandbox?: SandboxConfig;
+	/** Whether to bypass PolicyGuardian security checks (default false) */
+	skipPolicyGuardian?: boolean;
 	/** Session key suffix to isolate shell sessions per agent */
 	sessionKey?: string;
 	/** Additional environment variables to inject */
@@ -169,6 +176,25 @@ function resolveUserShellConfig(settings: Settings, baseConfig: ShellConfig): Sh
 }
 
 export async function executeBash(command: string, options?: BashExecutorOptions): Promise<BashResult> {
+	// Deterministic pre-execution policy check (ported from agy PolicyGuardian)
+	if (options?.skipPolicyGuardian !== true) {
+		const guardian = getDefaultPolicyGuardian();
+		const check = guardian.validate(command);
+		if (!check.allowed) {
+			const blockMsg = `${check.reason}\nSuggestion: ${check.violationDetails?.suggestion ?? "Refine the command to satisfy safety policy."}\n`;
+			return {
+				output: blockMsg,
+				exitCode: 1,
+				cancelled: false,
+				truncated: false,
+				totalLines: 2,
+				totalBytes: blockMsg.length,
+				outputLines: 2,
+				outputBytes: blockMsg.length,
+			};
+		}
+	}
+
 	const settings = await Settings.init();
 	const baseShellConfig = settings.getShellConfig();
 	const shellConfig =
@@ -184,10 +210,15 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 
 	// Apply command prefix if configured
 	const prefixedCommand = prefix ? `${prefix} ${command}` : command;
-	const finalCommand =
+	const baseCommand =
 		options?.useUserShell === true && !bashShell
 			? buildUserShellCommand(shell, args, prefixedCommand)
 			: prefixedCommand;
+
+	const finalCommand =
+		options?.sandbox?.enabled === true
+			? wrapWithSandbox(baseCommand, options.sandbox)
+			: baseCommand;
 
 	// Create output sink for truncation and artifact handling
 	const sink = new OutputSink({
