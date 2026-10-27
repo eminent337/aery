@@ -8,13 +8,15 @@ import { ExponentialYield } from "@aryee337/aery-core/utils/yield";
 import { executeShell, type MinimizerOptions, Shell, type ShellRunResult } from "@aryee337/aery-engine";
 import { isExecutable, type ShellConfig } from "@aryee337/aery-utils/procmgr";
 import { Settings, type ShellMinimizerSettings } from "../config/settings";
+import { DeclarativeHooksEngine } from "../extensibility/declarative-hooks/engine";
+import { wrapWithSandbox } from "../sandbox/bwrap-driver";
+import type { SandboxConfig } from "../sandbox/types";
+import { PermissionEngine } from "../security/permissions/permission-engine";
+import { getDefaultPolicyGuardian } from "../security/policy-guardian";
 import { OutputSink } from "../session/streaming-output";
 import { resolveOutputMaxColumns, resolveOutputSinkHeadBytes } from "../tools/output-meta";
 import { getOrCreateSnapshot } from "../utils/shell-snapshot";
 import { NON_INTERACTIVE_ENV } from "./non-interactive-env";
-import type { SandboxConfig } from "../sandbox/types";
-import { wrapWithSandbox } from "../sandbox/bwrap-driver";
-import { getDefaultPolicyGuardian } from "../security/policy-guardian";
 
 export interface BashExecutorOptions {
 	cwd?: string;
@@ -26,6 +28,10 @@ export interface BashExecutorOptions {
 	sandbox?: SandboxConfig;
 	/** Whether to bypass PolicyGuardian security checks (default false) */
 	skipPolicyGuardian?: boolean;
+	/** Whether to bypass declarative hooks.json checks (default false) */
+	skipHooks?: boolean;
+	/** Whether to bypass permission ACL checks (default false) */
+	skipPermissions?: boolean;
 	/** Session key suffix to isolate shell sessions per agent */
 	sessionKey?: string;
 	/** Additional environment variables to inject */
@@ -195,6 +201,25 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 		}
 	}
 
+	// Permission ACL check (ported from agy Permissions engine)
+	if (options?.skipPermissions !== true) {
+		const permissions = PermissionEngine.getInstance();
+		const check = permissions.checkCommand(command);
+		if (!check.allowed) {
+			const blockMsg = `${check.reason}\n`;
+			return {
+				output: blockMsg,
+				exitCode: 1,
+				cancelled: false,
+				truncated: false,
+				totalLines: 1,
+				totalBytes: blockMsg.length,
+				outputLines: 1,
+				outputBytes: blockMsg.length,
+			};
+		}
+	}
+
 	const settings = await Settings.init();
 	const baseShellConfig = settings.getShellConfig();
 	const shellConfig =
@@ -208,6 +233,25 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 	const commandCwd = await resolveShellCwd(options?.cwd);
 	const commandEnv = options?.env ? { ...NON_INTERACTIVE_ENV, ...options.env } : NON_INTERACTIVE_ENV;
 
+	// Declarative hooks.json pre-tool gate (ported from agy)
+	if (options?.skipHooks !== true) {
+		const hooksEngine = DeclarativeHooksEngine.getInstance();
+		const hookCheck = await hooksEngine.executePreToolUse("bash", { command }, commandCwd);
+		if (!hookCheck.allowed) {
+			const blockMsg = `${hookCheck.reason}\n`;
+			return {
+				output: blockMsg,
+				exitCode: 1,
+				cancelled: false,
+				truncated: false,
+				totalLines: 1,
+				totalBytes: blockMsg.length,
+				outputLines: 1,
+				outputBytes: blockMsg.length,
+			};
+		}
+	}
+
 	// Apply command prefix if configured
 	const prefixedCommand = prefix ? `${prefix} ${command}` : command;
 	const baseCommand =
@@ -216,9 +260,7 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 			: prefixedCommand;
 
 	const finalCommand =
-		options?.sandbox?.enabled === true
-			? wrapWithSandbox(baseCommand, options.sandbox)
-			: baseCommand;
+		options?.sandbox?.enabled === true ? wrapWithSandbox(baseCommand, options.sandbox) : baseCommand;
 
 	// Create output sink for truncation and artifact handling
 	const sink = new OutputSink({
@@ -407,10 +449,15 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 		}
 
 		// Normal completion
+		const dumped = await sink.dump();
+		if (options?.skipHooks !== true) {
+			const hooksEngine = DeclarativeHooksEngine.getInstance();
+			await hooksEngine.executePostToolUse("bash", { command }, dumped.output, commandCwd);
+		}
 		return {
 			exitCode: winner.result.exitCode,
 			cancelled: false,
-			...(await sink.dump()),
+			...dumped,
 		};
 	} catch (err) {
 		resetSession = true;
