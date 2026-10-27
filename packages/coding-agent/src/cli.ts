@@ -129,30 +129,33 @@ async function runTinyWorker(): Promise<void> {
 
 /** Run the CLI with the given argv (no `process.argv` prefix). */
 export async function runCli(argv: string[]): Promise<void> {
+	const first = argv[0];
+	if (first === "--version" || first === "-v") {
+		console.log(`${APP_NAME}/${VERSION}`);
+		process.exit(0);
+	}
+
 	// Defer ferment crash recovery out of the synchronous startup hot path so a
 	// large ferments table can't block arg parsing / subcommand dispatch. Runs
 	// post-init, non-blocking; stranded "running" ferments are marked "paused"
 	// as soon as the event loop is free.
-	setImmediate(() => {
-		recoverStrandedFerments();
-		recoverStrandedSessions();
-		// Only the launch path (interactive / print / acp sessions) runs the
-		// global cron scheduler. Helpers like `--help`/`--version`/subcommands
-		// must not keep the process alive with a scheduler interval.
-		const first = argv[0];
-		const isLaunch =
-			first === undefined ||
-			first === "launch" ||
-			(!isSubcommand(first) &&
-				first !== "--help" &&
-				first !== "-h" &&
-				first !== "--version" &&
-				first !== "-v" &&
-				first !== "help");
-		if (isLaunch) {
+	const isLaunch =
+		first === undefined ||
+		first === "launch" ||
+		(!isSubcommand(first) &&
+			first !== "--help" &&
+			first !== "-h" &&
+			first !== "--version" &&
+			first !== "-v" &&
+			first !== "help");
+
+	if (isLaunch) {
+		setImmediate(() => {
+			recoverStrandedFerments();
+			recoverStrandedSessions();
 			getGlobalCronScheduler().start();
-		}
-	});
+		});
+	}
 
 	if (argv[0] === "--smoke-test") {
 		await runSmokeTest();
@@ -164,7 +167,6 @@ export async function runCli(argv: string[]): Promise<void> {
 	}
 	// --help and --version are handled by run() directly, don't rewrite those.
 	// Everything else that isn't a known subcommand routes to "launch".
-	const first = argv[0];
 	const runArgv =
 		first === "--help" || first === "-h" || first === "--version" || first === "-v" || first === "help"
 			? argv

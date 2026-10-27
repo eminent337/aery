@@ -139,13 +139,39 @@ export async function getOrCreateSnapshot(
 
 	const rcFile = getShellConfigFile(shell);
 
+	// Persistent cache directory across sessions (~/.aery/cache/snapshots)
+	const persistentDir = path.join(os.homedir(), ".aery", "cache", "snapshots");
+	try {
+		fs.mkdirSync(persistentDir, { recursive: true });
+	} catch {}
+
+	let rcMtime = 0;
+	try {
+		if (fs.existsSync(rcFile)) {
+			rcMtime = fs.statSync(rcFile).mtimeMs;
+		}
+	} catch {}
+
+	const shellName = shell.includes("zsh") ? "zsh" : shell.includes("bash") ? "bash" : "sh";
+	const persistentSnapshotPath = path.join(persistentDir, `snapshot-${shellName}.sh`);
+
+	// If persistent snapshot exists and is newer than user's rc file, reuse it instantly (0ms latency)
+	try {
+		if (fs.existsSync(persistentSnapshotPath)) {
+			const snapStat = fs.statSync(persistentSnapshotPath);
+			if (snapStat.mtimeMs >= rcMtime && snapStat.size > 0) {
+				cachedSnapshotPaths.set(cacheKey, persistentSnapshotPath);
+				return persistentSnapshotPath;
+			}
+		}
+	} catch {}
+
 	// Create snapshot directory
 	const snapshotDir = path.join(os.tmpdir(), "aery-shell-snapshots");
 	fs.mkdirSync(snapshotDir, { recursive: true });
 
-	// Generate unique snapshot path
-	const shellName = shell.includes("zsh") ? "zsh" : shell.includes("bash") ? "bash" : "sh";
-	const snapshotPath = path.join(snapshotDir, `snapshot-${shellName}-${crypto.randomUUID()}.sh`);
+	// Generate snapshot path
+	const snapshotPath = persistentSnapshotPath;
 
 	// Generate and execute snapshot script
 	const script = generateSnapshotScript(shell, snapshotPath, rcFile);
@@ -181,7 +207,11 @@ export async function getOrCreateSnapshot(
 
 postmortem.register("shell-snapshot", () => {
 	for (const snapshotPath of cachedSnapshotPaths.values()) {
-		fs.unlinkSync(snapshotPath);
+		if (snapshotPath.includes("tmp") && fs.existsSync(snapshotPath)) {
+			try {
+				fs.unlinkSync(snapshotPath);
+			} catch {}
+		}
 	}
 	cachedSnapshotPaths.clear();
 });

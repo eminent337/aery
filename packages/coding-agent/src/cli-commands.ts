@@ -16,6 +16,7 @@ export const commands: CommandEntry[] = [
 	{ name: "auth-broker", load: () => import("./commands/auth-broker").then(m => m.default) },
 	{ name: "auth-gateway", load: () => import("./commands/auth-gateway").then(m => m.default) },
 	{ name: "agents", load: () => import("./commands/agents").then(m => m.default) },
+	{ name: "agentapi", load: () => import("./commands/agentapi").then(m => m.default) },
 	{ name: "commit", load: () => import("./commands/commit").then(m => m.default) },
 	{ name: "completions", load: () => import("./commands/completions").then(m => m.default) },
 	{ name: "__complete", load: () => import("./commands/complete").then(m => m.default) },
@@ -32,6 +33,7 @@ export const commands: CommandEntry[] = [
 	{ name: "stats", load: () => import("./commands/stats").then(m => m.default) },
 	{ name: "update", load: () => import("./commands/update").then(m => m.default) },
 	{ name: "tiny-models", load: () => import("./commands/tiny-models").then(m => m.default) },
+	{ name: "mic-serve", load: () => import("./commands/mic-serve").then(m => m.default) },
 	{ name: "worktree", load: () => import("./commands/worktree").then(m => m.default), aliases: ["wt"] },
 	{ name: "search", load: () => import("./commands/web-search").then(m => m.default), aliases: ["q"] },
 ];
