@@ -8,6 +8,8 @@ import { isEnoent, isRecord, prompt, untilAborted } from "@aryee337/aery-utils";
 import { formatHashlineHeader, stripHashlinePrefixes } from "@aryee337/hashline";
 import * as z from "zod/v4";
 
+import { ArtifactStore } from "../artifacts/artifact-store";
+import type { StoredArtifact } from "../artifacts/types";
 import { getFileSnapshotStore } from "../edit/file-snapshot-store";
 import { normalizeToLF } from "../edit/normalize";
 import type { RenderResultOptions } from "../extensibility/custom-tools/types";
@@ -65,9 +67,26 @@ async function loadFflate(): Promise<typeof import("fflate")> {
 	return fflateModulePromise;
 }
 
+const artifactMetaSchema = z
+	.object({
+		summary: z.string().optional(),
+		Summary: z.string().optional(),
+		userFacing: z.boolean().optional(),
+		UserFacing: z.boolean().optional(),
+		requestFeedback: z.boolean().optional(),
+		RequestFeedback: z.boolean().optional(),
+	})
+	.passthrough();
+
 const writeSchema = z.object({
 	path: z.string().describe("file path"),
 	content: z.string().describe("file content"),
+	artifactMetadata: artifactMetaSchema
+		.optional()
+		.describe("Optional metadata for structured artifacts (summary, userFacing, requestFeedback)"),
+	ArtifactMetadata: artifactMetaSchema
+		.optional()
+		.describe("Optional metadata for structured artifacts (agy compatible)"),
 });
 
 export type WriteToolInput = z.infer<typeof writeSchema>;
@@ -78,6 +97,7 @@ export interface WriteToolDetails {
 	meta?: OutputMeta;
 	/** Set when the file was auto-chmod'd because content begins with a `#!` shebang. */
 	madeExecutable?: boolean;
+	artifact?: StoredArtifact;
 }
 
 /**
@@ -748,14 +768,55 @@ export class WriteTool implements AgentTool<typeof writeSchema, WriteToolDetails
 	}
 	async execute(
 		_toolCallId: string,
-		{ path, content }: WriteParams,
+		params: WriteParams,
 		signal?: AbortSignal,
 		_onUpdate?: AgentToolUpdateCallback<WriteToolDetails>,
 		context?: AgentToolContext,
 	): Promise<AgentToolResult<WriteToolDetails>> {
+		const { path, content } = params;
 		return untilAborted(signal, async () => {
 			// Strip hashline display prefixes (¶PATH#HASH + LINE:) if the model copied them from read output
 			const { text: cleanContent, stripped } = stripWriteContent(this.session, content);
+
+			const rawMeta = params.artifactMetadata ?? params.ArtifactMetadata;
+			if (rawMeta) {
+				const summary = rawMeta.summary ?? rawMeta.Summary ?? "";
+				const userFacing = rawMeta.userFacing ?? rawMeta.UserFacing ?? true;
+				const requestFeedback = rawMeta.requestFeedback ?? rawMeta.RequestFeedback ?? false;
+
+				const store = new ArtifactStore();
+				const baseName = path.split("/").pop()?.split("\\").pop() ?? path;
+				const stored = await store.saveArtifact(baseName, cleanContent, {
+					summary,
+					userFacing,
+					requestFeedback,
+				});
+
+				if (path.includes("/") || path.includes("\\")) {
+					try {
+						const absolutePath = resolvePlanPath(this.session, path);
+						const dir = absolutePath.substring(0, Math.max(absolutePath.lastIndexOf("/"), absolutePath.lastIndexOf("\\")));
+						if (dir) {
+							await fs.mkdir(dir, { recursive: true });
+						}
+						await fs.writeFile(absolutePath, cleanContent, "utf-8");
+						invalidateFsScanAfterWrite(absolutePath);
+					} catch {}
+				}
+
+				let resultText = `Successfully wrote artifact to ${stored.path} (${cleanContent.length} bytes)`;
+				if (summary) {
+					resultText += `\nSummary: ${summary}`;
+				}
+				if (requestFeedback) {
+					resultText += `\n[Feedback Requested: Please review this artifact and proceed or provide feedback]`;
+				}
+				return {
+					content: [{ type: "text", text: resultText }],
+					details: { artifact: stored },
+				};
+			}
+
 			const internalRouter = InternalUrlRouter.instance();
 			if (internalRouter.canHandle(path)) {
 				const parsed = parseInternalUrl(path);

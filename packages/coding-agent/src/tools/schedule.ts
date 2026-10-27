@@ -18,8 +18,35 @@ import type { EventBus } from "../utils/event-bus";
 import type { ToolSession } from "./index";
 
 const scheduleSchema = z.object({
-	message: z.string().describe("Message content for the scheduled task"),
-	dueAt: z.number().int().describe("Unix timestamp (ms) for when the task should fire"),
+	Prompt: z
+		.string()
+		.optional()
+		.describe("Prompt or notification message sent when timer fires (agy format)"),
+	message: z
+		.string()
+		.optional()
+		.describe("Message content for the scheduled task (legacy aery format)"),
+	DurationSeconds: z
+		.number()
+		.int()
+		.optional()
+		.describe("Seconds to wait for a one-shot timer (relative duration)"),
+	dueAt: z
+		.number()
+		.int()
+		.optional()
+		.describe("Unix timestamp (ms) for when the task should fire (absolute timestamp)"),
+	CronExpression: z
+		.string()
+		.optional()
+		.describe("Standard 5-field cron expression for a recurring schedule"),
+	TimerCondition: z
+		.string()
+		.optional()
+		.describe("Timer cancellation condition: 'never', 'any', or a sender conversation ID"),
+	ExactTiming: z.boolean().optional().describe("Cron only. Fire at exact wall-clock time without jitter"),
+	IsDaemon: z.boolean().optional().describe("Cron only. Keep firing after current task is done"),
+	MaxIterations: z.number().int().optional().describe("Maximum iterations before cron stops"),
 	priority: z.enum(["low", "normal", "high"]).optional().describe("Task priority (default normal)"),
 	metadata: z.record(z.string(), z.unknown()).optional().describe("Optional metadata"),
 });
@@ -136,23 +163,49 @@ export class ScheduleTool implements AgentTool<typeof scheduleSchema> {
 	async execute(_id: string, params: ScheduleToolParams, signal?: AbortSignal): Promise<AgentToolResult> {
 		return untilAborted(signal, async () => {
 			const priority: SchedulePriority = PRIORITY_SET.has(params.priority ?? "") ? params.priority! : "normal";
+			const textMessage = params.Prompt ?? params.message ?? "Scheduled ambient timer notification";
+
+			let targetDueAt = params.dueAt;
+			if (params.DurationSeconds !== undefined) {
+				targetDueAt = Date.now() + params.DurationSeconds * 1000;
+			} else if (targetDueAt === undefined) {
+				targetDueAt = Date.now() + 60_000;
+			}
+
+			const mergedMeta = {
+				...(params.metadata ?? {}),
+				cronExpression: params.CronExpression,
+				timerCondition: params.TimerCondition,
+				isDaemon: params.IsDaemon,
+				exactTiming: params.ExactTiming,
+				maxIterations: params.MaxIterations,
+			};
+
 			const item = this.scheduler.schedule({
 				id: `sched-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-				dueAt: params.dueAt,
+				dueAt: targetDueAt,
 				priority,
 				sessionId: this.scheduler.sessionId,
-				message: params.message,
-				metadata: params.metadata,
+				message: textMessage,
+				metadata: mergedMeta,
 			});
 
+			const cronInfo = params.CronExpression ? ` [Cron: ${params.CronExpression}]` : "";
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Scheduled task ${item.id} at ${new Date(item.dueAt).toISOString()} (${item.priority}). Scheduler has ${this.scheduler.size} item(s).`,
+						text: `Scheduled task ${item.id} at ${new Date(item.dueAt).toISOString()}${cronInfo} (${item.priority}). Scheduler has ${this.scheduler.size} item(s).`,
 					},
 				],
-				details: { id: item.id, dueAt: item.dueAt, priority: item.priority, queueSize: this.scheduler.size },
+				details: {
+					id: item.id,
+					dueAt: item.dueAt,
+					priority: item.priority,
+					cronExpression: params.CronExpression,
+					timerCondition: params.TimerCondition,
+					queueSize: this.scheduler.size,
+				},
 			};
 		});
 	}

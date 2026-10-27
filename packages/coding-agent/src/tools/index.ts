@@ -6,6 +6,7 @@ import type { AutonomousRuntime } from "../autonomous";
 import type { PromptTemplate } from "../config/prompt-templates";
 import type { Settings } from "../config/settings";
 import { EditTool } from "../edit";
+import { EditFileTool } from "./edit-file";
 import { checkPythonKernelAvailability } from "../eval/py/kernel";
 import type { ContextUsage } from "../extensibility/extensions/types";
 import type { Skill } from "../extensibility/skills";
@@ -31,10 +32,12 @@ import { WebSearchTool } from "../web/search";
 import type { WorkspaceTree } from "../workspace-tree";
 import { AdvisorTool } from "./advisor";
 import { AskTool } from "./ask";
+import { AskQuestionTool } from "./ask-question";
 import { AstEditTool } from "./ast-edit";
 import { AstGrepTool } from "./ast-grep";
 import { BashTool } from "./bash";
 import { BashOutputTool } from "./bash-output";
+import { BattleTool } from "./battle";
 import { BestOfNTool } from "./best-of-n";
 import { BrowserTool } from "./browser";
 import { CameraControlTool } from "./camera-control";
@@ -55,6 +58,8 @@ import { HandoffTool } from "./handoff";
 import { InspectImageTool } from "./inspect-image";
 import { IrcTool } from "./irc";
 import { JobTool } from "./job";
+import { ManageTaskTool } from "./manage-task";
+import { ManageSubagentsTool } from "./manage-subagents";
 import { MemoryEditTool } from "./memory-edit";
 import { MemoryLinkTool } from "./memory-link";
 import { MemoryRecallTool } from "./memory-recall";
@@ -578,6 +583,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	read: s => new ReadTool(s),
 	bash: s => new BashTool(s),
 	edit: s => new EditTool(s),
+	edit_file: s => new EditFileTool(s),
 	ast_grep: s => new AstGrepTool(s),
 	ast_edit: s => new AstEditTool(s),
 	render_mermaid: s => new RenderMermaidTool(s),
@@ -629,6 +635,10 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	set_model: s => new SetModelTool(s),
 	set_fast: s => new SetFastTool(s),
 	advisor: s => new AdvisorTool(s),
+	battle_solve: () => new BattleTool(),
+	manage_task: () => new ManageTaskTool(),
+	ask_question: s => new AskQuestionTool(s),
+	manage_subagents: () => new ManageSubagentsTool(),
 	best_of_n: () => new BestOfNTool(),
 	multi_prompt_review: () => new MultiPromptReviewTool(),
 	explore: s => new ExploreTool(s),
