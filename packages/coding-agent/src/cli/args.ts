@@ -48,7 +48,13 @@ export interface Args {
 	listModels?: string | true;
 	noTitle?: boolean;
 	autoApprove?: boolean;
-	approvalMode?: "always-ask" | "write" | "yolo";
+	approvalMode?: "always-ask" | "write" | "yolo" | "proceed-in-sandbox";
+	inputFormat?: "text" | "stream-json";
+	outputFormat?: "text" | "json" | "stream-json";
+	jsonSchema?: string;
+	hub?: boolean;
+	remoteControl?: boolean;
+	dangerouslySkipPermissions?: boolean;
 	messages: string[];
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
@@ -216,14 +222,27 @@ export function parseArgs(inputArgs: string[], extensionFlags?: Map<string, { ty
 			result.noTitle = true;
 		} else if (arg === "--auto-approve" || arg === "--yolo") {
 			result.autoApprove = true;
+		} else if (arg === "--dangerously-skip-permissions") {
+			result.autoApprove = true;
+			result.dangerouslySkipPermissions = true;
+		} else if (arg === "--input-format" && i + 1 < args.length) {
+			result.inputFormat = args[++i] as "text" | "stream-json";
+		} else if (arg === "--output-format" && i + 1 < args.length) {
+			result.outputFormat = args[++i] as "text" | "json" | "stream-json";
+		} else if (arg === "--json-schema" && i + 1 < args.length) {
+			result.jsonSchema = args[++i];
+		} else if (arg === "--hub") {
+			result.hub = true;
+		} else if (arg === "--remote-control") {
+			result.remoteControl = true;
 		} else if (arg === "--approval-mode" && i + 1 < args.length) {
 			const mode = args[++i];
-			if (mode === "always-ask" || mode === "write" || mode === "yolo") {
+			if (mode === "always-ask" || mode === "write" || mode === "yolo" || mode === "proceed-in-sandbox") {
 				result.approvalMode = mode;
 			} else {
 				logger.warn("Invalid value passed to --approval-mode", {
 					value: mode,
-					validValues: ["always-ask", "write", "yolo"],
+					validValues: ["always-ask", "write", "yolo", "proceed-in-sandbox"],
 				});
 			}
 		} else if (arg === "--skills" && i + 1 < args.length) {
