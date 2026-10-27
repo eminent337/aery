@@ -1248,6 +1248,78 @@ describe("TUI terminal-state regressions", () => {
 			}
 		});
 
+		it("preserves overflowing transcript rows when offscreen mutations coincide with chat appends above pinned bottom chrome", async () => {
+			const term = new UnknownViewportTerminal(30, 10);
+			const tui = new TUI(term);
+
+			const chat = new MutableLinesComponent(rows("chat-", 10));
+			const chrome = new MutableLinesComponent(["--- editor ---", "prompt>"]);
+
+			tui.addChild(chat);
+			tui.addChild(chrome);
+
+			try {
+				tui.start();
+				await settle(term);
+
+				expect(term.getScrollBuffer().length).toBe(12);
+
+				// Mutate an offscreen chat line AND append new chat lines above bottom chrome
+				chat.setLines(["chat-0 (updated)", ...rows("chat-", 10).slice(1), "chat-10", "chat-11"]);
+				tui.requestRender();
+				await settle(term);
+
+				const allLines = term.getScrollBuffer().map(l => l.trimEnd());
+				// All lines from chat-0 through chat-11 and chrome must exist in scrollback
+				expect(allLines.length).toBe(14);
+				for (let i = 0; i <= 11; i++) {
+					const hasLine = allLines.some(l => l.startsWith(`chat-${i}`));
+					expect(hasLine).toBe(true);
+				}
+				expect(allLines).toContain("--- editor ---");
+				expect(allLines).toContain("prompt>");
+			} finally {
+				tui.stop();
+			}
+		});
+
+		it("preserves all streamed rows across multiple frames when an offscreen spinner ticks above pinned bottom chrome", async () => {
+			const term = new UnknownViewportTerminal(30, 8);
+			const tui = new TUI(term);
+
+			const spinner = new MutableLinesComponent(["spinner: frame 0"]);
+			const chat = new MutableLinesComponent(rows("msg-", 6));
+			const chrome = new MutableLinesComponent(["--- editor ---", "prompt>"]);
+
+			tui.addChild(spinner);
+			tui.addChild(chat);
+			tui.addChild(chrome);
+
+			try {
+				tui.start();
+				await settle(term);
+
+				// Now simulate streaming 5 chunks while spinner ticks on each chunk
+				const currentChat = [...rows("msg-", 6)];
+				for (let step = 1; step <= 5; step++) {
+					spinner.setLines([`spinner: frame ${step}`]);
+					currentChat.push(`msg-${5 + step}`);
+					chat.setLines(currentChat);
+					tui.requestRender();
+					await settle(term);
+				}
+
+				const scrollBuffer = term.getScrollBuffer().map(l => l.trimEnd());
+				// Total lines: 1 spinner + 11 msgs (0..10) + 2 chrome = 14 lines
+				expect(scrollBuffer.length).toBe(14);
+				for (let i = 0; i <= 10; i++) {
+					expect(scrollBuffer.some(l => l.startsWith(`msg-${i}`))).toBe(true);
+				}
+			} finally {
+				tui.stop();
+			}
+		});
+
 		it("rebuilds scrollback on a user-driven offscreen expansion when the viewport position is unknown", async () => {
 			// Pressing Ctrl+O is a direct user keystroke, so the expand reaches the
 			// renderer with `allowUnknownViewportMutation: true`. On a terminal that

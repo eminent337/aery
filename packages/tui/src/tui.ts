@@ -1644,7 +1644,10 @@ export class TUI extends Container {
 		if (diff.firstChanged < prevViewportTop) {
 			const nativeViewportAtBottom = this.#readNativeViewportAtBottom();
 			const cleanTailAppend =
-				diff.appendedLines && this.#findAppendedTailStart(newLines) === this.#previousLines.length;
+				diff.appendedLines && (
+					this.#findAppendedTailStart(newLines) === this.#previousLines.length ||
+					(contentGrew && this.#previousLines.length >= height)
+				);
 			if (
 				!isMultiplexerSession() &&
 				this.#canRebuildNativeScrollbackLive(nativeViewportAtBottom, allowUnknownViewportMutation)
@@ -1657,7 +1660,7 @@ export class TUI extends Container {
 
 		if (forceViewportRepaint) {
 			if (isMultiplexerSession()) return { kind: "viewportRepaint" };
-			if (pureAppend && contentGrew && this.#previousLines.length >= height) {
+			if (contentGrew && this.#previousLines.length >= height) {
 				return { kind: "viewportRepaint", appendFrom: this.#previousLines.length };
 			}
 			if (newLines.length === this.#previousLines.length && diff.firstChanged >= prevViewportTop) {
