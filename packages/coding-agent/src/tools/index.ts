@@ -6,7 +6,6 @@ import type { AutonomousRuntime } from "../autonomous";
 import type { PromptTemplate } from "../config/prompt-templates";
 import type { Settings } from "../config/settings";
 import { EditTool } from "../edit";
-import { EditFileTool } from "./edit-file";
 import { checkPythonKernelAvailability } from "../eval/py/kernel";
 import type { ContextUsage } from "../extensibility/extensions/types";
 import type { Skill } from "../extensibility/skills";
@@ -48,6 +47,7 @@ import { DaemonTool } from "./daemon";
 import { DaemonControlTool } from "./daemon-control";
 import { DebugTool } from "./debug";
 import { DesktopControlTool } from "./desktop-control";
+import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
 import { ExploreTool } from "./explore";
@@ -58,8 +58,8 @@ import { HandoffTool } from "./handoff";
 import { InspectImageTool } from "./inspect-image";
 import { IrcTool } from "./irc";
 import { JobTool } from "./job";
-import { ManageTaskTool } from "./manage-task";
 import { ManageSubagentsTool } from "./manage-subagents";
+import { ManageTaskTool } from "./manage-task";
 import { MemoryEditTool } from "./memory-edit";
 import { MemoryLinkTool } from "./memory-link";
 import { MemoryRecallTool } from "./memory-recall";
@@ -559,7 +559,7 @@ export type ToolFactory = (session: ToolSession) => Tool | null | Promise<Tool |
 export type BuiltinToolLoadMode = "essential" | "discoverable";
 
 /** Default essential tool names when tools.essentialOverride is empty. */
-export const DEFAULT_ESSENTIAL_TOOL_NAMES: readonly string[] = ["read", "bash", "edit"] as const;
+export const DEFAULT_ESSENTIAL_TOOL_NAMES: readonly string[] = ["read", "bash", "edit", "edit_file"] as const;
 
 /**
  * Resolve the active essential built-in tool names from settings.

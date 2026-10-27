@@ -36,6 +36,13 @@ export function resolveEditMode(session: EditModeSessionLike): EditMode {
 	const envMode = normalizeEditMode($env.PI_EDIT_VARIANT);
 	if (envMode) return envMode;
 
+	// Automatically select "replace" (exact string replacement) for Gemini / Google / Antigravity models.
+	// Gemini models are trained specifically on exact drop-in replacements (AGY edit_file);
+	// hashline causes hallucinated line prefixes and fuzzy word corruption.
+	if (activeModel && /gemini|antigravity|google/i.test(activeModel)) {
+		return "replace";
+	}
+
 	const settingsMode = normalizeEditMode(String(session.settings.get("edit.mode") ?? ""));
 	return settingsMode ?? DEFAULT_EDIT_MODE;
 }

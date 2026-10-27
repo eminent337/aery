@@ -1,8 +1,10 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { resolveEditMode } from "../../utils/edit-mode";
 import { EditFileTool } from "../edit-file";
+import { DEFAULT_ESSENTIAL_TOOL_NAMES } from "../index";
 
 describe("EditFileTool (ported from agy)", () => {
 	let tempDir: string;
@@ -15,6 +17,24 @@ describe("EditFileTool (ported from agy)", () => {
 		try {
 			await fs.rm(tempDir, { recursive: true, force: true });
 		} catch {}
+	});
+
+	it("automatically includes edit_file in DEFAULT_ESSENTIAL_TOOL_NAMES", () => {
+		expect(DEFAULT_ESSENTIAL_TOOL_NAMES).toContain("edit_file");
+	});
+
+	it("automatically selects 'replace' mode for Gemini and Google models", () => {
+		const mockGeminiSession = {
+			settings: { get: () => "hashline", getEditVariantForModel: () => null },
+			getActiveModelString: () => "google-antigravity/gemini-3.1-pro-high",
+		};
+		expect(resolveEditMode(mockGeminiSession)).toBe("replace");
+
+		const mockGeminiCliSession = {
+			settings: { get: () => "hashline", getEditVariantForModel: () => null },
+			getActiveModelString: () => "google-gemini-cli/gemini-2.5-flash",
+		};
+		expect(resolveEditMode(mockGeminiCliSession)).toBe("replace");
 	});
 
 	it("replaces exact string in sub-millisecond time", async () => {

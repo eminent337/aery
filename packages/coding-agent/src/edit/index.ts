@@ -81,8 +81,15 @@ function resolveAllowFuzzy(session: ToolSession, rawValue: string): boolean {
 		case "false":
 		case "0":
 			return false;
-		case "auto":
+		case "auto": {
+			const activeModel = session.getActiveModelString?.();
+			if (activeModel && /gemini|antigravity|google/i.test(activeModel)) {
+				// Gemini models are trained for exact match drop-in replacement (matching AGY edit_file);
+				// fuzzy matching causes false-positive line swaps and word corruption.
+				return false;
+			}
 			return session.settings.get("edit.fuzzyMatch");
+		}
 		default:
 			throw new Error(`Invalid PI_EDIT_FUZZY: ${rawValue}`);
 	}
