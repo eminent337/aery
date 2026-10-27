@@ -1418,7 +1418,9 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				const filePath = path.join(rulesDir, `${slug}.md`);
 				const content = `---\ntrigger: model_decision\ndescription: ${ruleContent.slice(0, 100)}\n---\n# Rule: ${slug}\n\n${ruleContent}\n`;
 				await fs.writeFile(filePath, content, "utf-8");
-				await runtime.output(`✅ Rule saved to .agents/rules/${slug}.md. Future sessions will respect this guideline.`);
+				await runtime.output(
+					`✅ Rule saved to .agents/rules/${slug}.md. Future sessions will respect this guideline.`,
+				);
 			} catch (err) {
 				await runtime.output(`Failed to save rule: ${err instanceof Error ? err.message : String(err)}`);
 			}
@@ -1472,6 +1474,27 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				? `Launch a collaborative multi-agent swarm to execute this objective: "${task}". Decompose the work into specialized roles: 1) Codebase Researcher (to survey code & dependencies), 2) Implementation Engineer (to make targeted edits), and 3) QA Tester (to run tests & verify results). Orchestrate tasks using subagents and report final results.`
 				: "Decompose the current task across an autonomous team of specialized subagents (Researcher, Implementer, QA Tester). Orchestrate their progress and synthesize the results.";
 			runtime.ctx.showStatus("👥 Teamwork mode activated: Spawning autonomous multi-agent team...");
+			return { prompt: promptText };
+		},
+	},
+	{
+		name: "heal",
+		description: "Autonomously diagnose and heal failing tests or build commands in an isolated worktree",
+		acpDescription: "Autonomous self-healing error recovery",
+		allowArgs: true,
+		inlineHint: "[command to heal, default: bun test]",
+		acpInputHint: "[command to heal]",
+		handle: async (command, runtime) => {
+			const targetCmd = command.args.trim() || "bun test";
+			const promptText = `Run autonomous self-healing on this command: "${targetCmd}". Intercept any failures, spawn an isolated worktree branch, diagnose the root cause, apply minimal targeted patches, verify that all tests pass, and present the final clean diff for review.`;
+			await runtime.output(`🩺 Self-healing mode activated for: ${targetCmd}`);
+			return { prompt: promptText };
+		},
+		handleTui: (command, runtime) => {
+			runtime.ctx.editor.setText("");
+			const targetCmd = command.args.trim() || "bun test";
+			const promptText = `Run autonomous self-healing on this command: "${targetCmd}". Intercept any failures, spawn an isolated worktree branch, diagnose the root cause, apply minimal targeted patches, verify that all tests pass, and present the final clean diff for review.`;
+			runtime.ctx.showStatus(`🩺 Self-healing mode activated for: ${targetCmd}`);
 			return { prompt: promptText };
 		},
 	},

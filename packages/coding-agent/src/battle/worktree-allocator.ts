@@ -73,13 +73,18 @@ export async function allocateBattleWorktree(
  */
 export async function getBattleDiff(worktreePath: string, baseRef = "HEAD"): Promise<DiffSummary> {
 	try {
-		// Get unified diff patch
-		const { stdout: patch } = await execAsync("git", ["diff", baseRef, "HEAD"], {
+		// Track new files with intent-to-add so diff captures them
+		try {
+			await execAsync("git", ["add", "-N", "."], { cwd: worktreePath });
+		} catch {}
+
+		// Get unified diff patch against baseRef
+		const { stdout: patch } = await execAsync("git", ["diff", baseRef], {
 			cwd: worktreePath,
 		});
 
 		// Get numstat for exact file churn
-		const { stdout: numstat } = await execAsync("git", ["diff", "--numstat", baseRef, "HEAD"], {
+		const { stdout: numstat } = await execAsync("git", ["diff", "--numstat", baseRef], {
 			cwd: worktreePath,
 		});
 
