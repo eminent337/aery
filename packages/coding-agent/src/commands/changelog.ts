@@ -12,7 +12,7 @@ export default class ChangelogCommand extends Command {
 	static strict = false;
 
 	async run(): Promise<void> {
-		const { argv } = await this.parse();
+		const { argv } = await this.parse(ChangelogCommand);
 		const asJson = argv.includes("--json");
 		const countArg = argv.find(a => /^\d+$/.test(a));
 		const limit = countArg ? parseInt(countArg, 10) : 5;

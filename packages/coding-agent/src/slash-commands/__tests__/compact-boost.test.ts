@@ -45,16 +45,16 @@ describe("Slash Commands: /compact & /boost (ported from agy)", () => {
 		};
 
 		// Turn boost on
-		await boostSpec.handle({ name: "boost", args: "", text: "/boost" }, mockRuntime);
+		await boostSpec.handle?.({ name: "boost", args: "", text: "/boost" }, mockRuntime as any);
 		expect(currentLevel).toBe("xhigh");
 		expect(outputLines[0]).toContain("Reasoning boost ACTIVATED");
 
 		// Check status
-		await boostSpec.handle({ name: "boost", args: "status", text: "/boost status" }, mockRuntime);
+		await boostSpec.handle?.({ name: "boost", args: "status", text: "/boost status" }, mockRuntime as any);
 		expect(outputLines[1]).toContain("ACTIVE (xhigh)");
 
 		// Turn boost off
-		await boostSpec.handle({ name: "boost", args: "off", text: "/boost off" }, mockRuntime);
+		await boostSpec.handle?.({ name: "boost", args: "off", text: "/boost off" }, mockRuntime as any);
 		expect(currentLevel).toBe("medium");
 		expect(outputLines[2]).toContain("Reasoning boost disabled");
 	});
@@ -74,9 +74,9 @@ describe("Slash Commands: /compact & /boost (ported from agy)", () => {
 			},
 		};
 
-		await compactSpec.handle(
+		await compactSpec.handle?.(
 			{ name: "compact", args: "focus on architecture", text: "/compact focus on architecture" },
-			mockRuntime,
+			mockRuntime as any,
 		);
 		expect(outputLines[0]).toContain("successfully compacted");
 		expect(outputLines[0]).toContain("focus on architecture");

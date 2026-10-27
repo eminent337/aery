@@ -38,12 +38,13 @@ describe("WriteTool Artifact Integration", () => {
 			},
 		});
 
-		expect(result.content[0].text).toContain("Successfully wrote artifact");
-		expect(result.content[0].text).toContain("Summary: High-level architecture specification");
-		expect(result.content[0].text).toContain("Feedback Requested");
-		expect(result.details.artifact).toBeDefined();
-		expect(result.details.artifact?.id).toBe("architecture_spec");
-		expect(result.details.artifact?.metadata.summary).toBe("High-level architecture specification");
+		const firstText = (result.content[0] as any).text;
+		expect(firstText).toContain("Successfully wrote artifact");
+		expect(firstText).toContain("Summary: High-level architecture specification");
+		expect(firstText).toContain("Feedback Requested");
+		expect(result.details?.artifact).toBeDefined();
+		expect(result.details?.artifact?.id).toBe("architecture_spec");
+		expect(result.details?.artifact?.metadata.summary).toBe("High-level architecture specification");
 	});
 
 	it("supports agy-style ArtifactMetadata (PascalCase)", async () => {
@@ -67,8 +68,9 @@ describe("WriteTool Artifact Integration", () => {
 			},
 		});
 
-		expect(result.content[0].text).toContain("Successfully wrote artifact");
-		expect(result.content[0].text).toContain("Summary: Migration plan");
-		expect(result.details.artifact?.metadata.summary).toBe("Migration plan");
+		const secondText = (result.content[0] as any).text;
+		expect(secondText).toContain("Successfully wrote artifact");
+		expect(secondText).toContain("Summary: Migration plan");
+		expect(result.details?.artifact?.metadata.summary).toBe("Migration plan");
 	});
 });

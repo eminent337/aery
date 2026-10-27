@@ -28,7 +28,7 @@ describe("Signature Slash Commands: /grill-me, /learn, /teamwork (ported from ag
 			output: (text: string) => outputLines.push(text),
 		};
 
-		const result = await spec.handle(
+		const result = await spec.handle?.(
 			{ name: "grill-me", args: "caching strategy", text: "/grill-me caching strategy" },
 			mockRuntime,
 		);
@@ -50,7 +50,7 @@ describe("Signature Slash Commands: /grill-me, /learn, /teamwork (ported from ag
 			output: (text: string) => outputLines.push(text),
 		};
 
-		await spec.handle(
+		await spec.handle?.(
 			{
 				name: "learn",
 				args: "typescript-types Always use explicit return types on exported functions",
@@ -78,7 +78,7 @@ describe("Signature Slash Commands: /grill-me, /learn, /teamwork (ported from ag
 			output: (text: string) => outputLines.push(text),
 		};
 
-		const result = await spec.handle(
+		const result = await spec.handle?.(
 			{ name: "teamwork", args: "build auth subsystem", text: "/teamwork build auth subsystem" },
 			mockRuntime,
 		);

@@ -13,9 +13,9 @@ describe("ScheduleTool agy compatibility", () => {
 			Prompt: "Follow up with user regarding migration progress",
 		});
 
-		expect(result.content[0].text).toContain("Scheduled task");
-		expect(result.details.dueAt).toBeGreaterThan(Date.now() + 10_000);
-		expect(result.details.dueAt).toBeLessThanOrEqual(Date.now() + 16_000);
+		expect((result.content[0] as any).text).toContain("Scheduled task");
+		expect((result.details as any)?.dueAt).toBeGreaterThan(Date.now() + 10_000);
+		expect((result.details as any)?.dueAt).toBeLessThanOrEqual(Date.now() + 16_000);
 	});
 
 	it("supports CronExpression and TimerCondition metadata", async () => {
@@ -25,9 +25,9 @@ describe("ScheduleTool agy compatibility", () => {
 			TimerCondition: "any",
 		});
 
-		expect(result.content[0].text).toContain("[Cron: */5 * * * *]");
-		expect(result.details.cronExpression).toBe("*/5 * * * *");
-		expect(result.details.timerCondition).toBe("any");
+		expect((result.content[0] as any).text).toContain("[Cron: */5 * * * *]");
+		expect((result.details as any)?.cronExpression).toBe("*/5 * * * *");
+		expect((result.details as any)?.timerCondition).toBe("any");
 	});
 
 	it("preserves legacy message and dueAt parameters", async () => {

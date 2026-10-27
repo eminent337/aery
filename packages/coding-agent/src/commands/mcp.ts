@@ -175,7 +175,7 @@ export default class McpCommand extends Command {
 	static strict = false;
 
 	async run(): Promise<void> {
-		const { argv } = await this.parse();
+		const { argv } = await this.parse(McpCommand);
 		await handleMcpCli(argv as string[]);
 	}
 }

@@ -28,7 +28,7 @@ describe("MicServe Audio Stream Server", () => {
 		const authRes = await fetch(`http://localhost:${testPort}/status?token=${testToken}`);
 		expect(authRes.status).toBe(200);
 
-		const data = await authRes.json();
+		const data = (await authRes.json()) as { status: string; sampleRate: number };
 		expect(data.status).toBe("online");
 		expect(data.sampleRate).toBe(16000);
 	});

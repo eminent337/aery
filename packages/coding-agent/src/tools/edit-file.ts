@@ -62,7 +62,7 @@ export class EditFileTool implements AgentTool<typeof editFileSchema> {
 			throw new ToolError("Target string is required for edit_file.");
 		}
 
-		const cwd = this.session?.cwd ?? context?.cwd ?? process.cwd();
+		const cwd = this.session?.cwd ?? process.cwd();
 		const absolutePath = this.session ? resolvePlanPath(this.session, filePath) : path.resolve(cwd, filePath);
 
 		try {

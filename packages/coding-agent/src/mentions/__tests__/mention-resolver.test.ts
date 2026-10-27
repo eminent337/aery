@@ -73,7 +73,7 @@ describe("Context @ Mentions Resolver (ported from agy)", () => {
 		registry.register({
 			id: "researcher-01",
 			displayName: "Codebase Researcher",
-			kind: "subagent",
+			kind: "sub",
 			status: "idle",
 			session: null,
 		});

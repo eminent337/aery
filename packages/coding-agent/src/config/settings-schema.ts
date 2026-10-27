@@ -2367,14 +2367,14 @@ export const SETTINGS_SCHEMA = {
 	//   "yolo"       — auto-approves every tier.
 	"tools.approvalMode": {
 		type: "enum",
-		values: ["always-ask", "write", "yolo"] as const,
+		values: ["always-ask", "write", "yolo", "proceed-in-sandbox"] as const,
 		default: "yolo",
 		ui: {
 			tab: "interaction",
 			group: "Approvals",
 			label: "Tool Approval",
 			description:
-				"Default approval behaviour for tool calls. 'Always ask' auto-approves read-only tools only. 'Write' auto-approves read and workspace-write tools. 'Yolo' auto-approves all tiers; user policy may still prompt or block.",
+				"Default approval behaviour for tool calls. 'Always ask' auto-approves read-only tools only. 'Write' auto-approves read and workspace-write tools. 'Yolo' auto-approves all tiers; 'Proceed in sandbox' auto-approves inside bubblewrap container.",
 			options: [
 				{
 					value: "always-ask",
@@ -2392,6 +2392,11 @@ export const SETTINGS_SCHEMA = {
 					label: "Yolo",
 					description:
 						"Auto-approve read, write, and exec tools. User policy can still require confirmation or block calls.",
+				},
+				{
+					value: "proceed-in-sandbox",
+					label: "Proceed in sandbox",
+					description: "Auto-approve commands that execute safely within the isolated bubblewrap container.",
 				},
 			],
 		},

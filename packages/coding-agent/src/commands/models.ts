@@ -14,7 +14,7 @@ export default class ModelsCommand extends Command {
 	static strict = false;
 
 	async run(): Promise<void> {
-		const { argv } = await this.parse();
+		const { argv } = await this.parse(ModelsCommand);
 		const pattern = argv[0] as string | undefined;
 
 		const authStorage = await discoverAuthStorage();

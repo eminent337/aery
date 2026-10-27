@@ -104,8 +104,8 @@ export class MicServer {
 					// Client connected
 				},
 				message(ws: ServerWebSocket<ClientMeta>, message: string | Buffer) {
-					if (Buffer.isBuffer(message) || message instanceof ArrayBuffer || ArrayBuffer.isView(message)) {
-						const buf = Buffer.isBuffer(message) ? message : Buffer.from(message as any);
+					if (typeof message !== "string") {
+						const buf = Buffer.isBuffer(message) ? message : Buffer.from(message);
 						for (const listener of self.audioChunkListeners) {
 							listener(buf, ws.data);
 						}

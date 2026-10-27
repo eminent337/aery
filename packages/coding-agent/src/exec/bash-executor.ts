@@ -238,7 +238,12 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 	// Declarative hooks.json pre-tool gate (ported from agy)
 	if (options?.skipHooks !== true) {
 		const hooksEngine = DeclarativeHooksEngine.getInstance();
-		const hookCheck = await hooksEngine.executePreToolUse("bash", { command }, commandCwd, options?.lastUserInput);
+		const hookCheck = await hooksEngine.executePreToolUse(
+			"bash",
+			{ command },
+			commandCwd ?? process.cwd(),
+			options?.lastUserInput,
+		);
 		if (!hookCheck.allowed) {
 			const blockMsg = `${hookCheck.reason}\n`;
 			return {
@@ -454,7 +459,13 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 		const dumped = await sink.dump();
 		if (options?.skipHooks !== true) {
 			const hooksEngine = DeclarativeHooksEngine.getInstance();
-			await hooksEngine.executePostToolUse("bash", { command }, dumped.output, commandCwd, options?.lastUserInput);
+			await hooksEngine.executePostToolUse(
+				"bash",
+				{ command },
+				dumped.output,
+				commandCwd ?? process.cwd(),
+				options?.lastUserInput,
+			);
 		}
 		return {
 			exitCode: winner.result.exitCode,

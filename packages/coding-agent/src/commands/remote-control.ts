@@ -97,7 +97,7 @@ export default class RemoteControlCommand extends Command {
 	static strict = false;
 
 	async run(): Promise<void> {
-		const { argv } = await this.parse();
+		const { argv } = await this.parse(RemoteControlCommand);
 		await handleRemoteControlCli(argv as string[]);
 	}
 }

@@ -49,7 +49,7 @@ describe("EditFileTool (ported from agy)", () => {
 			Replacement: "return (a + b) * 2;",
 		});
 
-		expect(result.content[0].text).toContain("Successfully replaced");
+		expect((result.content[0] as any).text).toContain("Successfully replaced");
 		const updated = await fs.readFile(filePath, "utf-8");
 		expect(updated).toContain("return (a + b) * 2;");
 	});

@@ -37,7 +37,7 @@ export class WebHubServer {
 
 				// WebSocket upgrade
 				if (url.pathname === "/ws") {
-					const success = server.upgrade(req);
+					const success = server.upgrade(req, { data: { createdAt: Date.now() } });
 					if (success) return undefined;
 					return new Response("WebSocket upgrade failed", { status: 400 });
 				}
@@ -143,7 +143,7 @@ export class WebHubServer {
 			},
 		});
 
-		const actualPort = this.server.port;
+		const actualPort = this.server.port ?? this.config.port;
 		return {
 			port: actualPort,
 			url: `http://${this.config.host}:${actualPort}`,

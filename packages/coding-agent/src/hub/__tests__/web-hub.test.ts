@@ -28,7 +28,7 @@ describe("Interactive Web Hub Server (aery hub / --hub)", () => {
 	it("returns status JSON from /api/status", async () => {
 		const res = await fetch(`${hubUrl}/api/status`);
 		expect(res.status).toBe(200);
-		const json = await res.json();
+		const json = (await res.json()) as { status: string; hostname: string; cwd: string };
 		expect(json.status).toBe("running");
 		expect(json.hostname).toBeDefined();
 		expect(json.cwd).toBeDefined();
@@ -39,18 +39,18 @@ describe("Interactive Web Hub Server (aery hub / --hub)", () => {
 		registry.register({
 			id: "hub-tester",
 			displayName: "Hub QA Tester",
-			kind: "subagent",
+			kind: "sub",
 			status: "idle",
 			session: null,
 		});
 
 		const res = await fetch(`${hubUrl}/api/agents`);
 		expect(res.status).toBe(200);
-		const agents = await res.json();
+		const agents = (await res.json()) as Array<{ id: string; displayName: string }>;
 		expect(Array.isArray(agents)).toBe(true);
-		const found = agents.find((a: any) => a.id === "hub-tester");
+		const found = agents.find(a => a.id === "hub-tester");
 		expect(found).toBeDefined();
-		expect(found.displayName).toBe("Hub QA Tester");
+		expect(found?.displayName).toBe("Hub QA Tester");
 	});
 
 	it("connects over WebSocket to /ws and receives initial handshake", async () => {

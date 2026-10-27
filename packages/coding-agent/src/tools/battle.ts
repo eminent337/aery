@@ -46,12 +46,20 @@ export class BattleTool implements AgentTool<typeof battleSchema> {
 	readonly loadMode = "discoverable";
 	readonly summary = "Speculative multi-candidate worktree competition with automated test verification";
 
-	static createIf(_session: ToolSession): BattleTool | null {
-		return new BattleTool();
+	constructor(private readonly session?: ToolSession) {}
+
+	static createIf(session: ToolSession): BattleTool | null {
+		return new BattleTool(session);
 	}
 
-	async execute(_id: string, params: BattleParams, context?: AgentToolContext): Promise<AgentToolResult> {
-		const cwd = context?.cwd ?? process.cwd();
+	async execute(
+		_id: string,
+		params: BattleParams,
+		_signal?: AbortSignal,
+		_onUpdate?: unknown,
+		_context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		const cwd = this.session?.cwd ?? process.cwd();
 		const battleId = `battle-${Date.now()}`;
 		const count = params.candidatesCount ?? 2;
 

@@ -31,7 +31,7 @@ export async function handleHubCli(argv: string[]): Promise<void> {
 
 	if (argv.includes("--open")) {
 		try {
-			Bun.spawn(["xdg-open", url], { stdio: "ignore" });
+			Bun.spawn(["xdg-open", url], { stdio: ["ignore", "ignore", "ignore"] });
 		} catch {}
 	}
 
@@ -44,7 +44,7 @@ export default class HubCommand extends Command {
 	static strict = false;
 
 	async run(): Promise<void> {
-		const { argv } = await this.parse();
+		const { argv } = await this.parse(HubCommand);
 		await handleHubCli(argv as string[]);
 	}
 }

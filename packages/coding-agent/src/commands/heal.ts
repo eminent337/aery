@@ -54,7 +54,7 @@ export default class HealCommand extends Command {
 	static strict = false;
 
 	async run(): Promise<void> {
-		const { argv } = await this.parse();
+		const { argv } = await this.parse(HealCommand);
 		await handleHealCli(argv as string[]);
 	}
 }

@@ -16,9 +16,9 @@ describe("AskQuestionTool & ManageSubagentsTool (ported from agy)", () => {
 			],
 		});
 
-		expect(result.content[0].text).toContain("Which database engine should we target?");
-		expect(result.content[0].text).toContain("SQLite / LibSQL");
-		expect(result.details.answers[0].answers).toEqual(["SQLite / LibSQL"]);
+		expect((result.content[0] as any).text).toContain("Which database engine should we target?");
+		expect((result.content[0] as any).text).toContain("SQLite / LibSQL");
+		expect((result.details as any)?.answers[0].answers).toEqual(["SQLite / LibSQL"]);
 	});
 
 	it("ManageSubagentsTool lists, kills, and kill_all subagents via AgentRegistry", async () => {
@@ -36,15 +36,15 @@ describe("AskQuestionTool & ManageSubagentsTool (ported from agy)", () => {
 
 		// Test list
 		const listRes = await tool.execute("call-list", { Action: "list" });
-		expect(listRes.content[0].text).toContain("subagent-test-1");
-		expect(listRes.content[0].text).toContain("QA Subagent");
+		expect((listRes.content[0] as any).text).toContain("subagent-test-1");
+		expect((listRes.content[0] as any).text).toContain("QA Subagent");
 
 		// Test kill single
 		const killRes = await tool.execute("call-kill", {
 			Action: "kill",
 			ConversationIds: ["subagent-test-1"],
 		});
-		expect(killRes.content[0].text).toContain("Killed subagents: subagent-test-1");
+		expect((killRes.content[0] as any).text).toContain("Killed subagents: subagent-test-1");
 
 		// Register second subagent and test kill_all
 		registry.register({
@@ -57,6 +57,6 @@ describe("AskQuestionTool & ManageSubagentsTool (ported from agy)", () => {
 		});
 
 		const killAllRes = await tool.execute("call-kill-all", { Action: "kill_all" });
-		expect(killAllRes.content[0].text).toContain("Terminated all");
+		expect((killAllRes.content[0] as any).text).toContain("Terminated all");
 	});
 });

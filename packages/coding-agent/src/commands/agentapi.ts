@@ -10,7 +10,7 @@ export default class AgentApi extends Command {
 	static strict = false;
 
 	async run(): Promise<void> {
-		const { argv } = await this.parse();
+		const { argv } = await this.parse(AgentApi);
 		await handleAgentApiCommand(argv as string[]);
 	}
 }

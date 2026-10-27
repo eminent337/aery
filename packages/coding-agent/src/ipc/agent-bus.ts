@@ -80,7 +80,7 @@ export class AgentBusServer {
 							const agentId = msg.payload?.agentId ?? msg.agentId;
 							if (msg.type === "register" && agentId) {
 								registeredAgentId = agentId;
-								this.clients.set(registeredAgentId, socket);
+								this.clients.set(agentId, socket);
 								socket.write(`${JSON.stringify({ id: msg.id, success: true })}\n`);
 								continue;
 							}

@@ -104,7 +104,7 @@ export default class Sidecar extends Command {
 	static strict = false;
 
 	async run(): Promise<void> {
-		const { argv } = await this.parse();
+		const { argv } = await this.parse(Sidecar);
 		await handleSidecarCli(argv as string[]);
 	}
 }

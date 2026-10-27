@@ -31,6 +31,22 @@ export interface DualTranscriptOptions {
 	truncationThreshold?: number; // Characters threshold before truncation (default: 800)
 }
 
+export type TranscriptStepInput = {
+	source: "USER_EXPLICIT" | "MODEL" | "SYSTEM" | "TOOL";
+	type: string;
+	status: "DONE" | "ERROR" | "RUNNING" | "CANCELLED";
+	step_index?: number;
+	created_at?: string;
+	content?: string;
+	thinking?: string;
+	tool_calls?: Array<{
+		name: string;
+		args: Record<string, unknown>;
+	}>;
+	truncated_fields?: string[];
+	[key: string]: unknown;
+};
+
 export class DualTranscriptWriter {
 	private readonly dir: string;
 	private readonly truncationThreshold: number;
@@ -56,12 +72,7 @@ export class DualTranscriptWriter {
 		await fs.mkdir(this.dir, { recursive: true });
 	}
 
-	async appendStep(
-		input: Omit<TranscriptStep, "step_index" | "created_at"> & {
-			step_index?: number;
-			created_at?: string;
-		},
-	): Promise<{ compactStep: TranscriptStep; fullStep: TranscriptStep }> {
+	async appendStep(input: TranscriptStepInput): Promise<{ compactStep: TranscriptStep; fullStep: TranscriptStep }> {
 		await this.ensureDir();
 
 		const step_index = input.step_index ?? this.stepCount++;
