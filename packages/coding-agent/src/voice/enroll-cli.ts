@@ -9,8 +9,8 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { defaultVoiceEngine } from "./voice-engine";
 import { enrollPeter } from "./speaker-id";
+import { defaultVoiceEngine } from "./voice-engine";
 
 async function speak(text: string): Promise<void> {
 	try {
@@ -23,7 +23,7 @@ async function speak(text: string): Promise<void> {
 async function playChime(): Promise<void> {
 	const chime = path.join(os.homedir(), ".local", "share", "aerys", "voice", "wake-chime.wav");
 	if (!fs.existsSync(chime)) return;
-	await new Promise<void>((resolve) => {
+	await new Promise<void>(resolve => {
 		const player = spawn("pw-play", [chime], { stdio: "ignore" });
 		player.on("close", () => resolve());
 		player.on("error", () => resolve());
@@ -42,13 +42,17 @@ export async function runEnrollment(): Promise<void> {
 	console.log("╚══════════════════════════════════════════════════════════════╝\n");
 
 	console.log("Preparing microphone calibration...\n");
-	await speak("Peter, please speak naturally after the chime to calibrate your personal voiceprint. You have eight seconds.");
+	await speak(
+		"Peter, please speak naturally after the chime to calibrate your personal voiceprint. You have eight seconds.",
+	);
 
 	await Bun.sleep(500);
 	await playChime();
 
 	console.log("🎙️  [RECORDING YOUR VOICE NOW - SPEAK NATURALLY (8 seconds)...]");
-	console.log("Example: 'I am Peter Aryee, and Aerys is my personal desktop companion. We are building the real Jarvis.'\n");
+	console.log(
+		"Example: 'I am Peter Aryee, and Aerys is my personal desktop companion. We are building the real Jarvis.'\n",
+	);
 
 	try {
 		const result = await enrollPeter(8);

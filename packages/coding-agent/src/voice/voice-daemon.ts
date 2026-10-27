@@ -226,7 +226,15 @@ export class VoiceDaemon {
 
 			// Transcribe with Whisper.cpp
 			const text = await new Promise<string>((resolve, reject) => {
-				const vadModelPath = path.join(os.homedir(), ".local", "share", "aerys", "voice", "models", "ggml-silero-vad.bin");
+				const vadModelPath = path.join(
+					os.homedir(),
+					".local",
+					"share",
+					"aerys",
+					"voice",
+					"models",
+					"ggml-silero-vad.bin",
+				);
 				const whisperArgs = fs.existsSync(vadModelPath)
 					? ["--vad", "-vm", vadModelPath, "-m", defaultVoiceEngine.whisperModel, "-f", tmpWav, "-nt", "-np"]
 					: ["-m", defaultVoiceEngine.whisperModel, "-f", tmpWav, "-nt", "-np"];
@@ -249,7 +257,10 @@ export class VoiceDaemon {
 				});
 			});
 
-			const cleaned = text.replace(/^\[.*?\]/, "").replace(/^\(.*?\)/, "").trim();
+			const cleaned = text
+				.replace(/^\[.*?\]/, "")
+				.replace(/^\(.*?\)/, "")
+				.trim();
 			if (cleaned.length > 0 && this.#onSpeechDetected) {
 				await this.#onSpeechDetected(cleaned);
 			}

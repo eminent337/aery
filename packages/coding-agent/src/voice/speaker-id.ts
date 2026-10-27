@@ -28,7 +28,10 @@ export function isPeterEnrolled(): boolean {
 /**
  * Enrolls Peter's voice by recording an 8-second calibration sample.
  */
-export async function enrollPeter(durationSec = 8, audioSamplePath?: string): Promise<{ success: boolean; profilePath: string }> {
+export async function enrollPeter(
+	durationSec = 8,
+	audioSamplePath?: string,
+): Promise<{ success: boolean; profilePath: string }> {
 	await fs.promises.mkdir(PROFILES_DIR, { recursive: true });
 	const targetPath = path.join(PROFILES_DIR, "peter_profile.wav");
 
@@ -37,11 +40,9 @@ export async function enrollPeter(durationSec = 8, audioSamplePath?: string): Pr
 	} else {
 		// Record 4 seconds of Peter speaking via PipeWire
 		await new Promise<void>((resolve, reject) => {
-			const rec = spawn(
-				"pw-record",
-				["--channels=1", "--rate=16000", "--format=s16", targetPath],
-				{ stdio: "ignore" },
-			);
+			const rec = spawn("pw-record", ["--channels=1", "--rate=16000", "--format=s16", targetPath], {
+				stdio: "ignore",
+			});
 			rec.on("error", reject);
 			setTimeout(() => {
 				try {

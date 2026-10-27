@@ -193,11 +193,9 @@ export class VoiceEngine {
 		if (!options.audioPath) {
 			// Record 16kHz mono WAV from PipeWire microphone
 			await new Promise<void>((resolve, reject) => {
-				const recorder = spawn(
-					"pw-record",
-					["--channels=1", "--rate=16000", "--format=s16", targetAudio],
-					{ stdio: "ignore" },
-				);
+				const recorder = spawn("pw-record", ["--channels=1", "--rate=16000", "--format=s16", targetAudio], {
+					stdio: "ignore",
+				});
 
 				recorder.on("error", reject);
 

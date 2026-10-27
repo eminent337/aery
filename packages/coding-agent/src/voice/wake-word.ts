@@ -69,14 +69,14 @@ export interface WakeDetectionResult {
  * - "Can you hear me, Aery?"        -> { detected: true, query: "Can you hear me" }
  * - "Talking to a friend on phone"   -> { detected: false, query: "" }
  */
-export function detectWakeWord(rawText: string, fuzzyThreshold = 0.70): WakeDetectionResult {
+export function detectWakeWord(rawText: string, fuzzyThreshold = 0.7): WakeDetectionResult {
 	if (!rawText || !rawText.trim()) {
 		return { detected: false, query: "" };
 	}
 
 	const normalized = rawText.toLowerCase().trim();
 	const tokens = normalized
-		.replace(/[.,!?;:()\[\]{}"'`\-_/]/g, " ")
+		.replace(/[.,!?;:()[\]{}"'`\-_/]/g, " ")
 		.split(/\s+/)
 		.filter(t => t.length > 0);
 

@@ -20,7 +20,9 @@ export async function transcribeWithGroq(
 			if (fs.existsSync(dbPath)) {
 				const db = new Database(dbPath);
 				const row = db
-					.query("SELECT data FROM auth_credentials WHERE provider = 'groq' AND credential_type = 'api_key' ORDER BY id DESC LIMIT 1")
+					.query(
+						"SELECT data FROM auth_credentials WHERE provider = 'groq' AND credential_type = 'api_key' ORDER BY id DESC LIMIT 1",
+					)
 					.get() as { data: string } | null;
 				if (row) {
 					key = JSON.parse(row.data)?.key;
@@ -67,7 +69,7 @@ export async function transcribeWithGroq(
 
 			// Only reject if Whisper is highly confident (>80%) that there is zero speech
 			const noSpeechProb = data.segments?.[0]?.no_speech_prob ?? 0;
-			if (noSpeechProb > 0.80) {
+			if (noSpeechProb > 0.8) {
 				return {
 					text: "",
 					latencyMs,
