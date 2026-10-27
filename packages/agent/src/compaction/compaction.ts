@@ -247,19 +247,31 @@ export function resolveThresholdTokens(contextWindow: number, settings: Compacti
  */
 const IMAGE_TOKEN_ESTIMATE = 1200;
 
+/** Cache token estimations by message reference to avoid O(N^2) re-tokenization in long sessions. */
+const messageTokenCache = new WeakMap<object, number>();
+
 /**
  * Estimate token count for a message using cl100k_base via the native
  * tokenizer. This is not Claude's first-party tokenizer (Anthropic doesn't
  * publish one) but is within ~5–10% across English/code text.
  */
 export function estimateTokens(message: AgentMessage): number {
+	if (typeof message === "object" && message !== null) {
+		const cached = messageTokenCache.get(message);
+		if (cached !== undefined) return cached;
+	}
+
 	const fragments: string[] = [];
 	let extra = 0;
 	if ((message as { role?: string }).role === "bashExecution") {
 		const bash = message as { command?: unknown; output?: unknown };
 		if (typeof bash.command === "string") fragments.push(bash.command);
 		if (typeof bash.output === "string") fragments.push(bash.output);
-		return fragments.length === 0 ? 0 : countTokens(fragments);
+		const result = fragments.length === 0 ? 0 : countTokens(fragments);
+		if (typeof message === "object" && message !== null) {
+			messageTokenCache.set(message, result);
+		}
+		return result;
 	}
 
 	switch (message.role) {
@@ -314,8 +326,11 @@ export function estimateTokens(message: AgentMessage): number {
 			return 0;
 	}
 
-	if (fragments.length === 0) return extra;
-	return extra + countTokens(fragments);
+	const result = fragments.length === 0 ? extra : extra + countTokens(fragments);
+	if (typeof message === "object" && message !== null) {
+		messageTokenCache.set(message, result);
+	}
+	return result;
 }
 
 function estimateEntriesTokens(entries: SessionEntry[], startIndex: number, endIndex: number): number {
