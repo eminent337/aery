@@ -32,6 +32,8 @@ export interface BashExecutorOptions {
 	skipHooks?: boolean;
 	/** Whether to bypass permission ACL checks (default false) */
 	skipPermissions?: boolean;
+	/** Latest user input prompt text for hook inspection */
+	lastUserInput?: string;
 	/** Session key suffix to isolate shell sessions per agent */
 	sessionKey?: string;
 	/** Additional environment variables to inject */
@@ -236,7 +238,7 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 	// Declarative hooks.json pre-tool gate (ported from agy)
 	if (options?.skipHooks !== true) {
 		const hooksEngine = DeclarativeHooksEngine.getInstance();
-		const hookCheck = await hooksEngine.executePreToolUse("bash", { command }, commandCwd);
+		const hookCheck = await hooksEngine.executePreToolUse("bash", { command }, commandCwd, options?.lastUserInput);
 		if (!hookCheck.allowed) {
 			const blockMsg = `${hookCheck.reason}\n`;
 			return {
@@ -452,7 +454,7 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 		const dumped = await sink.dump();
 		if (options?.skipHooks !== true) {
 			const hooksEngine = DeclarativeHooksEngine.getInstance();
-			await hooksEngine.executePostToolUse("bash", { command }, dumped.output, commandCwd);
+			await hooksEngine.executePostToolUse("bash", { command }, dumped.output, commandCwd, options?.lastUserInput);
 		}
 		return {
 			exitCode: winner.result.exitCode,

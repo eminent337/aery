@@ -143,8 +143,14 @@ export class DeclarativeHooksEngine {
 		toolName: string,
 		toolParams: unknown,
 		workspaceDir: string,
+		lastUserInput?: string,
 	): Promise<PreToolGateResult> {
 		const inputJson = typeof toolParams === "string" ? toolParams : JSON.stringify(toolParams ?? {});
+		const stdinPayload = JSON.stringify({
+			tool: toolName,
+			input: typeof toolParams === "string" ? toolParams : (toolParams ?? {}),
+			lastUserInput: lastUserInput || "",
+		});
 
 		for (const [hookName, def] of this.hookDefs.entries()) {
 			if (def.enabled === false || !def.PreToolUse) continue;
@@ -163,10 +169,12 @@ export class DeclarativeHooksEngine {
 							AGY_TOOL_NAME: toolName,
 							AERY_TOOL_INPUT: inputJson,
 							AGY_TOOL_INPUT: inputJson,
+							AERY_LAST_USER_INPUT: lastUserInput || "",
+							AGY_LAST_USER_INPUT: lastUserInput || "",
 							AERY_WORKSPACE: workspaceDir,
 							AGY_WORKSPACE: workspaceDir,
 						},
-						inputJson,
+						stdinPayload,
 					);
 
 					if (!result.success) {
@@ -192,9 +200,16 @@ export class DeclarativeHooksEngine {
 		toolParams: unknown,
 		toolResult: unknown,
 		workspaceDir: string,
+		lastUserInput?: string,
 	): Promise<PostToolGateResult> {
 		const inputJson = typeof toolParams === "string" ? toolParams : JSON.stringify(toolParams ?? {});
 		const outputText = typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult ?? {});
+		const stdinPayload = JSON.stringify({
+			tool: toolName,
+			input: typeof toolParams === "string" ? toolParams : (toolParams ?? {}),
+			output: toolResult,
+			lastUserInput: lastUserInput || "",
+		});
 
 		const warnings: string[] = [];
 
@@ -217,10 +232,12 @@ export class DeclarativeHooksEngine {
 							AGY_TOOL_INPUT: inputJson,
 							AERY_TOOL_OUTPUT: outputText,
 							AGY_TOOL_OUTPUT: outputText,
+							AERY_LAST_USER_INPUT: lastUserInput || "",
+							AGY_LAST_USER_INPUT: lastUserInput || "",
 							AERY_WORKSPACE: workspaceDir,
 							AGY_WORKSPACE: workspaceDir,
 						},
-						outputText,
+						stdinPayload,
 					);
 
 					if (!result.success && (result.stderr || result.stdout)) {

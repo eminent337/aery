@@ -112,4 +112,26 @@ describe("Declarative hooks.json Engine (ported from agy)", () => {
 		expect(res.exitCode).toBe(1);
 		expect(res.output).toContain("BLOCKED_BY_HOOK");
 	});
+
+	it("passes lastUserInput into hook environment and stdin JSON (agy 1.4.7 parity)", async () => {
+		engine.registerHook("prompt-screen", {
+			PreToolUse: [
+				{
+					matcher: "bash",
+					hooks: [
+						{
+							command: `if [ "$AERY_LAST_USER_INPUT" = "forbidden-prompt" ]; then echo "BLOCKED_PROMPT" >&2; exit 3; fi`,
+						},
+					],
+				},
+			],
+		});
+
+		const blocked = await engine.executePreToolUse("bash", { command: "echo test" }, testDir, "forbidden-prompt");
+		expect(blocked.allowed).toBe(false);
+		expect(blocked.reason).toContain("BLOCKED_PROMPT");
+
+		const allowed = await engine.executePreToolUse("bash", { command: "echo test" }, testDir, "harmless-prompt");
+		expect(allowed.allowed).toBe(true);
+	});
 });

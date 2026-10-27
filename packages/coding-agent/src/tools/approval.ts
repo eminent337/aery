@@ -11,7 +11,7 @@ import type { AgentTool, ToolApprovalDecision, ToolTier } from "@aryee337/aery-c
 export type { ToolApproval, ToolApprovalDecision, ToolTier } from "@aryee337/aery-core";
 
 export type ApprovalPolicy = "allow" | "deny" | "prompt";
-export type ApprovalMode = "always-ask" | "write" | "yolo";
+export type ApprovalMode = "always-ask" | "write" | "yolo" | "proceed-in-sandbox";
 
 type ApprovalSubject = Pick<AgentTool, "name" | "approval" | "formatApprovalDetails">;
 
@@ -35,6 +35,7 @@ const APPROVAL_MODE_MAX_TIER: Record<ApprovalMode, ToolTier> = {
 	"always-ask": "read",
 	write: "write",
 	yolo: "exec",
+	"proceed-in-sandbox": "exec",
 };
 
 const DEFAULT_PROMPT_TRUNCATE_CHARS = 2000;
@@ -99,7 +100,7 @@ export function resolveApproval(
 	const decision = getToolDecision(tool, args);
 	const userPolicy = Object.hasOwn(userConfig, tool.name) ? normalizePolicy(userConfig[tool.name]) : undefined;
 
-	if (mode === "yolo") {
+	if (mode === "yolo" || mode === "proceed-in-sandbox") {
 		return { policy: userPolicy ?? "allow", tier: decision.tier, override: false };
 	}
 
