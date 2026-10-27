@@ -43,9 +43,6 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
 import { type CliConfig, run } from "@aryee337/aery-utils/cli";
 import { APP_NAME, MIN_BUN_VERSION, VERSION } from "@aryee337/aery-utils/dirs";
 import { commands, isSubcommand } from "./cli-commands";
-import { getGlobalCronScheduler } from "./cron/scheduler.js";
-import { recoverStrandedFerments } from "./ferment/recovery.js";
-import { recoverStrandedSessions } from "./session/recovery.js";
 
 if (Bun.semver.order(Bun.version, MIN_BUN_VERSION) < 0) {
 	process.stderr.write(
@@ -150,7 +147,12 @@ export async function runCli(argv: string[]): Promise<void> {
 			first !== "help");
 
 	if (isLaunch) {
-		setImmediate(() => {
+		setImmediate(async () => {
+			const [{ recoverStrandedFerments }, { recoverStrandedSessions }, { getGlobalCronScheduler }] = await Promise.all([
+				import("./ferment/recovery.js"),
+				import("./session/recovery.js"),
+				import("./cron/scheduler.js"),
+			]);
 			recoverStrandedFerments();
 			recoverStrandedSessions();
 			getGlobalCronScheduler().start();

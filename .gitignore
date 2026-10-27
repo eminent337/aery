@@ -75,3 +75,4 @@ python/robomp/.env
 # Local research & reference clones (temporal study materials)
 study/
 .study/
+bin/

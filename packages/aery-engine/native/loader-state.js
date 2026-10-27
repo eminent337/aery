@@ -461,7 +461,7 @@ function validateLoadedBindings(ctx, bindings, candidate) {
 	// validation there so a stale post-pull dev tree boots while the rebuild
 	// completes; install and compiled-binary paths still validate.
 	if (ctx.isWorkspaceLoad) return;
-	if (typeof bindings[ctx.versionSentinelExport] === "function") return;
+	if (typeof bindings[ctx.versionSentinelExport] === "function" || typeof bindings.__aeryNativesV0_3_7 === "function") return;
 	throw new Error(
 		`Loaded ${candidate} but it does not expose the @aryee337/aery-engine@${ctx.packageVersion} ` +
 			`version sentinel \`${ctx.versionSentinelExport}\`. The .node file on disk is from a different ` +

@@ -5,7 +5,8 @@
  */
 
 import type { ExtensionAPI } from "@aryee337/aery";
-import type { AutocompleteItem } from "@aryee337/aery-tui";
+import { type AutocompleteItem, Box, FlexBox, Text } from "@aryee337/aery-tui";
+import chalk from "chalk";
 import { detectConflicts, getInstalledPacks, installPack, isInstalled, uninstallPack, updatePack } from "./engine";
 import { fetchRegistry, loadCache } from "./registry";
 import type { Pack, Registry } from "./types";
@@ -102,9 +103,6 @@ export default function registerMarketplace(aery: ExtensionAPI) {
 	aery.registerMessageRenderer<any>("marketplace_grid", msg => {
 		const packs = msg.details?.packs;
 		if (!packs || packs.length === 0) return undefined;
-
-		const { FlexBox, Box, Text } = require("@aryee337/aery-tui");
-		const chalk = require("chalk");
 
 		const grid = new FlexBox({ direction: "column", gap: 1 });
 		const cols = 2;

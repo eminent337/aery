@@ -92,6 +92,21 @@ const CLAUDE_THINKING_BETA_HEADER = "interleaved-thinking-2025-05-14";
 const GOOGLE_GEMINI_REFRESH_SKEW_MS = 60_000;
 const ANTIGRAVITY_REFRESH_SKEW_MS = 60_000;
 
+let hasPrewarmed = false;
+/** Pre-warms DNS and TLS 1.3 socket to eliminate first-token connection latency */
+export function prewarmCloudCodeConnection(): void {
+	if (hasPrewarmed) return;
+	hasPrewarmed = true;
+	try {
+		fetch(DEFAULT_ENDPOINT, { method: "HEAD", signal: AbortSignal.timeout(3000) }).catch(() => {});
+	} catch {}
+}
+
+// Auto-trigger background TLS pre-warm asynchronously on import
+if (typeof queueMicrotask === "function") {
+	queueMicrotask(prewarmCloudCodeConnection);
+}
+
 function isClaudeModel(modelId: string): boolean {
 	return modelId.toLowerCase().includes("claude");
 }
@@ -325,6 +340,7 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli"> = (
 				Authorization: `Bearer ${accessToken}`,
 				"Content-Type": "application/json",
 				Accept: "text/event-stream",
+				Connection: "keep-alive",
 				...headers,
 				...(needsClaudeThinkingBetaHeader(model) ? { "anthropic-beta": CLAUDE_THINKING_BETA_HEADER } : {}),
 				...(options?.headers ?? {}),
