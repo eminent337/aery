@@ -1303,6 +1303,179 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "compact",
+		description: "Compact conversation context to free up context window",
+		acpDescription: "Compact conversation context and generate summary",
+		allowArgs: true,
+		inlineHint: "[custom instructions]",
+		acpInputHint: "[custom instructions]",
+		handle: async (command, runtime) => {
+			const customInstructions = command.args.trim() || undefined;
+			try {
+				const result = await runtime.session.compact(customInstructions);
+				const summaryText = result?.summary ? `\nSummary: ${result.summary.slice(0, 150)}...` : "";
+				await runtime.output(`Context successfully compacted.${summaryText}`);
+			} catch (err: unknown) {
+				await runtime.output(`Compaction failed: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			return commandConsumed();
+		},
+		handleTui: async (command, runtime) => {
+			runtime.ctx.editor.setText("");
+			const customInstructions = command.args.trim() || undefined;
+			await runtime.ctx.handleCompactCommand(customInstructions);
+		},
+	},
+	{
+		name: "boost",
+		description: "Boost reasoning depth to maximum (xhigh) for complex coding and strategic planning",
+		acpDescription: "Boost reasoning effort to maximum thinking depth",
+		subcommands: [
+			{ name: "on", description: "Enable maximum reasoning depth (xhigh)" },
+			{ name: "off", description: "Restore default reasoning depth" },
+			{ name: "status", description: "Show current reasoning boost status" },
+		],
+		allowArgs: true,
+		inlineHint: "[on|off|status]",
+		acpInputHint: "[on|off|status]",
+		handle: async (command, runtime) => {
+			const sub = command.args.trim().toLowerCase();
+			if (sub === "off") {
+				(runtime.session as any).setThinkingLevel("medium", true);
+				await runtime.output("Reasoning boost disabled. Thinking level set to medium.");
+			} else if (sub === "status") {
+				const current = (runtime.session as any).thinkingLevel ?? "default";
+				await runtime.output(`Boost status: ${current === "xhigh" ? "ACTIVE (xhigh)" : `INACTIVE (${current})`}`);
+			} else {
+				(runtime.session as any).setThinkingLevel("xhigh", true);
+				await runtime.output(
+					"🚀 Reasoning boost ACTIVATED: Thinking level set to maximum (xhigh). Deep thinking and strategic planning enabled.",
+				);
+			}
+			return commandConsumed();
+		},
+		handleTui: async (command, runtime) => {
+			runtime.ctx.editor.setText("");
+			const sub = command.args.trim().toLowerCase();
+			if (sub === "off") {
+				(runtime.ctx.session as any).setThinkingLevel("medium", true);
+				runtime.ctx.showStatus("Reasoning boost disabled (medium)");
+			} else if (sub === "status") {
+				const current = (runtime.ctx.session as any).thinkingLevel ?? "default";
+				runtime.ctx.showStatus(`Boost: ${current === "xhigh" ? "ACTIVE (xhigh)" : `INACTIVE (${current})`}`);
+			} else {
+				(runtime.ctx.session as any).setThinkingLevel("xhigh", true);
+				runtime.ctx.showStatus("🚀 Reasoning boost ACTIVATED (xhigh reasoning effort)");
+			}
+			refreshStatusLine(runtime.ctx);
+		},
+	},
+	{
+		name: "grill-me",
+		aliases: ["grill_me"],
+		description: "Conduct an interactive interview to align on design decisions and probe edge cases",
+		acpDescription: "Interactive adversarial requirements & design interview",
+		allowArgs: true,
+		inlineHint: "[topic or objective]",
+		acpInputHint: "[topic or objective]",
+		handle: async (command, runtime) => {
+			const topic = command.args.trim() || "the active plan and current task";
+			const promptText = `Conduct an interactive, adversarial requirements and design interview on: ${topic}. Systematically grill me on architecture decisions, trade-offs, edge cases, error conditions, and constraints. Ask targeted questions and challenge assumptions before any implementation code is written.`;
+			await runtime.output("🔥 Grill-me mode activated: Preparing design & requirements probe...");
+			return { prompt: promptText };
+		},
+		handleTui: (command, runtime) => {
+			runtime.ctx.editor.setText("");
+			const topic = command.args.trim() || "the active plan and current task";
+			const promptText = `Conduct an interactive, adversarial requirements and design interview on: ${topic}. Systematically grill me on architecture decisions, trade-offs, edge cases, error conditions, and constraints. Ask targeted questions and challenge assumptions before any implementation code is written.`;
+			runtime.ctx.showStatus("🔥 Grill-me mode activated: Preparing design interview...");
+			return { prompt: promptText };
+		},
+	},
+	{
+		name: "learn",
+		description: "Extract learnings, guidelines, and corrections into persistent project rules (.agents/rules/)",
+		acpDescription: "Persist lessons learned as a durable agent rule",
+		allowArgs: true,
+		inlineHint: "<rule-slug> [rule summary or guidelines]",
+		acpInputHint: "<rule-slug> [rule summary or guidelines]",
+		handle: async (command, runtime) => {
+			const args = command.args.trim();
+			if (!args) {
+				return {
+					prompt:
+						"Extract the key corrections, guidelines, and setup rules from our recent conversation turns, and save them as a durable rule file in .agents/rules/.",
+				};
+			}
+
+			const parts = args.split(/\s+/);
+			const slug = parts[0].toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+			const ruleContent = parts.slice(1).join(" ") || "Guideline extracted from conversation turn.";
+
+			const rulesDir = path.join(runtime.cwd, ".agents", "rules");
+			try {
+				await fs.mkdir(rulesDir, { recursive: true });
+				const filePath = path.join(rulesDir, `${slug}.md`);
+				const content = `---\ntrigger: model_decision\ndescription: ${ruleContent.slice(0, 100)}\n---\n# Rule: ${slug}\n\n${ruleContent}\n`;
+				await fs.writeFile(filePath, content, "utf-8");
+				await runtime.output(`✅ Rule saved to .agents/rules/${slug}.md. Future sessions will respect this guideline.`);
+			} catch (err) {
+				await runtime.output(`Failed to save rule: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			return commandConsumed();
+		},
+		handleTui: async (command, runtime) => {
+			runtime.ctx.editor.setText("");
+			const args = command.args.trim();
+			if (!args) {
+				return {
+					prompt:
+						"Extract the key corrections, guidelines, and setup rules from our recent conversation turns, and save them as a durable rule file in .agents/rules/.",
+				};
+			}
+
+			const parts = args.split(/\s+/);
+			const slug = parts[0].toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+			const ruleContent = parts.slice(1).join(" ") || "Guideline extracted from conversation turn.";
+
+			const rulesDir = path.join(runtime.ctx.sessionManager.getCwd(), ".agents", "rules");
+			try {
+				await fs.mkdir(rulesDir, { recursive: true });
+				const filePath = path.join(rulesDir, `${slug}.md`);
+				const content = `---\ntrigger: model_decision\ndescription: ${ruleContent.slice(0, 100)}\n---\n# Rule: ${slug}\n\n${ruleContent}\n`;
+				await fs.writeFile(filePath, content, "utf-8");
+				runtime.ctx.showStatus(`✅ Rule saved to .agents/rules/${slug}.md`);
+			} catch (err) {
+				runtime.ctx.showError(`Failed to save rule: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		},
+	},
+	{
+		name: "teamwork",
+		description: "Launch autonomous multi-agent swarm with specialized roles (Researcher, Engineer, QA)",
+		acpDescription: "Decompose task across collaborative subagents",
+		allowArgs: true,
+		inlineHint: "[task objective]",
+		acpInputHint: "[task objective]",
+		handle: async (command, runtime) => {
+			const task = command.args.trim();
+			const promptText = task
+				? `Launch a collaborative multi-agent swarm to execute this objective: "${task}". Decompose the work into specialized roles: 1) Codebase Researcher (to survey code & dependencies), 2) Implementation Engineer (to make targeted edits), and 3) QA Tester (to run tests & verify results). Orchestrate tasks using subagents and report final results.`
+				: "Decompose the current task across an autonomous team of specialized subagents (Researcher, Implementer, QA Tester). Orchestrate their progress and synthesize the results.";
+			await runtime.output("👥 Teamwork mode activated: Spawning autonomous multi-agent team...");
+			return { prompt: promptText };
+		},
+		handleTui: (command, runtime) => {
+			runtime.ctx.editor.setText("");
+			const task = command.args.trim();
+			const promptText = task
+				? `Launch a collaborative multi-agent swarm to execute this objective: "${task}". Decompose the work into specialized roles: 1) Codebase Researcher (to survey code & dependencies), 2) Implementation Engineer (to make targeted edits), and 3) QA Tester (to run tests & verify results). Orchestrate tasks using subagents and report final results.`
+				: "Decompose the current task across an autonomous team of specialized subagents (Researcher, Implementer, QA Tester). Orchestrate their progress and synthesize the results.";
+			runtime.ctx.showStatus("👥 Teamwork mode activated: Spawning autonomous multi-agent team...");
+			return { prompt: promptText };
+		},
+	},
+	{
 		name: "advisor",
 		description: "Toggle the advisor (a second model that reviews each turn and injects notes)",
 		acpDescription: "Toggle advisor",
