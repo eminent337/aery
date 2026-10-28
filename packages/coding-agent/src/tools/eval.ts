@@ -385,11 +385,14 @@ export class EvalTool implements AgentTool<typeof evalSchema> {
 							cellDisplayOutputs.push(output);
 						}
 						if (output.type === "image") {
-							const resized = await resizeImage({
-								type: "image",
-								data: output.data,
-								mimeType: output.mimeType,
-							});
+							const resized = await resizeImage(
+								{
+									type: "image",
+									data: output.data,
+									mimeType: output.mimeType,
+								},
+								{ maxWidth: 1568, maxHeight: 1568 },
+							);
 							const image: ImageContent = {
 								type: "image",
 								data: resized.data,

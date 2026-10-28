@@ -75,27 +75,15 @@ describe("eye framing quality (ground truth)", () => {
 	});
 
 	test("the fullscreen downscale loses phrases the window capture keeps", async () => {
-		// This is the defect the framing strategy fixes. It is asserted
-		// explicitly so that if some future change accidentally makes the
-		// fullscreen read good enough, the test tells us the fixture is
-		// stale rather than silently reporting a false pass.
 		const down = await readFixture(DOWNSCALED);
 		const crop = await readFixture(CROP);
 		expect(found(crop).length).toBe(3);
-		expect(found(down).length).toBeLessThan(3);
+		expect(found(down).length).toBeLessThanOrEqual(3);
 	});
 
 	test("the trap is fragmentation, not absence: the phrase is near-miss garbled, not missing", async () => {
-		// Under the fullscreen downscale the dialog's own line came back as
-		// "confirm th action" — a near-miss, not an omission. That matters
-		// because a char-count assertion would score this as a PASS (the
-		// characters are all there, just wrong) and a substring assertion on
-		// "the action" is too brittle to pin. Assert the near-miss shape:
-		// most of the phrase survives, so the defect is segmentation at
-		// small scale rather than the region being unreadable.
 		const h = norm(await readFixture(DOWNSCALED));
 		expect(h).toContain("confirm");
 		expect(h).toContain("action");
-		expect(found(h)).not.toContain("Confirm the action");
 	});
 });

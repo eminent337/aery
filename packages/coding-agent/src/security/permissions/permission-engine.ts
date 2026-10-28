@@ -24,10 +24,11 @@ export class PermissionEngine {
 	}
 
 	public static getInstance(): PermissionEngine {
-		if (!PermissionEngine.instance) {
-			PermissionEngine.instance = new PermissionEngine();
+		const key = Symbol.for("aery.permissionEngine.instance");
+		if (!(globalThis as any)[key]) {
+			(globalThis as any)[key] = new PermissionEngine();
 		}
-		return PermissionEngine.instance;
+		return (globalThis as any)[key];
 	}
 
 	public configure(config: WorkspaceTrustConfig): void {

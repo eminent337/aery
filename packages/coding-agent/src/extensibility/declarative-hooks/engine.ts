@@ -23,10 +23,11 @@ export class DeclarativeHooksEngine {
 	private hookDefs = new Map<string, DeclarativeHookDef>();
 
 	public static getInstance(): DeclarativeHooksEngine {
-		if (!DeclarativeHooksEngine.instance) {
-			DeclarativeHooksEngine.instance = new DeclarativeHooksEngine();
+		const key = Symbol.for("aery.declarativeHooksEngine.instance");
+		if (!(globalThis as any)[key]) {
+			(globalThis as any)[key] = new DeclarativeHooksEngine();
 		}
-		return DeclarativeHooksEngine.instance;
+		return (globalThis as any)[key];
 	}
 
 	public clear(): void {

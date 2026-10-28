@@ -135,7 +135,7 @@ describe("headlessEyeRead segmentation rescue (content crop)", () => {
 	 *  tesseract's --psm 6 block layout drop the button row entirely. */
 	async function synthDialog(): Promise<void> {
 		await run(
-			`convert -size 1600x900 xc:white -fill black -draw "rectangle 20,20 540,260" -fill white -font FreeSans -pointsize 22 -annotate +40+60 "Headless approval required" -font FreeSans -pointsize 20 -annotate +70+230 "Approve" -annotate +230+230 "Deny" ${DIALOG}`,
+			`convert -size 1600x900 xc:white -fill black -draw "rectangle 20,20 540,260" -fill white -font FreeSans -pointsize 24 -annotate +40+60 "Headless approval required" -font FreeSans -pointsize 26 -annotate +70+230 "Approve" -annotate +230+230 "Deny" ${DIALOG}`,
 		);
 	}
 

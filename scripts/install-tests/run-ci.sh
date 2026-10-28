@@ -94,7 +94,7 @@ cp "$natives_pkg_backup" "$ROOT_DIR/packages/aery-engine/package.json"
 [ "$core_rc" -eq 0 ] || exit "$core_rc"
 
 # 3. Pack the remaining workspace packages (natives core handled above).
-for pkg in utils hashline ai mnemopi agent tui stats aery-sdk aery-extensions coding-agent; do
+for pkg in utils hashline ai mnemopi agent tui stats aery-sdk aery-extensions grpc-server coding-agent; do
    (
       cd "$ROOT_DIR/packages/$pkg"
       bun pm pack --destination "$TARBALL_DIR" --quiet >/dev/null
@@ -112,6 +112,7 @@ tui_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-tui-*.tgz)"
 stats_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-stats-*.tgz)"
 sdk_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-sdk-*.tgz)"
 extensions_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-extensions-*.tgz)"
+grpc_server_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-grpc-server-*.tgz)"
 coding_agent_tgz="$(find_tarball "$TARBALL_DIR"/aryee337-aery-[0-9]*.tgz)"
 
 TARBALL_APP_DIR="$WORK_DIR/tarball-install"
@@ -136,12 +137,13 @@ mkdir -p "$TARBALL_APP_DIR"
 			'@aryee337/aery-stats': '$stats_tgz',
 			'@aryee337/aery-sdk': '$sdk_tgz',
 			'@aryee337/aery-extensions': '$extensions_tgz',
+			'@aryee337/aery-grpc-server': '$grpc_server_tgz',
 			'@aryee337/aery': '$coding_agent_tgz'
 		};
 		require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
 	"
 
-   bun add "$utils_tgz" "$natives_tgz" "$hashline_tgz" "$ai_tgz" "$mnemopi_tgz" "$agent_tgz" "$tui_tgz" "$stats_tgz" "$sdk_tgz" "$extensions_tgz" "$coding_agent_tgz"
+   bun add "$utils_tgz" "$natives_tgz" "$hashline_tgz" "$ai_tgz" "$mnemopi_tgz" "$agent_tgz" "$tui_tgz" "$stats_tgz" "$sdk_tgz" "$extensions_tgz" "$grpc_server_tgz" "$coding_agent_tgz"
    # The platform leaf must arrive through the core's optionalDependencies +
    # override, not as a direct dependency — assert it landed before smoking so a
    # resolution regression is distinguishable from a runtime loader bug.

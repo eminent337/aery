@@ -92,6 +92,7 @@ export const packages: PublishPackage[] = [
 	{ dir: "packages/agent", kind: "typescript" },
 	{ dir: "packages/aery-sdk", kind: "typescript" },
 	{ dir: "packages/aery-extensions", kind: "typescript" },
+	{ dir: "packages/grpc-server", kind: "typescript", extraFiles: ["proto"] },
 	{ dir: "packages/coding-agent", kind: "typescript" },
 ];
 
