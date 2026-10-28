@@ -76,6 +76,7 @@ function nativeLeafTagFromArgs(argv: readonly string[]): string | null {
 
 const nativeLeafTag = nativeLeafTagFromArgs(process.argv.slice(2));
 export const packages: PublishPackage[] = [
+	{ dir: "packages/coding-agent", kind: "typescript" },
 	{ dir: "packages/utils", kind: "typescript" },
 	{ dir: "packages/ai", kind: "typescript" },
 	{ dir: "packages/aery-engine", kind: "native" },
@@ -93,7 +94,6 @@ export const packages: PublishPackage[] = [
 	{ dir: "packages/aery-sdk", kind: "typescript" },
 	{ dir: "packages/aery-extensions", kind: "typescript" },
 	{ dir: "packages/grpc-server", kind: "typescript", extraFiles: ["proto"] },
-	{ dir: "packages/coding-agent", kind: "typescript" },
 ];
 
 function rewriteSrcPath(value: string): string {
@@ -236,9 +236,9 @@ async function packAndPublish(dir: string, name: string): Promise<void> {
 					console.log(`Skipping ${name} (version already published)`);
 					return;
 				}
-				process.exit(retryResult.exitCode ?? 1);
+				throw new Error(`npm publish --tag=release exited with ${retryResult.exitCode}: ${retryOutput}`);
 			}
-			process.exit(result.exitCode ?? 1);
+			throw new Error(`npm publish exited with ${result.exitCode}: ${output}`);
 		}
 	} finally {
 		await fs.rm(packDir, { recursive: true, force: true });
@@ -296,8 +296,21 @@ if (import.meta.main) {
 	if (nativeLeafTag) {
 		await publishNativeLeafPackage(nativeLeafTag);
 	} else {
+		const errors: Array<{ name: string; error: string }> = [];
 		for (const pkg of packages) {
-			await publishPackage(pkg);
+			try {
+				await publishPackage(pkg);
+			} catch (err: any) {
+				console.error(`Error publishing ${pkg.dir}:`, err?.message || err);
+				errors.push({ name: pkg.dir, error: err?.message || String(err) });
+			}
+		}
+		if (errors.length > 0) {
+			console.error(`\nFailed to publish ${errors.length} package(s):`);
+			for (const e of errors) {
+				console.error(`  - ${e.name}: ${e.error}`);
+			}
+			process.exit(1);
 		}
 	}
 }
