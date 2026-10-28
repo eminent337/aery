@@ -106,6 +106,7 @@ import { StatusLineComponent } from "./components/status-line";
 import { StudioStateManager } from "./components/studio/state.js";
 import type { ToolExecutionHandle } from "./components/tool-execution";
 import { WelcomeComponent, type LspServerInfo as WelcomeLspServerInfo } from "./components/welcome";
+import { checkBackgroundUpdate } from "../cli/update-cli";
 import { BtwController } from "./controllers/btw-controller";
 import { CommandController } from "./controllers/command-controller";
 import { EventController } from "./controllers/event-controller";
@@ -628,6 +629,13 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		// Restore mode from session (e.g. plan mode on resume)
 		await this.#restoreModeFromSession();
+
+		// Asynchronously check for a newer version in the background (non-blocking, cached 24h)
+		checkBackgroundUpdate().then(newVersion => {
+			if (newVersion) {
+				this.showStatus(`💡 A new version of Aery is available (v${this.#version} → v${newVersion}). Run 'aery update' to install.`);
+			}
+		}).catch(() => {});
 
 		// Restore unsent editor draft from previous session shutdown (Ctrl+D).
 		// One-shot: consumeDraft removes the sidecar after read so the next

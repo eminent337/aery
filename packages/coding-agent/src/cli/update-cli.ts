@@ -435,3 +435,62 @@ ${chalk.bold("Examples:")}
   ${APP_NAME} update --force   Force reinstall
 `);
 }
+
+const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+interface CachedUpdateCheck {
+	lastCheckedAt: number;
+	latestVersion?: string;
+}
+
+function getUpdateCheckCachePath(): string {
+	const aeryDir = path.join(process.env.HOME || process.env.USERPROFILE || "", ".aery");
+	return path.join(aeryDir, "update-check.json");
+}
+
+/**
+ * Asynchronously check for a newer version in the background (cached for 24 hours).
+ * Returns the latest version string if an update is available.
+ */
+export async function checkBackgroundUpdate(): Promise<string | undefined> {
+	try {
+		const cachePath = getUpdateCheckCachePath();
+		let cache: CachedUpdateCheck | null = null;
+		try {
+			if (fs.existsSync(cachePath)) {
+				cache = JSON.parse(await fs.promises.readFile(cachePath, "utf-8")) as CachedUpdateCheck;
+			}
+		} catch {
+			cache = null;
+		}
+
+		const now = Date.now();
+		if (cache && now - cache.lastCheckedAt < CHECK_INTERVAL_MS) {
+			if (cache.latestVersion && compareVersions(cache.latestVersion, VERSION) > 0) {
+				return cache.latestVersion;
+			}
+			return undefined;
+		}
+
+		const timeoutSignal = AbortSignal.timeout(3000);
+		const response = await fetch(`${NPM_REGISTRY}${PACKAGE}/latest`, { signal: timeoutSignal });
+		if (!response.ok) return undefined;
+		const data = (await response.json()) as { version: string };
+		const latestVersion = data.version;
+
+		const dir = path.dirname(cachePath);
+		await fs.promises.mkdir(dir, { recursive: true });
+		await fs.promises.writeFile(
+			cachePath,
+			JSON.stringify({ lastCheckedAt: now, latestVersion }),
+			"utf-8",
+		);
+
+		if (compareVersions(latestVersion, VERSION) > 0) {
+			return latestVersion;
+		}
+		return undefined;
+	} catch {
+		return undefined;
+	}
+}
