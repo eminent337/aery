@@ -1,12 +1,12 @@
 # AERY Coding Agent Installer for Windows
-# Usage: irm https://raw.githubusercontent.com/can1357/aery/main/scripts/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/eminent337/aery/main/scripts/install.ps1 | iex
 #
 # Or with options:
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/can1357/aery/main/scripts/install.ps1))) -Source
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/can1357/aery/main/scripts/install.ps1))) -Binary
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/can1357/aery/main/scripts/install.ps1))) -Source -Ref v3.20.1
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/can1357/aery/main/scripts/install.ps1))) -Source -Ref main
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/can1357/aery/main/scripts/install.ps1))) -Binary -Ref v3.20.1
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/eminent337/aery/main/scripts/install.ps1))) -Source
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/eminent337/aery/main/scripts/install.ps1))) -Binary
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/eminent337/aery/main/scripts/install.ps1))) -Source -Ref v0.3.16
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/eminent337/aery/main/scripts/install.ps1))) -Source -Ref main
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/eminent337/aery/main/scripts/install.ps1))) -Binary -Ref v0.3.16
 
 param(
     [switch]$Source,
@@ -16,8 +16,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "can1357/aery"
-$Package = "@aery/pi-coding-agent"
+$Repo = "eminent337/aery"
+$Package = "@aryee337/aery"
 $InstallDir = if ($env:PI_INSTALL_DIR) { $env:PI_INSTALL_DIR } else { "$env:LOCALAPPDATA\aery" }
 $BinaryName = "aery-windows-x64.exe"
 $MinimumBunVersion = "1.3.14"

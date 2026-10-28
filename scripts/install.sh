@@ -11,7 +11,7 @@ set -e
 #   -r <ref>       Shorthand for --ref
 
 REPO="eminent337/aery"
-PACKAGE="@aryee337/aery-coding-agent"
+PACKAGE="@aryee337/aery"
 INSTALL_DIR="${PI_INSTALL_DIR:-$HOME/.local/bin}"
 MIN_BUN_VERSION="1.3.14"
 
