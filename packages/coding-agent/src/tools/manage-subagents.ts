@@ -10,6 +10,14 @@
 import type { AgentTool, AgentToolContext, AgentToolResult } from "@aryee337/aery-core";
 import * as z from "zod/v4";
 import { AgentRegistry } from "../registry/agent-registry";
+import {
+	type BuiltinSubagentDefinition,
+	getBuiltinSubagentDefinition,
+	listBuiltinSubagents,
+} from "../registry/builtin-subagents";
+
+export type { BuiltinSubagentDefinition };
+export { getBuiltinSubagentDefinition, listBuiltinSubagents };
 
 const manageSubagentsSchema = z.object({
 	Action: z
@@ -46,11 +54,12 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 			case "list": {
 				const allAgents = registry.list();
 				const subagents = allAgents.filter(a => a.kind === "sub");
+				const builtinSubagents = listBuiltinSubagents();
 
 				if (subagents.length === 0) {
 					return {
 						content: [{ type: "text", text: "### Active Subagents\nNo subagents currently registered." }],
-						details: { subagents: [] },
+						details: { subagents: [], builtinSubagents },
 					};
 				}
 
@@ -67,7 +76,7 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
-					details: { subagents },
+					details: { subagents, builtinSubagents },
 				};
 			}
 

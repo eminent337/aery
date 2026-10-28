@@ -10,6 +10,14 @@
  */
 
 import type { AgentSession } from "../session/agent-session";
+import {
+	type BuiltinSubagentDefinition,
+	getBuiltinSubagentDefinition,
+	listBuiltinSubagents,
+} from "./builtin-subagents";
+
+export type { BuiltinSubagentDefinition } from "./builtin-subagents";
+export { getBuiltinSubagentDefinition, listBuiltinSubagents } from "./builtin-subagents";
 
 export const MAIN_AGENT_ID = "Main";
 
@@ -68,8 +76,28 @@ export class AgentRegistry {
 		AgentRegistry.#global = new AgentRegistry();
 	}
 
+	/** Get a built-in subagent definition by type name. */
+	static getBuiltinSubagent(typeName: string): BuiltinSubagentDefinition | undefined {
+		return getBuiltinSubagentDefinition(typeName);
+	}
+
+	/** List all available built-in subagent definitions. */
+	static listBuiltinSubagents(): BuiltinSubagentDefinition[] {
+		return listBuiltinSubagents();
+	}
+
 	readonly #refs = new Map<string, AgentRef>();
 	readonly #listeners = new Set<RegistryListener>();
+
+	/** Get a built-in subagent definition by type name. */
+	getBuiltinSubagent(typeName: string): BuiltinSubagentDefinition | undefined {
+		return getBuiltinSubagentDefinition(typeName);
+	}
+
+	/** List all available built-in subagent definitions. */
+	listBuiltinSubagents(): BuiltinSubagentDefinition[] {
+		return listBuiltinSubagents();
+	}
 
 	register(input: RegisterInput): AgentRef {
 		const now = Date.now();
