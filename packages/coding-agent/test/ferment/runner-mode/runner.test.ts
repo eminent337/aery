@@ -6,6 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "bun:test";
+import * as bashExecutor from "../../../src/exec/bash-executor.js";
 import type { FasAction } from "../../../src/ferment/runner-mode/engine.js";
 import { FasRunner } from "../../../src/ferment/runner-mode/runner.js";
 import type { Ferment, Phase, Step } from "../../../src/ferment/types.js";
@@ -481,29 +482,24 @@ describe("FasRunner", () => {
 		});
 
 		// Mock executeBash for verification
-		vi.mock("../../../src/exec/bash-executor.js", () => ({
-			executeBash: vi.fn(() =>
-				Promise.resolve({
-					exitCode: 0,
-					output: "ok",
-					cancelled: false,
-					truncated: false,
-					totalLines: 1,
-					totalBytes: 2,
-					outputLines: 1,
-					outputBytes: 2,
-				}),
-			),
-		}));
+		const bashSpy = vi.spyOn(bashExecutor, "executeBash").mockResolvedValue({
+			exitCode: 0,
+			output: "ok",
+			cancelled: false,
+			truncated: false,
+			totalLines: 1,
+			totalBytes: 2,
+			outputLines: 1,
+			outputBytes: 2,
+		});
 
-		const { executeBash: _executeBash } = await import("../../../src/exec/bash-executor.js");
-
-		await runner.run("goal");
-
-		// recover_step should have been handled (retry attempted)
-		expect(mockSession.prompt).toHaveBeenCalled();
-
-		vi.restoreAllMocks();
+		try {
+			await runner.run("goal");
+			// recover_step should have been handled (retry attempted)
+			expect(mockSession.prompt).toHaveBeenCalled();
+		} finally {
+			bashSpy.mockRestore();
+		}
 	});
 
 	// ─── engine bootstrapping ──────────────────────────────────────────────────

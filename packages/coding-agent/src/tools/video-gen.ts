@@ -21,7 +21,9 @@ import type { CustomTool } from "../extensibility/custom-tools/types";
  */
 
 const VIDEO_SUBMIT_TIMEOUT_MS = 60_000;
-const VIDEO_POLL_INTERVAL_MS = $envpos("AERY_VIDEO_POLL_INTERVAL_MS", 10_000);
+function getVideoPollIntervalMs(): number {
+	return $envpos("AERY_VIDEO_POLL_INTERVAL_MS", 10_000);
+}
 const VIDEO_MAX_WAIT_MS = 15 * 60 * 1000;
 const VIDEO_MAX_TRANSIENT_STATUS_ERRORS = 5;
 const VIDEO_MAX_SUBMIT_RETRIES = 3;
@@ -519,7 +521,7 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 							`Video render exceeded ${Math.round(VIDEO_MAX_WAIT_MS / 60_000)} minutes — the queue may be congested. Try again or pick a different model.`,
 						);
 					}
-					await untilAborted(signal, sleep(VIDEO_POLL_INTERVAL_MS));
+					await untilAborted(signal, sleep(getVideoPollIntervalMs()));
 					const status = await pollAgnesStatus(credentials, jobId, signal);
 					if (status.done) {
 						if (status.error) {
@@ -598,7 +600,7 @@ export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails
 							`Video render exceeded ${Math.round(VIDEO_MAX_WAIT_MS / 60_000)} minutes — the queue may be congested. Try again or pick a different model.`,
 						);
 					}
-					await untilAborted(signal, sleep(VIDEO_POLL_INTERVAL_MS));
+					await untilAborted(signal, sleep(getVideoPollIntervalMs()));
 					const status = await pollFalStatus(credentials.apiKey, statusUrl, signal);
 					if (status.done) {
 						if (status.error) {

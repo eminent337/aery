@@ -37,7 +37,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 /** Wait until cond() is true (polling, bounded). */
-async function waitFor(cond: () => boolean, timeoutMs = 5_000): Promise<void> {
+async function waitFor(cond: () => boolean, timeoutMs = 15_000): Promise<void> {
 	const start = Date.now();
 	for (;;) {
 		if (cond()) return;

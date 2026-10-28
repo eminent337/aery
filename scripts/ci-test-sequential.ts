@@ -20,7 +20,7 @@ async function main() {
                 console.log(`\n\n=== Running tests for ${pkg} ===\n`);
                 // Explicitly use 'bun test' to run the test runner, which is what we want.
                 // We do NOT use 'bun run test' because that could recursively call 'test:ts' if misconfigured.
-                const res = await $`bun test --timeout 30000`.cwd(pkgPath).nothrow();
+                const res = await $`bun test --timeout=30000`.cwd(pkgPath).nothrow();
                 if (res.exitCode !== 0) {
                     console.error(`\nTests failed in ${pkg}\n`);
                     failed = true;

@@ -473,7 +473,8 @@ describe("imageGenTool", () => {
 	});
 	it("retries transient 503 queue-full responses on the custom provider", async () => {
 		let callCount = 0;
-		const fetchMock: typeof fetch = (async (_input: string | URL | Request, _init?: RequestInit) => {
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			if (!input.toString().includes("/images/generations")) return originalFetch(input, init);
 			callCount++;
 			if (callCount <= 2) {
 				return new Response(
@@ -506,7 +507,8 @@ describe("imageGenTool", () => {
 
 	it("retries per-attempt timeouts and throws a friendly error after exhausting attempts", async () => {
 		let callCount = 0;
-		const fetchMock: typeof fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+		const fetchMock: typeof fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			if (!input.toString().includes("/images/generations")) return originalFetch(input, init);
 			callCount++;
 			const sig = init?.signal;
 			const reason = sig?.reason ?? new DOMException("The operation was aborted.", "AbortError");

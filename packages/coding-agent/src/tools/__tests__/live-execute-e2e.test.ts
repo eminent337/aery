@@ -6,7 +6,7 @@ import * as path from "node:path";
 
 import { glideCaptureNice } from "../capture-priority";
 import { DesktopControlTool, injectionQueueDepth } from "../desktop-control";
-import { setFrameMsForTesting } from "../live-input";
+import { clearProbeCache, setFrameMsForTesting } from "../live-input";
 
 /** execute()-level E2E for eye-cursor concurrency, against a FAKE compositor.
  *
@@ -135,6 +135,7 @@ beforeAll(async () => {
 	// Shadow the real injectors FIRST on PATH so nothing reaches the desktop.
 	fs.writeFileSync(path.join(shimDir, "xdotool"), XDOTOOL_SHIM, { mode: 0o755 });
 	fs.writeFileSync(path.join(shimDir, "ydotool"), YDOTOOL_SHIM, { mode: 0o755 });
+	fs.writeFileSync(path.join(shimDir, "ydotoold"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 	fs.writeFileSync(path.join(shimDir, "wtype"), WTYPE_SHIM, { mode: 0o755 });
 
 	// Synthetic screen with readable text (OCR paths must have something).
@@ -192,9 +193,12 @@ beforeAll(async () => {
 	process.env.XDG_RUNTIME_DIR = runtime;
 	process.env.FAKE_STATE_DIR = stateDir;
 	process.env.FAKE_SCREEN = screen;
+	fs.writeFileSync(path.join(runtime, ".ydotool_socket"), "");
+	clearProbeCache();
 }, 30000);
 
 afterAll(async () => {
+	clearProbeCache();
 	// Refresher must die BEFORE env restore (its ticks spawn shim binaries).
 	try {
 		const tool = new DesktopControlTool(undefined);

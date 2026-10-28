@@ -118,14 +118,12 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 
 			let currentMessageText = "";
 			let currentSlackMsg: any = null;
-			let isStreaming = false;
 			let updateTimeout: any = null;
 
 			client.onEvent(async (event: AgentEvent) => {
 				if (event.type === "message_start") {
 					if (event.message?.role === "assistant") {
 						currentMessageText = "";
-						isStreaming = true;
 						try {
 							currentSlackMsg = await thread.post("...");
 						} catch (_e) {
@@ -198,7 +196,6 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 								await thread.post(finalText);
 							} catch (_err) {}
 						}
-						isStreaming = false;
 					}
 				}
 			});
