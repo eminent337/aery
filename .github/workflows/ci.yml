@@ -419,19 +419,20 @@ jobs:
               runtime_dir="$(mktemp -d)"
               HOME="$runtime_dir/home" XDG_DATA_HOME="$runtime_dir/xdg" "${{ matrix.binary_path }}" --version
               HOME="$runtime_dir/home" XDG_DATA_HOME="$runtime_dir/xdg" "${{ matrix.binary_path }}" --smoke-test
+         - name: Upload release binary artifact
+           uses: actions/upload-artifact@v4
+           with:
+              name: aery-binary-${{ matrix.target_id }}
+              path: ${{ matrix.binary_path }}
          - name: Publish native addon package
            if: ${{ !inputs.skip_npm }}
+           continue-on-error: true
            env:
               # Fallback auth: setup-node wrote an .npmrc referencing
               # NODE_AUTH_TOKEN; npm uses it only when OIDC has no trusted
               # publisher for the package (or on a first publish).
               NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
            run: bun run ci:release:publish-native-leaf ${{ matrix.target_id }}
-         - name: Upload release binary artifact
-           uses: actions/upload-artifact@v4
-           with:
-              name: aery-binary-${{ matrix.target_id }}
-              path: ${{ matrix.binary_path }}
 
    release-github:
       if: ${{ needs.gate.outputs.is-release == 'true' && !cancelled() &&
@@ -514,6 +515,7 @@ jobs:
               key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
          - run: bun install --frozen-lockfile
          - name: Publish to npm
+           continue-on-error: true
            env:
               # Fallback auth: setup-node wrote an .npmrc referencing
               # NODE_AUTH_TOKEN; npm uses it only when OIDC has no trusted
