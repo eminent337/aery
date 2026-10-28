@@ -253,6 +253,7 @@ import {
 	type CompactionSummaryMessage,
 	type CustomMessage,
 	convertToLlm,
+	createCompactionSummaryMessage,
 	type FileMentionMessage,
 	type PythonExecutionMessage,
 	readQueueChipText,
@@ -276,7 +277,11 @@ import type {
 	SessionContext,
 	SessionManager,
 } from "./session-manager";
-import { EPHEMERAL_MODEL_CHANGE_ROLE, getLatestCompactionEntry, getRestorableSessionModels } from "./session-manager";
+import {
+	EPHEMERAL_MODEL_CHANGE_ROLE,
+	getLatestCompactionEntry,
+	getRestorableSessionModels,
+} from "./session-manager";
 import type { ShakeMode, ShakeResult } from "./shake-types";
 import { SessionStateStore } from "./state-store.js";
 import { ToolChoiceQueue } from "./tool-choice-queue";
@@ -300,6 +305,10 @@ export type AgentSessionEvent =
 			errorMessage?: string;
 			/** True when compaction was skipped for a benign reason (no model, no candidates, nothing to compact). */
 			skipped?: boolean;
+	  }
+	| {
+			type: "session_compacted";
+			result: CompactionResult;
 	  }
 	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
 	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
@@ -943,6 +952,9 @@ export class AgentSession {
 	// Compaction state
 	#compactionAbortController: AbortController | undefined = undefined;
 	#autoCompactionAbortController: AbortController | undefined = undefined;
+	#isCompactingInBackground = false;
+	#backgroundCompactionPromise: Promise<CompactionResult | null> | null = null;
+	#backgroundCompactionAbortController: AbortController | undefined = undefined;
 
 	// Branch summarization state
 	#branchSummaryAbortController: AbortController | undefined = undefined;
@@ -4212,7 +4224,21 @@ export class AgentSession {
 
 	/** Whether auto-compaction is currently running */
 	get isCompacting(): boolean {
-		return this.#autoCompactionAbortController !== undefined || this.#compactionAbortController !== undefined;
+		return (
+			this.#autoCompactionAbortController !== undefined ||
+			this.#compactionAbortController !== undefined ||
+			this.#isCompactingInBackground
+		);
+	}
+
+	/** Whether non-blocking live prefix compaction is currently running in the background */
+	get isCompactingInBackground(): boolean {
+		return this.#isCompactingInBackground;
+	}
+
+	/** Active background compaction promise, if one is currently in-flight */
+	get backgroundCompactionPromise(): Promise<CompactionResult | null> | null {
+		return this.#backgroundCompactionPromise;
 	}
 
 	/**
@@ -6789,6 +6815,239 @@ export class AgentSession {
 	}
 
 	/**
+	 * Run non-blocking live background compaction on the prefix of the session.
+	 * Identifies the prefix boundary (entries up to the current turn / branch cut point),
+	 * clones the branch entries snapshot for preparation, and spawns the summarization worker
+	 * asynchronously without aborting or disconnecting from the active agent loop.
+	 *
+	 * Upon resolution of the summary:
+	 * 1. Atomically splices the compacted entry into sessionManager at prefix boundary.
+	 * 2. Replaces messages in this.agent.replaceMessages() with the new compacted summary
+	 *    plus any uncompacted messages added since the snapshot.
+	 * 3. Emits session_compacted event and updates token counters.
+	 *
+	 * @param customInstructions Optional instructions for the compaction summary
+	 * @param options Optional callbacks for completion/error handling
+	 */
+	compactBackgroundPrefix(
+		customInstructions?: string,
+		options?: CompactOptions,
+	): Promise<CompactionResult | null> {
+		if (this.#isCompactingInBackground && this.#backgroundCompactionPromise) {
+			return this.#backgroundCompactionPromise;
+		}
+
+		if (!this.model) {
+			return Promise.resolve(null);
+		}
+
+		const compactionSettings = this.settings.getGroup("compaction");
+		const snapshotBranch = [...this.sessionManager.getBranch()];
+		const preparation = prepareCompaction(snapshotBranch, compactionSettings);
+		if (!preparation) {
+			return Promise.resolve(null);
+		}
+
+		// Snapshot current agent state messages to identify prefix boundary
+		const snapshotMessages = [...this.agent.state.messages];
+
+		// Identify the first kept message in snapshotBranch starting from cut point
+		let firstKeptSnapshotMessage: AgentMessage | undefined;
+		const firstKeptIndexInBranch = snapshotBranch.findIndex(e => e.id === preparation.firstKeptEntryId);
+		if (firstKeptIndexInBranch !== -1) {
+			for (let i = firstKeptIndexInBranch; i < snapshotBranch.length; i++) {
+				const entry = snapshotBranch[i];
+				if (entry.type === "message") {
+					firstKeptSnapshotMessage = entry.message;
+					break;
+				}
+			}
+		}
+
+		this.#isCompactingInBackground = true;
+		const backgroundCompactionAbortController = new AbortController();
+		this.#backgroundCompactionAbortController = backgroundCompactionAbortController;
+
+		const runSummarization = async (): Promise<CompactionResult | null> => {
+			try {
+				let hookCompaction: CompactionResult | undefined;
+				let fromExtension = false;
+				let preserveData: Record<string, unknown> | undefined;
+
+				if (this.#extensionRunner?.hasHandlers("session_before_compact")) {
+					const hookResult = (await this.#extensionRunner.emit({
+						type: "session_before_compact",
+						preparation,
+						branchEntries: snapshotBranch,
+						customInstructions,
+						signal: backgroundCompactionAbortController.signal,
+					})) as SessionBeforeCompactResult | undefined;
+
+					if (hookResult?.cancel) {
+						return null;
+					}
+
+					if (hookResult?.compaction) {
+						hookCompaction = hookResult.compaction;
+						fromExtension = true;
+					}
+				}
+
+				const compactionPrep = await this.#prepareCompactionFromHooks(preparation, hookCompaction);
+
+				let summary: string;
+				let shortSummary: string | undefined;
+				let firstKeptEntryId: string;
+				let tokensBefore: number;
+				let details: unknown;
+
+				if (compactionPrep.kind === "fromHook") {
+					summary = compactionPrep.summary;
+					shortSummary = compactionPrep.shortSummary;
+					firstKeptEntryId = compactionPrep.firstKeptEntryId;
+					tokensBefore = compactionPrep.tokensBefore;
+					details = compactionPrep.details;
+					preserveData = compactionPrep.preserveData;
+				} else {
+					try {
+						const result = await this.#compactWithFallbackModel(
+							preparation,
+							customInstructions,
+							backgroundCompactionAbortController.signal,
+							{
+								promptOverride: compactionPrep.hookPrompt,
+								extraContext: compactionPrep.hookContext,
+								remoteInstructions: this.#baseSystemPrompt.join("\n\n"),
+								convertToLlm,
+							},
+						);
+						summary = result.summary;
+
+						// Preserve DO_NOT_COMPACT_THIS blocks
+						for (const msg of preparation.messagesToSummarize) {
+							if (!("content" in msg)) continue;
+							let contentStr = "";
+							if (typeof msg.content === "string") {
+								contentStr = msg.content;
+							} else if (Array.isArray(msg.content)) {
+								contentStr = msg.content
+									.filter((c: any) => c.type === "text")
+									.map((c: any) => c.text)
+									.join("\n");
+							}
+
+							if (contentStr.includes("<DO_NOT_COMPACT_THIS>")) {
+								const planMatch = contentStr.match(/<DO_NOT_COMPACT_THIS>([\s\S]*?)<\/DO_NOT_COMPACT_THIS>/);
+								if (planMatch) {
+									summary += `\n\n[DO NOT COMPACT THIS]\n${planMatch[1]}\n[/DO NOT COMPACT THIS]`;
+								}
+							}
+						}
+
+						shortSummary = result.shortSummary;
+						firstKeptEntryId = result.firstKeptEntryId;
+						tokensBefore = result.tokensBefore;
+						details = result.details;
+						preserveData = { ...(compactionPrep.preserveData ?? {}), ...(result.preserveData ?? {}) };
+					} catch (err) {
+						if (err instanceof CompactionCancelledError || backgroundCompactionAbortController.signal.aborted) {
+							return null;
+						}
+						throw err;
+					}
+				}
+
+				if (backgroundCompactionAbortController.signal.aborted) {
+					return null;
+				}
+
+				// Atomically splice compacted entry into sessionManager at prefix boundary
+				this.sessionManager.appendCompaction(
+					summary,
+					shortSummary,
+					firstKeptEntryId,
+					tokensBefore,
+					details,
+					fromExtension,
+					preserveData,
+				);
+
+				const summaryMsg = createCompactionSummaryMessage(
+					summary,
+					tokensBefore,
+					new Date().toISOString(),
+					shortSummary,
+				);
+
+				// Replace messages in this.#agent.replaceMessages() with the new compacted summary plus any uncompacted messages added since the snapshot
+				const currentMessages = this.agent.state.messages;
+				let uncompactedIndex = -1;
+				if (firstKeptSnapshotMessage) {
+					uncompactedIndex = currentMessages.indexOf(firstKeptSnapshotMessage);
+				}
+				if (uncompactedIndex === -1) {
+					const recentCount = preparation.recentMessages.length;
+					uncompactedIndex = Math.max(0, snapshotMessages.length - recentCount);
+				}
+				const uncompactedMessages = currentMessages.slice(uncompactedIndex);
+				const rebasedMessages = [summaryMsg, ...uncompactedMessages];
+				this.agent.replaceMessages(rebasedMessages);
+
+				this.#advisorRuntime?.reset();
+				this.#syncTodoPhasesFromBranch();
+				this.#closeCodexProviderSessionsForHistoryRewrite();
+
+				const newEntries = this.sessionManager.getEntries();
+				const savedCompactionEntry = newEntries.find(e => e.type === "compaction" && e.summary === summary) as
+					| CompactionEntry
+					| undefined;
+
+				if (this.#extensionRunner && savedCompactionEntry) {
+					await this.#extensionRunner.emit({
+						type: "session_compact",
+						compactionEntry: savedCompactionEntry,
+						fromExtension,
+					});
+				}
+
+				const compactionResult: CompactionResult = {
+					summary,
+					shortSummary,
+					firstKeptEntryId,
+					tokensBefore,
+					details,
+					preserveData,
+				};
+
+				await this.#emitSessionEvent({
+					type: "session_compacted",
+					result: compactionResult,
+				});
+
+				options?.onComplete?.(compactionResult);
+				return compactionResult;
+			} catch (error) {
+				if (backgroundCompactionAbortController.signal.aborted) {
+					return null;
+				}
+				const err = error instanceof Error ? error : new Error(String(error));
+				options?.onError?.(err);
+				throw error;
+			} finally {
+				this.#isCompactingInBackground = false;
+				this.#backgroundCompactionPromise = null;
+				if (this.#backgroundCompactionAbortController === backgroundCompactionAbortController) {
+					this.#backgroundCompactionAbortController = undefined;
+				}
+			}
+		};
+
+		const promise = runSummarization();
+		this.#backgroundCompactionPromise = promise;
+		return promise;
+	}
+
+	/**
 	 * Ask the active memory backend for an extra-context block to splice into
 	 * the compaction summary prompt. Both the manual and auto compaction paths
 	 * funnel through this helper so the behaviour stays identical.
@@ -6820,6 +7079,7 @@ export class AgentSession {
 	abortCompaction(): void {
 		this.#compactionAbortController?.abort();
 		this.#autoCompactionAbortController?.abort();
+		this.#backgroundCompactionAbortController?.abort();
 		this.#handoffAbortController?.abort();
 	}
 
@@ -7029,6 +7289,14 @@ export class AgentSession {
 			contextWindow,
 			model: `${model.provider}/${model.id}`,
 		});
+		const isBackground =
+			Boolean((compactionSettings as any).background) ||
+			Boolean(this.settings.get("compaction.background" as any)) ||
+			(compactionSettings as any).mode === "background";
+		if (isBackground && compactionSettings.strategy !== "off" && compactionSettings.strategy !== "handoff") {
+			await this.compactBackgroundPrefix();
+			return;
+		}
 		await this.#runAutoCompaction("threshold", false, false, false, { autoContinue: false });
 	}
 
@@ -7158,6 +7426,16 @@ export class AgentSession {
 			// Try promotion first — if a larger model is available, switch instead of compacting
 			const promoted = await this.#tryContextPromotion(assistantMessage);
 			if (!promoted) {
+				const isBackground =
+					Boolean((compactionSettings as any).background) ||
+					Boolean(this.settings.get("compaction.background" as any)) ||
+					(compactionSettings as any).mode === "background";
+				if (isBackground && compactionSettings.strategy !== "handoff") {
+					void this.compactBackgroundPrefix().catch(err => {
+						logger.warn("Background prefix compaction failed", { error: String(err) });
+					});
+					return false;
+				}
 				return await this.#runAutoCompaction("threshold", false, false, allowDefer, { autoContinue });
 			}
 		}
@@ -7973,11 +8251,23 @@ export class AgentSession {
 		willRetry: boolean,
 		deferred = false,
 		allowDefer = true,
-		options: { autoContinue?: boolean } = {},
+		options: { autoContinue?: boolean; background?: boolean } = {},
 	): Promise<boolean> {
 		const compactionSettings = this.settings.getGroup("compaction");
 		if (compactionSettings.strategy === "off") return false;
 		if (reason !== "idle" && !compactionSettings.enabled) return false;
+
+		const isBackgroundPreferred =
+			options.background === true ||
+			Boolean((compactionSettings as any).background) ||
+			Boolean(this.settings.get("compaction.background" as any)) ||
+			(compactionSettings as any).mode === "background";
+
+		if (isBackgroundPreferred && !willRetry && compactionSettings.strategy !== "handoff" && compactionSettings.strategy !== "shake") {
+			await this.compactBackgroundPrefix();
+			return false;
+		}
+
 		const generation = this.#promptGeneration;
 		const shouldAutoContinue = options.autoContinue !== false && compactionSettings.autoContinue !== false;
 		// Shake runs inline (cheap, no remote LLM). On overflow recovery, if shake

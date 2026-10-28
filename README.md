@@ -1,8 +1,16 @@
 <p align="center">
-  <img src="https://github.com/eminent337/aery/blob/main/assets/hero.png?raw=true" alt="Aery — AI Coding Agent" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/icon.svg">
+    <img src="assets/icon.svg" alt="Aery Logo" width="128" height="128">
+  </picture>
 </p>
 
-<h3 align="center">The terminal coding agent that ships.</h3>
+<h1 align="center">Aery</h1>
+
+<p align="center">
+  <strong>The terminal-native AI coding agent built for speed, depth, and precision.</strong><br>
+  <em>1:1 Google Antigravity (AGY) parity · In-memory differential TUI · Rust native acceleration</em>
+</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@aryee337/aery"><img src="https://img.shields.io/npm/v/@aryee337/aery?style=flat-square&colorA=1a1a2e&colorB=f97316" alt="npm version"></a>
@@ -12,65 +20,34 @@
 </p>
 
 <p align="center">
-  <a href="#install">Install</a> · <a href="#quick-start">Quick Start</a> · <a href="#features">Features</a> · <a href="#tools">Tools</a> · <a href="#providers">Providers</a> · <a href="#extensibility">Extensibility</a> · <a href="https://aery.sh/docs">Docs</a>
+  <a href="#quick-start">Quick Start</a> · <a href="#install">Install</a> · <a href="#features">Features</a> · <a href="#antigravity-parity">AGY Parity</a> · <a href="#tools">Tools</a> · <a href="#providers">Providers</a> · <a href="#architecture">Architecture</a> · <a href="https://aery.sh/docs">Docs</a>
 </p>
 
 ---
 
-**Aery** is a terminal-native coding agent built in TypeScript and Rust. It reads your codebase, executes commands, drives a real debugger, searches the web, spawns subagents, and talks to 40+ LLM providers — all from a single binary.
+**Aery** is an open-source, terminal-native AI coding agent built in TypeScript and Rust. Designed with exact 1:1 behavioral alignment to Google Antigravity (`agy`), Aery combines deep autonomous reasoning, multi-agent coordination, sub-millisecond differential terminal rendering, and native system integration into a single self-updating static binary.
 
-**40+ providers** · **32 built-in tools** · **13 LSP ops** · **27 DAP ops** · **~27k lines of Rust core**
+**40+ LLM Providers** · **35+ Built-In Tools** · **13 LSP Ops** · **27 DAP Ops** · **~27k Lines of Native Rust Core**
 
-## Install
-
-**macOS / Linux**
-
-```sh
-curl -fsSL https://aery.sh/install | sh
-```
-
-**Bun (recommended)**
-
-```sh
-bun install -g @aryee337/aery
-```
-
-**npm**
-
-```sh
-npm install -g @aryee337/aery
-```
-
-**Windows (PowerShell)**
-
-```powershell
-irm https://aery.sh/install.ps1 | iex
-```
-
-**From source**
-
-```sh
-git clone https://github.com/eminent337/aery && cd aery
-bun install
-bun run build
-```
-
-Requires **bun ≥ 1.3.14**.
+---
 
 ## Quick Start
 
 ```sh
-# Start a session in your project
+# Launch the interactive terminal TUI
 aery
 
-# One-shot prompt
-aery -p "explain this codebase"
+# Execute a one-shot task
+aery -p "Find and fix the memory leak in the worker pool"
 
-# Resume last session
+# Resume the previous session
 aery --resume
+
+# Check for updates or update in-place
+aery update
 ```
 
-### Shell completions
+### Shell Completions
 
 ```sh
 # zsh
@@ -83,210 +60,144 @@ eval "$(aery completions bash)"
 aery completions fish > ~/.config/fish/completions/aery.fish
 ```
 
-## Features
+---
 
-### Code execution with tool-calling
+## Install
 
-Persistent Python and Bun kernels that call back into the agent's own tools. The agent loads a CSV with `read` from inside Python, charts it from JavaScript, and never leaves the cell.
+### Standalone Executable (macOS / Linux)
 
-### LSP wired into every write
+```sh
+curl -fsSL https://aery.sh/install | sh
+```
 
-Ask for a rename and you get a rename. The call goes through `workspace/willRenameFiles`, so re-exports, barrel files, and aliased imports update before the file moves.
+### Windows (PowerShell)
 
-### Drives a real debugger
+```powershell
+irm https://aery.sh/install.ps1 | iex
+```
 
-Attach lldb, dlv, or debugpy. Set breakpoints, step through code, inspect variables. Most agents are still sprinkling print statements.
+### Package Managers
 
-### Subagents
+```sh
+# Bun (recommended)
+bun install -g @aryee337/aery
 
-Split a job across workers and get typed results back. `task` fans out into isolated worktrees, each worker runs its own tool surface, and the final yield is a schema-validated object.
+# npm
+npm install -g @aryee337/aery
+```
 
-### Time-traveling stream rules
+### From Source
 
-Your rules sit dormant until the model goes off-script. A regex match aborts the stream mid-token, injects the rule as a system reminder, and retries from the same point.
-
-### Code review
-
-Get a clear verdict with every issue ranked P0–P3 and scored for confidence. `/review` spawns dedicated reviewer subagents that sweep branches in parallel.
-
-### Hashline edits
-
-Perfect edits, fewer tokens. The model points at anchors instead of retyping lines. Edit a stale file and the anchors diverge — the patch is rejected before it corrupts anything.
-
-### Web search
-
-One query across 14 providers, returning structured markdown with anchors intact. Arxiv PDFs, GitHub pages, Stack Overflow — all through the same `read` tool surface.
-
-### Git integration
-
-Read PRs, resolve conflicts, and commit with atomic splits. `pr://`, `issue://`, and `conflict://` URLs resolve through the same `read` interface.
-
-### Browser automation
-
-Drive a real browser with stealth mode on by default. Pages see a normal user instead of a headless bot.
-
-### Hindsight memory
-
-The agent remembers your codebase between sessions. Write facts with `retain`, pull them back with `recall`, and compress each session into a mental model.
+```sh
+git clone https://github.com/eminent337/aery.git && cd aery
+bun install
+bun run build
+```
+*Requires **bun ≥ 1.3.14** and **cargo/rust ≥ 1.82**.*
 
 ---
 
-## Tools
+## Antigravity (AGY) Parity
 
-32 tools live in the same namespace as `read` and `bash`. Pin the active set with `--tools read,edit,bash,…`.
+Aery provides full behavioral, operational, and structural parity with Google Antigravity (`agy`):
 
-### Files & Search
+* ⚡ **Live Background Compaction**: Conversation history is snapshotted and summarized in the background without pausing active execution, aborting running tools, or freezing the UI.
+* 🤖 **Autonomous `image-generator` Subagent**: Creative briefs are delegated to a built-in subagent with a 3-attempt self-inspection loop, artifact file persistence, and automatic markdown embedding.
+* 👁️ **Visual Perception ("The Eye")**: `live_eye` features focus-first window framing to eliminate whole-desktop downscale blur, ephemeral context glance sweeping, and semantic OCR click-target resolution.
+* 🎥 **Multimodal Video & Media Inspection**: Native inspection of `.mp4`, `.mov`, `.webm`, `.ogv`, `.m4a`, and `.opus` recordings with keyframe extraction and audio track parsing.
+* 📊 **Real-Time Subagent Footer Observation**: Live progress and active tool actions (`run_command`, `read_file`, `thinking`) stream in the bottom status line.
+* 🔄 **Atomic In-Place Updates**: Single-command self-updating (`aery update`) with atomic binary replacement, automatic rollback, and 24-hour cached background release checks.
+* 🎯 **Strict Slash Command Alignment**: Exactly 9 official workflow commands:
+  * `/goal`: Thorough, long-running overnight autonomous loops.
+  * `/compact`: Context summarization and memory pruning.
+  * `/schedule`: Timers, recurring cron tasks, and reminders.
+  * `/browser`: Web navigation and headless tab automation.
+  * `/plan`: Multi-step architectural implementation plans.
+  * `/grill-me`: Interactive discovery interviews for requirements refinement.
+  * `/teamwork`: Multi-agent swarm collaboration.
+  * `/learn`: Persist patterns, fixes, and rules into project context.
+  * `/boost`: Dynamic thinking-level amplification for complex tasks.
 
-| Tool | Description |
-|------|-------------|
-| `read` | Files, dirs, archives, SQLite, PDFs, notebooks, URLs, and internal `://` schemes |
-| `write` | Create or overwrite a file, archive entry, or SQLite row |
-| `edit` | Hashline patches with content-hash anchors |
-| `ast_edit` | Structural rewrites via ast-grep, previewed before apply |
-| `ast_grep` | Structural code queries over 50+ tree-sitter grammars |
-| `search` | Regex over files, globs, and internal URLs |
-| `find` | Glob-based path lookup |
+---
 
-### Runtime
+## Features
 
-| Tool | Description |
-|------|-------------|
-| `bash` | Workspace shell with optional PTY or background-job dispatch |
-| `eval` | Persistent Python and JavaScript cells with tool re-entry |
-| `ssh` | One remote command against a configured host |
+### Non-Blocking Background Compaction
+Unlike conventional agents that freeze execution when the context window fills up, Aery snapshots the conversation prefix and invokes summarization asynchronously. While older turns are compressed, the agent continues executing tools, running tests, and streaming responses uninterrupted.
 
-### Code Intelligence
+### Real Code Debugging (DAP) & Language Server (LSP)
+Connects directly to real language servers and debuggers (`delve`, `debugpy`, `lldb`). Perform variable inspection, stack traversal, and intelligent refactoring (`workspace/willRenameFiles`) with zero manual print debugging.
 
-| Tool | Description |
-|------|-------------|
-| `lsp` | Diagnostics, navigation, symbols, renames, code actions |
-| `debug` | Drive a DAP session — breakpoints, stepping, threads, variables |
+### Sandboxing & Policy Guardian
+Enforces granular filesystem, process, and network access policies via Bubblewrap (`bwrap`) on Linux, sandboxed containers, and declarative `hooks.json` gates.
 
-### Coordination
+### High-Performance Differential Terminal TUI
+Built with `@aryee337/aery-tui`, utilizing differential viewport updates, synchronized output brackets (`BSU`/`ESU`), and scrollback preservation to render flicker-free interfaces across Ghostty, Kitty, iTerm2, and WezTerm.
 
-| Tool | Description |
-|------|-------------|
-| `task` | Fan out subagents in parallel, optionally workspace-isolated |
-| `irc` | Short prose between live agents |
-| `todo_write` | Ordered mutations over the session todo list |
-| `ask` | Structured follow-up questions for interactive runs |
+---
 
-### Outside the Box
+## Tools Reference
 
-| Tool | Description |
-|------|-------------|
-| `browser` | Puppeteer tabs over headless Chromium or CDP-attached apps |
-| `web_search` | One query across configured providers, with citations |
-| `github` | GitHub CLI ops — repo, PR, issues, Actions |
-| `generate_image` | Generate or edit images via Gemini |
-| `inspect_image` | Vision-model analysis of local images |
-| `render_mermaid` | Mermaid diagrams to terminal ASCII or PNG |
+| Category | Tools | Capabilities |
+| :--- | :--- | :--- |
+| **Files & Search** | `read`, `write`, `edit_file`, `find`, `search` | Byte-exact file operations, hashline anchor edits, AST structural rewrites |
+| **Execution** | `bash`, `eval`, `ssh`, `manage_task` | Interactive PTY shell sessions, persistent Python/JS cells, remote host control |
+| **Visual & Desktop** | `live_eye`, `live_input`, `desktop_control`, `inspect_image` | Desktop automation, Catmull-Rom cursor glides, Tesseract OCR, window framing |
+| **Intelligence** | `lsp`, `debug`, `ask_question`, `schedule` | Symbol definitions, DAP breakpoints, structured user prompts, cron jobs |
+| **Coordination** | `invoke_subagent`, `manage_subagents`, `send_message` | Multi-agent orchestration, IPC message bus, typed structured outputs |
+| **Creation** | `image_gen`, `video_gen`, `render_mermaid` | Image generation (Gemini/Imagen/Flux), async video rendering, diagram export |
 
-[Full tool reference →](https://aery.sh/docs/tools)
+---
 
-## Providers
+## Supported Providers
 
-**40+ providers**, hundreds of models, one `/model` away.
+Aery connects with **40+ LLM providers** through a unified streaming client:
 
-### Frontier APIs
+* **Frontier APIs**: Anthropic (Claude 3.7 / 3.5), OpenAI (GPT-4o, o3-mini), Google Gemini (Gemini 2.5 Pro / Flash), xAI (Grok 2).
+* **High-Throughput Cloud**: Groq, Cerebras, Together AI, Fireworks, OpenRouter, Mistral, Perplexity.
+* **Coding Providers**: GitHub Copilot, Cursor, GitLab Duo, Kimi, MiniMax, Qwen.
+* **Local & Private**: Ollama, LM Studio, llama.cpp, vLLM, LiteLLM.
 
-Anthropic · OpenAI · Google Gemini · xAI · Mistral · Groq · Cerebras · Fireworks · Together · NVIDIA · OpenRouter · Perplexity
+Features path-scoped model routing, fallback chains on HTTP 429 rate limits, and round-robin credential pools.
 
-### Coding Plans
+---
 
-Cursor · GitHub Copilot · GitLab Duo · Kimi Code · MiniMax · Alibaba · Qwen · Z.AI · Xiaomi MiMo
+## Architecture & Monorepo Packages
 
-### Local
+Aery is organized as a unified monorepo leveraging native Rust bindings via N-API:
 
-Ollama · LM Studio · llama.cpp · vLLM · LiteLLM
+| Package | Path | Responsibility |
+| :--- | :--- | :--- |
+| **`@aryee337/aery`** | [`packages/coding-agent`](packages/coding-agent) | Main CLI runtime, session orchestrator, interactive TUI, and subagent engine |
+| **`@aryee337/aery-tui`** | [`packages/tui`](packages/tui) | In-memory differential terminal UI engine with synchronized ANSI renderers |
+| **`@aryee337/aery-core`** | [`packages/agent`](packages/agent) | Agent loop state machine, tool dispatch lifecycle, and telemetry |
+| **`@aryee337/aery-ai`** | [`packages/ai`](packages/ai) | Multi-provider streaming LLM adapter with token estimation and rate-limit backoff |
+| **`@aryee337/aery-engine`** | [`packages/aery-engine`](packages/aery-engine) | High-performance N-API native bindings for tree-sitter AST, bash PTY, and regex |
+| **`@aryee337/aery-stats`** | [`packages/stats`](packages/stats) | Telemetry, memory tracking, and session performance diagnostics |
+| **`@aryee337/aery-utils`** | [`packages/utils`](packages/utils) | Shared file parsers, snowflake identifiers, and process abstractions |
 
-### Routing
+---
 
-- **Custom providers** — anything that speaks OpenAI or Anthropic compatible APIs
-- **Fallback chains** — per-role chains with automatic retry on 429s
-- **Path-scoped roles** — pin heavier models on specific repos
-- **Round-robin credentials** — stack API keys with session affinity
+## Community & Contributing
 
-[Provider reference →](https://aery.sh/docs/providers)
-
-## Extensibility
-
-### Extensions
-
-TypeScript modules with the same tool API, slash-command registry, and hotkey table the built-ins use. Nothing is reserved.
-
-```sh
-# Reload plugins
-/reload-plugins
-```
-
-### Rule inheritance
-
-On first run, Aery inherits rules from `.claude`, `.cursor`, `.windsurf`, `.gemini`, `.codex`, `.cline`, `.github/copilot`, and `.vscode`. No migration script.
-
-### Entry points
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| Interactive | `aery` | Full TUI with cards, previews, and permission prompts |
-| One-shot | `aery -p "prompt"` | Answer and exit |
-| SDK | `@aryee337/aery` | Embed in Node/TypeScript |
-| RPC | `aery --mode rpc` | Drive over stdio with NDJSON |
-| ACP | `aery acp` | Agent Client Protocol for editors |
-
-## Rust Core
-
-~27,000 lines of Rust doing the work other harnesses shell out for. Search, shell, AST, highlight, PTY, image decode, BPE counting — all in-process.
-
-| Module | What it does |
-|--------|-------------|
-| `shell` | Embedded bash · persistent sessions · timeout/abort |
-| `grep` | Regex search · parallel · glob & type filters |
-| `text` | ANSI-aware width · truncation · column slicing |
-| `ast` | ast-grep pattern matching and structural rewrites |
-| `highlight` | Syntax highlighting · 11 semantic categories |
-| `pty` | Native PTY allocation for sudo, ssh |
-| `glob` | Discovery with gitignore respect |
-| `tokens` | O200k / Cl100k BPE token counting |
-
-**Platforms:** `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `win32-x64`
-
-## Monorepo Packages
-
-| Package | Description |
-|---------|-------------|
-| [`@aryee337/aery`](packages/coding-agent) | Interactive coding agent CLI and SDK |
-| [`@aryee337/aery-ai`](packages/ai) | Multi-provider LLM client with streaming |
-| [`@aryee337/aery-core`](packages/agent) | Agent runtime with tool calling |
-| [`@aryee337/aery-tui`](packages/tui) | Terminal UI with differential rendering |
-| [`@aryee337/aery-engine`](packages/aery-engine) | N-API bindings for native operations |
-| [`@aryee337/aery-stats`](packages/stats) | Local observability dashboard |
-| [`@aryee337/aery-utils`](packages/utils) | Shared utilities |
-
-## Development
+* 💬 **Discord**: [Join our Discord community](https://discord.gg/4NMW9cdXZa)
+* 🐛 **Issues**: [GitHub Issue Tracker](https://github.com/eminent337/aery/issues)
+* 📖 **Documentation**: [aery.sh/docs](https://aery.sh/docs)
 
 ```sh
-git clone https://github.com/eminent337/aery && cd aery
-bun install
-bun run dev        # Start in development mode
-bun run check      # Type check
-bun run test       # Run tests
+# Run the test suite
+bun test
+
+# Type check across all packages
+bun run check
 ```
 
-See [DEVELOPMENT.md](packages/coding-agent/DEVELOPMENT.md) for architecture and contribution guidelines.
-
-## Community
-
-- [Discord](https://discord.gg/4NMW9cdXZa) — Ask questions, share feedback
-- [GitHub Issues](https://github.com/eminent337/aery/issues) — Bug reports, feature requests
-- [Changelog](https://github.com/eminent337/aery/blob/main/packages/coding-agent/CHANGELOG.md) — What changed
+---
 
 ## License
 
-MIT © 2026 [Aryee](https://github.com/eminent337)
-
----
+Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
 
 <p align="center">
-  <a href="https://aery.sh">aery.sh</a> · <a href="https://github.com/eminent337/aery">GitHub</a> · <a href="https://www.npmjs.com/package/@aryee337/aery">npm</a> · <a href="https://discord.gg/4NMW9cdXZa">Discord</a>
+  <sub>Built with ❤️ by Aryee and the open-source community.</sub>
 </p>

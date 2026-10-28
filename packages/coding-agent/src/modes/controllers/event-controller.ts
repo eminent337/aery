@@ -108,6 +108,10 @@ export class EventController {
 			},
 			goal_updated: async () => {},
 			session_indexed: async () => {},
+			session_compacted: async () => {
+				this.ctx.statusLine.invalidate();
+				this.ctx.ui.requestRender();
+			},
 		} satisfies AgentSessionEventHandlers;
 	}
 
