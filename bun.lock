@@ -19,7 +19,7 @@
     },
     "packages/aery-engine": {
       "name": "@aryee337/aery-engine",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "devDependencies": {
         "@napi-rs/cli": "catalog:",
         "@types/bun": "catalog:",
@@ -27,7 +27,7 @@
     },
     "packages/aery-extensions": {
       "name": "@aryee337/aery-extensions",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "dependencies": {
         "@aryee337/aery": "workspace:*",
         "@aryee337/aery-tui": "workspace:*",
@@ -46,14 +46,14 @@
     },
     "packages/aery-sdk": {
       "name": "@aryee337/aery-sdk",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "devDependencies": {
         "@types/bun": "catalog:",
       },
     },
     "packages/agent": {
       "name": "@aryee337/aery-core",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "dependencies": {
         "@aryee337/aery-ai": "workspace:*",
         "@aryee337/aery-engine": "workspace:*",
@@ -68,7 +68,7 @@
     },
     "packages/ai": {
       "name": "@aryee337/aery-ai",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "dependencies": {
         "@aryee337/aery-utils": "workspace:*",
         "@bufbuild/protobuf": "catalog:",
@@ -84,7 +84,7 @@
     },
     "packages/coding-agent": {
       "name": "@aryee337/aery",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "bin": {
         "aery": "src/cli.ts",
       },
@@ -141,7 +141,7 @@
     },
     "packages/grpc-server": {
       "name": "@aryee337/aery-grpc-server",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "dependencies": {
         "@aryee337/aery": "workspace:*",
         "@grpc/grpc-js": "^1.10.9",
@@ -153,7 +153,7 @@
     },
     "packages/hashline": {
       "name": "@aryee337/hashline",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "dependencies": {
         "diff": "catalog:",
         "lru-cache": "catalog:",
@@ -164,7 +164,7 @@
     },
     "packages/mnemopi": {
       "name": "@aryee337/aery-mnemopi",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "bin": {
         "mnemopi": "src/cli.ts",
       },
@@ -181,7 +181,7 @@
     },
     "packages/stats": {
       "name": "@aryee337/aery-stats",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "bin": {
         "aery-stats": "./src/index.ts",
       },
@@ -206,7 +206,7 @@
     },
     "packages/tui": {
       "name": "@aryee337/aery-tui",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "dependencies": {
         "@aryee337/aery-engine": "workspace:*",
         "@aryee337/aery-utils": "workspace:*",
@@ -247,7 +247,7 @@
     },
     "packages/utils": {
       "name": "@aryee337/aery-utils",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "dependencies": {
         "@aryee337/aery-engine": "workspace:*",
         "beautiful-mermaid": "catalog:",
@@ -261,7 +261,7 @@
     },
     "packages/vscode-extension": {
       "name": "aery-vscode",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "devDependencies": {
         "@types/node": "20.x",
         "@types/vscode": "^1.90.0",
@@ -1507,7 +1507,7 @@
 
     "string-width": ["string-width@8.3.0", "", { "dependencies": { "get-east-asian-width": "^1.5.0", "strip-ansi": "^7.1.2" } }, "sha512-ZbmZM0JCihQN91dWnxoipT2KOEyHqEyfRXUyjuRhW8b/xnqPDoq4gWEVApTVa9db2wN8mmoikgFBbjh71+cGeQ=="],
 
-    "string_decoder": ["string_decoder@1.1.1", "", { "dependencies": { "safe-buffer": "~5.1.0" } }, "sha512-n/ShnvDi6FHbbVfviro+WojiFzv+s8MPMHBczVePfUpDJLwoLT0ht1l4YwBCbi8pJAveEEdnkHyPyTP/mzRfwg=="],
+    "string_decoder": ["string_decoder@1.3.0", "", { "dependencies": { "safe-buffer": "~5.2.0" } }, "sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA=="],
 
     "strip-ansi": ["strip-ansi@7.2.0", "", { "dependencies": { "ansi-regex": "^6.2.2" } }, "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w=="],
 
@@ -1729,6 +1729,8 @@
 
     "rss-parser/entities": ["entities@2.2.0", "", {}, "sha512-p92if5Nz619I0w+akJrLZH0MX0Pb5DX39XOwQTtXSdQQOaYH03S1uIQp4mhOZtAXrxq4ViO67YTiLBo2638o9A=="],
 
+    "string_decoder/safe-buffer": ["safe-buffer@5.2.1", "", {}, "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ=="],
+
     "tar/minipass": ["minipass@5.0.0", "", {}, "sha512-3FnjYuehv9k6ovOEbyOswadCDPX1piCfhV8ncmYtHOjuPwylVWsghTLo7rabjC3Rx5xD4HDx8Wm1xnMF7S5qFQ=="],
 
     "wrap-ansi/string-width": ["string-width@7.2.0", "", { "dependencies": { "emoji-regex": "^10.3.0", "get-east-asian-width": "^1.0.0", "strip-ansi": "^7.1.0" } }, "sha512-tsaTIkKW9b4N+AEj+SVA+WhJzV7/zMhcSu78mLKWSk7cXMOSHsBKFWUs0fWwq8QyK3MgJBQRX6Gbi4kYbdvGkQ=="],
@@ -1786,6 +1788,8 @@
     "fastembed/onnxruntime-node/tar": ["tar@7.5.22", "", { "dependencies": { "@isaacs/fs-minipass": "^4.0.0", "chownr": "^3.0.0", "minipass": "^7.1.2", "minizlib": "^3.1.0", "yallist": "^5.0.0" } }, "sha512-MFO/QzvtAOmJbkhOaCTvbGcFN9L9b+JunIsDwaKljSOdcLMea3NJ1k9Usz/rjdfSXTq4dfzfeS7W4p4YOAAHeA=="],
 
     "htmlparser2/domutils/dom-serializer": ["dom-serializer@2.0.0", "", { "dependencies": { "domelementtype": "^2.3.0", "domhandler": "^5.0.2", "entities": "^4.2.0" } }, "sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg=="],
+
+    "jszip/readable-stream/string_decoder": ["string_decoder@1.1.1", "", { "dependencies": { "safe-buffer": "~5.1.0" } }, "sha512-n/ShnvDi6FHbbVfviro+WojiFzv+s8MPMHBczVePfUpDJLwoLT0ht1l4YwBCbi8pJAveEEdnkHyPyTP/mzRfwg=="],
 
     "onnx-proto/protobufjs/long": ["long@4.0.0", "", {}, "sha512-XsP+KhQif4bjX1kbuSiySJFNAehNxgLb6hPRGJ9QsUr8ajHkuXGdrHmFUTUUXhDwVX2R5bY4JNZEwbUiMhV+MA=="],
 
