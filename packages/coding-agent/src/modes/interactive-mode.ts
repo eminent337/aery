@@ -591,7 +591,14 @@ export class InteractiveMode implements InteractiveModeContext {
 			const sessions = this.#observerRegistry.getSessions();
 			const activeSubagents = sessions
 				.filter(s => s.kind === "subagent" && s.status === "active")
-				.map(s => ({ id: s.id, agent: s.agent || s.label, status: s.status }));
+				.map(s => ({
+					id: s.id,
+					agent: s.agent || s.label,
+					status: s.status,
+					currentTool: s.progress?.currentTool,
+					currentToolArgs: s.progress?.currentToolArgs,
+					lastIntent: s.progress?.lastIntent,
+				}));
 			this.statusLine.setActiveSubagents(activeSubagents);
 			this.statusLine.setSubagentCount(activeSubagents.length);
 			// Auto-checkmark todos whose matching subagent just succeeded, then

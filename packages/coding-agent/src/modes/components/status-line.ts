@@ -214,8 +214,18 @@ export class StatusLineComponent implements Component {
 		this.#subagentCount = count;
 	}
 
-	setActiveSubagents(subagents: Array<{ id: string; agent: string; status: string }>): void {
+	setActiveSubagents(
+		subagents: Array<{
+			id: string;
+			agent: string;
+			status: string;
+			currentTool?: string;
+			currentToolArgs?: string;
+			lastIntent?: string;
+		}>,
+	): void {
 		this.#activeSubagents = subagents;
+		this.invalidate();
 	}
 
 	setSessionStartTime(time: number): void {

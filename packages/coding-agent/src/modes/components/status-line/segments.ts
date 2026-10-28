@@ -301,8 +301,19 @@ const subagentsSegment: StatusLineSegment = {
 			return { content: "", visible: false };
 		}
 		const spinner = BRAILLE_FRAMES[Math.floor(Date.now() / 80) % BRAILLE_FRAMES.length];
-		const names = active.map(a => a.agent).join(", ");
-		const content = `${spinner} Running: ${names}`;
+		const details = active
+			.map(a => {
+				let action = "";
+				if (a.currentTool) {
+					const argsSummary = a.currentToolArgs ? ` ${a.currentToolArgs.replace(/\s+/g, " ").slice(0, 32)}` : "";
+					action = `: ${a.currentTool}${argsSummary}`;
+				} else if (a.lastIntent) {
+					action = `: ${a.lastIntent.replace(/\s+/g, " ").slice(0, 24)}`;
+				}
+				return `[${a.agent}]${action}`;
+			})
+			.join(" | ");
+		const content = `${spinner} ${details}`;
 		return { content: theme.fg("statusLineSubagents", content), visible: true };
 	},
 };
