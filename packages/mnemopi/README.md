@@ -55,11 +55,11 @@ const remoteLlm = new Mnemopi({
 });
 
 declare const smolModel: Model;
-const piAiLlm = new Mnemopi({ llm: smolModel });
+const aeryAiLlm = new Mnemopi({ llm: smolModel });
 const dynamicLlm = new Mnemopi({
 	llm: async (prompt, opts) => {
 		const token = await getFreshOauthToken();
-		return await completeWithPiAi(prompt, {
+		return await completeWithAeryAi(prompt, {
 			token,
 			maxTokens: opts?.maxTokens,
 			temperature: opts?.temperature,
