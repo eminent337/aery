@@ -1,20 +1,20 @@
 import { CameraWatchLoop } from "./camera-control";
-import { ObservationController, type ObservationSnapshot, type WindowRect } from "./live-observe";
 import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
-import { buildEyeGeometry, describeEyeTarget, shouldUseFocusedFrame, type EyeRegion } from "./live-eye";
-import { type OcrWordBox, ocrFrame } from "./screen-ocr";
-import { formatScrollReadDigest, normalizeOcrConfidence, scrollFrameQuality } from "./scroll-reading";
 import {
 	boundingBox,
+	type FrameRect,
 	frameRectToPhysical,
+	type HighlightRect,
 	highlightColor,
 	highlightOverlayScript,
 	layerGeometry,
 	mergeBands,
 	toBands,
-	type FrameRect,
-	type HighlightRect,
 } from "./eye-highlight";
+import { buildEyeGeometry, describeEyeTarget, type EyeRegion, shouldUseFocusedFrame } from "./live-eye";
+import { ObservationController, type ObservationSnapshot, type WindowRect } from "./live-observe";
+import { type OcrWordBox, ocrFrame } from "./screen-ocr";
+import { formatScrollReadDigest, normalizeOcrConfidence, scrollFrameQuality } from "./scroll-reading";
 /**
  * Desktop Control & Screen Vision Tool.
  *
@@ -39,19 +39,19 @@ import desktopControlDescription from "../prompts/tools/desktop-control.md" with
 import { execFileNiced, setGlideCaptureNice } from "./capture-priority";
 import type { ToolSession } from "./index";
 import {
+	ensureYdotoold,
 	frameAlignedGap,
 	frameMs,
 	frameToPhysical,
-	hyprMoveCursor,
 	hyprGlidePaced,
+	hyprMoveCursor,
 	type InputFrame,
 	type InputKind,
 	isDirectTypeable,
-	ensureYdotoold,
 	type LiveBackend,
 	probeBackends,
-	resolveBackendChain,
 	resolveBackend,
+	resolveBackendChain,
 	specToXdotoolArgs,
 	specToYdotoolEvents,
 	splitForEnterTyping,
@@ -69,8 +69,8 @@ import {
 	ydoClickButton,
 	ydoKeyEvents,
 	ydoMove,
-	ydoPageScroll,
 	ydoMoveRelative,
+	ydoPageScroll,
 } from "./live-input";
 import {
 	CLICK_CHOREOGRAPHY,
@@ -108,153 +108,169 @@ export interface ScreenshotResultDetails {
 	ocrError?: string;
 }
 
-const desktopControlSchema = z.object({
-	action: z
-		.enum([
-			"screenshot",
-			"list_windows",
-			"live_eye",
-			"highlight",
-			"focus_window",
-			"close_window",
-			"switch_workspace",
-			"launch_app",
-			"cursor_pos",
-			"live_mode_on",
-			"live_mode_off",
-			"live_mode_status",
-			"live_backend_probe",
-			"live_move",
-			"live_click",
-			"live_drag",
-			"live_type",
-			"live_key",
-			"live_scroll",
-			"system_control",
-			"xvfb_launch",
-			"xvfb_screenshot",
-			"xvfb_list_windows",
-			"xvfb_click",
-			"xvfb_drag",
-			"xvfb_type",
-			"xvfb_key",
-			"xvfb_project",
-			"xvfb_close",
-		])
-		.describe(
-			"Actions: 'live_eye' is your own eyes, exactly like a human's — look whenever you want to look, any time, any reason, no permission needed. A glance at the environment: active window, fullscreen, a window by name, or a physical-pixel region. When you want a specific app's TEXT rather than a survey of the whole screen, prefer a window target or pass focusFirst:true — a fullscreen read downscales the desktop, which garbles small windows' labels (measured 3/3 phrases in ~0.5s vs 2/3 in ~3.0s). Cost depends on your model: a vision-capable model gets pixels only and returns in about a second, but a visionless model needs OCR and takes a few seconds — pass ocr:false to skip OCR entirely when you only need to see layout. The glance attaches to your context as a hidden reading — OCR text on every visionless model, pixels + OCR on vision-capable models — and never renders in the transcript. Eye views are ephemeral: each glance sweeps the previous one from context, so glance freely and as often as you want. Other actions: 'screenshot' captures display/window and returns the frame inline in the result (visible), 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_project' streams that headless display onto the real desktop so the USER can watch and TYPE INTO it (use when a step needs them — a password, sudo, a passphrase, 2FA), 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
-		),
-	region: z
-		.object({
-			x: z.number().int().min(0).describe("Physical-screen X (top-left of crop)."),
-			y: z.number().int().min(0).describe("Physical-screen Y (top-left of crop)."),
-			w: z.number().int().min(1).describe("Crop width in physical px."),
-			h: z.number().int().min(1).describe("Crop height in physical px."),
-		})
-		.optional()
-		.describe(
-			"Physical-pixel rectangle for 'live_eye' — a crop of the ENTIRE desktop, independent of any window. The eye looks anywhere.",
-		),
-	views: z
-		.array(
-			z
-				.object({
-					target: z
-						.string()
-						.optional()
-						.describe("What to look at: 'fullscreen' (default), 'active_window', or a window title/class/address substring."),
-					region: z
-						.object({
-							x: z.number().int().min(0),
-							y: z.number().int().min(0),
-							w: z.number().int().min(1),
-							h: z.number().int().min(1),
-						})
-						.optional()
-						.describe("Physical-pixel crop of the ENTIRE desktop for this view (like top-level region)."),
-					label: z
-						.string()
-						.optional()
-						.describe("Short label for the reading header, e.g. 'fovea', 'tab strip', 'second monitor'."),
-				})
-				.refine(v => v.target || v.region, { message: "each view needs 'target' or 'region'" }),
-		)
-		.max(4)
-		.optional()
-		.describe(
-			"Multi-focus glance: 1-4 views in ONE call, like a human eye saccading between focus points while keeping the whole scene — e.g. [{target:'active_window'},{region:{x:0,y:0,w:600,h:400},label:'fovea'}] returns wide context + zoomed focus together. Each view gets its own anchored frame and clickable words; all readings arrive in one hidden steer. Views capture concurrently, so 2-4 views cost little more than one.",
-		),
-	command: z
-		.string()
-		.optional()
-		.describe(
-			"Application command or desktop binary to run for 'launch_app' or 'xvfb_launch' (e.g. 'brave', 'code', 'pavucontrol'). For 'xvfb_launch' you may append args and a URL (e.g. 'flatpak run com.brave.Browser https://example.com').",
-		),
-	url: z.string().optional().describe("URL to open with the app for 'xvfb_launch' (appended to command)."),
-	x: z
-		.number()
-		.int()
-		.optional()
-		.describe(
-			"X pixel coordinate — 'xvfb_click'/'xvfb_drag' frame (virtual display origin top-left) or 'live_click'/'live_drag'/'live_move' model-visible screenshot frame px. For 'xvfb_drag' this is the press (start) point.",
-		),
-	y: z.number().int().optional().describe("Y pixel coordinate — see 'x'."),
-	x2: z.number().int().optional().describe("End X pixel coordinate for 'live_drag' (same frame as 'x') or 'xvfb_drag' (same frame as 'x' — the release point)."),
-	y2: z.number().int().optional().describe("End Y pixel coordinate — see 'x2'."),
-	path: z
-		.array(
-			z.object({
-				x: z.number().int(),
-				y: z.number().int(),
-			}),
-		)
-		.min(2)
-		.max(64)
-		.optional()
-		.describe(
-			"For 'live_move': 2-64 waypoints traversed as ONE continuous, paced glide in a single call (frame px of the last eye/screenshot — same space as 'x'/'y'). Mutually exclusive with x/y. The pointer eases off the current position, keeps even speed ACROSS waypoints (no stop-and-start at each one), settles onto the final point, and is cursor-verified there (Δ≤2px). One focus/freshness guard and one verify frame for the whole journey.",
-		),
-	pace: z
-		.enum(["brisk", "natural", "deliberate"])
-		.optional()
-		.describe(
-			"Only with 'path' on 'live_move': how hard the continuous glide works. 'brisk' (shortest hops, tightest cap) for quick point-to-point hops, 'natural' (default — the shipped even, unhurried pace), 'deliberate' (slower ground speed, wider corner easing, longer cap) for careful tracing or when the user is watching. Every pace still eases off the start, turns smoothly through every waypoint, settles onto the final point, and is cursor-verified there (Δ≤2px).",
-		),
-	target2: z
-		.string()
-		.optional()
-		.describe("Optional end-anchor word for 'xvfb_drag' (resolved like 'target'); when present with 'target', drags word-to-word. Without it, 'target'+x2/y2 drags word-to-point."),
-	modifiers: z
-		.array(z.enum(["shift"]))
-		.max(1)
-		.optional()
-		.refine(modifiers => modifiers === undefined || modifiers.length > 0, {
-			message: "modifiers must contain 'shift' when present; use undefined for no modifiers.",
-		})
-		.describe("For 'live_drag' only: optional ['shift'] holds Shift before mouse down until after mouse up. Runtime rejects this field on every other action, including empty lists, before anything touches the desktop. No other modifiers or actions are supported."),
-	keys: z
-		.string()
-		.optional()
-		.describe(
-			"Text for 'xvfb_type'/'live_type' (literal text, newlines become Enter) or key spec for 'xvfb_key'/'live_key' (names like Return, Tab, ctrl+l, super+Return, space; multiple separated by spaces).",
-		),
-	button: z
-		.enum(["left", "right", "middle"])
-		.optional()
-		.describe("Mouse button for 'live_click'/'live_drag'/'xvfb_click'/'xvfb_drag' (default: left)."),
-	count: z
-		.number()
-		.int()
-		.min(1)
-		.max(20)
-		.optional()
-		.describe("Repeat count: 'live_click' double-click = 2; 'live_scroll' = wheel/Page steps (default: 1)."),
-	target: z
-		.string()
-		.optional()
-		.describe(
-			"Target selector, meaning depends on action: for 'live_click'/'live_move' it is click-target text matched against an OCR word from the last eye/screenshot (e.g. \"Compose\", \"Send\") and resolved to that word's frame-px center instead of raw x/y; for 'xvfb_click'/'xvfb_drag' it is a word from the last xvfb_screenshot reading ('target2' is the optional end anchor for 'xvfb_drag'); for 'live_eye'/'screenshot' it is what to look at ('fullscreen' — default for the eye — 'active_window', or a substring of a window title/class).",
-		),
+export type { InputFrame } from "./live-input";
+export type { OcrWordBox } from "./screen-ocr";
+
+const desktopControlSchema = z
+	.object({
+		action: z
+			.enum([
+				"screenshot",
+				"list_windows",
+				"live_eye",
+				"highlight",
+				"focus_window",
+				"close_window",
+				"switch_workspace",
+				"launch_app",
+				"cursor_pos",
+				"live_mode_on",
+				"live_mode_off",
+				"live_mode_status",
+				"live_backend_probe",
+				"live_move",
+				"live_click",
+				"live_drag",
+				"live_type",
+				"live_key",
+				"live_scroll",
+				"system_control",
+				"xvfb_launch",
+				"xvfb_screenshot",
+				"xvfb_list_windows",
+				"xvfb_click",
+				"xvfb_drag",
+				"xvfb_type",
+				"xvfb_key",
+				"xvfb_project",
+				"xvfb_close",
+			])
+			.describe(
+				"Actions: 'live_eye' is your own eyes, exactly like a human's — look whenever you want to look, any time, any reason, no permission needed. A glance at the environment: active window, fullscreen, a window by name, or a physical-pixel region. When you want a specific app's TEXT rather than a survey of the whole screen, prefer a window target or pass focusFirst:true — a fullscreen read downscales the desktop, which garbles small windows' labels (measured 3/3 phrases in ~0.5s vs 2/3 in ~3.0s). Cost depends on your model: a vision-capable model gets pixels only and returns in about a second, but a visionless model needs OCR and takes a few seconds — pass ocr:false to skip OCR entirely when you only need to see layout. The glance attaches to your context as a hidden reading — OCR text on every visionless model, pixels + OCR on vision-capable models — and never renders in the transcript. Eye views are ephemeral: each glance sweeps the previous one from context, so glance freely and as often as you want. Other actions: 'screenshot' captures display/window and returns the frame inline in the result (visible), 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_project' streams that headless display onto the real desktop so the USER can watch and TYPE INTO it (use when a step needs them — a password, sudo, a passphrase, 2FA), 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
+			),
+		region: z
+			.object({
+				x: z.number().int().min(0).describe("Physical-screen X (top-left of crop)."),
+				y: z.number().int().min(0).describe("Physical-screen Y (top-left of crop)."),
+				w: z.number().int().min(1).describe("Crop width in physical px."),
+				h: z.number().int().min(1).describe("Crop height in physical px."),
+			})
+			.optional()
+			.describe(
+				"Physical-pixel rectangle for 'live_eye' — a crop of the ENTIRE desktop, independent of any window. The eye looks anywhere.",
+			),
+		views: z
+			.array(
+				z
+					.object({
+						target: z
+							.string()
+							.optional()
+							.describe(
+								"What to look at: 'fullscreen' (default), 'active_window', or a window title/class/address substring.",
+							),
+						region: z
+							.object({
+								x: z.number().int().min(0),
+								y: z.number().int().min(0),
+								w: z.number().int().min(1),
+								h: z.number().int().min(1),
+							})
+							.optional()
+							.describe("Physical-pixel crop of the ENTIRE desktop for this view (like top-level region)."),
+						label: z
+							.string()
+							.optional()
+							.describe("Short label for the reading header, e.g. 'fovea', 'tab strip', 'second monitor'."),
+					})
+					.refine(v => v.target || v.region, { message: "each view needs 'target' or 'region'" }),
+			)
+			.max(4)
+			.optional()
+			.describe(
+				"Multi-focus glance: 1-4 views in ONE call, like a human eye saccading between focus points while keeping the whole scene — e.g. [{target:'active_window'},{region:{x:0,y:0,w:600,h:400},label:'fovea'}] returns wide context + zoomed focus together. Each view gets its own anchored frame and clickable words; all readings arrive in one hidden steer. Views capture concurrently, so 2-4 views cost little more than one.",
+			),
+		command: z
+			.string()
+			.optional()
+			.describe(
+				"Application command or desktop binary to run for 'launch_app' or 'xvfb_launch' (e.g. 'brave', 'code', 'pavucontrol'). For 'xvfb_launch' you may append args and a URL (e.g. 'flatpak run com.brave.Browser https://example.com').",
+			),
+		url: z.string().optional().describe("URL to open with the app for 'xvfb_launch' (appended to command)."),
+		x: z
+			.number()
+			.int()
+			.optional()
+			.describe(
+				"X pixel coordinate — 'xvfb_click'/'xvfb_drag' frame (virtual display origin top-left) or 'live_click'/'live_drag'/'live_move' model-visible screenshot frame px. For 'xvfb_drag' this is the press (start) point.",
+			),
+		y: z.number().int().optional().describe("Y pixel coordinate — see 'x'."),
+		x2: z
+			.number()
+			.int()
+			.optional()
+			.describe(
+				"End X pixel coordinate for 'live_drag' (same frame as 'x') or 'xvfb_drag' (same frame as 'x' — the release point).",
+			),
+		y2: z.number().int().optional().describe("End Y pixel coordinate — see 'x2'."),
+		path: z
+			.array(
+				z.object({
+					x: z.number().int(),
+					y: z.number().int(),
+				}),
+			)
+			.min(2)
+			.max(64)
+			.optional()
+			.describe(
+				"For 'live_move': 2-64 waypoints traversed as ONE continuous, paced glide in a single call (frame px of the last eye/screenshot — same space as 'x'/'y'). Mutually exclusive with x/y. The pointer eases off the current position, keeps even speed ACROSS waypoints (no stop-and-start at each one), settles onto the final point, and is cursor-verified there (Δ≤2px). One focus/freshness guard and one verify frame for the whole journey.",
+			),
+		pace: z
+			.enum(["brisk", "natural", "deliberate"])
+			.optional()
+			.describe(
+				"Only with 'path' on 'live_move': how hard the continuous glide works. 'brisk' (shortest hops, tightest cap) for quick point-to-point hops, 'natural' (default — the shipped even, unhurried pace), 'deliberate' (slower ground speed, wider corner easing, longer cap) for careful tracing or when the user is watching. Every pace still eases off the start, turns smoothly through every waypoint, settles onto the final point, and is cursor-verified there (Δ≤2px).",
+			),
+		target2: z
+			.string()
+			.optional()
+			.describe(
+				"Optional end-anchor word for 'xvfb_drag' (resolved like 'target'); when present with 'target', drags word-to-word. Without it, 'target'+x2/y2 drags word-to-point.",
+			),
+		modifiers: z
+			.array(z.enum(["shift"]))
+			.max(1)
+			.optional()
+			.refine(modifiers => modifiers === undefined || modifiers.length > 0, {
+				message: "modifiers must contain 'shift' when present; use undefined for no modifiers.",
+			})
+			.describe(
+				"For 'live_drag' only: optional ['shift'] holds Shift before mouse down until after mouse up. Runtime rejects this field on every other action, including empty lists, before anything touches the desktop. No other modifiers or actions are supported.",
+			),
+		keys: z
+			.string()
+			.optional()
+			.describe(
+				"Text for 'xvfb_type'/'live_type' (literal text, newlines become Enter) or key spec for 'xvfb_key'/'live_key' (names like Return, Tab, ctrl+l, super+Return, space; multiple separated by spaces).",
+			),
+		button: z
+			.enum(["left", "right", "middle"])
+			.optional()
+			.describe("Mouse button for 'live_click'/'live_drag'/'xvfb_click'/'xvfb_drag' (default: left)."),
+		count: z
+			.number()
+			.int()
+			.min(1)
+			.max(20)
+			.optional()
+			.describe("Repeat count: 'live_click' double-click = 2; 'live_scroll' = wheel/Page steps (default: 1)."),
+		target: z
+			.string()
+			.optional()
+			.describe(
+				"Target selector, meaning depends on action: for 'live_click'/'live_move' it is click-target text matched against an OCR word from the last eye/screenshot (e.g. \"Compose\", \"Send\") and resolved to that word's frame-px center instead of raw x/y; for 'xvfb_click'/'xvfb_drag' it is a word from the last xvfb_screenshot reading ('target2' is the optional end anchor for 'xvfb_drag'); for 'live_eye'/'screenshot' it is what to look at ('fullscreen' — default for the eye — 'active_window', or a substring of a window title/class).",
+			),
 		steps: z
 			.array(
 				z.object({
@@ -292,123 +308,140 @@ const desktopControlSchema = z.object({
 			.describe(
 				"For 'live_click' only: perform SEVERAL distinct clicks in ONE call, in order, instead of one click per call. Each entry clicks one place (a 'target' word OR an 'x'/'y' pair — never neither, never both) and may set its own button/count/settleMs. Mutually exclusive with the scalar 'target'/'x'/'y'. The whole plan is validated BEFORE any click is injected, then steps run in order and the FIRST failure stops the rest. The result names the failing step index and whether the cause is transient (retry) or permanent (re-aim). IMPORTANT: all steps must belong to the SAME screen. Word targets are resolved against the reading you last took, and a batch does NOT re-observe between steps — so a step that depends on an earlier step's effect (clicking a menu item that only exists after opening the menu) will not resolve. For those, take a fresh eye first. Use batches for several independent controls on one screen, then re-eye to confirm the result.",
 			),
-	direction: z
-		.enum(["up", "down"])
-		.optional()
-		.describe(
-			"Scroll direction for 'live_scroll' (default: down). Native Wayland wheel needs uinput REL_WHEEL which ydotool does not expose — 'live_scroll' on a native window emulates Page_Up/Page_Down.",
-		),
-	scrollSpeed: z
-		.enum(["slow", "normal", "fast"])
-		.optional()
-		.describe(
-			"Reading cadence for a 'live_scroll' burst (default: normal). Sets the inter-step pause so the eye can read while the view moves: slow ≈600ms for reading along, normal ≈250ms, fast ≈80ms for covering ground. Each step still re-checks the exact focused-window address before injecting.",
-		),
-	observeDuringScroll: z
-		.boolean()
-		.optional()
-		.describe(
-			"Sample a cheap change fingerprint between 'live_scroll' steps and report per-step progress in details.scroll.samples (default: true). No full settle wait is forced between steps; the burst keeps moving while observations stream.",
-		),
-	verify: z
-		.boolean()
-		.optional()
-		.describe(
-			"Take a follow-up screenshot after the live action (default: true) so the model self-corrects. The capture is delivered to the model as a hidden attachment (OCR text for visionless models, pixels+OCR for vision-capable ones) — the visible tool result stays a one-liner. Set false to skip the extra capture.",
-		),
-	preAuthorize: z
-		.array(z.enum(["live_move", "live_click", "live_drag", "live_type", "live_key", "live_scroll"]))
-		.optional()
-		.describe(
-			"For 'live_mode_on': pre-authorize these live input kinds NOW (skip the first-use approval prompt for them this session). Use when you know the automation flow ahead (e.g. [\"live_click\",\"live_type\",\"live_key\"]) so multi-step app driving doesn't deadlock on a mid-flow prompt. Only these six injection kinds are accepted.",
-		),
-	query: z.string().optional().describe("Window address, title, or class query for 'focus_window' or 'close_window'."),
-	mode: z
-		.enum(["start", "stop", "status"])
-		.optional()
-		.describe(
-			"For 'xvfb_project': 'start' (default) begins projecting the headless display to the real desktop; 'stop' ends it; 'status' reports whether a projection is live.",
-		),
-	workspace: z.string().optional().describe("Workspace identifier for 'switch_workspace' (e.g. '1', '2', 'special')."),
-	subAction: z
-		.enum([
-			"volume_up",
-			"volume_down",
-			"set_volume",
-			"mute",
-			"unmute",
-			"play_pause",
-			"next_track",
-			"prev_track",
-			"lock_screen",
-			"set_brightness",
-			"web_search",
-		])
-		.optional()
-		.describe("Sub-action for 'system_control'."),
-	value: z.number().optional().describe("Numeric value for volume (0-100) or brightness (0-100)."),
-	platform: z
-		.enum(["google", "youtube", "github", "reddit", "stackoverflow", "wikipedia"])
-		.optional()
-		.describe("Search platform for 'web_search' sub-action (default: google)."),
-	maxWidth: z.number().int().optional().describe("Max pixel width for vision downscaling (default: 1280)."),
-	maxHeight: z.number().int().optional().describe("Max pixel height for vision downscaling (default: 800)."),
-	includeBase64: z
-		.boolean()
-		.optional()
-		.describe("Whether to return base64 encoded image in result for inline model vision (default: true)."),
-	ocr: z
-		.boolean()
-		.optional()
-		.describe(
-			"Extract on-screen text with tesseract OCR and attach it as the hidden reading (text-only on visionless models, alongside pixels on vision-capable ones). Defaults to true when the active model cannot see images, false otherwise. Pass false explicitly to skip the ~0.3-2s OCR cost (visionless models then get no reading).",
-		),
-	ocrLang: z
-		.string()
-		.optional()
-		.describe("Tesseract language for 'ocr' (default: 'eng'; requires the language pack in /usr/share/tessdata)."),
-	textOnly: z
-		.boolean()
-		.optional()
-		.describe(
-			"For 'live_eye': skip the base64 image read entirely and return OCR text + clickTargets only (child-process drives read words, not pixels). Cuts ~100-300ms of PNG read/encode per glance.",
-		),
-	focusFirst: z
-		.boolean()
-		.optional()
-		.describe(
-			"For 'live_eye': when a view targets 'fullscreen' but a window is focused, read THAT window's frame instead — a tight crop keeps small windows' text at native scale, so OCR recovers labels a whole-desktop read garbles (measured: 3/3 phrases in ~0.5s vs 2/3 in ~3.0s for a 540x472 dialog on a 1920x1080 desktop). Default false, which captures the whole display. Opt in when you care about a specific app's text; the returned frame and clickTargets are then that window's, and the reading header says so.",
-		),
-	highlight: z
-		.object({
-			targets: z
-				.array(z.string())
-				.optional()
-				.describe("Words from the last eye/screenshot reading to highlight (resolved like live_click target)."),
-			regions: z
-				.array(
-					z.object({
-						x: z.number().int().min(0).describe("Frame px left."),
-						y: z.number().int().min(0).describe("Frame px top."),
-						w: z.number().int().min(1).describe("Frame px width."),
-						h: z.number().int().min(1).describe("Frame px height."),
-					}),
-				)
-				.optional()
-				.describe("Raw frame-px rectangles to highlight (from the last reading's frames)."),
-			color: z.enum(["yellow", "amber", "green", "cyan", "pink", "blue", "red"]).optional().describe("Marker color (default yellow — the classic highlighter)."),
-			style: z
-				.enum(["highlighter", "box"])
-				.optional()
-				.describe("highlighter (default) = solid translucent band painted over the words, like a felt-tip or a text selection. box = hollow outline around the region."),
-			ms: z.number().int().min(300).max(30000).optional().describe("How long the mark stays before it dissolves, in ms (default 3000)."),
-			width: z.number().int().min(1).max(20).optional().describe("Line width in px for style=box (default 4)."),
-		})
-		.optional()
-		.describe(
-			"For 'highlight': what to point at — the eye's laser pointer. Words resolved from the last reading's click targets, or raw frame-px regions. Painted on a click-through overlay that dissolves after `ms` (highlighter band by default, or a box outline).",
-		),
-})
+		direction: z
+			.enum(["up", "down"])
+			.optional()
+			.describe(
+				"Scroll direction for 'live_scroll' (default: down). Native Wayland wheel needs uinput REL_WHEEL which ydotool does not expose — 'live_scroll' on a native window emulates Page_Up/Page_Down.",
+			),
+		scrollSpeed: z
+			.enum(["slow", "normal", "fast"])
+			.optional()
+			.describe(
+				"Reading cadence for a 'live_scroll' burst (default: normal). Sets the inter-step pause so the eye can read while the view moves: slow ≈600ms for reading along, normal ≈250ms, fast ≈80ms for covering ground. Each step still re-checks the exact focused-window address before injecting.",
+			),
+		observeDuringScroll: z
+			.boolean()
+			.optional()
+			.describe(
+				"Sample a cheap change fingerprint between 'live_scroll' steps and report per-step progress in details.scroll.samples (default: true). No full settle wait is forced between steps; the burst keeps moving while observations stream.",
+			),
+		verify: z
+			.boolean()
+			.optional()
+			.describe(
+				"Take a follow-up screenshot after the live action (default: true) so the model self-corrects. The capture is delivered to the model as a hidden attachment (OCR text for visionless models, pixels+OCR for vision-capable ones) — the visible tool result stays a one-liner. Set false to skip the extra capture.",
+			),
+		preAuthorize: z
+			.array(z.enum(["live_move", "live_click", "live_drag", "live_type", "live_key", "live_scroll"]))
+			.optional()
+			.describe(
+				'For \'live_mode_on\': pre-authorize these live input kinds NOW (skip the first-use approval prompt for them this session). Use when you know the automation flow ahead (e.g. ["live_click","live_type","live_key"]) so multi-step app driving doesn\'t deadlock on a mid-flow prompt. Only these six injection kinds are accepted.',
+			),
+		query: z
+			.string()
+			.optional()
+			.describe("Window address, title, or class query for 'focus_window' or 'close_window'."),
+		mode: z
+			.enum(["start", "stop", "status"])
+			.optional()
+			.describe(
+				"For 'xvfb_project': 'start' (default) begins projecting the headless display to the real desktop; 'stop' ends it; 'status' reports whether a projection is live.",
+			),
+		workspace: z
+			.string()
+			.optional()
+			.describe("Workspace identifier for 'switch_workspace' (e.g. '1', '2', 'special')."),
+		subAction: z
+			.enum([
+				"volume_up",
+				"volume_down",
+				"set_volume",
+				"mute",
+				"unmute",
+				"play_pause",
+				"next_track",
+				"prev_track",
+				"lock_screen",
+				"set_brightness",
+				"web_search",
+			])
+			.optional()
+			.describe("Sub-action for 'system_control'."),
+		value: z.number().optional().describe("Numeric value for volume (0-100) or brightness (0-100)."),
+		platform: z
+			.enum(["google", "youtube", "github", "reddit", "stackoverflow", "wikipedia"])
+			.optional()
+			.describe("Search platform for 'web_search' sub-action (default: google)."),
+		maxWidth: z.number().int().optional().describe("Max pixel width for vision downscaling (default: 1280)."),
+		maxHeight: z.number().int().optional().describe("Max pixel height for vision downscaling (default: 800)."),
+		includeBase64: z
+			.boolean()
+			.optional()
+			.describe("Whether to return base64 encoded image in result for inline model vision (default: true)."),
+		ocr: z
+			.boolean()
+			.optional()
+			.describe(
+				"Extract on-screen text with tesseract OCR and attach it as the hidden reading (text-only on visionless models, alongside pixels on vision-capable ones). Defaults to true when the active model cannot see images, false otherwise. Pass false explicitly to skip the ~0.3-2s OCR cost (visionless models then get no reading).",
+			),
+		ocrLang: z
+			.string()
+			.optional()
+			.describe("Tesseract language for 'ocr' (default: 'eng'; requires the language pack in /usr/share/tessdata)."),
+		textOnly: z
+			.boolean()
+			.optional()
+			.describe(
+				"For 'live_eye': skip the base64 image read entirely and return OCR text + clickTargets only (child-process drives read words, not pixels). Cuts ~100-300ms of PNG read/encode per glance.",
+			),
+		focusFirst: z
+			.boolean()
+			.optional()
+			.describe(
+				"For 'live_eye': when a view targets 'fullscreen' but a window is focused, read THAT window's frame instead — a tight crop keeps small windows' text at native scale, so OCR recovers labels a whole-desktop read garbles. Defaults to true (focus-first), capturing the active focused window when present and falling back cleanly to fullscreen when no window is active or when focusFirst:false is passed.",
+			),
+		highlight: z
+			.object({
+				targets: z
+					.array(z.string())
+					.optional()
+					.describe("Words from the last eye/screenshot reading to highlight (resolved like live_click target)."),
+				regions: z
+					.array(
+						z.object({
+							x: z.number().int().min(0).describe("Frame px left."),
+							y: z.number().int().min(0).describe("Frame px top."),
+							w: z.number().int().min(1).describe("Frame px width."),
+							h: z.number().int().min(1).describe("Frame px height."),
+						}),
+					)
+					.optional()
+					.describe("Raw frame-px rectangles to highlight (from the last reading's frames)."),
+				color: z
+					.enum(["yellow", "amber", "green", "cyan", "pink", "blue", "red"])
+					.optional()
+					.describe("Marker color (default yellow — the classic highlighter)."),
+				style: z
+					.enum(["highlighter", "box"])
+					.optional()
+					.describe(
+						"highlighter (default) = solid translucent band painted over the words, like a felt-tip or a text selection. box = hollow outline around the region.",
+					),
+				ms: z
+					.number()
+					.int()
+					.min(300)
+					.max(30000)
+					.optional()
+					.describe("How long the mark stays before it dissolves, in ms (default 3000)."),
+				width: z.number().int().min(1).max(20).optional().describe("Line width in px for style=box (default 4)."),
+			})
+			.optional()
+			.describe(
+				"For 'highlight': what to point at — the eye's laser pointer. Words resolved from the last reading's click targets, or raw frame-px regions. Painted on a click-through overlay that dissolves after `ms` (highlighter band by default, or a box outline).",
+			),
+	})
 	.superRefine((params, ctx) => {
 		if (params.action !== "live_drag" && params.modifiers !== undefined) {
 			ctx.addIssue({
@@ -419,20 +452,40 @@ const desktopControlSchema = z.object({
 		}
 		if (params.path !== undefined) {
 			if (params.action !== "live_move") {
-				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["path"], message: "path is supported only for live_move." });
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["path"],
+					message: "path is supported only for live_move.",
+				});
 			}
 			if (params.x !== undefined || params.y !== undefined) {
-				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["path"], message: "pass either path or x/y, not both." });
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["path"],
+					message: "pass either path or x/y, not both.",
+				});
 			}
 			if (params.target !== undefined) {
-				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["path"], message: "pass either path or target, not both." });
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["path"],
+					message: "pass either path or target, not both.",
+				});
 			}
 		}
 		if (params.pace !== undefined) {
 			if (params.path === undefined) {
-				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pace"], message: "pace is supported only together with path." });
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["pace"],
+					message: "pace is supported only together with path.",
+				});
 			} else if (params.action !== "live_move") {
-				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pace"], message: "pace is supported only for live_move." });
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["pace"],
+					message: "pace is supported only for live_move.",
+				});
 			}
 		}
 		if (params.steps !== undefined) {
@@ -773,10 +826,14 @@ export async function xvfbCompositeWindows(rootPath: string, windows: XvfbMapped
 			const brightness = Number(wmean.stdout);
 			if (!Number.isFinite(brightness) || brightness <= 0.001) continue;
 			const flatWin = path.join(os.tmpdir(), `aerys-xvfb-winflat-${Date.now()}-${w.id}.png`);
-			const flatRes = await runCmd("convert", [winPath, "-background", "white", "-alpha", "remove", "-alpha", "off", flatWin], {
-				env: xvfbEnv(),
-				timeout: 15_000,
-			});
+			const flatRes = await runCmd(
+				"convert",
+				[winPath, "-background", "white", "-alpha", "remove", "-alpha", "off", flatWin],
+				{
+					env: xvfbEnv(),
+					timeout: 15_000,
+				},
+			);
 			if (flatRes.code !== 0 || !fs.existsSync(flatWin)) continue;
 			// Clamp the paste origin so offscreen windows cannot corrupt the stack.
 			const px = Math.max(0, Math.min(w.x, physW - 1));
@@ -848,7 +905,11 @@ export async function xvfbKeyboardTarget(): Promise<{ id: string; viaActiveWindo
 	if (active) return { id: active, viaActiveWindow: true };
 	const mouse = await runCmd("xdotool", ["getmouselocation", "--shell"], { env: xvfbEnv() });
 	if (mouse.code === 0) {
-		const underPointer = mouse.stdout.split("\n").find(l => l.startsWith("WINDOW="))?.slice(7).trim();
+		const underPointer = mouse.stdout
+			.split("\n")
+			.find(l => l.startsWith("WINDOW="))
+			?.slice(7)
+			.trim();
 		// The bare root window has no name; a nameless window is not app input.
 		if (underPointer && underPointer !== "0") {
 			const name = await runCmd("xdotool", ["getwindowname", underPointer], { env: xvfbEnv() });
@@ -1034,11 +1095,7 @@ export async function xvfbContentCrop(
 	const geo = await runCmd("convert", [imgPath, "-fuzz", `${fuzz}%`, "-trim", "-format", "%w %h %X %Y", "info:"]);
 	if (geo.code !== 0) return null;
 	// ImageMagick reports the offset as "+X+Y" with a leading sign.
-	const parts = geo.stdout
-		.trim()
-		.replace(/[+-]/g, " ")
-		.split(/\s+/)
-		.map(Number);
+	const parts = geo.stdout.trim().replace(/[+-]/g, " ").split(/\s+/).map(Number);
 	if (parts.length !== 4 || !parts.every(Number.isFinite)) return null;
 	const [cw, ch, cx, cy] = parts as [number, number, number, number];
 	// Degenerate trims say "nothing to rescue": a blank canvas trims to
@@ -1186,9 +1243,7 @@ export async function headlessEyeRead(opts: {
 			// covered (same text, near-identical box).
 			const merged = [...(ocr.words ?? [])];
 			for (const w of folded) {
-				const dup = merged.some(
-					m => m.text === w.text && Math.abs(m.x - w.x) <= 6 && Math.abs(m.y - w.y) <= 6,
-				);
+				const dup = merged.some(m => m.text === w.text && Math.abs(m.x - w.x) <= 6 && Math.abs(m.y - w.y) <= 6);
 				if (!dup) merged.push(w);
 			}
 			const primary = (ocr.text ?? "").replace(/\s+/g, "").length;
@@ -1302,7 +1357,6 @@ export function buildXvfbTypeArgs(text: string, windowId?: string): string[] {
 export function buildXvfbKeyArgs(keys: string, windowId?: string): string[] {
 	return windowId ? ["windowfocus", "--sync", windowId, "key", keys] : ["key", keys];
 }
-
 
 /** Window listing via the platform driver (Hyprland native, X11, …). */
 async function getDriverWindows(): Promise<DesktopWindowInfo[]> {
@@ -1494,7 +1548,17 @@ let lastStep: string | undefined;
  *  repeat count are folded in so a double-click isn't a repeat of a click. */
 export function driveLoopStepKey(
 	action: string,
-	p: { target?: string; keys?: string; x?: number; y?: number; x2?: number; y2?: number; direction?: string; button?: string; count?: number },
+	p: {
+		target?: string;
+		keys?: string;
+		x?: number;
+		y?: number;
+		x2?: number;
+		y2?: number;
+		direction?: string;
+		button?: string;
+		count?: number;
+	},
 ): string {
 	const bits = [action];
 	if (p.target) bits.push(`t:${p.target}`);
@@ -1551,7 +1615,12 @@ export function driveLoopAbortReason(incomingStep?: string): string | null {
 		return `aborted: ${driveLoop.consecutiveFailures} consecutive failures (limit ${DRIVE_LOOP_MAX_FAILURES}) — re-eye and re-plan, do not retry the same step`;
 	}
 	const sameStep = incomingStep === undefined || incomingStep === lastStep;
-	if (sameStep && driveLoop.lastAction !== "live_scroll" && driveLoop.repeatCount >= DRIVE_LOOP_MAX_REPEATS && driveLoop.lastAction) {
+	if (
+		sameStep &&
+		driveLoop.lastAction !== "live_scroll" &&
+		driveLoop.repeatCount >= DRIVE_LOOP_MAX_REPEATS &&
+		driveLoop.lastAction
+	) {
 		return `aborted: "${driveLoop.lastAction}" repeated ${driveLoop.repeatCount}x on the same step (limit ${DRIVE_LOOP_MAX_REPEATS}) — the step isn't working, try another way`;
 	}
 	if (sameStep && driveLoop.scrollCount >= DRIVE_LOOP_MAX_SCROLLS) {
@@ -1607,7 +1676,6 @@ let lastFramePath: string | null = null;
 /** The last capture explicitly opted out of OCR (ocr:false) — its words are
  *  deliberately unread, so lazy target hydration must not re-OCR it. */
 let lastCaptureOcrOptOut = false;
-
 
 /** Record the coordinate frame of a finished capture (window or fullscreen).
  *  `geometry` is the grim-style "X,Y WxH" crop string; when the capture was a
@@ -1799,7 +1867,10 @@ export async function convergeCursorLanding(
  * (fast start, gentle landing, like a hand decelerating onto a target); the
  * final waypoint is always exactly `to`. Pure — exported for tests.
  */
-export function liveAimGlide(from: { x: number; y: number }, to: { x: number; y: number }): Array<{ x: number; y: number }> {
+export function liveAimGlide(
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+): Array<{ x: number; y: number }> {
 	const dx = to.x - from.x;
 	const dy = to.y - from.y;
 	const dist = Math.hypot(dx, dy);
@@ -1808,7 +1879,7 @@ export function liveAimGlide(from: { x: number; y: number }, to: { x: number; y:
 	const pts: Array<{ x: number; y: number }> = [];
 	for (let i = 1; i <= n; i++) {
 		// easeOutCubic: covers ground fast, then settles onto the target.
-		const t = 1 - Math.pow(1 - i / n, 3);
+		const t = 1 - (1 - i / n) ** 3;
 		pts.push({ x: Math.round(from.x + dx * t), y: Math.round(from.y + dy * t) });
 	}
 	// Rounding can duplicate the final waypoint — collapse it.
@@ -1843,7 +1914,7 @@ function catmullRomPoint(
 	t: number,
 ): { x: number; y: number } {
 	const knot = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
-		Math.pow(Math.hypot(b.x - a.x, b.y - a.y), 0.5) || 1e-6;
+		Math.hypot(b.x - a.x, b.y - a.y) ** 0.5 || 1e-6;
 	const t0 = 0;
 	const t1 = t0 + knot(p0, p1);
 	const t2 = t1 + knot(p1, p2);
@@ -2102,55 +2173,55 @@ export function livePathTrajectory(
 			arcs.push(s); // exact waypoint sample — never cut, never skip
 		}
 		arcs.sort((a, b) => a - b);
-	// Subdivide arc steps that would render a hop beyond the bound: the
-	// smootherstep warp's 1.875× mid-run peak (the old cubic peaked at 1.5×,
-	// which the 1.5× base density absorbed exactly) would otherwise emit a
-	// ~1.25×hopPx jump at full speed — "a corner sweep must not turn into a
-	// jump". Halving in ARC space needs no extra geometry (atArc renders it)
-	// and only touches the fast middle, so the dwell budget barely moves.
-	let sub = 1;
-	while (sub < arcs.length) {
-		const a = arcs[sub - 1]!;
-		const b = arcs[sub]!;
-		if (b - a > hopPx) arcs.splice(sub, 0, (a + b) / 2);
-		else sub++;
-	}
-	// Desubdivide the warp's slow ends back out: smootherstep packs samples
-	// where speed is already low (steps far below hopPx), and those tiny hops
-	// are wasted budget. Merging them pairwise — never past hopPx, never
-	// touching a waypoint/cluster anchor — pays for the peak-zone splits
-	// above, so the total hop count stays near the old density and the
-	// budget ladder never has to gut the taper or the cadence to fit.
-	const isAnchor = (s: number): boolean => s === 0 || s === total || interior.some(v => Math.abs(s - v) < 1e-9);
-	let m = 1;
-	while (m < arcs.length - 1) {
-		const a = arcs[m - 1]!;
-		const b = arcs[m]!;
-		const c = arcs[m + 1]!;
-		if (b - a < hopPx * 0.75 && !isAnchor(b) && c - a <= hopPx) {
-			arcs.splice(m, 1);
-		} else {
-			m++;
+		// Subdivide arc steps that would render a hop beyond the bound: the
+		// smootherstep warp's 1.875× mid-run peak (the old cubic peaked at 1.5×,
+		// which the 1.5× base density absorbed exactly) would otherwise emit a
+		// ~1.25×hopPx jump at full speed — "a corner sweep must not turn into a
+		// jump". Halving in ARC space needs no extra geometry (atArc renders it)
+		// and only touches the fast middle, so the dwell budget barely moves.
+		let sub = 1;
+		while (sub < arcs.length) {
+			const a = arcs[sub - 1]!;
+			const b = arcs[sub]!;
+			if (b - a > hopPx) arcs.splice(sub, 0, (a + b) / 2);
+			else sub++;
 		}
-	}
+		// Desubdivide the warp's slow ends back out: smootherstep packs samples
+		// where speed is already low (steps far below hopPx), and those tiny hops
+		// are wasted budget. Merging them pairwise — never past hopPx, never
+		// touching a waypoint/cluster anchor — pays for the peak-zone splits
+		// above, so the total hop count stays near the old density and the
+		// budget ladder never has to gut the taper or the cadence to fit.
+		const isAnchor = (s: number): boolean => s === 0 || s === total || interior.some(v => Math.abs(s - v) < 1e-9);
+		let m = 1;
+		while (m < arcs.length - 1) {
+			const a = arcs[m - 1]!;
+			const b = arcs[m]!;
+			const c = arcs[m + 1]!;
+			if (b - a < hopPx * 0.75 && !isAnchor(b) && c - a <= hopPx) {
+				arcs.splice(m, 1);
+			} else {
+				m++;
+			}
+		}
 		// Dwell taper: a hop whose midpoint sits inside a corner zone gets a
 		// longer dwell (1× the base at the waypoint → 0 boost at the zone edge),
 		// so ground speed dips through the turn while straights stay even.
 		const boost = gap * boostScale;
-	const hopGap = (arcA: number, arcB: number): number => {
-		if (radius <= 0 || boostScale <= 0) return gap;
-		const mp = atArc((arcA + arcB) / 2);
-		let w = 0;
-		// GEOMETRIC (not arc) distance: a spline bulge can sit far from the
-		// vertex along the arc while passing right next to it in space, and
-		// vice versa — the slowdown tracks where the curve IS, so every
-		// slowed hop lands within `radius` of a waypoint on screen.
-		for (const v of cornerPoints) {
-			const d = Math.hypot(mp.x - v.x, mp.y - v.y);
-			if (d < radius) w = Math.max(w, 1 - d / radius);
-		}
-		return Math.round(gap + boost * w);
-	};
+		const hopGap = (arcA: number, arcB: number): number => {
+			if (radius <= 0 || boostScale <= 0) return gap;
+			const mp = atArc((arcA + arcB) / 2);
+			let w = 0;
+			// GEOMETRIC (not arc) distance: a spline bulge can sit far from the
+			// vertex along the arc while passing right next to it in space, and
+			// vice versa — the slowdown tracks where the curve IS, so every
+			// slowed hop lands within `radius` of a waypoint on screen.
+			for (const v of cornerPoints) {
+				const d = Math.hypot(mp.x - v.x, mp.y - v.y);
+				if (d < radius) w = Math.max(w, 1 - d / radius);
+			}
+			return Math.round(gap + boost * w);
+		};
 		const hops: LivePathHop[] = [];
 		let prevArc = 0;
 		for (let i = 1; i < arcs.length; i++) {
@@ -2257,7 +2328,9 @@ function anchorLiveObservation(
 	// frame (its capture rect IS the window rect for a window-targeted eye).
 	const windowRect: WindowRect | undefined =
 		last.windowRect ??
-		(last.frame.kind === "window" ? { at: [last.frame.atX, last.frame.atY], size: [last.frame.physW, last.frame.physH] } : undefined);
+		(last.frame.kind === "window"
+			? { at: [last.frame.atX, last.frame.atY], size: [last.frame.physW, last.frame.physH] }
+			: undefined);
 	const gen = liveObservation.replace(address, last.frame, now, windowRect);
 	if (last.text) liveObservation.noteOcr(gen, last.text, undefined, now);
 	return { observation: { anchored: true, generation: gen, address, at: now, windowRect: windowRect ?? null } };
@@ -2304,11 +2377,16 @@ export function observeRefresherTick(
 	const sameAddress = snap.address === probeResult.address;
 	const snapRect = snapshotRect(snap);
 	const sameRect =
-		!!snapRect && snapRect.at[0] === probeResult.at[0] && snapRect.at[1] === probeResult.at[1]
-			&& snapRect.size[0] === probeResult.size[0] && snapRect.size[1] === probeResult.size[1];
+		!!snapRect &&
+		snapRect.at[0] === probeResult.at[0] &&
+		snapRect.at[1] === probeResult.at[1] &&
+		snapRect.size[0] === probeResult.size[0] &&
+		snapRect.size[1] === probeResult.size[1];
 	if (sameAddress && sameRect) {
 		const noteAddress = control.noteWindowRect(generation, { at: probeResult.at, size: probeResult.size }, now);
-		return noteAddress ? { action: "note", notedAddress: snap.address, noteRect: { at: probeResult.at, size: probeResult.size } } : { action: "noop" };
+		return noteAddress
+			? { action: "note", notedAddress: snap.address, noteRect: { at: probeResult.at, size: probeResult.size } }
+			: { action: "noop" };
 	}
 	return { action: "noop" };
 }
@@ -2338,7 +2416,8 @@ function stopObservationRefresher(): void {
 async function refreshObservationTick(): Promise<void> {
 	try {
 		const win = await getDriverActiveWindow().catch(() => undefined);
-		const probeResult: ProbeReading | null = win && win.address ? { address: win.address, at: win.at, size: win.size } : null;
+		const probeResult: ProbeReading | null =
+			win && win.address ? { address: win.address, at: win.at, size: win.size } : null;
 		const decision = observeRefresherTick(liveObservation.get()?.generation ?? -1, probeResult, liveObservation);
 		if (decision.action === "stop") stopObservationRefresher();
 	} catch {
@@ -2450,9 +2529,12 @@ export function framesCoherent(a: InputFrame | null, b: InputFrame | null): bool
 	if (!a || !b) return false;
 	return (
 		a.address === b.address &&
-		a.atX === b.atX && a.atY === b.atY &&
-		a.physW === b.physW && a.physH === b.physH &&
-		a.scaledW === b.scaledW && a.scaledH === b.scaledH
+		a.atX === b.atX &&
+		a.atY === b.atY &&
+		a.physW === b.physW &&
+		a.physH === b.physH &&
+		a.scaledW === b.scaledW &&
+		a.scaledH === b.scaledH
 	);
 }
 /** Resolve a `target` text ("Compose", "Send") to the best remembered click
@@ -2514,10 +2596,7 @@ export function hoverTargetAt(
 	targets: readonly ClickTarget[],
 	currentGen?: number,
 ): { text: string; box: ClickTarget; distancePx: number } | null {
-	const pool =
-		currentGen === undefined
-			? targets
-			: targets.filter(t => (t as GenerationalTarget).gen === currentGen);
+	const pool = currentGen === undefined ? targets : targets.filter(t => (t as GenerationalTarget).gen === currentGen);
 	if (pool.length === 0) return null;
 	let best: { t: ClickTarget; distance: number } | null = null;
 	for (const t of pool) {
@@ -2567,7 +2646,10 @@ export const HOVER_SLACK_PX = 6;
  * naming a target would be describing a screen that no longer exists, so we
  * return null and let the caller re-eye.
  */
-export function liveHoverTarget(point: { x: number; y: number }): { text: string; box: ClickTarget; distancePx: number } | null {
+export function liveHoverTarget(point: {
+	x: number;
+	y: number;
+}): { text: string; box: ClickTarget; distancePx: number } | null {
 	if (clickTargetsFrame && lastInputFrame && !framesCoherent(clickTargetsFrame, lastInputFrame)) return null;
 	return hoverTargetAt(point, lastClickTargets, clickTargetGen);
 }
@@ -2607,10 +2689,7 @@ export function pathTargetsCrossed(
 	targets: readonly ClickTarget[],
 	currentGen?: number,
 ): Array<{ text: string; at: { x: number; y: number } }> {
-	const pool =
-		currentGen === undefined
-			? targets
-			: targets.filter(t => (t as GenerationalTarget).gen === currentGen);
+	const pool = currentGen === undefined ? targets : targets.filter(t => (t as GenerationalTarget).gen === currentGen);
 	if (pool.length === 0) return [];
 	// Sample the real glide path. A straight line between endpoints can clip a
 	// control the eased curve actually passes over, so walk the same waypoints
@@ -2739,7 +2818,6 @@ export function guardrailRefusal(action: string, params: { target?: string; keys
 	return null;
 }
 
-
 /** --- Guardrails: restricted apps (terminal / agent CLI) ---------------- */
 
 /**
@@ -2808,7 +2886,11 @@ function modifierRefusal(action: string, modifiers: unknown): string | null {
  *  scene no longer matches with an actionable code. */
 export type ObservationInputStatus =
 	| { state: "fresh"; ageMs: number; address: string }
-	| { state: "missing" | "superseded" | "stale" | "address_mismatch" | "geometry_mismatch"; detail: string; ageMs: number | null };
+	| {
+			state: "missing" | "superseded" | "stale" | "address_mismatch" | "geometry_mismatch";
+			detail: string;
+			ageMs: number | null;
+	  };
 
 /** Live geometry of the focused window, as the cheap focus probe reports it
  *  (`hyprctl activewindow -j` → at/size). Zero size means the backend cannot
@@ -2830,8 +2912,14 @@ export function geometryIsKnown(g: ActiveGeometry | undefined | null): g is Acti
 function rectIsUsable(r: ActiveGeometry | null | undefined): r is ActiveGeometry {
 	return (
 		!!r &&
-		Array.isArray(r.at) && r.at.length === 2 && Number.isFinite(r.at[0]) && Number.isFinite(r.at[1]) &&
-		Array.isArray(r.size) && r.size.length === 2 && Number.isFinite(r.size[0]) && Number.isFinite(r.size[1])
+		Array.isArray(r.at) &&
+		r.at.length === 2 &&
+		Number.isFinite(r.at[0]) &&
+		Number.isFinite(r.at[1]) &&
+		Array.isArray(r.size) &&
+		r.size.length === 2 &&
+		Number.isFinite(r.size[0]) &&
+		Number.isFinite(r.size[1])
 	);
 }
 
@@ -2867,8 +2955,14 @@ export function observationInputStatus(input: {
 	const now = input.now ?? Date.now();
 	const maxAgeMs = input.maxAgeMs ?? 1500;
 	const snap = input.snapshot;
-	if (!snap) return { state: "missing", detail: "No continuous observation yet — take a live_eye glance first.", ageMs: null };
-	if (snap.superseded) return { state: "superseded", detail: "Observation was superseded by a focus change or cancel — re-anchor before driving input.", ageMs: Math.max(0, now - snap.capturedAt) };
+	if (!snap)
+		return { state: "missing", detail: "No continuous observation yet — take a live_eye glance first.", ageMs: null };
+	if (snap.superseded)
+		return {
+			state: "superseded",
+			detail: "Observation was superseded by a focus change or cancel — re-anchor before driving input.",
+			ageMs: Math.max(0, now - snap.capturedAt),
+		};
 	const ageMs = Math.max(0, now - snap.capturedAt);
 	const freshFrameMatches = !!input.freshFrame?.address && input.freshFrame.address === input.activeAddress;
 	if (snap.address !== input.activeAddress) {
@@ -2892,18 +2986,26 @@ export function observationInputStatus(input: {
 	const rectMatches =
 		identityUnproven ||
 		(!!live &&
-			snapRect!.at[0] === live.at[0] && snapRect!.at[1] === live.at[1] &&
-			snapRect!.size[0] === live.size[0] && snapRect!.size[1] === live.size[1]);
+			snapRect!.at[0] === live.at[0] &&
+			snapRect!.at[1] === live.at[1] &&
+			snapRect!.size[0] === live.size[0] &&
+			snapRect!.size[1] === live.size[1]);
 	if (identityUnproven) {
 		// Cannot prove scene identity (no anchored rect, or the backend has
 		// no usable geometry): fall back to wall-clock expiry — fail-closed.
 		if (ageMs <= maxAgeMs) return { state: "fresh", ageMs, address: snap.address };
 		if (freshFrameMatches) return { state: "fresh", ageMs: 0, address: input.freshFrame!.address! };
-		return { state: "stale", detail: `Continuous observation is ${ageMs}ms old (limit ${maxAgeMs}ms) with no anchored rect to prove identity — refresh the glance before driving input.`, ageMs };
+		return {
+			state: "stale",
+			detail: `Continuous observation is ${ageMs}ms old (limit ${maxAgeMs}ms) with no anchored rect to prove identity — refresh the glance before driving input.`,
+			ageMs,
+		};
 	}
 	if (!rectMatches) {
 		const g = input.activeGeometry!;
-		const wasAt = snapRect ? `@ ${snapRect.at[0]},${snapRect.at[1]} ${snapRect.size[0]}x${snapRect.size[1]}` : "(no anchored rect)";
+		const wasAt = snapRect
+			? `@ ${snapRect.at[0]},${snapRect.at[1]} ${snapRect.size[0]}x${snapRect.size[1]}`
+			: "(no anchored rect)";
 		return {
 			state: "geometry_mismatch",
 			detail: `Focused window ${snap.address} moved/resized since the observation (was ${wasAt}; now @ ${g.at[0]},${g.at[1]} ${g.size[0]}x${g.size[1]}) — re-eye before driving input.`,
@@ -2956,7 +3058,11 @@ export function validateInjection(params: {
 	}
 	// path is live_move-only, and mutually exclusive with single x/y and target.
 	if (params.path !== undefined && params.action !== "live_move") {
-		return { ok: false, error: "'path' (continuous multi-waypoint glide) is only supported on live_move.", code: "path_wrong_action" };
+		return {
+			ok: false,
+			error: "'path' (continuous multi-waypoint glide) is only supported on live_move.",
+			code: "path_wrong_action",
+		};
 	}
 	if (params.path !== undefined && (params.x !== undefined || params.y !== undefined)) {
 		return { ok: false, error: "Pass either path (waypoint glide) or a single x/y, not both.", code: "path_xor_xy" };
@@ -2967,7 +3073,11 @@ export function validateInjection(params: {
 	// pace only means something for a live_move path glide.
 	if (params.pace !== undefined) {
 		if (params.path === undefined) {
-			return { ok: false, error: "'pace' only applies to a continuous path glide — pass it with 'path'.", code: "pace_needs_path" };
+			return {
+				ok: false,
+				error: "'pace' only applies to a continuous path glide — pass it with 'path'.",
+				code: "pace_needs_path",
+			};
 		}
 		if (params.action !== "live_move") {
 			return { ok: false, error: "'pace' is only supported on live_move.", code: "pace_wrong_action" };
@@ -2980,7 +3090,16 @@ export function validateInjection(params: {
 	// actionable code instead of driving from an old frame.
 	if (params.observation && params.observation.state !== "fresh") {
 		const obs = params.observation;
-		const code = obs.state === "missing" ? "no_observation" : obs.state === "stale" ? "observation_stale" : obs.state === "superseded" ? "observation_superseded" : obs.state === "geometry_mismatch" ? "observation_geometry_mismatch" : "observation_mismatch";
+		const code =
+			obs.state === "missing"
+				? "no_observation"
+				: obs.state === "stale"
+					? "observation_stale"
+					: obs.state === "superseded"
+						? "observation_superseded"
+						: obs.state === "geometry_mismatch"
+							? "observation_geometry_mismatch"
+							: "observation_mismatch";
 		return { ok: false, error: obs.detail, code };
 	}
 	// 2. Pointer branches need a frame + coordinates.
@@ -3069,7 +3188,11 @@ export function validateInjection(params: {
 		return { ok: false, error: "live_type requires 'keys' (the text to type).", code: "missing_text" };
 	}
 	if (params.action === "live_key" && !params.keys) {
-		return { ok: false, error: "live_key requires 'keys' (e.g. Return, ctrl+l, super+Return, space).", code: "missing_keys" };
+		return {
+			ok: false,
+			error: "live_key requires 'keys' (e.g. Return, ctrl+l, super+Return, space).",
+			code: "missing_keys",
+		};
 	}
 	return { ok: true };
 }
@@ -3361,7 +3484,9 @@ async function uiFingerprint(): Promise<string> {
 	const rawPath = path.join(os.tmpdir(), `aerys-settle-${stamp}.png`);
 	let img = "";
 	try {
-		const cap = await detectPlatformDriver().capture.capture(rawPath).catch(() => ({ code: 1, stderr: "capture threw" }));
+		const cap = await detectPlatformDriver()
+			.capture.capture(rawPath)
+			.catch(() => ({ code: 1, stderr: "capture threw" }));
 		if (cap.code === 0 && fs.existsSync(rawPath)) {
 			// Resize to a tiny grayscale-ish hash input so repaints dominate
 			// the digest and absolute scale doesn't matter. Short timeout:
@@ -3421,10 +3546,13 @@ export async function settle(withinMs = 2000, intervalMs = 250): Promise<number>
 export type FocusedWindowIdentity = Pick<DesktopWindowInfo, "address" | "class" | "title">;
 
 /** Return a fail-closed refusal unless the active window is exactly the expected client. */
-export function focusGuardRefusal(expectedWindowAddress: string | undefined, actual: FocusedWindowIdentity | undefined): string | null {
+export function focusGuardRefusal(
+	expectedWindowAddress: string | undefined,
+	actual: FocusedWindowIdentity | undefined,
+): string | null {
 	if (!expectedWindowAddress) return "Refused: no expected focused-window address is available for this input batch.";
 	if (actual?.address === expectedWindowAddress) return null;
-	const found = actual ? `\"${actual.title}\" (${actual.class}) @ ${actual.address}` : "no focused window";
+	const found = actual ? `"${actual.title}" (${actual.class}) @ ${actual.address}` : "no focused window";
 	return `Refused: focused window changed before input injection — expected @ ${expectedWindowAddress}, found ${found}. Re-eye or refocus the target, then retry.`;
 }
 
@@ -3448,7 +3576,7 @@ export async function runSteps(
 		const focusError = await assertFocus(expectedWindowAddress);
 		if (focusError) return focusError;
 		const res = await runCmd(argv[0], argv.slice(1), { timeout: 8000 });
-		if (res.code !== 0) return `\"${argv[0]} ${argv.slice(1).join(" ")}\" failed: ${res.stderr || res.stdout}`;
+		if (res.code !== 0) return `"${argv[0]} ${argv.slice(1).join(" ")}" failed: ${res.stderr || res.stdout}`;
 		if (interStepMs > 0) await new Promise(r => setTimeout(r, interStepMs));
 	}
 	return null;
@@ -3456,9 +3584,8 @@ export async function runSteps(
 /** Emergency button/key release after a guarded drag aborts. Never use for a normal input step. */
 async function runInputRelease(argv: string[]): Promise<string | null> {
 	const res = await runCmd(argv[0], argv.slice(1), { timeout: 8000 });
-	return res.code === 0 ? null : `\"${argv[0]} ${argv.slice(1).join(" ")}\" failed: ${res.stderr || res.stdout}`;
+	return res.code === 0 ? null : `"${argv[0]} ${argv.slice(1).join(" ")}" failed: ${res.stderr || res.stdout}`;
 }
-
 
 /** Drag sequencing with an injected runner for tests; cleanup never inherits cancellation. */
 export async function runDragWithCleanup(
@@ -3558,7 +3685,8 @@ async function typeTextWith(chain: LiveBackend[], text: string, expectedWindowAd
 				}
 			}
 			if (ok && i < lines.length - 1) {
-				const argv = backend === "xdotool" ? ["xdotool", "key", "--clearmodifiers", "Return"] : ["wtype", "-k", "Return"];
+				const argv =
+					backend === "xdotool" ? ["xdotool", "key", "--clearmodifiers", "Return"] : ["wtype", "-k", "Return"];
 				const fail = await runSteps([argv], 0, expectedWindowAddress);
 				if (fail) {
 					ok = false;
@@ -3592,7 +3720,7 @@ async function keyTextWith(chain: LiveBackend[], spec: string, expectedWindowAdd
 			const names = specToXdotoolArgs(spec);
 			if ("error" in names) {
 				lastErr = names.error;
-			continue;
+				continue;
 			}
 			const fail = await runSteps([["xdotool", "key", "--clearmodifiers", ...names]], 30, expectedWindowAddress);
 			if (!fail) return null;
@@ -3625,9 +3753,12 @@ async function keyTextWith(chain: LiveBackend[], spec: string, expectedWindowAdd
  *  mandatory — speed only shortens the pause between guarded steps. */
 export function scrollBurstIntervalMs(speed: "slow" | "normal" | "fast" | undefined): number {
 	switch (speed) {
-		case "slow": return 600;
-		case "fast": return 80;
-		default: return 250;
+		case "slow":
+			return 600;
+		case "fast":
+			return 80;
+		default:
+			return 250;
 	}
 }
 
@@ -3675,16 +3806,19 @@ export async function runScrollBurst(
 		assertFocus?: (expected: string | undefined) => Promise<string | null>;
 	},
 ): Promise<{ failure: string | null; completedSteps: number; samples: ScrollBurstSample[] }> {
-	const run = options.run ?? (async argv => {
-		const res = await runCmd(argv[0], argv.slice(1), { timeout: 8000 });
-		return res.code === 0 ? null : `"${argv[0]} ${argv.slice(1).join(" ")}" failed: ${res.stderr || res.stdout}`;
-	});
+	const run =
+		options.run ??
+		(async argv => {
+			const res = await runCmd(argv[0], argv.slice(1), { timeout: 8000 });
+			return res.code === 0 ? null : `"${argv[0]} ${argv.slice(1).join(" ")}" failed: ${res.stderr || res.stdout}`;
+		});
 	const assertFocus = options.assertFocus ?? assertInputFocus;
 	const samples: ScrollBurstSample[] = [];
 	let prev: string | null | undefined;
 	let completedSteps = 0;
 	for (let i = 0; i < steps.length; i++) {
-		if (options.signal?.aborted) return { failure: `Scroll burst aborted before step ${i + 1}.`, completedSteps, samples };
+		if (options.signal?.aborted)
+			return { failure: `Scroll burst aborted before step ${i + 1}.`, completedSteps, samples };
 		const focusError = await assertFocus(options.expectedWindowAddress);
 		if (focusError) return { failure: focusError, completedSteps, samples };
 		const stepFailure = await run(steps[i]);
@@ -3823,7 +3957,12 @@ async function executeLiveAction(
 		details: { driveLoop: driveLoopStatus(), ...(extra ?? {}) },
 	});
 	const okObserve = (actionName: string, text: string, extra?: Record<string, unknown>): AgentToolResult => {
-		driveLoopObserve(actionName, true, actionName === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
+		driveLoopObserve(
+			actionName,
+			true,
+			actionName === "live_scroll" ? (params.direction ?? undefined) : undefined,
+			stepKey,
+		);
 		return okText(text, extra);
 	};
 	const errText = (text: string, code?: string): AgentToolResult => ({
@@ -3831,7 +3970,12 @@ async function executeLiveAction(
 		details: code ? { error: code, driveLoop: driveLoopStatus() } : { driveLoop: driveLoopStatus() },
 	});
 	const errObserve = (actionName: string, text: string, code?: string): AgentToolResult => {
-		driveLoopObserve(actionName, false, actionName === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
+		driveLoopObserve(
+			actionName,
+			false,
+			actionName === "live_scroll" ? (params.direction ?? undefined) : undefined,
+			stepKey,
+		);
 		return errText(text, code);
 	};
 	const batchAbort = (
@@ -3931,10 +4075,7 @@ async function executeLiveAction(
 	}
 	const abort = driveLoopAbortReason(stepKey);
 	if (abort) {
-		return errText(
-			`Drive-loop guardrail tripped before "${action}": ${abort}.`,
-			"drive_loop_abort",
-		);
+		return errText(`Drive-loop guardrail tripped before "${action}": ${abort}.`, "drive_loop_abort");
 	}
 	// Fail-closed final-action / password guardrail (phase-3): refuse before
 	// any backend work. Applies to live_click (target), live_type/live_key
@@ -3999,100 +4140,104 @@ async function executeLiveAction(
 		);
 	}
 
-const verify = params.verify !== false;
+	const verify = params.verify !== false;
 	const verifyStartedAt = Date.now();
-const withVerify = async (lead: string, extra?: Record<string, unknown>, expectedInsertion?: string): Promise<AgentToolResult> => {
-	// Drive-loop bookkeeping: reaching verify means the injection ran.
-	// Central success observation for every live_* branch (clippy pattern).
-	driveLoopObserve(action, true, action === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
-	if (!verify) return okText(lead, extra);
-	// Drive loop: let the interface settle after the action before the
-	// verify read, so the verify frame reflects the settled UI (clippy's
-	// settle-within pattern) rather than a half-repainted frame. Fast
-	// path first (one fingerprint + one change-budgeted re-sample):
-	// cheap reads like key/type land here; slower changes still settle
-	// via the capped loop. LIVE_SETTLE_MS overrides the default 800ms.
-	const settleMs = Number(process.env.LIVE_SETTLE_MS ?? 800);
-	const settleChanges = await settle(settleMs, 250);
-	// Sweep the previous verify frame first (same ephemerality contract as
-	// the eye glance — context keeps ~1 verify frame across a flow).
-	const swept = (await session?.dropLiveVerifyImages?.()) ?? 0;
-	const cap = await captureLiveFrame(lead);
-	if ("error" in cap) return okText(`${lead} (verify screenshot failed: ${cap.error})`, extra);
-	let insertion: Record<string, unknown> | undefined;
-	if (expectedInsertion !== undefined) {
-		const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
-		const wanted = normalize(expectedInsertion);
-		const token = wanted.replace(/\s+/g, "");
-		// A field value can wrap and re-read in the downscaled verify frame, so
-		// its OCR is unreliable exactly when the value is long enough to matter.
-		// The verdict therefore comes from a NATIVE-resolution read of the field
-		// row; the frame reading is corroborating evidence only. Locate the row
-		// by the token's frame word box, falling back to the pointer (which is
-		// not the text caret) only when no word box can be found.
-		let frameText = "";
-		let frameWords: OcrWordBox[] | undefined;
-		if (cap.framePath) {
-			const ocr = await ocrFrame(cap.framePath, {});
-			frameText = ocr.text;
-			frameWords = ocr.words;
-		}
-		const frameSeen = normalize(frameText).replace(/\s+/g, "").includes(token);
-		let nativeText: string | null = null;
-		let nativeAnchor: "frame_word" | "pointer" | "none" = "none";
-		try {
-			if (lastInputFrame && lastInputFrame.scaledW > 0) {
-				const fx = lastInputFrame.physW / lastInputFrame.scaledW;
-				const fy = lastInputFrame.physH / lastInputFrame.scaledH;
-				const hit = (frameWords ?? []).find(w => normalize(w.text).replace(/\s+/g, "").includes(token));
-				let screen: { x: number; y: number } | null = null;
-				let boxLeft = 460;
-				let boxAbove = 20;
-				if (hit) {
-					screen = { x: lastInputFrame.atX + hit.x * fx, y: lastInputFrame.atY + hit.y * fy };
-					boxLeft = 16;
-					boxAbove = Math.round(hit.h * fy) + 12;
-					nativeAnchor = "frame_word";
-				} else {
-					const caret = await detectPlatformDriver().capture.cursorPos();
-					if (caret) {
-						screen = caret;
-						nativeAnchor = "pointer";
+	const withVerify = async (
+		lead: string,
+		extra?: Record<string, unknown>,
+		expectedInsertion?: string,
+	): Promise<AgentToolResult> => {
+		// Drive-loop bookkeeping: reaching verify means the injection ran.
+		// Central success observation for every live_* branch (clippy pattern).
+		driveLoopObserve(action, true, action === "live_scroll" ? (params.direction ?? undefined) : undefined, stepKey);
+		if (!verify) return okText(lead, extra);
+		// Drive loop: let the interface settle after the action before the
+		// verify read, so the verify frame reflects the settled UI (clippy's
+		// settle-within pattern) rather than a half-repainted frame. Fast
+		// path first (one fingerprint + one change-budgeted re-sample):
+		// cheap reads like key/type land here; slower changes still settle
+		// via the capped loop. LIVE_SETTLE_MS overrides the default 800ms.
+		const settleMs = Number(process.env.LIVE_SETTLE_MS ?? 800);
+		const settleChanges = await settle(settleMs, 250);
+		// Sweep the previous verify frame first (same ephemerality contract as
+		// the eye glance — context keeps ~1 verify frame across a flow).
+		const swept = (await session?.dropLiveVerifyImages?.()) ?? 0;
+		const cap = await captureLiveFrame(lead);
+		if ("error" in cap) return okText(`${lead} (verify screenshot failed: ${cap.error})`, extra);
+		let insertion: Record<string, unknown> | undefined;
+		if (expectedInsertion !== undefined) {
+			const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+			const wanted = normalize(expectedInsertion);
+			const token = wanted.replace(/\s+/g, "");
+			// A field value can wrap and re-read in the downscaled verify frame, so
+			// its OCR is unreliable exactly when the value is long enough to matter.
+			// The verdict therefore comes from a NATIVE-resolution read of the field
+			// row; the frame reading is corroborating evidence only. Locate the row
+			// by the token's frame word box, falling back to the pointer (which is
+			// not the text caret) only when no word box can be found.
+			let frameText = "";
+			let frameWords: OcrWordBox[] | undefined;
+			if (cap.framePath) {
+				const ocr = await ocrFrame(cap.framePath, {});
+				frameText = ocr.text;
+				frameWords = ocr.words;
+			}
+			const frameSeen = normalize(frameText).replace(/\s+/g, "").includes(token);
+			let nativeText: string | null = null;
+			let nativeAnchor: "frame_word" | "pointer" | "none" = "none";
+			try {
+				if (lastInputFrame && lastInputFrame.scaledW > 0) {
+					const fx = lastInputFrame.physW / lastInputFrame.scaledW;
+					const fy = lastInputFrame.physH / lastInputFrame.scaledH;
+					const hit = (frameWords ?? []).find(w => normalize(w.text).replace(/\s+/g, "").includes(token));
+					let screen: { x: number; y: number } | null = null;
+					let boxLeft = 460;
+					let boxAbove = 20;
+					if (hit) {
+						screen = { x: lastInputFrame.atX + hit.x * fx, y: lastInputFrame.atY + hit.y * fy };
+						boxLeft = 16;
+						boxAbove = Math.round(hit.h * fy) + 12;
+						nativeAnchor = "frame_word";
+					} else {
+						const caret = await detectPlatformDriver().capture.cursorPos();
+						if (caret) {
+							screen = caret;
+							nativeAnchor = "pointer";
+						}
+					}
+					if (screen) {
+						nativeText = await ocrRegionNative(
+							insertionProbeRegion(lastInputFrame, screen, {
+								left: boxLeft,
+								right: lastInputFrame.physW,
+								above: boxAbove,
+								below: 30,
+							}),
+						);
 					}
 				}
-				if (screen) {
-					nativeText = await ocrRegionNative(
-						insertionProbeRegion(lastInputFrame, screen, {
-							left: boxLeft,
-							right: lastInputFrame.physW,
-							above: boxAbove,
-							below: 30,
-						}),
-					);
-				}
+			} catch {
+				// Native confirmation is best-effort; the frame reading still stands.
 			}
-		} catch {
-			// Native confirmation is best-effort; the frame reading still stands.
+			const nativeSeen = nativeText !== null && normalize(nativeText).replace(/\s+/g, "").includes(token);
+			const verdict = insertionVerdict({
+				nativeSeen,
+				frameSeen,
+				rowLocated: nativeText !== null && nativeAnchor === "frame_word",
+			});
+			insertion = {
+				expectedText: expectedInsertion,
+				verified: verdict,
+				nativeVerified: nativeText !== null ? nativeSeen : null,
+				frameSeen,
+				nativeAnchor,
+				detectedText: nativeText ?? frameText,
+				nativeText,
+				frameText,
+				method: nativeText !== null ? "native_field_row_ocr" : "settled_frame_ocr",
+				windowAddress: win.address,
+			};
 		}
-		const nativeSeen = nativeText !== null && normalize(nativeText).replace(/\s+/g, "").includes(token);
-		const verdict = insertionVerdict({
-			nativeSeen,
-			frameSeen,
-			rowLocated: nativeText !== null && nativeAnchor === "frame_word",
-		});
-		insertion = {
-			expectedText: expectedInsertion,
-			verified: verdict,
-			nativeVerified: nativeText !== null ? nativeSeen : null,
-			frameSeen,
-			nativeAnchor,
-			detectedText: nativeText ?? frameText,
-			nativeText,
-			frameText,
-			method: nativeText !== null ? "native_field_row_ocr" : "settled_frame_ocr",
-			windowAddress: win.address,
-		};
-	}
 		// Like live_eye: deliver the full verify capture (OCR text for a
 		// visionless model, pixels+OCR for a vision-capable one) as a hidden
 		// steer; the tool result stays a tiny one-liner.
@@ -4175,10 +4320,18 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		};
 		return okText(
 			`${lead}${attached ? " — verify frame attached for the model." : " (verify frame could not be attached; verify:false to skip)"}`,
-			{ success: true, frame: cap.frame, steerAttached: attached, swept, verification, ...(extra ?? {}), ...(insertion ? { insertion } : {}), ...reanchor },
+			{
+				success: true,
+				frame: cap.frame,
+				steerAttached: attached,
+				swept,
+				verification,
+				...(extra ?? {}),
+				...(insertion ? { insertion } : {}),
+				...reanchor,
+			},
 		);
 	};
-
 
 	// Validate-before-run: every fail-without-touching check (guardrails,
 	// frame presence/staleness, target resolution, bounds) runs BEFORE any
@@ -4197,9 +4350,14 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 	// address branch inside observationInputStatus (never redirected).
 	const snap0 = liveObservation.get();
 	if (
-		snap0 && !snap0.superseded && snap0.address === win.address &&
-		snap0.frame && snap0.frame.kind === "window" &&
-		snap0.frame.address === win.address && win.size[0] > 0 && win.size[1] > 0
+		snap0 &&
+		!snap0.superseded &&
+		snap0.address === win.address &&
+		snap0.frame &&
+		snap0.frame.kind === "window" &&
+		snap0.frame.address === win.address &&
+		win.size[0] > 0 &&
+		win.size[1] > 0
 	) {
 		liveObservation.noteWindowRect(snap0.generation, { at: win.at, size: win.size });
 	}
@@ -4217,8 +4375,12 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 	// absent), when the capture opted out via ocr:false, or when the
 	// observation isn't fresh (validation will refuse anyway).
 	if (
-		isPointer && params.target && lastClickTargets.length === 0 &&
-		lastFramePath && lastInputFrame && !lastCaptureOcrOptOut &&
+		isPointer &&
+		params.target &&
+		lastClickTargets.length === 0 &&
+		lastFramePath &&
+		lastInputFrame &&
+		!lastCaptureOcrOptOut &&
 		obsStatus.state === "fresh"
 	) {
 		try {
@@ -4293,7 +4455,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			// LOGICAL space on hyprland (hyprctl movecursor); PHYSICAL capture
 			// px elsewhere (ydoMove/xdoMove absolute) — same mapping as the
 			// single-aim path below.
-			const targets = path.map((w) => {
+			const targets = path.map(w => {
 				const phys = frameToPhysical(frame, w.x, w.y);
 				return hypr ? physicalToLogical(phys.x, phys.y, pathScale) : phys;
 			});
@@ -4320,135 +4482,147 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			// 11.6-15.0 ms, hyprland IPC socket 0.82 ms, chained xdotool
 			// 0.66 ms — spawn was ~half of every glide's wall clock and its
 			// variance was what made the cadence uneven.
-		// Mid-flight observation (eye+cursor together): bounded captures
-		// launched CONCURRENTLY with the glide — never awaited inside the
-		// hop loop, so a capture can never stall the cadence. Milestones are
-		// hop counts (the pointer is genuinely in motion when they fire).
-		// Paths only in details; the single image block stays the
-		// post-landing verify frame.
-		const MID_CAPTURE_MAX = 4;
-		const midCapturePromises: Array<Promise<LiveCapture | { error: string }>> = [];
-		const midAt = new Set<number>();
-		for (let k = 1; k <= MID_CAPTURE_MAX; k++) {
-			midAt.add(Math.ceil((hops.length * k) / (MID_CAPTURE_MAX + 1)));
-		}
-		let midApplied = 0;
-		let glideAborted = false;
-		let glideApplied = hops.length;
-		const onMidHop = (applied: number): void => {
-			if (!midAt.has(applied) || midCapturePromises.length >= MID_CAPTURE_MAX) return;
-			midCapturePromises.push(
-				captureLiveFrame(`Mid-flight: hop ${applied}/${hops.length}.`).catch(() => ({ error: "mid-flight capture failed" })),
-			);
-		};
-		// Streaming progress partial (stream-only — the final result replaces
-		// it, so nothing lands in model context). First hop emits immediately;
-		// after that at most one update per 500ms. The xdotool backend below
-		// has no per-hop hook, so it reports no partials.
-		let lastProgressAt = 0;
-		const reportProgress = (applied: number): void => {
-			if (!onUpdate) return;
-			const now = performance.now();
-			if (applied > 1 && now - lastProgressAt < 500) return;
-			lastProgressAt = now;
-			const pace = params.pace ?? "natural";
-			onUpdate({
-				content: [{ type: "text", text: `Gliding… ${applied}/${hops.length} hops (${pace} pace).` }],
-				details: { glideProgress: { applied, total: hops.length, pace } },
-			});
-		};
-		// Capture children run niced while the pointer moves (capture-priority):
-		// our own convert/tesseract/grim churn otherwise starves the compositor
-		// and inflates every hop's IPC ack (measured 78ms → 16ms median). Every
-		// exit — abort, glide failure, throw — disarms via finally.
-		setGlideCaptureNice(true);
-		// Hold the in-flight flag for the whole pointer run (D002): a
-		// same-turn click/type must refuse rather than press at a mid-path
-		// coordinate. Same try/finally as the capture-nice arm, so abort
-		// and failure both release it.
-		beginGlide();
-		try {
-			if (hypr) {
-				// Socket, not `hyprctl --batch`: the batch runs every hop in one
-				// compositor tick, which teleports instead of gliding.
-			const outcome = await hyprGlidePaced(hops, {
-				timeoutMs: 8000,
-				frameMs: await frameMs(),
-				signal,
-			onHop: applied => {
-				midApplied = applied;
-				onMidHop(applied);
-				reportProgress(applied);
-			},
-			});
-			if (outcome.aborted) {
-				glideAborted = true;
-				glideApplied = outcome.applied;
-			} else if (!outcome.ok) {
-				return errText(`Glide failed after ${outcome.applied}/${hops.length} hops: ${outcome.error ?? "unknown error"}`, "glide_failed");
+			// Mid-flight observation (eye+cursor together): bounded captures
+			// launched CONCURRENTLY with the glide — never awaited inside the
+			// hop loop, so a capture can never stall the cadence. Milestones are
+			// hop counts (the pointer is genuinely in motion when they fire).
+			// Paths only in details; the single image block stays the
+			// post-landing verify frame.
+			const MID_CAPTURE_MAX = 4;
+			const midCapturePromises: Array<Promise<LiveCapture | { error: string }>> = [];
+			const midAt = new Set<number>();
+			for (let k = 1; k <= MID_CAPTURE_MAX; k++) {
+				midAt.add(Math.ceil((hops.length * k) / (MID_CAPTURE_MAX + 1)));
 			}
-			} else if (backend === "ydotool") {
-				// ydoMove is an absolute mapped move; ydotoold has no ABS cap, so
-				// these stay sequential spawns (correctness over speed here).
-				// Dwell is frame-aligned so each hop lands on a display frame.
-				const frame = await frameMs();
-			let ydoAborted = false;
-				for (const hop of hops) {
-				if (signal?.aborted) {
-					ydoAborted = true;
-					break;
-				}
-					const cmd = ydoMove(hop.x, hop.y);
-					const res = await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
-					if (res.code !== 0) return errText(`Glide step ${cmd.slice(1).join(" ")} failed: ${res.stderr || res.stdout}`, "glide_failed");
-				midApplied++;
-				onMidHop(midApplied);
-				reportProgress(midApplied);
-					const gap = frameAlignedGap(hop.gapMs, frame);
-					if (gap > 0) await new Promise(r => setTimeout(r, gap));
-				}
-				if (ydoAborted) {
-					glideAborted = true;
-					glideApplied = midApplied;
-				}
-			} else {
-			// X11 fallback: the whole journey is ONE xdotool script (its
-			// inline sleeps carry the dwell), so there is no per-hop hook —
-			// mid-flight captures, progress partials, and abort are NOT supported on this
-			// backend; the script runs to completion (30s timeout bound).
-				// One `xdotool -` process for the entire journey; the inline
-				// sleeps carry each hop's dwell exactly, frame-aligned so every
-				// hop is revealed on a display frame boundary.
-				const script = xdoGlideScript(hops, await frameMs());
-				const res = await runCmd("sh", ["-c", `printf '%s' "$GLIDE" | xdotool -`], {
-					env: { GLIDE: script },
-					timeout: 30_000,
+			let midApplied = 0;
+			let glideAborted = false;
+			let glideApplied = hops.length;
+			const onMidHop = (applied: number): void => {
+				if (!midAt.has(applied) || midCapturePromises.length >= MID_CAPTURE_MAX) return;
+				midCapturePromises.push(
+					captureLiveFrame(`Mid-flight: hop ${applied}/${hops.length}.`).catch(() => ({
+						error: "mid-flight capture failed",
+					})),
+				);
+			};
+			// Streaming progress partial (stream-only — the final result replaces
+			// it, so nothing lands in model context). First hop emits immediately;
+			// after that at most one update per 500ms. The xdotool backend below
+			// has no per-hop hook, so it reports no partials.
+			let lastProgressAt = 0;
+			const reportProgress = (applied: number): void => {
+				if (!onUpdate) return;
+				const now = performance.now();
+				if (applied > 1 && now - lastProgressAt < 500) return;
+				lastProgressAt = now;
+				const pace = params.pace ?? "natural";
+				onUpdate({
+					content: [{ type: "text", text: `Gliding… ${applied}/${hops.length} hops (${pace} pace).` }],
+					details: { glideProgress: { applied, total: hops.length, pace } },
 				});
-				if (res.code !== 0) {
-					return errText(`Glide failed: ${res.stderr || res.stdout || `exit ${res.code}`}`, "glide_failed");
+			};
+			// Capture children run niced while the pointer moves (capture-priority):
+			// our own convert/tesseract/grim churn otherwise starves the compositor
+			// and inflates every hop's IPC ack (measured 78ms → 16ms median). Every
+			// exit — abort, glide failure, throw — disarms via finally.
+			setGlideCaptureNice(true);
+			// Hold the in-flight flag for the whole pointer run (D002): a
+			// same-turn click/type must refuse rather than press at a mid-path
+			// coordinate. Same try/finally as the capture-nice arm, so abort
+			// and failure both release it.
+			beginGlide();
+			try {
+				if (hypr) {
+					// Socket, not `hyprctl --batch`: the batch runs every hop in one
+					// compositor tick, which teleports instead of gliding.
+					const outcome = await hyprGlidePaced(hops, {
+						timeoutMs: 8000,
+						frameMs: await frameMs(),
+						signal,
+						onHop: applied => {
+							midApplied = applied;
+							onMidHop(applied);
+							reportProgress(applied);
+						},
+					});
+					if (outcome.aborted) {
+						glideAborted = true;
+						glideApplied = outcome.applied;
+					} else if (!outcome.ok) {
+						return errText(
+							`Glide failed after ${outcome.applied}/${hops.length} hops: ${outcome.error ?? "unknown error"}`,
+							"glide_failed",
+						);
+					}
+				} else if (backend === "ydotool") {
+					// ydoMove is an absolute mapped move; ydotoold has no ABS cap, so
+					// these stay sequential spawns (correctness over speed here).
+					// Dwell is frame-aligned so each hop lands on a display frame.
+					const frame = await frameMs();
+					let ydoAborted = false;
+					for (const hop of hops) {
+						if (signal?.aborted) {
+							ydoAborted = true;
+							break;
+						}
+						const cmd = ydoMove(hop.x, hop.y);
+						const res = await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
+						if (res.code !== 0)
+							return errText(
+								`Glide step ${cmd.slice(1).join(" ")} failed: ${res.stderr || res.stdout}`,
+								"glide_failed",
+							);
+						midApplied++;
+						onMidHop(midApplied);
+						reportProgress(midApplied);
+						const gap = frameAlignedGap(hop.gapMs, frame);
+						if (gap > 0) await new Promise(r => setTimeout(r, gap));
+					}
+					if (ydoAborted) {
+						glideAborted = true;
+						glideApplied = midApplied;
+					}
+				} else {
+					// X11 fallback: the whole journey is ONE xdotool script (its
+					// inline sleeps carry the dwell), so there is no per-hop hook —
+					// mid-flight captures, progress partials, and abort are NOT supported on this
+					// backend; the script runs to completion (30s timeout bound).
+					// One `xdotool -` process for the entire journey; the inline
+					// sleeps carry each hop's dwell exactly, frame-aligned so every
+					// hop is revealed on a display frame boundary.
+					const script = xdoGlideScript(hops, await frameMs());
+					const res = await runCmd("sh", ["-c", `printf '%s' "$GLIDE" | xdotool -`], {
+						env: { GLIDE: script },
+						timeout: 30_000,
+					});
+					if (res.code !== 0) {
+						return errText(`Glide failed: ${res.stderr || res.stdout || `exit ${res.code}`}`, "glide_failed");
+					}
 				}
+			} finally {
+				setGlideCaptureNice(false);
+				endGlide();
 			}
-		} finally {
-			setGlideCaptureNice(false);
-			endGlide();
-		}
-		// Mid-flight captures ran concurrently with the glide; collect them
-		// now (bounded ≤4, each already settled or failed by this point).
-		const midResults = await Promise.all(midCapturePromises);
-		const midPaths = midResults.flatMap(c => ("error" in c ? [] : [c.framePath]));
-		const midNote = midPaths.length > 0 ? ` Captured ${midPaths.length} mid-flight frame${midPaths.length === 1 ? "" : "s"}.` : "";
+			// Mid-flight captures ran concurrently with the glide; collect them
+			// now (bounded ≤4, each already settled or failed by this point).
+			const midResults = await Promise.all(midCapturePromises);
+			const midPaths = midResults.flatMap(c => ("error" in c ? [] : [c.framePath]));
+			const midNote =
+				midPaths.length > 0
+					? ` Captured ${midPaths.length} mid-flight frame${midPaths.length === 1 ? "" : "s"}.`
+					: "";
 			const focusAfter = await assertInputFocus(win.address);
 			if (focusAfter) return errObserve(action, focusAfter);
-		if (glideAborted) {
-			// Cancelled mid-run: fail-closed but graceful — focus is already
-			// re-asserted above, the landing warp is skipped (the pointer is
-			// wherever the last acknowledged hop left it), and the collected
-			// mid-flight frames still ship so the model can see the journey.
-			return okText(
-				`Glide aborted after ${glideApplied}/${hops.length} hops (cancel signal); focus re-asserted, landing warp skipped.${midNote}`,
-				{ aborted: true, applied: glideApplied, total: hops.length, midFlightFrames: midPaths },
-			);
-		}
+			if (glideAborted) {
+				// Cancelled mid-run: fail-closed but graceful — focus is already
+				// re-asserted above, the landing warp is skipped (the pointer is
+				// wherever the last acknowledged hop left it), and the collected
+				// mid-flight frames still ship so the model can see the journey.
+				return okText(
+					`Glide aborted after ${glideApplied}/${hops.length} hops (cancel signal); focus re-asserted, landing warp skipped.${midNote}`,
+					{ aborted: true, applied: glideApplied, total: hops.length, midFlightFrames: midPaths },
+				);
+			}
 			liveAuthorizedKinds.add(action);
 			const lastW = path[path.length - 1]!;
 			const physLast = frameToPhysical(frame, lastW.x, lastW.y);
@@ -4474,10 +4648,10 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			} catch {
 				// reads unsupported — verify frame still covers us
 			}
-		return withVerify(
-			`Glided through ${path.length} waypoints (${hops.length} eased hops) landing frame (${lastW.x},${lastW.y}) → physical (${physLast.x},${physLast.y}).${posNote}${midNote}`,
-			{ midFlightFrames: midPaths },
-		);
+			return withVerify(
+				`Glided through ${path.length} waypoints (${hops.length} eased hops) landing frame (${lastW.x},${lastW.y}) → physical (${physLast.x},${physLast.y}).${posNote}${midNote}`,
+				{ midFlightFrames: midPaths },
+			);
 		}
 		const tx = validation.ok ? (validation.tx ?? params.x) : params.x;
 		const ty = validation.ok ? (validation.ty ?? params.y) : params.y;
@@ -4492,7 +4666,7 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		// Hyprland (no ABS cap on the virtual device — relative deltas + accel skew).
 		// Glide, don't teleport: step the warp through eased intermediates so the
 		// motion is visible in verify frames (agents can see the cursor travel
-		 // instead of jumping). Short hops land in one step; long ones ease.
+		// instead of jumping). Short hops land in one step; long ones ease.
 		const aimSteps: string[][] = [];
 		// Where the glide starts, in FRAME px, so the path it takes can be
 		// sampled against the OCR pool when the move reports. Captured here
@@ -4601,7 +4775,11 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			// skip silently — the verify frame still covers us.
 			const hyprAim = detectPlatformDriver().id === "hyprland";
 			const warpTo = async (p: { x: number; y: number }): Promise<void> => {
-				const cmd = hyprAim ? hyprMoveCursor(p.x, p.y) : backend === "ydotool" ? ydoMove(p.x, p.y) : xdoMove(p.x, p.y);
+				const cmd = hyprAim
+					? hyprMoveCursor(p.x, p.y)
+					: backend === "ydotool"
+						? ydoMove(p.x, p.y)
+						: xdoMove(p.x, p.y);
 				await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
 			};
 			let posNote = "";
@@ -4741,7 +4919,12 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 				if (fail) return errObserve(action, fail);
 			}
 			const fail = await runDragWithCleanup(
-				{ backend: backend === "ydotool" ? "ydotool" : "xdotool", shift: params.modifiers?.includes("shift") ?? false, start: [], moves },
+				{
+					backend: backend === "ydotool" ? "ydotool" : "xdotool",
+					shift: params.modifiers?.includes("shift") ?? false,
+					start: [],
+					moves,
+				},
 				argv => runSteps([argv], 24, win.address),
 				signal,
 				runInputRelease,
@@ -4778,7 +4961,11 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		const fail = await typeTextWith(chain, text, win.address);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
-		return withVerify(`Typed ${text.length} chars into "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`, undefined, text);
+		return withVerify(
+			`Typed ${text.length} chars into "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`,
+			undefined,
+			text,
+		);
 	}
 
 	if (action === "live_key") {
@@ -4792,20 +4979,38 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		const fail = await keyTextWith(chain, spec, win.address);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
-		return withVerify(`Sent keys "${spec}" to "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`);
+		return withVerify(
+			`Sent keys "${spec}" to "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`,
+		);
 	}
 
 	if (action === "live_scroll") {
 		const dir = params.direction ?? "down";
 		const before = verify ? await captureLiveFrame("Before scroll") : null;
-		const x11Plan = scrollBurstPlan({ count: params.count, scrollSpeed: params.scrollSpeed, observeDuringScroll: params.observeDuringScroll });
+		const x11Plan = scrollBurstPlan({
+			count: params.count,
+			scrollSpeed: params.scrollSpeed,
+			observeDuringScroll: params.observeDuringScroll,
+		});
 		if (backend === "xdotool") {
 			const fail = await runSteps(xdoWheelScroll(dir, x11Plan.steps), x11Plan.intervalMs, win.address);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
-			return withVerify(`Wheel-scrolled ${dir} ${x11Plan.steps} notch${x11Plan.steps === 1 ? "" : "es"} at ${x11Plan.speed} cadence on XWayland window "${win.title}".`, {
-				scroll: { direction: dir, requestedSteps: x11Plan.steps, completedSteps: x11Plan.steps, speed: x11Plan.speed, intervalMs: x11Plan.intervalMs, samples: [], beforeFrame: before && !("error" in before) ? before.frame : null, beforeCaptureError: before && "error" in before ? before.error : undefined },
-			});
+			return withVerify(
+				`Wheel-scrolled ${dir} ${x11Plan.steps} notch${x11Plan.steps === 1 ? "" : "es"} at ${x11Plan.speed} cadence on XWayland window "${win.title}".`,
+				{
+					scroll: {
+						direction: dir,
+						requestedSteps: x11Plan.steps,
+						completedSteps: x11Plan.steps,
+						speed: x11Plan.speed,
+						intervalMs: x11Plan.intervalMs,
+						samples: [],
+						beforeFrame: before && !("error" in before) ? before.frame : null,
+						beforeCaptureError: before && "error" in before ? before.error : undefined,
+					},
+				},
+			);
 		}
 		if (backend === "wtype")
 			return errText(
@@ -4818,11 +5023,16 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 		// samples instead of a full settle after every step. This is
 		// intentionally not described as a wheel notch because it scrolls
 		// the focused viewport.
-		const plan = scrollBurstPlan({ count: params.count, scrollSpeed: params.scrollSpeed, observeDuringScroll: params.observeDuringScroll });
+		const plan = scrollBurstPlan({
+			count: params.count,
+			scrollSpeed: params.scrollSpeed,
+			observeDuringScroll: params.observeDuringScroll,
+		});
 		// Read during the burst instead of only after it settles. Capture/OCR is
 		// intentionally best-effort: focus guarding still owns safety, while a
 		// bad/blurred frame is reported as untrusted rather than used to drive.
-		const scrollReadings: Array<{ words: number; chars: number; trustworthy: boolean; ocrMs: number; text: string }> = [];
+		const scrollReadings: Array<{ words: number; chars: number; trustworthy: boolean; ocrMs: number; text: string }> =
+			[];
 		const readWhileScrolling = async (): Promise<string> => {
 			const cap = await captureLiveFrame("Reading while scrolling");
 			if ("error" in cap || !cap.framePath) return "read-capture-error";
@@ -4830,10 +5040,16 @@ const withVerify = async (lead: string, extra?: Record<string, unknown>, expecte
 			// ocrFrame words already carry 0..1 fractions — normalize instead of
 			// scaling, so a percent-scale producer can never smuggle past (and a
 			// fraction can never be divided twice into mush). Live news-site bug.
-			const words = (ocr.words ?? []).map(word => ({ ...word, confidence: normalizeOcrConfidence(word.confidence) }));
+			const words = (ocr.words ?? []).map(word => ({
+				...word,
+				confidence: normalizeOcrConfidence(word.confidence),
+			}));
 			const quality = scrollFrameQuality(words);
 			scrollReadings.push({
-				words: words.length, chars: ocr.text.length, trustworthy: quality.trustworthy, ocrMs: ocr.ms,
+				words: words.length,
+				chars: ocr.text.length,
+				trustworthy: quality.trustworthy,
+				ocrMs: ocr.ms,
 				text: ocr.text.slice(0, 600),
 			});
 			return `read:${words.length}:${quality.trustworthy ? "trusted" : "untrusted"}`;
@@ -4889,7 +5105,9 @@ async function ocrRegionNative(region: { x: number; y: number; w: number; h: num
 		const upPath = path.join(os.tmpdir(), `aerys-insert-${stamp}-${scale.replace("%", "")}.png`);
 		const conv = await runCmd("convert", [rawPath, "-resize", scale, upPath]);
 		if (conv.code !== 0 || !fs.existsSync(upPath)) continue;
-		const res = await runCmd("tesseract", [upPath, "stdout", "--oem", "1", "-l", "eng", "--psm", "6"], { timeout: 8000 });
+		const res = await runCmd("tesseract", [upPath, "stdout", "--oem", "1", "-l", "eng", "--psm", "6"], {
+			timeout: 8000,
+		});
 		const text = res.code === 0 ? res.stdout.replace(/\s+/g, " ").trim() : "";
 		if (text.replace(/\s+/g, "").length > best.replace(/\s+/g, "").length) best = text;
 		fs.rm(upPath, { force: true }, () => {});
@@ -4922,7 +5140,11 @@ export function insertionProbeRegion(
  *  there; `null` = the row could not be localized, so the result is unknown —
  *  never report a failure that was only an unverified guess. A frame hit is
  *  positive evidence on its own (the token appeared in OCR, even if mangled). */
-export function insertionVerdict(input: { nativeSeen: boolean; frameSeen: boolean; rowLocated: boolean }): boolean | null {
+export function insertionVerdict(input: {
+	nativeSeen: boolean;
+	frameSeen: boolean;
+	rowLocated: boolean;
+}): boolean | null {
 	if (input.nativeSeen || input.frameSeen) return true;
 	return input.rowLocated ? false : null;
 }
@@ -4949,7 +5171,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 		this.session = session;
 	}
 
-	async execute(_id: string, params: DesktopControlParams, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback): Promise<AgentToolResult> {
+	async execute(
+		_id: string,
+		params: DesktopControlParams,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback,
+	): Promise<AgentToolResult> {
 		const modifiersError = modifierRefusal(params.action, params.modifiers);
 		if (modifiersError) {
 			return { content: [{ type: "text", text: modifiersError }], details: { error: "invalid_modifiers" } };
@@ -4970,7 +5197,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const listDriver = detectPlatformDriver();
 				if (listDriver.id !== "hyprland" && listDriver.id !== "x11") {
 					return {
-						content: [{ type: "text", text: `Window listing is not supported on this platform yet (${listDriver.label}).` }],
+						content: [
+							{
+								type: "text",
+								text: `Window listing is not supported on this platform yet (${listDriver.label}).`,
+							},
+						],
 						details: { windows: [], driver: listDriver.id },
 					};
 				}
@@ -5008,7 +5240,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const driver = detectPlatformDriver();
 				if (driver.id !== "hyprland" && driver.id !== "x11") {
 					return {
-						content: [{ type: "text", text: `Window focus is not supported on this platform yet (${driver.label}).` }],
+						content: [
+							{ type: "text", text: `Window focus is not supported on this platform yet (${driver.label}).` },
+						],
 						details: { error: "unsupported_platform", driver: driver.id },
 					};
 				}
@@ -5063,7 +5297,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const closeDriver = detectPlatformDriver();
 				if (closeDriver.id !== "hyprland" && closeDriver.id !== "x11") {
 					return {
-						content: [{ type: "text", text: `Window close is not supported on this platform yet (${closeDriver.label}).` }],
+						content: [
+							{
+								type: "text",
+								text: `Window close is not supported on this platform yet (${closeDriver.label}).`,
+							},
+						],
 						details: { error: "unsupported_platform", driver: closeDriver.id },
 					};
 				}
@@ -5104,7 +5343,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const wsDriver = detectPlatformDriver();
 				if (wsDriver.id !== "hyprland" && wsDriver.id !== "x11") {
 					return {
-						content: [{ type: "text", text: `Workspace switching is not supported on this platform yet (${wsDriver.label}).` }],
+						content: [
+							{
+								type: "text",
+								text: `Workspace switching is not supported on this platform yet (${wsDriver.label}).`,
+							},
+						],
 						details: { error: "unsupported_platform", driver: wsDriver.id },
 					};
 				}
@@ -5249,7 +5493,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					else rememberXvfbTargets([]);
 					const buf = fs.readFileSync(eye.scaledPath);
 					const size = buf.length;
-					const lines = [`Captured the headless virtual display (${XVFB_GEOMETRY}) → ${eye.scaledPath}${composited ? " (window-composited: no compositor on bare Xvfb, so mapped windows were stacked at their positions)." : ""}.`];
+					const lines = [
+						`Captured the headless virtual display (${XVFB_GEOMETRY}) → ${eye.scaledPath}${composited ? " (window-composited: no compositor on bare Xvfb, so mapped windows were stacked at their positions)." : ""}.`,
+					];
 					if (wantOcr && eye.text) {
 						lines.push(
 							`On-screen text (${eye.text.length} chars, tesseract ${eye.ocrMode ?? "native"}):`,
@@ -5403,9 +5649,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					return { content: [{ type: "text", text: `xvfb_click failed: ${injected.stderr}` }] };
 				}
 				const motionNote =
-					path.steps.length > 1
-						? ` (${path.steps.length}-step eased approach, ${path.totalMs}ms)`
-						: "";
+					path.steps.length > 1 ? ` (${path.steps.length}-step eased approach, ${path.totalMs}ms)` : "";
 				return {
 					content: [
 						{
@@ -5651,7 +5895,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				await xvfbEnsureServer();
 				if (xvfbMirrorAlive()) {
 					return {
-						content: [{ type: "text", text: "A projection is already live. Stop it first (mode 'stop') or check status." }],
+						content: [
+							{
+								type: "text",
+								text: "A projection is already live. Stop it first (mode 'stop') or check status.",
+							},
+						],
 						details: { error: "already_running", headless: true },
 					};
 				}
@@ -5664,7 +5913,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					const match = wins.find(w => w.toLowerCase().includes(wanted));
 					if (!match) {
 						return {
-							content: [{ type: "text", text: `No headless window matches '${params.target}'. Visible windows: ${wins.join(" | ") || "none"}.` }],
+							content: [
+								{
+									type: "text",
+									text: `No headless window matches '${params.target}'. Visible windows: ${wins.join(" | ") || "none"}.`,
+								},
+							],
 							details: { error: "unknown_target", headless: true },
 						};
 					}
@@ -5680,14 +5934,22 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				}
 				const logPath = `/tmp/aerys-xvfb-mirror-${Date.now()}.log`;
 				const out = fs.openSync(logPath, "a");
-				const child = spawn("python3", [
-					script,
-					"--target", XVFB_DISPLAY,
-					...(windowId ? ["--window", windowId] : []),
-					"--width", "960",
-					"--fps", "12",
-					"--title", XVFB_MIRROR_TITLE,
-				], { detached: true, stdio: ["ignore", out, out] });
+				const child = spawn(
+					"python3",
+					[
+						script,
+						"--target",
+						XVFB_DISPLAY,
+						...(windowId ? ["--window", windowId] : []),
+						"--width",
+						"960",
+						"--fps",
+						"12",
+						"--title",
+						XVFB_MIRROR_TITLE,
+					],
+					{ detached: true, stdio: ["ignore", out, out] },
+				);
 				child.unref();
 				// Gate on the painted frame signal (FRAME1), never a fixed sleep.
 				const deadline = Date.now() + 15000;
@@ -5713,7 +5975,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				if (!ready) {
 					await xvfbMirrorStop();
 					return {
-						content: [{ type: "text", text: "Projection failed to start (mirror never painted a frame). Check the log." }],
+						content: [
+							{
+								type: "text",
+								text: "Projection failed to start (mirror never painted a frame). Check the log.",
+							},
+						],
 						details: { error: "mirror_timeout", log: logPath, headless: true },
 					};
 				}
@@ -5873,7 +6140,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			}
 
 			case "cursor_pos": {
-				const pos = await detectPlatformDriver().capture.cursorPos().catch(() => null);
+				const pos = await detectPlatformDriver()
+					.capture.cursorPos()
+					.catch(() => null);
 				if (pos) {
 					return {
 						content: [{ type: "text", text: `Cursor position: X=${pos.x}, Y=${pos.y}` }],
@@ -5919,10 +6188,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				}
 				// Capture via the platform driver (grim on Hyprland, import/scrot on X11).
 				const shotDriver = detectPlatformDriver();
-				const capRes = await shotDriver.capture.capture(tmpRaw, geometry).catch((e: unknown) => ({ code: 1, stderr: String(e) }));
+				const capRes = await shotDriver.capture
+					.capture(tmpRaw, geometry)
+					.catch((e: unknown) => ({ code: 1, stderr: String(e) }));
 				if (capRes.code !== 0) {
 					return {
-						content: [{ type: "text", text: `Failed to capture screenshot (${shotDriver.id}): ${capRes.stderr}` }],
+						content: [
+							{ type: "text", text: `Failed to capture screenshot (${shotDriver.id}): ${capRes.stderr}` },
+						],
 						details: { error: capRes.stderr, driver: shotDriver.id },
 					};
 				}
@@ -5932,7 +6205,13 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const maxHeight = params.maxHeight ?? 800;
 
 				let finalPath = tmpRaw;
-				const resizeRes = await runCmd("convert", [tmpRaw, "-resize", `${maxWidth}x${maxHeight}>`, ...downscaleArgs(), tmpScaled]);
+				const resizeRes = await runCmd("convert", [
+					tmpRaw,
+					"-resize",
+					`${maxWidth}x${maxHeight}>`,
+					...downscaleArgs(),
+					tmpScaled,
+				]);
 				if (resizeRes.code === 0 && fs.existsSync(tmpScaled)) {
 					finalPath = tmpScaled;
 				}
@@ -5997,9 +6276,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					: geometry
 						? `geometry ${geometry}`
 						: "fullscreen display";
-				const shotTextParts = [
-					`Captured screenshot of ${shotTargetDesc} (saved to ${finalPath}).${frameNote}`,
-				];
+				const shotTextParts = [`Captured screenshot of ${shotTargetDesc} (saved to ${finalPath}).${frameNote}`];
 				if (shotOcrText) {
 					shotTextParts.push(
 						`On-screen text (${shotOcrText.length} chars, tesseract ${shotOcrMode ?? "native"}):`,
@@ -6029,7 +6306,16 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					targetWindow: targetWindow
 						? { title: targetWindow.title, class: targetWindow.class, address: targetWindow.address }
 						: undefined,
-					...anchorLiveObservation([{ frame: remembered, text: shotOcrText || undefined, windowRect: targetWindow && targetWindow.size[0] > 0 && targetWindow.size[1] > 0 ? { at: targetWindow.at, size: targetWindow.size } : undefined }]),
+					...anchorLiveObservation([
+						{
+							frame: remembered,
+							text: shotOcrText || undefined,
+							windowRect:
+								targetWindow && targetWindow.size[0] > 0 && targetWindow.size[1] > 0
+									? { at: targetWindow.at, size: targetWindow.size }
+									: undefined,
+						},
+					]),
 					...(shotWantOcr
 						? {
 								ocrText: shotOcrText,
@@ -6071,274 +6357,366 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// path ("re-eye and re-plan") — clear the counters so the model
 				// can act on what it sees instead of staying locked out.
 				resetDriveLoop();
-			const includeBase64 = params.includeBase64 ?? true;
-			const textOnly = params.textOnly ?? false;
-			const focusFirst = params.focusFirst ?? false;
-			const timestamp = Date.now();
-			const maxWidth = params.maxWidth ?? 1280;
-			const maxHeight = params.maxHeight ?? 800;
+				const includeBase64 = params.includeBase64 ?? true;
+				const textOnly = params.textOnly ?? false;
+				const focusFirst = params.focusFirst ?? true;
+				const timestamp = Date.now();
+				const maxWidth = params.maxWidth ?? 1280;
+				const maxHeight = params.maxHeight ?? 800;
 
-			// ---- Resolve the view list (multi-focus vs single-glance) ----
-			// views[] is the human-eye path: 1-4 focus points in one glance
-			// (wide context + a fovea crop, or several windows). No views[]
-			// means the classic single view built from top-level params —
-			// byte-for-byte the old behavior.
-			interface EyeViewSpec {
-				label: string;
-				target?: string;
-				region?: EyeRegion;
-			}
-			const viewSpecs: EyeViewSpec[] = params.views?.length
-				? params.views.map((v, i) => ({
-						label: v.label || `view ${i + 1}`,
-						target: v.target,
-						region: v.region,
-					}))
-				: [{ label: "", target: params.target, region: params.region }];
-
-			// Ephemeral sweep: drop previous eye images from history BEFORE capturing
-			// the new ones (best-effort; tolerated if the host lacks the hook).
-			let swept = 0;
-			try {
-				swept = (await this.session?.dropLiveEyeImages?.()) ?? 0;
-			} catch {}
-
-			const eyeDriver = detectPlatformDriver();
-			if (!isSupportedDriver() && viewSpecs.length > 1) {
-				return {
-					content: [{ type: "text", text: `Multi-view eye is not supported on this platform yet (${eyeDriver.label}).` }],
-					details: { error: "unsupported_platform", driver: eyeDriver.id },
-				};
-			}
-
-			// ---- Resolve each view's geometry/window concurrently ----
-			const resolved = await Promise.all(
-				viewSpecs.map(async (spec): Promise<EyeViewSpec & { geometry?: string; window?: DesktopWindowInfo; desc: string }> => {
-					if (spec.region) {
-						const geometry = buildEyeGeometry(spec.region, undefined);
-						return { ...spec, geometry, desc: `region ${geometry}` };
-					}
-					const target = spec.target ?? "fullscreen";
-					let window: DesktopWindowInfo | undefined;
-					let geometry: string | undefined;
-					if (isSupportedDriver()) {
-						if (target === "active_window") {
-							window = await getDriverActiveWindow();
-						} else if (target !== "fullscreen") {
-							const windows = await getDriverWindows();
-							const q = target.toLowerCase();
-							window =
-								windows.find(w => w.address.toLowerCase() === q) ||
-								windows.find(w => w.class.toLowerCase().includes(q)) ||
-								windows.find(w => w.title.toLowerCase().includes(q));
-						} else {
-							// Opt-in framing upgrade: a fullscreen glance with a
-							// focused window reads THAT window's frame instead, so
-							// its text survives the downscale at native scale. Only
-							// the implicit fullscreen default is upgradeable — an
-							// explicit region/window query is never rewritten.
-							// Only pay for the active-window probe when it can be used.
-							if (focusFirst) {
-								const active = await getDriverActiveWindow();
-								if (shouldUseFocusedFrame(target, focusFirst, active)) window = active;
-							}
-						}
-						geometry = buildEyeGeometry(undefined, window);
-					}
-					return { ...spec, geometry, window, desc: describeEyeTarget(window, geometry, target) };
-				}),
-			);
-
-			// ---- Capture all views concurrently (the eye saccades in parallel) ----
-			const captures = await Promise.all(
-				resolved.map(async (v, i) => {
-					const rawPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}-raw.png`);
-					const finalPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}.png`);
-					const capRes = await eyeDriver.capture.capture(rawPath, v.geometry).catch((e: unknown) => ({ code: 1, stderr: String(e) }));
-					if (capRes.code !== 0) return { spec: v, rawPath, finalPath, error: `capture failed (${eyeDriver.id}): ${capRes.stderr}` };
-					const resizeRes = await runCmd("convert", [rawPath, "-resize", `${maxWidth}x${maxHeight}>`, ...downscaleArgs(), finalPath]);
-					const out = resizeRes.code === 0 && fs.existsSync(finalPath) ? finalPath : rawPath;
-					let frame: InputFrame | null = null;
-					try {
-						// Per-view frame anchor: each view's clickTargets map to ITS
-						// own crop/window, so a word read in a fovea crop clicks at
-						// the right physical spot even though the wide view was
-						// captured separately. The LAST successful view becomes
-						// lastInputFrame (matches the single-view contract).
-						frame = await rememberFrame(v.window, v.geometry, rawPath, out);
-					} catch {}
-					return { spec: v, rawPath, finalPath: out, frame };
-				}),
-			);
-
-			const okViews = captures.filter(c => !("error" in c) || !c.error);
-			if (okViews.length === 0) {
-				const firstErr = captures.find(c => "error" in c && c.error) as { error: string } | undefined;
-				return {
-					content: [{ type: "text", text: `live_eye capture failed (${eyeDriver.id}): ${firstErr?.error ?? "unknown"}` }],
-					details: { error: firstErr?.error ?? "unknown", swept, driver: eyeDriver.id },
-				};
-			}
-
-			const modelSeesImages = this.session?.supportsVision?.() ?? true;
-			// textOnly means "words, not pixels" — it must imply OCR, otherwise a
-			// vision-default caller asking textOnly gets neither pixels nor text.
-			const wantOcr = params.ocr ?? (!modelSeesImages || textOnly);
-			// Explicit ocr:false on the eye = words deliberately unread →
-			// block lazy target hydration for this reading (contract: ocr:false
-			// clears targets, a click then refuses).
-			lastCaptureOcrOptOut = params.ocr === false;
-			const ocrMs0 = Date.now();
-
-			// ---- OCR every view concurrently; per-view text + click targets ----
-			const readings = await Promise.all(
-				captures.map(async (c): Promise<{ label: string; desc: string; text: string; ocrError?: string; ocrMode?: "native" | "upscaled"; targets: ClickTarget[]; frame: InputFrame | null; windowRect?: ActiveGeometry; base64: string; filePath?: string; error?: unknown }> => {
-					if ("error" in c && c.error) {
-					// Window rect travels with the reading so the continuous
-					// observation can prove scene identity from the cheap focus
-					// probe instead of demanding a fresh glance per action.
-					const w = c.spec.window;
-					const windowRect = w && w.size[0] > 0 && w.size[1] > 0 ? { at: w.at, size: w.size } : undefined;
-					return { label: c.spec.label, desc: c.spec.desc, windowRect, error: c.error, text: "", targets: [], frame: null as InputFrame | null, base64: "", filePath: undefined };
-					}
-					let ocrText = "";
-					let ocrError: string | undefined;
-					let ocrMode: "native" | "upscaled" | undefined;
-					let targets: ClickTarget[] = [];
-					if (wantOcr && c.finalPath) {
-						const ocr = await ocrFrame(c.finalPath, { lang: params.ocrLang });
-						ocrText = ocr.text;
-						ocrError = ocr.error;
-						ocrMode = ocr.mode;
-						if (ocrText) {
-							// Durable copy: the eye-glance steer is swept by the next
-							// glance, so record the full reading in the watch
-							// transcript (the book). Multi-view lines carry the view
-							// label so the book stays legible.
-							CameraWatchLoop.recordExternalOcr(ocrText, "eye");
-							rememberOcrText(ocrText);
-						}
-						targets = clickTargetsFromOcr(ocr.words, c.frame ?? null);
-					}
-					let base64 = "";
-					if (includeBase64 && !textOnly && c.finalPath) {
-						try {
-							base64 = (await fs.promises.readFile(c.finalPath)).toString("base64");
-						} catch {}
-					}
-					const wOk = c.spec.window;
-					const windowRectOk = wOk && wOk.size[0] > 0 && wOk.size[1] > 0 ? { at: wOk.at, size: wOk.size } : undefined;
-					return { label: c.spec.label, desc: c.spec.desc, text: ocrText, ocrError, ocrMode, targets, frame: c.frame ?? null, windowRect: windowRectOk, base64, filePath: c.finalPath };
-				}),
-			);
-
-			// rememberClickTargets: merge every view's targets so a word seen in
-			// ANY view is clickable (each target is already in its own frame's
-			// px space; resolveClickTarget only needs text → frame px of the
-			// anchored lastInputFrame, which is the last view's frame — when
-			// views differ, the reading header says which frame each word
-			// belongs to via per-view click-target lists).
-			const allTargets = readings.flatMap(r => r.targets);
-			if (allTargets.length > 0) rememberClickTargets(allTargets, readings[readings.length - 1]?.frame ?? null);
-			if (wantOcr) {
-				for (const r of readings) {
-					if (r.text) rememberOcrText(r.text);
+				// ---- Resolve the view list (multi-focus vs single-glance) ----
+				// views[] is the human-eye path: 1-4 focus points in one glance
+				// (wide context + a fovea crop, or several windows). No views[]
+				// means the classic single view built from top-level params —
+				// byte-for-byte the old behavior.
+				interface EyeViewSpec {
+					label: string;
+					target?: string;
+					region?: EyeRegion;
 				}
-			}
+				const viewSpecs: EyeViewSpec[] = params.views?.length
+					? params.views.map((v, i) => ({
+							label: v.label || `view ${i + 1}`,
+							target: v.target,
+							region: v.region,
+						}))
+					: [{ label: "", target: params.target, region: params.region }];
 
-			// ---- Build the combined reading (one steer, N sections) ----
-			const multi = viewSpecs.length > 1;
-			const sections: string[] = [];
-			const steerContent: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
-			const sweepNote = swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context";
-			for (const r of readings) {
-				const header = multi
-					? `── Eye view [${r.label}] ${r.desc} (ephemeral — replaced next glance;${sweepNote})${r.frame ? ` Frame ${r.frame.scaledW}x${r.frame.scaledH} (window @ ${r.frame.atX},${r.frame.atY})` : ""} — this view's clickTargets are frame px of THIS crop.`
-					: `Eye view of ${r.desc} (ephemeral — replaced next glance;${sweepNote}).${r.frame ? ` Frame ${r.frame.scaledW}x${r.frame.scaledH}${r.frame.kind === "window" ? ` (window @ ${r.frame.atX},${r.frame.atY})` : " (fullscreen)"} — clickTargets and live_* pointer coordinates are frame px of this glance.` : ""}`;
-				const lines: string[] = [header];
-				if (r.error) lines.push(`Capture failed: ${r.error}`);
-				else if (r.text) {
-					lines.push(
-						`On-screen text (${r.text.length} chars, tesseract ${r.ocrMode ?? "native"}):`,
-						r.text.length > 8000 ? `${r.text.slice(0, 8000)}\n…[truncated]` : r.text,
-					);
-					const ct = formatClickTargets(r.targets);
-					if (ct) lines.push(ct);
-				} else if (wantOcr && r.ocrError) lines.push(`OCR failed: ${r.ocrError}`);
-				else if (wantOcr) lines.push("OCR produced no text (frame may contain no readable text).");
-				const section = lines.join("\n");
-				sections.push(section);
-				steerContent.push({ type: "text", text: section });
-				// Pixels ride ONLY for vision-capable models (see single-view note).
-				if (modelSeesImages && r.base64) {
-					steerContent.push({ type: "image", data: r.base64, mimeType: "image/png" });
-				}
-			}
-			const reading = sections.join("\n\n");
-
-			let attached = false;
-			const eyeSession = this.session;
-			if (eyeSession && "sendCustomMessage" in eyeSession) {
+				// Ephemeral sweep: drop previous eye images from history BEFORE capturing
+				// the new ones (best-effort; tolerated if the host lacks the hook).
+				let swept = 0;
 				try {
-					await eyeSession.sendCustomMessage?.(
-						{
-							customType: "eye-glance",
-							content: steerContent,
-							display: false,
-							details: {
-								liveEye: { at: timestamp },
-								// Primary file path stays the first successful view
-								// (back-compat); every view is listed in views[].
-								filePath: readings.find(r => r.filePath)?.filePath,
-								targetDesc: multi ? `${readings.length} views` : readings[0]?.desc,
-								...(multi ? { views: readings.map(r => ({ label: r.label, desc: r.desc, filePath: r.filePath, frame: r.frame, ...(r.windowRect ? { windowRect: r.windowRect } : {}), error: r.error ?? undefined })) } : {}),
-								...(allTargets.length > 0 ? { clickTargets: allTargets } : {}),
-							},
-							attribution: "agent",
-						},
-						{ deliverAs: "steer", triggerTurn: false },
-					);
-					attached = true;
-				} catch {
-					// Fire-and-forget; if the session is shutting down we
-					// just fall back to returning the text inline below.
-				}
-			}
+					swept = (await this.session?.dropLiveEyeImages?.()) ?? 0;
+				} catch {}
 
-			return {
-				content: [
-					{
-						type: "text",
-						text: attached
-							? multi
-								? `Eye glance at ${readings.length} views (${viewSpecs.map(v => v.label).join(", ")}) — readings attached for the model (ephemeral — replaced next glance; swept ${swept}).`
-								: `Eye glance at ${readings[0]?.desc} — reading attached for the model (ephemeral — replaced next glance; swept ${swept}).`
-							: reading,
-					},
-				],
-				details: {
-					action: "live_eye",
-					liveEye: { at: timestamp },
-					filePath: readings.find(r => r.filePath)?.filePath,
-					targetDesc: multi ? `${readings.length} views` : readings[0]?.desc,
-					swept,
-					...(multi ? { views: readings.map(r => ({ label: r.label, desc: r.desc, filePath: r.filePath, frame: r.frame, ...(r.windowRect ? { windowRect: r.windowRect } : {}), error: r.error ?? undefined })) } : {}),
-					...(wantOcr
-						? {
-								ocrText: readings.map(r => r.text).join("\n\n"),
-								ocrMode: readings[0]?.ocrMode,
-								ocrMs: Date.now() - ocrMs0,
-								...(readings.find(r => r.ocrError) ? { ocrError: readings.find(r => r.ocrError)?.ocrError } : {}),
+				const eyeDriver = detectPlatformDriver();
+				if (!isSupportedDriver() && viewSpecs.length > 1) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Multi-view eye is not supported on this platform yet (${eyeDriver.label}).`,
+							},
+						],
+						details: { error: "unsupported_platform", driver: eyeDriver.id },
+					};
+				}
+
+				// ---- Resolve each view's geometry/window concurrently ----
+				const resolved = await Promise.all(
+					viewSpecs.map(
+						async (
+							spec,
+						): Promise<EyeViewSpec & { geometry?: string; window?: DesktopWindowInfo; desc: string }> => {
+							if (spec.region) {
+								const geometry = buildEyeGeometry(spec.region, undefined);
+								return { ...spec, geometry, desc: `region ${geometry}` };
 							}
-						: {}),
-					...(allTargets.length > 0 ? { clickTargets: allTargets } : {}),
-					// Continuous observation anchor: the LAST successful view's
-					// window frame becomes the session snapshot (address-exact,
-					// fail-closed). Multi-view glances anchor the last view so
-					// input always uses one unambiguous coordinate space.
-					...anchorLiveObservation(readings),
-				} as unknown as Record<string, unknown>,
-			};
+							const target = spec.target ?? "fullscreen";
+							let window: DesktopWindowInfo | undefined;
+							let geometry: string | undefined;
+							if (isSupportedDriver()) {
+								if (target === "active_window") {
+									window = await getDriverActiveWindow();
+								} else if (target !== "fullscreen") {
+									const windows = await getDriverWindows();
+									const q = target.toLowerCase();
+									window =
+										windows.find(w => w.address.toLowerCase() === q) ||
+										windows.find(w => w.class.toLowerCase().includes(q)) ||
+										windows.find(w => w.title.toLowerCase().includes(q));
+								} else {
+									// Opt-in framing upgrade: a fullscreen glance with a
+									// focused window reads THAT window's frame instead, so
+									// its text survives the downscale at native scale. Only
+									// the implicit fullscreen default is upgradeable — an
+									// explicit region/window query is never rewritten.
+									// Only pay for the active-window probe when it can be used.
+									if (focusFirst) {
+										const active = await getDriverActiveWindow();
+										if (shouldUseFocusedFrame(target, focusFirst, active)) window = active;
+									}
+								}
+								geometry = buildEyeGeometry(undefined, window);
+							}
+							return { ...spec, geometry, window, desc: describeEyeTarget(window, geometry, target) };
+						},
+					),
+				);
+
+				// ---- Capture all views concurrently (the eye saccades in parallel) ----
+				const captures = await Promise.all(
+					resolved.map(async (v, i) => {
+						const rawPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}-raw.png`);
+						const finalPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}.png`);
+						const capRes = await eyeDriver.capture
+							.capture(rawPath, v.geometry)
+							.catch((e: unknown) => ({ code: 1, stderr: String(e) }));
+						if (capRes.code !== 0)
+							return {
+								spec: v,
+								rawPath,
+								finalPath,
+								error: `capture failed (${eyeDriver.id}): ${capRes.stderr}`,
+							};
+						const resizeRes = await runCmd("convert", [
+							rawPath,
+							"-resize",
+							`${maxWidth}x${maxHeight}>`,
+							...downscaleArgs(),
+							finalPath,
+						]);
+						const out = resizeRes.code === 0 && fs.existsSync(finalPath) ? finalPath : rawPath;
+						let frame: InputFrame | null = null;
+						try {
+							// Per-view frame anchor: each view's clickTargets map to ITS
+							// own crop/window, so a word read in a fovea crop clicks at
+							// the right physical spot even though the wide view was
+							// captured separately. The LAST successful view becomes
+							// lastInputFrame (matches the single-view contract).
+							frame = await rememberFrame(v.window, v.geometry, rawPath, out);
+						} catch {}
+						return { spec: v, rawPath, finalPath: out, frame };
+					}),
+				);
+
+				const okViews = captures.filter(c => !("error" in c) || !c.error);
+				if (okViews.length === 0) {
+					const firstErr = captures.find(c => "error" in c && c.error) as { error: string } | undefined;
+					return {
+						content: [
+							{
+								type: "text",
+								text: `live_eye capture failed (${eyeDriver.id}): ${firstErr?.error ?? "unknown"}`,
+							},
+						],
+						details: { error: firstErr?.error ?? "unknown", swept, driver: eyeDriver.id },
+					};
+				}
+
+				const modelSeesImages = this.session?.supportsVision?.() ?? true;
+				// textOnly means "words, not pixels" — it must imply OCR, otherwise a
+				// vision-default caller asking textOnly gets neither pixels nor text.
+				const wantOcr = params.ocr ?? (!modelSeesImages || textOnly);
+				// Explicit ocr:false on the eye = words deliberately unread →
+				// block lazy target hydration for this reading (contract: ocr:false
+				// clears targets, a click then refuses).
+				lastCaptureOcrOptOut = params.ocr === false;
+				const ocrMs0 = Date.now();
+
+				// ---- OCR every view concurrently; per-view text + click targets ----
+				const readings = await Promise.all(
+					captures.map(
+						async (
+							c,
+						): Promise<{
+							label: string;
+							desc: string;
+							text: string;
+							ocrError?: string;
+							ocrMode?: "native" | "upscaled";
+							targets: ClickTarget[];
+							frame: InputFrame | null;
+							windowRect?: ActiveGeometry;
+							base64: string;
+							filePath?: string;
+							error?: unknown;
+						}> => {
+							if ("error" in c && c.error) {
+								// Window rect travels with the reading so the continuous
+								// observation can prove scene identity from the cheap focus
+								// probe instead of demanding a fresh glance per action.
+								const w = c.spec.window;
+								const windowRect = w && w.size[0] > 0 && w.size[1] > 0 ? { at: w.at, size: w.size } : undefined;
+								return {
+									label: c.spec.label,
+									desc: c.spec.desc,
+									windowRect,
+									error: c.error,
+									text: "",
+									targets: [],
+									frame: null as InputFrame | null,
+									base64: "",
+									filePath: undefined,
+								};
+							}
+							let ocrText = "";
+							let ocrError: string | undefined;
+							let ocrMode: "native" | "upscaled" | undefined;
+							let targets: ClickTarget[] = [];
+							if (wantOcr && c.finalPath) {
+								const ocr = await ocrFrame(c.finalPath, { lang: params.ocrLang });
+								ocrText = ocr.text;
+								ocrError = ocr.error;
+								ocrMode = ocr.mode;
+								if (ocrText) {
+									// Durable copy: the eye-glance steer is swept by the next
+									// glance, so record the full reading in the watch
+									// transcript (the book). Multi-view lines carry the view
+									// label so the book stays legible.
+									CameraWatchLoop.recordExternalOcr(ocrText, "eye");
+									rememberOcrText(ocrText);
+								}
+								targets = clickTargetsFromOcr(ocr.words, c.frame ?? null);
+							}
+							let base64 = "";
+							if (includeBase64 && !textOnly && c.finalPath) {
+								try {
+									base64 = (await fs.promises.readFile(c.finalPath)).toString("base64");
+								} catch {}
+							}
+							const wOk = c.spec.window;
+							const windowRectOk =
+								wOk && wOk.size[0] > 0 && wOk.size[1] > 0 ? { at: wOk.at, size: wOk.size } : undefined;
+							return {
+								label: c.spec.label,
+								desc: c.spec.desc,
+								text: ocrText,
+								ocrError,
+								ocrMode,
+								targets,
+								frame: c.frame ?? null,
+								windowRect: windowRectOk,
+								base64,
+								filePath: c.finalPath,
+							};
+						},
+					),
+				);
+
+				// rememberClickTargets: merge every view's targets so a word seen in
+				// ANY view is clickable (each target is already in its own frame's
+				// px space; resolveClickTarget only needs text → frame px of the
+				// anchored lastInputFrame, which is the last view's frame — when
+				// views differ, the reading header says which frame each word
+				// belongs to via per-view click-target lists).
+				const allTargets = readings.flatMap(r => r.targets);
+				if (allTargets.length > 0) rememberClickTargets(allTargets, readings[readings.length - 1]?.frame ?? null);
+				if (wantOcr) {
+					for (const r of readings) {
+						if (r.text) rememberOcrText(r.text);
+					}
+				}
+
+				// ---- Build the combined reading (one steer, N sections) ----
+				const multi = viewSpecs.length > 1;
+				const sections: string[] = [];
+				const steerContent: Array<
+					{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
+				> = [];
+				const sweepNote = swept > 0 ? ` swept ${swept} older eye image(s)` : " no older eye images in context";
+				for (const r of readings) {
+					const header = multi
+						? `── Eye view [${r.label}] ${r.desc} (ephemeral — replaced next glance;${sweepNote})${r.frame ? ` Frame ${r.frame.scaledW}x${r.frame.scaledH} (window @ ${r.frame.atX},${r.frame.atY})` : ""} — this view's clickTargets are frame px of THIS crop.`
+						: `Eye view of ${r.desc} (ephemeral — replaced next glance;${sweepNote}).${r.frame ? ` Frame ${r.frame.scaledW}x${r.frame.scaledH}${r.frame.kind === "window" ? ` (window @ ${r.frame.atX},${r.frame.atY})` : " (fullscreen)"} — clickTargets and live_* pointer coordinates are frame px of this glance.` : ""}`;
+					const lines: string[] = [header];
+					if (r.error) lines.push(`Capture failed: ${r.error}`);
+					else if (r.text) {
+						lines.push(
+							`On-screen text (${r.text.length} chars, tesseract ${r.ocrMode ?? "native"}):`,
+							r.text.length > 8000 ? `${r.text.slice(0, 8000)}\n…[truncated]` : r.text,
+						);
+						const ct = formatClickTargets(r.targets);
+						if (ct) lines.push(ct);
+					} else if (wantOcr && r.ocrError) lines.push(`OCR failed: ${r.ocrError}`);
+					else if (wantOcr) lines.push("OCR produced no text (frame may contain no readable text).");
+					const section = lines.join("\n");
+					sections.push(section);
+					steerContent.push({ type: "text", text: section });
+					// Pixels ride ONLY for vision-capable models (see single-view note).
+					if (modelSeesImages && r.base64) {
+						steerContent.push({ type: "image", data: r.base64, mimeType: "image/png" });
+					}
+				}
+				const reading = sections.join("\n\n");
+
+				let attached = false;
+				const eyeSession = this.session;
+				if (eyeSession && "sendCustomMessage" in eyeSession) {
+					try {
+						await eyeSession.sendCustomMessage?.(
+							{
+								customType: "eye-glance",
+								content: steerContent,
+								display: false,
+								details: {
+									liveEye: { at: timestamp },
+									// Primary file path stays the first successful view
+									// (back-compat); every view is listed in views[].
+									filePath: readings.find(r => r.filePath)?.filePath,
+									targetDesc: multi ? `${readings.length} views` : readings[0]?.desc,
+									...(multi
+										? {
+												views: readings.map(r => ({
+													label: r.label,
+													desc: r.desc,
+													filePath: r.filePath,
+													frame: r.frame,
+													...(r.windowRect ? { windowRect: r.windowRect } : {}),
+													error: r.error ?? undefined,
+												})),
+											}
+										: {}),
+									...(allTargets.length > 0 ? { clickTargets: allTargets } : {}),
+								},
+								attribution: "agent",
+							},
+							{ deliverAs: "steer", triggerTurn: false },
+						);
+						attached = true;
+					} catch {
+						// Fire-and-forget; if the session is shutting down we
+						// just fall back to returning the text inline below.
+					}
+				}
+
+				return {
+					content: [
+						{
+							type: "text",
+							text: attached
+								? multi
+									? `Eye glance at ${readings.length} views (${viewSpecs.map(v => v.label).join(", ")}) — readings attached for the model (ephemeral — replaced next glance; swept ${swept}).`
+									: `Eye glance at ${readings[0]?.desc} — reading attached for the model (ephemeral — replaced next glance; swept ${swept}).`
+								: reading,
+						},
+					],
+					details: {
+						action: "live_eye",
+						liveEye: { at: timestamp },
+						filePath: readings.find(r => r.filePath)?.filePath,
+						targetDesc: multi ? `${readings.length} views` : readings[0]?.desc,
+						swept,
+						...(multi
+							? {
+									views: readings.map(r => ({
+										label: r.label,
+										desc: r.desc,
+										filePath: r.filePath,
+										frame: r.frame,
+										...(r.windowRect ? { windowRect: r.windowRect } : {}),
+										error: r.error ?? undefined,
+									})),
+								}
+							: {}),
+						...(wantOcr
+							? {
+									ocrText: readings.map(r => r.text).join("\n\n"),
+									ocrMode: readings[0]?.ocrMode,
+									ocrMs: Date.now() - ocrMs0,
+									...(readings.find(r => r.ocrError)
+										? { ocrError: readings.find(r => r.ocrError)?.ocrError }
+										: {}),
+								}
+							: {}),
+						...(allTargets.length > 0 ? { clickTargets: allTargets } : {}),
+						// Continuous observation anchor: the LAST successful view's
+						// window frame becomes the session snapshot (address-exact,
+						// fail-closed). Multi-view glances anchor the last view so
+						// input always uses one unambiguous coordinate space.
+						...anchorLiveObservation(readings),
+					} as unknown as Record<string, unknown>,
+				};
 			}
 
 			case "highlight": {
@@ -6390,7 +6768,12 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const frame = lastInputFrame;
 				if (!frame) {
 					return {
-						content: [{ type: "text", text: "No frame anchored yet — take a live_eye glance first so the highlight has a coordinate space." }],
+						content: [
+							{
+								type: "text",
+								text: "No frame anchored yet — take a live_eye glance first so the highlight has a coordinate space.",
+							},
+						],
 						details: { error: "no_frame" },
 					};
 				}
@@ -6401,7 +6784,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				}
 				if (physical.length === 0) {
 					return {
-						content: [{ type: "text", text: "All highlight rects fell outside the anchored frame — re-eye and retry." }],
+						content: [
+							{ type: "text", text: "All highlight rects fell outside the anchored frame — re-eye and retry." },
+						],
 						details: { error: "out_of_bounds" },
 					};
 				}
@@ -6452,7 +6837,16 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								customType: "eye-highlight",
 								content: [{ type: "text", text: steerText }],
 								display: false,
-								details: { highlight: { at: Date.now(), ms, style, color: highlightColor(hl.color), rects: physical, geometry: geom } },
+								details: {
+									highlight: {
+										at: Date.now(),
+										ms,
+										style,
+										color: highlightColor(hl.color),
+										rects: physical,
+										geometry: geom,
+									},
+								},
 								attribution: "agent",
 							},
 							{ deliverAs: "steer", triggerTurn: false },
@@ -6466,7 +6860,18 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				void drawP;
 				return {
 					content: [{ type: "text", text: lead }],
-					details: { highlight: { at: Date.now(), ms, style, color: highlightColor(hl.color), count: physical.length, rects: physical, geometry: geom, missing } },
+					details: {
+						highlight: {
+							at: Date.now(),
+							ms,
+							style,
+							color: highlightColor(hl.color),
+							count: physical.length,
+							rects: physical,
+							geometry: geom,
+							missing,
+						},
+					},
 				};
 			}
 		}

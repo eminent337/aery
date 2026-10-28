@@ -24,10 +24,7 @@ export interface EyeRegion {
  * Priority: explicit region > window at/size > undefined (fullscreen).
  * Zero/negative-size windows are ignored (treated as fullscreen fallback).
  */
-export function buildEyeGeometry(
-	region: EyeRegion | undefined,
-	window: EyeWindow | undefined,
-): string | undefined {
+export function buildEyeGeometry(region: EyeRegion | undefined, window: EyeWindow | undefined): string | undefined {
 	if (region) return `${region.x},${region.y} ${region.w}x${region.h}`;
 	if (window && window.size && window.size[0] > 0 && window.size[1] > 0) {
 		const at = window.at ?? [0, 0];
@@ -37,11 +34,7 @@ export function buildEyeGeometry(
 }
 
 /** Human-readable description of what the eye is looking at. */
-export function describeEyeTarget(
-	window: EyeWindow | undefined,
-	geometry: string | undefined,
-	target: string,
-): string {
+export function describeEyeTarget(window: EyeWindow | undefined, geometry: string | undefined, target: string): string {
 	if (window?.title) return `window "${window.title}" (${window.class ?? "unknown"})`;
 	if (target === "fullscreen") return "fullscreen display";
 	if (geometry) return `target "${target}" (${geometry})`;
@@ -66,11 +59,7 @@ export function describeEyeTarget(
  * falls back to fullscreen rather than to a 0x0 frame. An explicit opt-in
  * must never change what the caller asked for beyond this one upgrade.
  */
-export function shouldUseFocusedFrame(
-	target: string,
-	focusFirst: boolean,
-	activeWindow: EyeWindow | undefined,
-): boolean {
+export function shouldUseFocusedFrame(target: string, focusFirst: boolean = true, activeWindow?: EyeWindow): boolean {
 	if (!focusFirst) return false;
 	// Only the implicit default is upgradeable.
 	if (target !== "fullscreen") return false;
