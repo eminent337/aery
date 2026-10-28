@@ -458,76 +458,6 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
-		name: "schedule",
-		description: "Schedule recurring session execution",
-		subcommands: [
-			{ name: "create", description: "Create a scheduled job", usage: "<name> --cron <pattern> --prompt <task>" },
-			{ name: "list", description: "List all scheduled jobs" },
-			{ name: "delete", description: "Delete a scheduled job", usage: "<id>" },
-			{ name: "pause", description: "Pause a scheduled job", usage: "<id>" },
-			{ name: "resume", description: "Resume a scheduled job", usage: "<id>" },
-			{ name: "trigger", description: "Run a scheduled job now", usage: "<id>" },
-		],
-		inlineHint: "[create|list|delete|pause|resume|trigger]",
-		allowArgs: true,
-		handleTui: async (command, runtime) => {
-			const out = (msg: string) => {
-				runtime.ctx.showStatus(msg);
-				return commandConsumed();
-			};
-			const args = command.args.trim().split(/\s+/);
-			const subcommand = args[0];
-			if (!subcommand) return out("Usage: /schedule create|list|delete|pause|resume|trigger");
-			switch (subcommand) {
-				case "create": {
-					const name = args[1];
-					const cronPattern = args.find(a => a.startsWith("--cron="))?.split("=")[1];
-					const prompt = args.find(a => a.startsWith("--prompt="))?.split("=")[1];
-					if (!name || !cronPattern || !prompt) {
-						return out("Usage: /schedule create <name> --cron=<pattern> --prompt=<task>");
-					}
-					const run = globalScheduler.createSchedule({ name, cronPattern, prompt });
-					return out(`Created schedule: ${run.id} - ${run.name}`);
-				}
-				case "list": {
-					const schedules = globalScheduler.getSchedules();
-					if (schedules.length === 0) return out("No scheduled jobs");
-					return out(
-						schedules
-							.map(s => `- ${s.id}: ${s.name} (${s.cronPattern}) [${s.enabled ? "active" : "paused"}]`)
-							.join("\n"),
-					);
-				}
-				case "delete": {
-					const id = args[1];
-					if (!id) return out("Usage: /schedule delete <id>");
-					const deleted = globalScheduler.deleteSchedule(id);
-					return out(deleted ? `Deleted schedule: ${id}` : `Schedule not found: ${id}`);
-				}
-				case "pause": {
-					const id = args[1];
-					if (!id) return out("Usage: /schedule pause <id>");
-					const run = globalScheduler.pauseSchedule(id);
-					return out(run ? `Paused schedule: ${id}` : `Schedule not found: ${id}`);
-				}
-				case "resume": {
-					const id = args[1];
-					if (!id) return out("Usage: /schedule resume <id>");
-					const run = globalScheduler.resumeSchedule(id);
-					return out(run ? `Resumed schedule: ${id}` : `Schedule not found: ${id}`);
-				}
-				case "trigger": {
-					const id = args[1];
-					if (!id) return out("Usage: /schedule trigger <id>");
-					const success = await globalScheduler.triggerSchedule(id, runtime.ctx);
-					return out(success ? `Triggered schedule: ${id}` : `Schedule not found: ${id}`);
-				}
-				default:
-					return out(`Unknown subcommand: ${subcommand}`);
-			}
-		},
-	},
-	{
 		name: "loop",
 		description:
 			"Toggle loop mode. While enabled, the next prompt you send re-submits after every yield. Esc cancels the current iteration; /loop again to disable.",
@@ -813,15 +743,20 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	},
 	{
 		name: "browser",
-		description: "Toggle browser headless vs visible mode",
-		acpInputHint: "[headless|visible]",
+		description: "Launch browser automation for web interaction (or toggle headless/visible mode)",
+		inlineHint: "[url|task|headless|visible]",
+		acpInputHint: "[url|task|headless|visible]",
 		subcommands: [
 			{ name: "headless", description: "Switch to headless mode" },
 			{ name: "visible", description: "Switch to visible mode" },
 		],
 		allowArgs: true,
 		handle: async (command, runtime) => {
-			const arg = command.args.toLowerCase();
+			const rawArgs = command.args.trim();
+			const arg = rawArgs.toLowerCase();
+			if (arg && !["headless", "visible", "hidden", "show", "headful"].includes(arg)) {
+				return { prompt: `Use the browser tool to interact with or navigate to: "${rawArgs}"` };
+			}
 			const enabled = runtime.settings.get("browser.enabled" as SettingPath) as boolean;
 			if (!enabled) return usage("Browser tool is disabled (enable in settings).", runtime);
 			const current = runtime.settings.get("browser.headless" as SettingPath) as boolean;
@@ -829,7 +764,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			if (!arg) next = !current;
 			else if (arg === "headless" || arg === "hidden") next = true;
 			else if (arg === "visible" || arg === "show" || arg === "headful") next = false;
-			else return usage("Usage: /browser [headless|visible]", runtime);
+			else return usage("Usage: /browser [headless|visible|<url|task>]", runtime);
 			runtime.settings.set("browser.headless" as SettingPath, next as SettingValue<SettingPath>);
 			const tool = runtime.session.getToolByName("browser");
 			if (tool && "restartForModeChange" in tool) {
@@ -848,7 +783,12 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			return commandConsumed();
 		},
 		handleTui: async (command, runtime) => {
-			const arg = command.args.toLowerCase();
+			const rawArgs = command.args.trim();
+			const arg = rawArgs.toLowerCase();
+			if (arg && !["headless", "visible", "hidden", "show", "headful"].includes(arg)) {
+				runtime.ctx.editor.setText("");
+				return { prompt: `Use the browser tool to interact with or navigate to: "${rawArgs}"` };
+			}
 			const current = settings.get("browser.headless" as SettingPath) as boolean;
 			let next = current;
 			if (!(settings.get("browser.enabled" as SettingPath) as boolean)) {
@@ -863,7 +803,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			} else if (arg === "visible" || arg === "show" || arg === "headful") {
 				next = false;
 			} else {
-				runtime.ctx.showStatus("Usage: /browser [headless|visible]");
+				runtime.ctx.showStatus("Usage: /browser [headless|visible|<url|task>]");
 				runtime.ctx.editor.setText("");
 				return;
 			}
@@ -1474,27 +1414,6 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				? `Launch a collaborative multi-agent swarm to execute this objective: "${task}". Decompose the work into specialized roles: 1) Codebase Researcher (to survey code & dependencies), 2) Implementation Engineer (to make targeted edits), and 3) QA Tester (to run tests & verify results). Orchestrate tasks using subagents and report final results.`
 				: "Decompose the current task across an autonomous team of specialized subagents (Researcher, Implementer, QA Tester). Orchestrate their progress and synthesize the results.";
 			runtime.ctx.showStatus("👥 Teamwork mode activated: Spawning autonomous multi-agent team...");
-			return { prompt: promptText };
-		},
-	},
-	{
-		name: "heal",
-		description: "Autonomously diagnose and heal failing tests or build commands in an isolated worktree",
-		acpDescription: "Autonomous self-healing error recovery",
-		allowArgs: true,
-		inlineHint: "[command to heal, default: bun test]",
-		acpInputHint: "[command to heal]",
-		handle: async (command, runtime) => {
-			const targetCmd = command.args.trim() || "bun test";
-			const promptText = `Run autonomous self-healing on this command: "${targetCmd}". Intercept any failures, spawn an isolated worktree branch, diagnose the root cause, apply minimal targeted patches, verify that all tests pass, and present the final clean diff for review.`;
-			await runtime.output(`🩺 Self-healing mode activated for: ${targetCmd}`);
-			return { prompt: promptText };
-		},
-		handleTui: (command, runtime) => {
-			runtime.ctx.editor.setText("");
-			const targetCmd = command.args.trim() || "bun test";
-			const promptText = `Run autonomous self-healing on this command: "${targetCmd}". Intercept any failures, spawn an isolated worktree branch, diagnose the root cause, apply minimal targeted patches, verify that all tests pass, and present the final clean diff for review.`;
-			runtime.ctx.showStatus(`🩺 Self-healing mode activated for: ${targetCmd}`);
 			return { prompt: promptText };
 		},
 	},

@@ -81,4 +81,54 @@ describe("Slash Commands: /compact & /boost (ported from agy)", () => {
 		expect(outputLines[0]).toContain("successfully compacted");
 		expect(outputLines[0]).toContain("focus on architecture");
 	});
+
+	it("strictly does not register any unofficial slash commands like /heal", () => {
+		const healDef = BUILTIN_SLASH_COMMAND_DEFS.find(c => c.name === "heal");
+		expect(healDef).toBeUndefined();
+
+		const healSpec = BUILTIN_SLASH_COMMANDS_INTERNAL.find(c => c.name === "heal");
+		expect(healSpec).toBeUndefined();
+	});
+
+	it("registers all 9 official agy slash commands in builtin registry", () => {
+		const agyCommands = ["goal", "compact", "schedule", "browser", "plan", "grill-me", "teamwork", "learn", "boost"];
+		for (const cmd of agyCommands) {
+			const def = BUILTIN_SLASH_COMMAND_DEFS.find(c => c.name === cmd);
+			expect(def).toBeDefined();
+			const spec = BUILTIN_SLASH_COMMANDS_INTERNAL.find(c => c.name === cmd);
+			expect(spec).toBeDefined();
+		}
+	});
+
+	it("executes /browser with URL and returns prompt to use browser tool", async () => {
+		const browserSpec = BUILTIN_SLASH_COMMANDS_INTERNAL.find(c => c.name === "browser")!;
+		const result = await browserSpec.handle?.(
+			{ name: "browser", args: "https://news.ycombinator.com", text: "/browser https://news.ycombinator.com" },
+			{} as any,
+		);
+		expect(result).toBeDefined();
+		expect((result as any).prompt).toContain("https://news.ycombinator.com");
+	});
+
+	it("executes /grill-me and returns interactive interview prompt", async () => {
+		const grillSpec = BUILTIN_SLASH_COMMANDS_INTERNAL.find(c => c.name === "grill-me")!;
+		const result = await grillSpec.handle?.(
+			{ name: "grill-me", args: "caching layer", text: "/grill-me caching layer" },
+			{ output: async () => {} } as any,
+		);
+		expect(result).toBeDefined();
+		expect((result as any).prompt).toContain("caching layer");
+		expect((result as any).prompt).toContain("adversarial requirements and design interview");
+	});
+
+	it("executes /teamwork and returns swarm prompt", async () => {
+		const teamworkSpec = BUILTIN_SLASH_COMMANDS_INTERNAL.find(c => c.name === "teamwork")!;
+		const result = await teamworkSpec.handle?.(
+			{ name: "teamwork", args: "refactor database schema", text: "/teamwork refactor database schema" },
+			{ output: async () => {} } as any,
+		);
+		expect(result).toBeDefined();
+		expect((result as any).prompt).toContain("refactor database schema");
+		expect((result as any).prompt).toContain("Codebase Researcher");
+	});
 });
