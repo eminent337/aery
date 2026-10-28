@@ -1,6 +1,6 @@
 {
   "name": "@aryee337/aery-grpc-server",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "description": "Headless gRPC server interface for Aery agent",
   "main": "src/index.ts",
   "type": "module",
