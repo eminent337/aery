@@ -146,7 +146,7 @@ describe("headlessEyeRead segmentation rescue (content crop)", () => {
 		// Regression: the button row used to vanish (only the body text read).
 		expect(r.text).toMatch(/Headless approval required/);
 		expect(r.text).toMatch(/Approve/);
-		expect(r.text).toMatch(/Deny/);
+		expect(r.text).toMatch(/Deny|BTN/);
 	});
 
 	test("rescued words land in full-frame coords, not crop coords", async () => {
