@@ -13,7 +13,15 @@ import {
 	loadImageInput,
 	MAX_IMAGE_INPUT_BYTES,
 } from "../utils/image-loading";
+import {
+	extractKeyframes,
+	formatMediaMetadataNote,
+	inspectMediaFile,
+	isAudioExtension,
+	isVideoExtension,
+} from "../utils/media-inspector";
 import type { ToolSession } from "./index";
+import { resolveReadPath } from "./path-utils";
 import { ToolError } from "./tool-errors";
 
 const inspectImageSchema = z
@@ -111,6 +119,74 @@ export class InspectImageTool implements AgentTool<typeof inspectImageSchema, In
 			throw new ToolError(
 				`No API key available for ${model.provider}/${model.id}. Configure credentials for this provider or choose another vision-capable model.`,
 			);
+		}
+
+		const resolvedPath = resolveReadPath(params.path, this.session.cwd);
+
+		if (isAudioExtension(resolvedPath)) {
+			const mediaMeta = await inspectMediaFile(resolvedPath);
+			const metaText = formatMediaMetadataNote(mediaMeta);
+			return {
+				content: [{ type: "text", text: `[Audio File Analysis]\n${metaText}\n\nQuestion: ${params.question}` }],
+				details: {
+					model: `${model.provider}/${model.id}`,
+					imagePath: resolvedPath,
+					mimeType: mediaMeta.mimeType,
+				},
+			};
+		}
+
+		if (isVideoExtension(resolvedPath)) {
+			const mediaMeta = await inspectMediaFile(resolvedPath);
+			const keyframes = await extractKeyframes(resolvedPath, 3);
+			if (keyframes.length === 0) {
+				throw new ToolError(`Failed to extract keyframes from video: ${params.path}`);
+			}
+
+			const frameContents: Array<{ type: "image"; data: string; mimeType: string }> = keyframes.map(kf => ({
+				type: "image",
+				data: kf.dataBase64,
+				mimeType: "image/png",
+			}));
+			const promptText = `[Video Inspection: ${mediaMeta.format}, duration: ${mediaMeta.durationFormatted ?? `${mediaMeta.durationSeconds}s`}, ${keyframes.length} representative frames extracted at timestamps: ${keyframes.map(k => `${k.timestampSeconds}s`).join(", ")}]\n\n${params.question}`;
+
+			const telemetry = resolveTelemetry(this.session.getTelemetry?.(), this.session.getSessionId?.() ?? undefined);
+			const response = await instrumentedCompleteSimple(
+				model,
+				{
+					systemPrompt: [prompt.render(inspectImageSystemPromptTemplate)],
+					messages: [
+						{
+							role: "user",
+							content: [...frameContents, { type: "text", text: promptText }],
+							timestamp: Date.now(),
+						},
+					],
+				},
+				{ apiKey, signal },
+				{ telemetry, oneshotKind: "inspect_image", completeImpl: this.completeImageRequest },
+			);
+
+			if (response.stopReason === "error") {
+				throw new ToolError(response.errorMessage ?? "inspect_image request failed.");
+			}
+			if (response.stopReason === "aborted") {
+				throw new ToolError("inspect_image request aborted.");
+			}
+
+			const text = extractTextContent(response);
+			if (!text) {
+				throw new ToolError("inspect_image model returned no text output.");
+			}
+
+			return {
+				content: [{ type: "text", text }],
+				details: {
+					model: `${model.provider}/${model.id}`,
+					imagePath: resolvedPath,
+					mimeType: mediaMeta.mimeType,
+				},
+			};
 		}
 
 		let imageInput: LoadedImageInput | null;

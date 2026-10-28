@@ -33,6 +33,7 @@ import { CachedOutputBlock } from "../tui/output-block";
 import { resolveFileDisplayMode } from "../utils/file-display-mode";
 import { ImageInputTooLargeError, loadImageInput, MAX_IMAGE_INPUT_BYTES } from "../utils/image-loading";
 import { convertFileWithMarkit } from "../utils/markit";
+import { formatMediaMetadataNote, inspectMediaFile, isVideoOrAudioExtension } from "../utils/media-inspector";
 import { buildDirectoryTree, type DirectoryTree } from "../workspace-tree";
 import { type ArchiveReader, openArchive, parseArchivePathCandidates } from "./archive-reader";
 import {
@@ -1681,6 +1682,20 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 
 		if (parsed.kind === "conflicts") {
 			return this.#readFileConflicts(absolutePath, suffixResolution, signal);
+		}
+
+		if (isVideoOrAudioExtension(absolutePath)) {
+			const mediaMeta = await inspectMediaFile(absolutePath);
+			const metadataNote = formatMediaMetadataNote(mediaMeta);
+			const relPath = formatPathRelativeToCwd(absolutePath, this.session.cwd);
+			const guidanceNote =
+				mediaMeta.kind === "video"
+					? `\n\nIf you want to analyze or visually inspect the frames of this video, call inspect_image with path="${relPath}" and a question describing what to inspect.`
+					: `\n\nAudio file analyzed: ${relPath}`;
+			return {
+				content: [{ type: "text", text: `${metadataNote}${guidanceNote}` }],
+				details: {},
+			};
 		}
 
 		const imageMetadata = await readImageMetadata(absolutePath);
