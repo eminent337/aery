@@ -247,8 +247,28 @@ export function resolveThresholdTokens(contextWindow: number, settings: Compacti
  */
 const IMAGE_TOKEN_ESTIMATE = 1200;
 
-/** Cache token estimations by message reference to avoid O(N^2) re-tokenization in long sessions. */
-const messageTokenCache = new WeakMap<object, number>();
+/** Cache token estimations by message reference and length to avoid O(N^2) re-tokenization while supporting in-place mutations. */
+interface CachedTokenEntry {
+	len: number;
+	tokens: number;
+}
+const messageTokenCache = new WeakMap<object, CachedTokenEntry>();
+
+function getMessageLengthKey(message: any): number {
+	if (!message || typeof message !== "object") return 0;
+	if (typeof message.content === "string") return message.content.length;
+	if (Array.isArray(message.content)) {
+		let total = message.content.length;
+		for (const b of message.content) {
+			if (b && typeof b === "object" && typeof b.text === "string") total += b.text.length;
+		}
+		return total;
+	}
+	if (typeof message.summary === "string") return message.summary.length;
+	if (typeof message.command === "string")
+		return message.command.length + (typeof message.output === "string" ? message.output.length : 0);
+	return 0;
+}
 
 /**
  * Estimate token count for a message using cl100k_base via the native
@@ -256,9 +276,10 @@ const messageTokenCache = new WeakMap<object, number>();
  * publish one) but is within ~5–10% across English/code text.
  */
 export function estimateTokens(message: AgentMessage): number {
+	const lenKey = getMessageLengthKey(message);
 	if (typeof message === "object" && message !== null) {
 		const cached = messageTokenCache.get(message);
-		if (cached !== undefined) return cached;
+		if (cached !== undefined && cached.len === lenKey) return cached.tokens;
 	}
 
 	const fragments: string[] = [];
@@ -269,7 +290,7 @@ export function estimateTokens(message: AgentMessage): number {
 		if (typeof bash.output === "string") fragments.push(bash.output);
 		const result = fragments.length === 0 ? 0 : countTokens(fragments);
 		if (typeof message === "object" && message !== null) {
-			messageTokenCache.set(message, result);
+			messageTokenCache.set(message, { len: lenKey, tokens: result });
 		}
 		return result;
 	}
@@ -328,7 +349,7 @@ export function estimateTokens(message: AgentMessage): number {
 
 	const result = fragments.length === 0 ? extra : extra + countTokens(fragments);
 	if (typeof message === "object" && message !== null) {
-		messageTokenCache.set(message, result);
+		messageTokenCache.set(message, { len: lenKey, tokens: result });
 	}
 	return result;
 }

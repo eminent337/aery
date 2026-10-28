@@ -662,8 +662,7 @@ export class Agent {
 	}
 
 	setTools(t: AgentTool<any>[]) {
-		// Deterministic sort by tool name ensures stable prompt prefixes and maximizes LLM KV-cache hits
-		this.#state.tools = [...t].sort((a, b) => a.name.localeCompare(b.name));
+		this.#state.tools = t;
 	}
 
 	replaceMessages(ms: AgentMessage[]) {

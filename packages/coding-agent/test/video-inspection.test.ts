@@ -60,6 +60,8 @@ describe("Media Inspector & Video File Comprehension", () => {
 		sampleVideoPath = path.join(tempDir, "sample.mp4");
 		sampleAudioPath = path.join(tempDir, "sample.mp3");
 
+		if (!hasFFmpeg) return;
+
 		// Generate a 1-second 320x240 test video with ffmpeg
 		spawnSync(
 			"ffmpeg",
@@ -103,6 +105,9 @@ describe("Media Inspector & Video File Comprehension", () => {
 		}
 	});
 
+	const hasFFmpeg = Boolean(Bun.which("ffmpeg"));
+	const itFFmpeg = hasFFmpeg ? it : it.skip;
+
 	it("identifies supported video and audio extensions", () => {
 		expect(VIDEO_EXTENSIONS.has(".mp4")).toBe(true);
 		expect(VIDEO_EXTENSIONS.has(".mov")).toBe(true);
@@ -129,7 +134,7 @@ describe("Media Inspector & Video File Comprehension", () => {
 		expect(isVideoOrAudioExtension("document.pdf")).toBe(false);
 	});
 
-	it("inspects video file metadata including dimensions, duration, and codec", async () => {
+	itFFmpeg("inspects video file metadata including dimensions, duration, and codec", async () => {
 		const meta = await inspectMediaFile(sampleVideoPath);
 		expect(meta.kind).toBe("video");
 		expect(meta.format).toMatch(/mp4/i);
@@ -144,7 +149,7 @@ describe("Media Inspector & Video File Comprehension", () => {
 		expect(note).toContain("Duration:");
 	});
 
-	it("inspects audio file metadata including duration and channels", async () => {
+	itFFmpeg("inspects audio file metadata including duration and channels", async () => {
 		const meta = await inspectMediaFile(sampleAudioPath);
 		expect(meta.kind).toBe("audio");
 		expect(meta.durationSeconds).toBeGreaterThan(0.5);
@@ -155,7 +160,7 @@ describe("Media Inspector & Video File Comprehension", () => {
 		expect(note).toContain("Duration:");
 	});
 
-	it("extracts keyframes from video file for visual inspection", async () => {
+	itFFmpeg("extracts keyframes from video file for visual inspection", async () => {
 		const keyframes = await extractKeyframes(sampleVideoPath, 2);
 		expect(keyframes.length).toBeGreaterThan(0);
 		expect(keyframes[0].framePath).toBeDefined();
@@ -169,7 +174,7 @@ describe("Media Inspector & Video File Comprehension", () => {
 		}
 	});
 
-	it("read tool returns structured metadata and inspect guidance for video and audio files", async () => {
+	itFFmpeg("read tool returns structured metadata and inspect guidance for video and audio files", async () => {
 		const session = createMockSession(tempDir);
 		const readTool = new ReadTool(session);
 
@@ -189,7 +194,7 @@ describe("Media Inspector & Video File Comprehension", () => {
 		expect(audioText).toContain("sample.mp3");
 	});
 
-	it("inspect_image tool extracts video keyframes and passes them to the vision model", async () => {
+	itFFmpeg("inspect_image tool extracts video keyframes and passes them to the vision model", async () => {
 		const session = createMockSession(tempDir);
 		let capturedMessages: any[] = [];
 		const completeSimpleStub = async (_model: any, request: any) => {

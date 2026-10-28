@@ -162,7 +162,7 @@ export async function runCli(argv: string[]): Promise<void> {
 
 	if (argv[0] === "--smoke-test") {
 		await runSmokeTest();
-		return;
+		process.exit(0);
 	}
 	if (argv[0] === "--tiny-worker") {
 		await runTinyWorker();
