@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { bandBleed, boundingBox, frameRectToPhysical, highlightColor, highlightOverlayScript, layerGeometry, mergeBands, toBands } from "../eye-highlight";
+import {
+	bandBleed,
+	boundingBox,
+	frameRectToPhysical,
+	highlightColor,
+	highlightOverlayScript,
+	layerGeometry,
+	mergeBands,
+	toBands,
+} from "../eye-highlight";
 
 const WINDOW_FRAME = {
 	kind: "window" as const,
@@ -34,12 +43,15 @@ describe("eye-highlight geometry", () => {
 	test("rejects degenerate rects (zero size, empty frame)", () => {
 		expect(frameRectToPhysical(WINDOW_FRAME, { x: 10, y: 10, w: 0, h: 10 })).toBeNull();
 		expect(
-			frameRectToPhysical({ kind: "fullscreen", atX: 0, atY: 0, physW: 0, physH: 0, scaledW: 0, scaledH: 0 }, {
-				x: 1,
-				y: 1,
-				w: 5,
-				h: 5,
-			}),
+			frameRectToPhysical(
+				{ kind: "fullscreen", atX: 0, atY: 0, physW: 0, physH: 0, scaledW: 0, scaledH: 0 },
+				{
+					x: 1,
+					y: 1,
+					w: 5,
+					h: 5,
+				},
+			),
 		).toBeNull();
 	});
 
@@ -117,7 +129,9 @@ describe("eye-highlight geometry", () => {
 		// A band at screen y=500 on a box with a 68px top bar must be placed at
 		// marginTop = 500-68 = 432 (usable-area coords), NOT 500 — otherwise the
 		// surface lands 68px low.
-		const g = layerGeometry([{ x: 300, y: 500, w: 200, h: 30 }], { reserved: { left: 0, top: 68, right: 0, bottom: 0 } });
+		const g = layerGeometry([{ x: 300, y: 500, w: 200, h: 30 }], {
+			reserved: { left: 0, top: 68, right: 0, bottom: 0 },
+		});
 		expect(g).not.toBeNull();
 		expect(g!.marginTop).toBe(432);
 		expect(g!.marginLeft).toBe(300);
@@ -126,7 +140,10 @@ describe("eye-highlight geometry", () => {
 		expect(g!.bands[0]).toEqual({ x: 0, y: 0, w: 200, h: 30 });
 
 		// Logical scale: physical px / scale for margins and size.
-		const s = layerGeometry([{ x: 300, y: 500, w: 200, h: 30 }], { reserved: { left: 0, top: 68, right: 0, bottom: 0 }, scale: 2 });
+		const s = layerGeometry([{ x: 300, y: 500, w: 200, h: 30 }], {
+			reserved: { left: 0, top: 68, right: 0, bottom: 0 },
+			scale: 2,
+		});
 		expect(s!.marginTop).toBe(216); // 432/2
 		expect(s!.width).toBe(100);
 		expect(s!.bands[0]).toEqual({ x: 0, y: 0, w: 100, h: 15 });
@@ -135,7 +152,9 @@ describe("eye-highlight geometry", () => {
 	test("a band straddling the bar keeps its offset so it is drawn clipped", () => {
 		// y=60 with a 68px bar: usable y = -8, so the top 8px sit behind the bar
 		// and the surface is pinned to the usable origin.
-		const g = layerGeometry([{ x: 10, y: 60, w: 100, h: 20 }], { reserved: { left: 0, top: 68, right: 0, bottom: 0 } });
+		const g = layerGeometry([{ x: 10, y: 60, w: 100, h: 20 }], {
+			reserved: { left: 0, top: 68, right: 0, bottom: 0 },
+		});
 		expect(g).not.toBeNull();
 		expect(g!.marginTop).toBe(0); // pinned at the usable origin
 		expect(g!.bands[0].y).toBe(-8); // 60-68: drawn above the surface, clipped
@@ -143,12 +162,16 @@ describe("eye-highlight geometry", () => {
 	});
 
 	test("a band fully behind the bar is dropped (nothing visible)", () => {
-		expect(layerGeometry([{ x: 10, y: 5, w: 100, h: 3 }], { reserved: { left: 0, top: 68, right: 0, bottom: 0 } })).toBeNull();
+		expect(
+			layerGeometry([{ x: 10, y: 5, w: 100, h: 3 }], { reserved: { left: 0, top: 68, right: 0, bottom: 0 } }),
+		).toBeNull();
 	});
 
 	test("a band fully behind the left reserved zone is dropped", () => {
 		// x=5,w=50 with reserved.left=68 → usable x=-63, right edge -13 < 0.
-		expect(layerGeometry([{ x: 5, y: 200, w: 50, h: 30 }], { reserved: { left: 68, top: 0, right: 0, bottom: 0 } })).toBeNull();
+		expect(
+			layerGeometry([{ x: 5, y: 200, w: 50, h: 30 }], { reserved: { left: 68, top: 0, right: 0, bottom: 0 } }),
+		).toBeNull();
 	});
 
 	test("layerGeometry is null for empty input", () => {
@@ -176,7 +199,9 @@ describe("eye-highlight geometry", () => {
 	});
 
 	test("script embeds the surface geometry and encodes a dissolve", () => {
-		const g = layerGeometry([{ x: 400, y: 468, w: 120, h: 20 }], { reserved: { left: 0, top: 68, right: 0, bottom: 0 } })!;
+		const g = layerGeometry([{ x: 400, y: 468, w: 120, h: 20 }], {
+			reserved: { left: 0, top: 68, right: 0, bottom: 0 },
+		})!;
 		const s = highlightOverlayScript(g, { ms: 2000, width: 4 });
 		const unescaped = s.replace(/\\(.)/g, "$1");
 		expect(unescaped).toContain('"marginTop":400'); // 468-68

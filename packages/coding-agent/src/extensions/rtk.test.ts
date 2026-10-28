@@ -21,16 +21,12 @@ describe("isRtkPassthrough", () => {
 		expect(isRtkPassthrough(cmd)).toBe(true);
 	});
 
-	it.each([
-		"git status",
-		"cargo test",
-		"pnpm install",
-		"npm install",
-		"pnpm add react",
-		"echo pnpm run lint",
-	])("returns false for %s", (cmd: string) => {
-		expect(isRtkPassthrough(cmd)).toBe(false);
-	});
+	it.each(["git status", "cargo test", "pnpm install", "npm install", "pnpm add react", "echo pnpm run lint"])(
+		"returns false for %s",
+		(cmd: string) => {
+			expect(isRtkPassthrough(cmd)).toBe(false);
+		},
+	);
 });
 
 // ---------------------------------------------------------------------------

@@ -114,24 +114,35 @@ export function selectObservationForInput(
 	policy: ObservationPolicy = DEFAULT_OBSERVATION_POLICY,
 ): ObservationSelection {
 	if (!snapshot) {
-		return { ok: false, reason: "missing", ageMs: null, detail: "No continuous observation yet — take a live_eye glance first." };
+		return {
+			ok: false,
+			reason: "missing",
+			ageMs: null,
+			detail: "No continuous observation yet — take a live_eye glance first.",
+		};
 	}
 	if (snapshot.superseded) {
 		return {
-			ok: false, reason: "superseded", ageMs: observationAgeMs(snapshot, now),
+			ok: false,
+			reason: "superseded",
+			ageMs: observationAgeMs(snapshot, now),
 			detail: `Observation generation ${snapshot.generation} was superseded by a focus change or cancel — re-anchor before driving input.`,
 		};
 	}
 	const ageMs = observationAgeMs(snapshot, now);
 	if (ageMs > policy.maxAgeMs) {
 		return {
-			ok: false, reason: "stale", ageMs,
+			ok: false,
+			reason: "stale",
+			ageMs,
 			detail: `Observation is ${ageMs}ms old (limit ${policy.maxAgeMs}ms) — refresh the glance before driving input.`,
 		};
 	}
 	if (policy.requireAddressMatch && snapshot.address !== activeAddress) {
 		return {
-			ok: false, reason: "address_mismatch", ageMs,
+			ok: false,
+			reason: "address_mismatch",
+			ageMs,
 			detail: `Observation is anchored to ${snapshot.address} but the active window is ${activeAddress ?? "none"} — re-anchor before driving input.`,
 		};
 	}
@@ -152,12 +163,22 @@ export class ObservationController {
 	/** Start (or restart) observation anchored to an exact window address.
 	 *  windowRect is the anchored WINDOW's rect (probe-reported), the
 	 *  authoritative identity for change detection — see ObservationSnapshot. */
-	start(address: string, frame: InputFrame | null = null, now = Date.now(), windowRect?: WindowRect, scrollY?: number): number {
+	start(
+		address: string,
+		frame: InputFrame | null = null,
+		now = Date.now(),
+		windowRect?: WindowRect,
+		scrollY?: number,
+	): number {
 		this.stopTimer();
 		this.generation += 1;
 		this.current = {
-			generation: this.generation, address, frame, capturedAt: now,
-			...(windowRect ? { windowRect } : {}), ...(scrollY !== undefined ? { scrollY } : {}),
+			generation: this.generation,
+			address,
+			frame,
+			capturedAt: now,
+			...(windowRect ? { windowRect } : {}),
+			...(scrollY !== undefined ? { scrollY } : {}),
 		};
 		return this.generation;
 	}
@@ -193,7 +214,8 @@ export class ObservationController {
 	/** Attach OCR text to the CURRENT generation (capped); ignores stale writers. */
 	noteOcr(generation: number, text: string, confidence?: number, now = Date.now()): boolean {
 		if (!this.current || this.current.superseded || generation !== this.generation) return false;
-		this.current.ocrText = text.length > OBSERVATION_MAX_TEXT_CHARS ? text.slice(0, OBSERVATION_MAX_TEXT_CHARS) : text;
+		this.current.ocrText =
+			text.length > OBSERVATION_MAX_TEXT_CHARS ? text.slice(0, OBSERVATION_MAX_TEXT_CHARS) : text;
 		this.current.ocrAt = now;
 		if (confidence !== undefined) this.current.ocrConfidence = confidence;
 		return true;
@@ -203,13 +225,23 @@ export class ObservationController {
 	 * Atomically re-anchor to a new window address (focus change). The old
 	 * snapshot is superseded so it can never drive input again.
 	 */
-	replace(address: string, frame: InputFrame | null = null, now = Date.now(), windowRect?: WindowRect, scrollY?: number): number {
+	replace(
+		address: string,
+		frame: InputFrame | null = null,
+		now = Date.now(),
+		windowRect?: WindowRect,
+		scrollY?: number,
+	): number {
 		if (this.current) this.current.superseded = true;
 		this.stopTimer();
 		this.generation += 1;
 		this.current = {
-			generation: this.generation, address, frame, capturedAt: now,
-			...(windowRect ? { windowRect } : {}), ...(scrollY !== undefined ? { scrollY } : {}),
+			generation: this.generation,
+			address,
+			frame,
+			capturedAt: now,
+			...(windowRect ? { windowRect } : {}),
+			...(scrollY !== undefined ? { scrollY } : {}),
 		};
 		return this.generation;
 	}

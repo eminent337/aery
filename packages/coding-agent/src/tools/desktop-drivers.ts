@@ -49,7 +49,11 @@ export interface DesktopDriver {
 	readonly windows: WindowControl;
 	readonly capture: CaptureControl;
 	/** Shell out inside the driver (DISPLAY etc. handled per-driver). */
-	run(cmd: string, args: string[], opts?: { timeout?: number; env?: NodeJS.ProcessEnv }): Promise<{ code: number; stdout: string; stderr: string }>;
+	run(
+		cmd: string,
+		args: string[],
+		opts?: { timeout?: number; env?: NodeJS.ProcessEnv },
+	): Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
 /** --- Output scale (physical px → logical units) ----------------------- */
@@ -91,7 +95,7 @@ export async function detectOutputScale(): Promise<number> {
 			if (scale) {
 				scaleCache = { value: scale, at: Date.now() };
 				return scale;
-		}
+			}
 		}
 	} catch {
 		// fall through
@@ -160,7 +164,10 @@ export function clearScaleCache(): void {
 }
 
 /** Detect which driver owns this box. Pure env/platform check — no I/O. */
-export function detectPlatformId(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): PlatformId {
+export function detectPlatformId(
+	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
+): PlatformId {
 	if (platform === "darwin") return "macos";
 	if (platform === "win32") return "windows";
 	if (env.HYPRLAND_INSTANCE_SIGNATURE) return "hyprland";
@@ -173,7 +180,11 @@ export function detectPlatformId(env: NodeJS.ProcessEnv = process.env, platform:
 	return "unknown";
 }
 
-async function runCmd(cmd: string, args: string[], opts?: { timeout?: number; env?: NodeJS.ProcessEnv }): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runCmd(
+	cmd: string,
+	args: string[],
+	opts?: { timeout?: number; env?: NodeJS.ProcessEnv },
+): Promise<{ code: number; stdout: string; stderr: string }> {
 	try {
 		const res = await execFileNiced(cmd, args, {
 			timeout: opts?.timeout ?? 15000,
@@ -193,16 +204,26 @@ async function runCmd(cmd: string, args: string[], opts?: { timeout?: number; en
 function parseHyprClients(stdout: string): DesktopWindowQuery[] {
 	try {
 		const raw = JSON.parse(stdout) as Array<{
-			address: string; title: string; class: string;
+			address: string;
+			title: string;
+			class: string;
 			workspace?: { id: number; name: string };
-			at: [number, number]; size: [number, number];
-			focusHistoryID: number; xwayland?: boolean; pid?: number;
+			at: [number, number];
+			size: [number, number];
+			focusHistoryID: number;
+			xwayland?: boolean;
+			pid?: number;
 		}>;
 		return raw.map(w => ({
-			address: w.address, title: w.title || "(untitled)", class: w.class || "(unknown)",
+			address: w.address,
+			title: w.title || "(untitled)",
+			class: w.class || "(unknown)",
 			workspace: w.workspace?.name || w.workspace?.id || 1,
-			at: w.at || [0, 0], size: w.size || [0, 0],
-			focused: w.focusHistoryID === 0, pid: w.pid, xwayland: w.xwayland === true,
+			at: w.at || [0, 0],
+			size: w.size || [0, 0],
+			focused: w.focusHistoryID === 0,
+			pid: w.pid,
+			xwayland: w.xwayland === true,
 		}));
 	} catch {
 		return [];
@@ -214,10 +235,15 @@ function parseHyprActive(stdout: string): DesktopWindowQuery | undefined {
 		const w = JSON.parse(stdout);
 		if (!w || !w.address) return undefined;
 		return {
-			address: w.address, title: w.title || "(untitled)", class: w.class || "(unknown)",
+			address: w.address,
+			title: w.title || "(untitled)",
+			class: w.class || "(unknown)",
 			workspace: w.workspace?.name || w.workspace?.id || 1,
-			at: w.at || [0, 0], size: w.size || [0, 0],
-			focused: true, pid: w.pid, xwayland: w.xwayland === true,
+			at: w.at || [0, 0],
+			size: w.size || [0, 0],
+			focused: true,
+			pid: w.pid,
+			xwayland: w.xwayland === true,
 		};
 	} catch {
 		return undefined;
@@ -226,13 +252,24 @@ function parseHyprActive(stdout: string): DesktopWindowQuery | undefined {
 
 /** Window title/class listing for pure-X11 via xdotool (no geometry — XQueryTree is out of scope). */
 async function xdotoolWindows(displayEnv?: NodeJS.ProcessEnv): Promise<DesktopWindowQuery[]> {
-	const res = await runCmd("xdotool", ["search", "--onlyvisible", "--name", ".", "getwindowname", "%@"], { env: displayEnv });
+	const res = await runCmd("xdotool", ["search", "--onlyvisible", "--name", ".", "getwindowname", "%@"], {
+		env: displayEnv,
+	});
 	if (res.code !== 0) return [];
-	return res.stdout.split("\n").map(s => s.trim()).filter(Boolean).map((title, i) => ({
-		address: `x11:${i}`, title: title || "(untitled)", class: "(unknown)",
-		workspace: 1, at: [0, 0] as [number, number], size: [0, 0] as [number, number],
-		focused: false, xwayland: true,
-	}));
+	return res.stdout
+		.split("\n")
+		.map(s => s.trim())
+		.filter(Boolean)
+		.map((title, i) => ({
+			address: `x11:${i}`,
+			title: title || "(untitled)",
+			class: "(unknown)",
+			workspace: 1,
+			at: [0, 0] as [number, number],
+			size: [0, 0] as [number, number],
+			focused: false,
+			xwayland: true,
+		}));
 }
 
 const hyprlandDriver: DesktopDriver = {
@@ -294,9 +331,14 @@ const x11Driver: DesktopDriver = {
 			const res = await runCmd("xdotool", ["getactivewindow", "getwindowname"]);
 			if (res.code !== 0) return undefined;
 			return {
-				address: "x11:active", title: res.stdout.trim() || "(untitled)", class: "(unknown)",
-				workspace: 1, at: [0, 0] as [number, number], size: [0, 0] as [number, number],
-				focused: true, xwayland: true,
+				address: "x11:active",
+				title: res.stdout.trim() || "(untitled)",
+				class: "(unknown)",
+				workspace: 1,
+				at: [0, 0] as [number, number],
+				size: [0, 0] as [number, number],
+				focused: true,
+				xwayland: true,
 			};
 		},
 		async focusWindow(address: string) {
@@ -371,7 +413,11 @@ export function detectPlatformDriver(
 		case "x11":
 			return x11Driver;
 		case "macos":
-			return unimplementedDriver("macos", "macOS (screencapture/CGEvent)", "needs screencapture + CGEvent injection driver");
+			return unimplementedDriver(
+				"macos",
+				"macOS (screencapture/CGEvent)",
+				"needs screencapture + CGEvent injection driver",
+			);
 		case "windows":
 			return unimplementedDriver("windows", "Windows (Win32)", "needs Win32 capture + SendInput driver");
 		default:

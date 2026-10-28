@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { SessionManager } from "../src/session/session-manager";
-import { ForkSessionTool } from "../src/tools/ai-autonomous-tools";
 import type { ToolSession } from "../src/tools";
+import { ForkSessionTool } from "../src/tools/ai-autonomous-tools";
 import { resolveToCwd } from "../src/tools/path-utils";
 
 describe("Cross-directory session forking", () => {
@@ -83,7 +83,9 @@ describe("Cross-directory session forking", () => {
 
 		// Verify message history was preserved
 		const messageEntries = lines.slice(1).map(l => JSON.parse(l));
-		expect(messageEntries.some(e => e.type === "message" && e.message?.content?.[0]?.text === "Hello from Project A")).toBe(true);
+		expect(
+			messageEntries.some(e => e.type === "message" && e.message?.content?.[0]?.text === "Hello from Project A"),
+		).toBe(true);
 
 		// Verify original session file still exists in Project A with original cwd
 		expect(fs.existsSync(origSessionFile!)).toBe(true);

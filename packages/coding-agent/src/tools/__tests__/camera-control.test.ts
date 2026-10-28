@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CameraWatchLoop, watchDigestOf, watchDiffFloor, watchLineDelta, watchShouldOcr } from "../camera-control";
+import { CameraWatchLoop, watchDiffFloor, watchDigestOf, watchLineDelta, watchShouldOcr } from "../camera-control";
 
 // Throttle + change-gating contract for the watch-loop screen lane.
 // watchShouldOcr(lastOcrAt, now, lastDigest, digest) is the pure decision
@@ -30,7 +30,9 @@ describe("watch OCR gating (screen lane)", () => {
 	test("stale + tiny change below threshold stays quiet", () => {
 		// Diff of 1/32 nibble * 8 = 0.25 >= 0.12 would fire; use truly identical
 		// digest for the below-threshold case (0 change).
-		expect(watchShouldOcr(STALE, NOW, "abcd1234abcd1234abcd1234abcd1234", "abcd1234abcd1234abcd1234abcd1234")).toBe(false);
+		expect(watchShouldOcr(STALE, NOW, "abcd1234abcd1234abcd1234abcd1234", "abcd1234abcd1234abcd1234abcd1234")).toBe(
+			false,
+		);
 	});
 
 	test("undefined last digest counts as complete change (fires)", () => {
@@ -84,10 +86,14 @@ describe("watch transcript actions (append mode)", () => {
 	});
 	test("watch_start dispatch wires lanes (screen-only / camera-only wording)", () => {
 		const screenOnly = CameraWatchLoop.handle("watch_start", false, "screen");
-		expect((screenOnly.content[0] as { text: string }).text).toMatch(/screen ~1fps \+ OCR on change \(camera lane disabled\)/);
+		expect((screenOnly.content[0] as { text: string }).text).toMatch(
+			/screen ~1fps \+ OCR on change \(camera lane disabled\)/,
+		);
 		CameraWatchLoop.handle("watch_stop");
 		const cameraOnly = CameraWatchLoop.handle("watch_start", false, "camera");
-		expect((cameraOnly.content[0] as { text: string }).text).toMatch(/camera face snapshots every 10s \(screen lane disabled\)/);
+		expect((cameraOnly.content[0] as { text: string }).text).toMatch(
+			/camera face snapshots every 10s \(screen lane disabled\)/,
+		);
 		CameraWatchLoop.handle("watch_stop");
 	});
 	test("recordExternalOcr keeps full middle text in the transcript", () => {

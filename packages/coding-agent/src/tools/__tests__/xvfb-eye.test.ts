@@ -60,7 +60,6 @@ describe("headlessEyeRead dark-capture rescue (background-matched pad)", () => {
 			expect(out.stdout.includes("gray(0)") || out.stdout.includes("(0,0,0)")).toBe(dark);
 		}
 	});
-
 });
 
 describe("headlessEyeRead (xvfb eye)", () => {
@@ -180,9 +179,7 @@ describe("xvfbContentCrop (trim geometry)", () => {
 		const { exec } = await import("node:child_process");
 		const { promisify } = await import("node:util");
 		const runLocal = promisify(exec);
-		await runLocal(
-			`convert -size 1600x900 xc:white -fill black -draw "rectangle 100,400 400,500" ${BIG}`,
-		);
+		await runLocal(`convert -size 1600x900 xc:white -fill black -draw "rectangle 100,400 400,500" ${BIG}`);
 		const { xvfbContentCrop } = await import("../desktop-control");
 		const c = await xvfbContentCrop(BIG);
 		expect(c).not.toBeNull();

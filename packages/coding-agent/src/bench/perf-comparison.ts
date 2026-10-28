@@ -21,7 +21,10 @@ async function runBenchmarks() {
 	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aery-perf-"));
 	const testFilePath = path.join(tempDir, "large_file.txt");
 	const lineCount = 50_000;
-	const sampleContent = Array.from({ length: lineCount }, (_, i) => `line ${i}: const data = { id: ${i}, value: "test-${i}" };`).join("\n");
+	const sampleContent = Array.from(
+		{ length: lineCount },
+		(_, i) => `line ${i}: const data = { id: ${i}, value: "test-${i}" };`,
+	).join("\n");
 	await fs.writeFile(testFilePath, sampleContent, "utf-8");
 	const fileSizeMb = (sampleContent.length / (1024 * 1024)).toFixed(2);
 	console.log(`\n[Benchmark 1] File Read Throughput (${fileSizeMb} MB, ${lineCount} lines)`);
@@ -52,7 +55,9 @@ async function runBenchmarks() {
 		bashLatencies.push(performance.now() - startBash);
 	}
 	const avgBash = (bashLatencies.reduce((a, b) => a + b, 0) / bashLatencies.length).toFixed(2);
-	console.log(`- executeBash (warmed session, 5 runs): avg ${avgBash} ms (individual: ${bashLatencies.map(n => n.toFixed(1) + "ms").join(", ")})`);
+	console.log(
+		`- executeBash (warmed session, 5 runs): avg ${avgBash} ms (individual: ${bashLatencies.map(n => n.toFixed(1) + "ms").join(", ")})`,
+	);
 
 	// B: direct Bun.spawn
 	const spawnLatencies: number[] = [];
@@ -63,7 +68,9 @@ async function runBenchmarks() {
 		spawnLatencies.push(performance.now() - startSpawn);
 	}
 	const avgSpawn = (spawnLatencies.reduce((a, b) => a + b, 0) / spawnLatencies.length).toFixed(2);
-	console.log(`- direct Bun.spawn (5 runs): avg ${avgSpawn} ms (individual: ${spawnLatencies.map(n => n.toFixed(1) + "ms").join(", ")})`);
+	console.log(
+		`- direct Bun.spawn (5 runs): avg ${avgSpawn} ms (individual: ${spawnLatencies.map(n => n.toFixed(1) + "ms").join(", ")})`,
+	);
 
 	// 3. Search / Grep Throughput
 	console.log("\n[Benchmark 3] Search / Grep Throughput (50k lines)");
@@ -80,7 +87,9 @@ async function runBenchmarks() {
 	const startTokens = performance.now();
 	const tokens = countTokens(sampleContent);
 	const durationTokens = performance.now() - startTokens;
-	console.log(`- Native Rust countTokens: ${durationTokens.toFixed(2)} ms (${tokens} tokens, ${(tokens / durationTokens * 1000).toFixed(0)} tokens/sec)`);
+	console.log(
+		`- Native Rust countTokens: ${durationTokens.toFixed(2)} ms (${tokens} tokens, ${((tokens / durationTokens) * 1000).toFixed(0)} tokens/sec)`,
+	);
 
 	// 5. String Replace vs Hashline
 	console.log("\n[Benchmark 5] Exact String Replace vs Hashline");
@@ -89,7 +98,9 @@ async function runBenchmarks() {
 	const replacement = 'line 25000: const data = { id: 25000, value: "MODIFIED" };';
 	const replaced = sampleContent.replace(target, replacement);
 	const durationReplace = performance.now() - startReplace;
-	console.log(`- Exact String Replace (agy style): ${durationReplace.toFixed(2)} ms (success: ${replaced.includes("MODIFIED")})`);
+	console.log(
+		`- Exact String Replace (agy style): ${durationReplace.toFixed(2)} ms (success: ${replaced.includes("MODIFIED")})`,
+	);
 
 	// Cleanup
 	await fs.rm(tempDir, { recursive: true, force: true });

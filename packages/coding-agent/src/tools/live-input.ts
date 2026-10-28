@@ -68,8 +68,11 @@ export function clearProbeCache(): void {
 }
 
 async function hasYdotooldSocket(): Promise<boolean> {
-	const runtimeDir = process.env.XDG_RUNTIME_DIR || (typeof process.getuid === "function" ? `/run/user/${process.getuid()}` : "");
-	return fs.existsSync("/tmp/.ydotool_socket") || (runtimeDir.length > 0 && fs.existsSync(`${runtimeDir}/.ydotool_socket`));
+	const runtimeDir =
+		process.env.XDG_RUNTIME_DIR || (typeof process.getuid === "function" ? `/run/user/${process.getuid()}` : "");
+	return (
+		fs.existsSync("/tmp/.ydotool_socket") || (runtimeDir.length > 0 && fs.existsSync(`${runtimeDir}/.ydotool_socket`))
+	);
 }
 
 /**
@@ -89,7 +92,9 @@ export async function ensureYdotoold(signal?: AbortSignal): Promise<boolean> {
 		"setsid",
 		["sh", "-c", "nohup ydotoold >/dev/null 2>&1 </dev/null & sleep 0.4"],
 		{ timeout: 8000, signal },
-	).then(() => true).catch(() => false);
+	)
+		.then(() => true)
+		.catch(() => false);
 	if (!started) return false;
 	// Give the daemon a moment to open /dev/uinput and bind the socket.
 	for (let i = 0; i < 5; i++) {
@@ -471,10 +476,7 @@ export function xdoMove(x: number, y: number): string[] {
  *  display frames so every hop is revealed on a frame boundary (no skipped
  *  frames, no ragged 1px/2px/0px frame-to-frame advance). Omitting `frame`
  *  reproduces the unaligned script byte-for-byte. */
-export function xdoGlideScript(
-	hops: Array<{ x: number; y: number; gapMs: number }>,
-	frame?: number,
-): string {
+export function xdoGlideScript(hops: Array<{ x: number; y: number; gapMs: number }>, frame?: number): string {
 	const lines: string[] = [];
 	for (const h of hops) {
 		lines.push(`mousemove --sync ${Math.round(h.x)} ${Math.round(h.y)}`);
@@ -726,11 +728,12 @@ export async function hyprGlidePaced(
 		// still yields exactly one late hop — never a catch-up burst.
 		const now = performance.now();
 		const earliestNext = dispatched + hop.gapMs;
-		const nextBoundary = frame === null
-			? earliestNext
-			: glideOrigin === null
+		const nextBoundary =
+			frame === null
 				? earliestNext
-				: glideOrigin + (Math.floor((now - glideOrigin) / frame) + 1) * frame;
+				: glideOrigin === null
+					? earliestNext
+					: glideOrigin + (Math.floor((now - glideOrigin) / frame) + 1) * frame;
 		const wait = (frame === null ? earliestNext : Math.max(earliestNext, nextBoundary)) - now;
 		if (wait > 0) await new Promise<void>(resolve => setTimeout(resolve, wait));
 	}

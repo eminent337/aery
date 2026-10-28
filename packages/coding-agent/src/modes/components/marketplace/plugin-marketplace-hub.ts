@@ -14,6 +14,7 @@
  *  - Arrows / Enter → forwarded to the active SelectList
  */
 import {
+	type Component,
 	Container,
 	extractPrintableText,
 	matchesKey,
@@ -24,7 +25,6 @@ import {
 	Text,
 	truncateToWidth,
 	visibleWidth,
-	type Component,
 } from "@aryee337/aery-tui";
 import { getSelectListTheme, theme } from "../../../modes/theme/theme";
 import { getTabBarTheme } from "../../shared";
@@ -249,11 +249,7 @@ export class PluginMarketplaceHub extends Container {
 
 		if (this.#state.filteredItems.length === 0) {
 			this.#setContent(() => {
-				this.#emptyText = new Text(
-					theme.fg("muted", "  No plugins found matching criteria"),
-					0,
-					0,
-				);
+				this.#emptyText = new Text(theme.fg("muted", "  No plugins found matching criteria"), 0, 0);
 				this.addChild(this.#emptyText);
 			});
 		} else {

@@ -148,11 +148,12 @@ export async function runCli(argv: string[]): Promise<void> {
 
 	if (isLaunch) {
 		setImmediate(async () => {
-			const [{ recoverStrandedFerments }, { recoverStrandedSessions }, { getGlobalCronScheduler }] = await Promise.all([
-				import("./ferment/recovery.js"),
-				import("./session/recovery.js"),
-				import("./cron/scheduler.js"),
-			]);
+			const [{ recoverStrandedFerments }, { recoverStrandedSessions }, { getGlobalCronScheduler }] =
+				await Promise.all([
+					import("./ferment/recovery.js"),
+					import("./session/recovery.js"),
+					import("./cron/scheduler.js"),
+				]);
 			recoverStrandedFerments();
 			recoverStrandedSessions();
 			getGlobalCronScheduler().start();

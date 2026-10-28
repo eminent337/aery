@@ -221,10 +221,10 @@ async function createRealSession(): Promise<SessionFixture> {
 }
 
 /** Build a queued skill custom message (the shape the skill path dispatches). */
-function skillCustomMessage(content: string, chipText?: string): Extract<
-	Parameters<AgentSession["promptCustomMessage"]>[0],
-	{ customType: string }
-> {
+function skillCustomMessage(
+	content: string,
+	chipText?: string,
+): Extract<Parameters<AgentSession["promptCustomMessage"]>[0], { customType: string }> {
 	return {
 		customType: SKILL_PROMPT_MESSAGE_TYPE,
 		content,
@@ -406,7 +406,6 @@ describe("UiHelpers / InputController against the queued-display layer (E8-E9)",
 		expect(steering).toEqual([]);
 		expect(followUp).toEqual([]);
 	});
-
 });
 
 // ============================================================================

@@ -11,8 +11,9 @@ export function resolvePython(): string | null {
 	}
 	return null;
 }
-import { transcribeWithGroq } from "../voice/groq-whisper";
+
 import { reportAudioEnergy } from "../voice/aec-watchdog";
+import { transcribeWithGroq } from "../voice/groq-whisper";
 
 export interface TranscribeOptions {
 	modelName?: string;

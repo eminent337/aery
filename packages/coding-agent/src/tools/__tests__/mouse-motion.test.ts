@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
 	CLICK_CHOREOGRAPHY,
+	clickPath,
 	DEFAULT_MOTION_CONFIG,
 	DRAG_CHOREOGRAPHY,
-	clickPath,
 	dragPath,
 	type Rng,
 	windMousePath,

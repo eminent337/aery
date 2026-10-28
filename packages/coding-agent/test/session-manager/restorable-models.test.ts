@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-	EPHEMERAL_MODEL_CHANGE_ROLE,
-	getRestorableSessionModels,
-} from "@aryee337/aery/session/session-manager";
+import { EPHEMERAL_MODEL_CHANGE_ROLE, getRestorableSessionModels } from "@aryee337/aery/session/session-manager";
 
 describe("getRestorableSessionModels (resume model restore, omp parity)", () => {
 	test("ephemeral fallback role restores the default model, not the transient one", () => {

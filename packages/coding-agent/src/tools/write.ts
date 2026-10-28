@@ -795,7 +795,10 @@ export class WriteTool implements AgentTool<typeof writeSchema, WriteToolDetails
 				if (path.includes("/") || path.includes("\\")) {
 					try {
 						const absolutePath = resolvePlanPath(this.session, path);
-						const dir = absolutePath.substring(0, Math.max(absolutePath.lastIndexOf("/"), absolutePath.lastIndexOf("\\")));
+						const dir = absolutePath.substring(
+							0,
+							Math.max(absolutePath.lastIndexOf("/"), absolutePath.lastIndexOf("\\")),
+						);
 						if (dir) {
 							await fs.mkdir(dir, { recursive: true });
 						}

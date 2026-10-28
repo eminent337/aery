@@ -1,22 +1,69 @@
 import { describe, expect, test } from "bun:test";
-import { DesktopControlTool, focusGuardRefusal, geometryIsKnown, insertionProbeRegion, insertionVerdict, observationInputStatus, runDragWithCleanup, runScrollBurst, runSteps, scrollBurstIntervalMs, scrollBurstPlan, validateInjection } from "../desktop-control";
+import {
+	DesktopControlTool,
+	focusGuardRefusal,
+	geometryIsKnown,
+	insertionProbeRegion,
+	insertionVerdict,
+	observationInputStatus,
+	observeRefresherTick,
+	runDragWithCleanup,
+	runScrollBurst,
+	runSteps,
+	scrollBurstIntervalMs,
+	scrollBurstPlan,
+	validateInjection,
+} from "../desktop-control";
 import { ObservationController, type ObservationSnapshot } from "../live-observe";
-import { observeRefresherTick } from "../desktop-control";
 
 const FRAME = { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" };
 const DRAG = { action: "live_drag" as const, x: 10, y: 20, x2: 100, y2: 200 };
 const SHIFT_DRAG = { ...DRAG, modifiers: ["shift"] as "shift"[], frame: FRAME, focusedAddress: "win1" };
 const schema = new DesktopControlTool().parameters;
 const NON_DRAG_ACTIONS = [
-	"screenshot", "list_windows", "live_eye", "highlight", "focus_window", "close_window",
-	"switch_workspace", "launch_app", "cursor_pos", "live_mode_on", "live_mode_off",
-	"live_mode_status", "live_backend_probe", "live_move", "live_click", "live_type",
-	"live_key", "live_scroll", "system_control", "xvfb_launch", "xvfb_screenshot",
-	"xvfb_list_windows", "xvfb_click", "xvfb_type", "xvfb_key", "xvfb_close",
+	"screenshot",
+	"list_windows",
+	"live_eye",
+	"highlight",
+	"focus_window",
+	"close_window",
+	"switch_workspace",
+	"launch_app",
+	"cursor_pos",
+	"live_mode_on",
+	"live_mode_off",
+	"live_mode_status",
+	"live_backend_probe",
+	"live_move",
+	"live_click",
+	"live_type",
+	"live_key",
+	"live_scroll",
+	"system_control",
+	"xvfb_launch",
+	"xvfb_screenshot",
+	"xvfb_list_windows",
+	"xvfb_click",
+	"xvfb_type",
+	"xvfb_key",
+	"xvfb_close",
 ] as const;
 const INVALID_MODIFIERS: unknown[] = [
-	["ctrl"], ["alt"], ["super"], ["meta"], ["Shift"], ["shift", "ctrl"],
-	["shift", "shift"], [""], [], [42], [null], "shift", null, true, {},
+	["ctrl"],
+	["alt"],
+	["super"],
+	["meta"],
+	["Shift"],
+	["shift", "ctrl"],
+	["shift", "shift"],
+	[""],
+	[],
+	[42],
+	[null],
+	"shift",
+	null,
+	true,
+	{},
 ];
 
 describe("desktop drag modifier schema safety", () => {
@@ -65,7 +112,8 @@ describe("desktop drag runtime modifier safety", () => {
 		test(`runtime validation refuses modifiers on ${action}`, () => {
 			for (const modifiers of [["shift"] as "shift"[], []]) {
 				expect(validateInjection({ ...SHIFT_DRAG, action, modifiers })).toMatchObject({
-					ok: false, code: "invalid_modifiers",
+					ok: false,
+					code: "invalid_modifiers",
 				});
 			}
 		});
@@ -79,21 +127,24 @@ describe("Shift drag preserves frame and endpoint guardrails", () => {
 
 	test("refuses a stale window frame", () => {
 		expect(validateInjection({ ...SHIFT_DRAG, focusedAddress: "other" })).toMatchObject({
-			ok: false, code: "frame_stale",
+			ok: false,
+			code: "frame_stale",
 		});
 	});
 
 	for (const coordinate of ["x", "y", "x2", "y2"] as const) {
 		test(`requires ${coordinate} even with Shift held`, () => {
 			expect(validateInjection({ ...SHIFT_DRAG, [coordinate]: undefined })).toMatchObject({
-				ok: false, code: coordinate.endsWith("2") ? "missing_xy2" : "missing_xy",
+				ok: false,
+				code: coordinate.endsWith("2") ? "missing_xy2" : "missing_xy",
 			});
 		});
 
 		for (const value of [-1, coordinate.startsWith("x") ? FRAME.scaledW : FRAME.scaledH]) {
 			test(`refuses out-of-frame ${coordinate}=${value} with Shift`, () => {
 				expect(validateInjection({ ...SHIFT_DRAG, [coordinate]: value })).toMatchObject({
-					ok: false, code: "out_of_bounds",
+					ok: false,
+					code: "out_of_bounds",
 				});
 			});
 		}
@@ -116,7 +167,8 @@ describe("continuous path glide validation", () => {
 		expect(schema.parse({ action: "live_move", path: PATH }).path).toEqual(PATH);
 		expect(schema.safeParse({ action: "live_move", path: [{ x: 1, y: 1 }] }).success).toBe(false);
 		expect(
-			schema.safeParse({ action: "live_move", path: Array.from({ length: 65 }, (_, i) => ({ x: 1, y: i })) }).success,
+			schema.safeParse({ action: "live_move", path: Array.from({ length: 65 }, (_, i) => ({ x: 1, y: i })) })
+				.success,
 		).toBe(false);
 		expect(schema.safeParse({ action: "live_click", path: PATH }).success).toBe(false);
 	});
@@ -132,14 +184,20 @@ describe("continuous path glide validation", () => {
 	});
 
 	test("runtime enforces the same exclusivity when schema parsing is bypassed", () => {
-		expect(validateInjection({ ...BASE, action: "live_click" })).toMatchObject({ ok: false, code: "path_wrong_action" });
+		expect(validateInjection({ ...BASE, action: "live_click" })).toMatchObject({
+			ok: false,
+			code: "path_wrong_action",
+		});
 		expect(validateInjection({ ...BASE, x: 5 })).toMatchObject({ ok: false, code: "path_xor_xy" });
 		expect(validateInjection({ ...BASE, y: 5 })).toMatchObject({ ok: false, code: "path_xor_xy" });
 		expect(validateInjection({ ...BASE, target: "Compose" })).toMatchObject({ ok: false, code: "path_xor_target" });
 	});
 
 	test("bounds-checks every waypoint fail-closed", () => {
-		expect(validateInjection({ ...BASE, path: [PATH[0]!, { x: -1, y: 5 }] })).toMatchObject({ ok: false, code: "out_of_bounds" });
+		expect(validateInjection({ ...BASE, path: [PATH[0]!, { x: -1, y: 5 }] })).toMatchObject({
+			ok: false,
+			code: "out_of_bounds",
+		});
 		expect(validateInjection({ ...BASE, path: [PATH[0]!, { x: 5, y: FRAME.scaledH }] })).toMatchObject({
 			ok: false,
 			code: "out_of_bounds",
@@ -150,7 +208,10 @@ describe("continuous path glide validation", () => {
 	});
 
 	test("refuses a degenerate path when schema parsing is bypassed", () => {
-		expect(validateInjection({ ...BASE, path: [{ x: 5, y: 5 }] })).toMatchObject({ ok: false, code: "path_too_short" });
+		expect(validateInjection({ ...BASE, path: [{ x: 5, y: 5 }] })).toMatchObject({
+			ok: false,
+			code: "path_too_short",
+		});
 		expect(validateInjection({ ...BASE, path: [] })).toMatchObject({ ok: false, code: "path_too_short" });
 	});
 });
@@ -177,7 +238,9 @@ describe("pace parameter validation", () => {
 	});
 
 	test("runtime enforces pace without path and on other actions when schema is bypassed", () => {
-		expect(validateInjection({ action: "live_move", x: 5, y: 5, frame: FRAME, focusedAddress: "win1", pace: "brisk" })).toMatchObject({
+		expect(
+			validateInjection({ action: "live_move", x: 5, y: 5, frame: FRAME, focusedAddress: "win1", pace: "brisk" }),
+		).toMatchObject({
 			ok: false,
 			code: "pace_needs_path",
 		});
@@ -199,7 +262,9 @@ describe("pace parameter validation", () => {
 
 describe("immediate focused-window guard", () => {
 	test("allows an input batch only when the exact Hyprland address still matches", () => {
-		expect(focusGuardRefusal("0xexpected", { address: "0xexpected", class: "brave-browser", title: "Bench" })).toBeNull();
+		expect(
+			focusGuardRefusal("0xexpected", { address: "0xexpected", class: "brave-browser", title: "Bench" }),
+		).toBeNull();
 	});
 
 	test("reports expected and actual identity on mismatch", () => {
@@ -210,7 +275,9 @@ describe("immediate focused-window guard", () => {
 	});
 
 	test("fails closed when an expected address is absent", () => {
-		expect(focusGuardRefusal(undefined, { address: "0xother", class: "brave-browser", title: "Bench" })).toContain("no expected");
+		expect(focusGuardRefusal(undefined, { address: "0xother", class: "brave-browser", title: "Bench" })).toContain(
+			"no expected",
+		);
 	});
 
 	test("refuses before spawning the next argv when focus changes", async () => {
@@ -266,8 +333,12 @@ describe("scroll burst plan", () => {
 
 	test("clamps steps, falls back on bad speed, samples by default", () => {
 		expect(scrollBurstPlan({})).toMatchObject({ steps: 1, speed: "normal", intervalMs: 250, sample: true });
-		expect(scrollBurstPlan({ count: 99, scrollSpeed: "fast", observeDuringScroll: false }))
-			.toMatchObject({ steps: 20, speed: "fast", intervalMs: 80, sample: false });
+		expect(scrollBurstPlan({ count: 99, scrollSpeed: "fast", observeDuringScroll: false })).toMatchObject({
+			steps: 20,
+			speed: "fast",
+			intervalMs: 80,
+			sample: false,
+		});
 		expect(scrollBurstPlan({ count: 0, scrollSpeed: "ludicrous" }).speed).toBe("normal");
 	});
 });
@@ -281,10 +352,19 @@ describe("scroll burst guards and sampling", () => {
 		const ran: string[][] = [];
 		const fps = ["f1", "f2", "f3"];
 		const r = await runScrollBurst(steps, {
-			intervalMs: 1, sample: true, expectedWindowAddress: "0xA",
-			run: async argv => { ran.push(argv); return null; },
+			intervalMs: 1,
+			sample: true,
+			expectedWindowAddress: "0xA",
+			run: async argv => {
+				ran.push(argv);
+				return null;
+			},
 			sampleFrame: async () => fps[ran.length - 1],
-			assertFocus: async expected => { asserts++; expect(expected).toBe("0xA"); return okAssert(); },
+			assertFocus: async expected => {
+				asserts++;
+				expect(expected).toBe("0xA");
+				return okAssert();
+			},
 		});
 		expect(r).toMatchObject({ failure: null, completedSteps: 3 });
 		expect(ran).toEqual(steps);
@@ -296,8 +376,13 @@ describe("scroll burst guards and sampling", () => {
 	test("focus loss stops the burst before the next injection", async () => {
 		const ran: string[][] = [];
 		const r = await runScrollBurst(steps, {
-			intervalMs: 1, sample: false, expectedWindowAddress: "0xA",
-			run: async argv => { ran.push(argv); return null; },
+			intervalMs: 1,
+			sample: false,
+			expectedWindowAddress: "0xA",
+			run: async argv => {
+				ran.push(argv);
+				return null;
+			},
 			assertFocus: async () => (ran.length === 0 ? null : "focus changed"),
 		});
 		expect(r.failure).toContain("focus changed");
@@ -308,8 +393,13 @@ describe("scroll burst guards and sampling", () => {
 	test("backend failure and cancellation never emit further input", async () => {
 		const ran: string[][] = [];
 		const failed = await runScrollBurst(steps, {
-			intervalMs: 1, sample: false, expectedWindowAddress: "0xA",
-			run: async argv => { ran.push(argv); return ran.length === 2 ? "backend broke" : null; },
+			intervalMs: 1,
+			sample: false,
+			expectedWindowAddress: "0xA",
+			run: async argv => {
+				ran.push(argv);
+				return ran.length === 2 ? "backend broke" : null;
+			},
 			assertFocus: okAssert,
 		});
 		expect(failed.failure).toContain("backend broke");
@@ -318,8 +408,14 @@ describe("scroll burst guards and sampling", () => {
 		controller.abort();
 		const ran2: string[][] = [];
 		const cancelled = await runScrollBurst(steps, {
-			intervalMs: 1, sample: true, expectedWindowAddress: "0xA", signal: controller.signal,
-			run: async argv => { ran2.push(argv); return null; },
+			intervalMs: 1,
+			sample: true,
+			expectedWindowAddress: "0xA",
+			signal: controller.signal,
+			run: async argv => {
+				ran2.push(argv);
+				return null;
+			},
 			sampleFrame: async () => "fp",
 			assertFocus: okAssert,
 		});
@@ -330,9 +426,13 @@ describe("scroll burst guards and sampling", () => {
 
 	test("a throwing sampler degrades to a null sample, not a burst failure", async () => {
 		const r = await runScrollBurst([["a"]], {
-			intervalMs: 0, sample: true, expectedWindowAddress: "0xA",
+			intervalMs: 0,
+			sample: true,
+			expectedWindowAddress: "0xA",
 			run: async () => null,
-			sampleFrame: async () => { throw new Error("camera wedged"); },
+			sampleFrame: async () => {
+				throw new Error("camera wedged");
+			},
 			assertFocus: okAssert,
 		});
 		expect(r.failure).toBeNull();
@@ -344,8 +444,9 @@ describe("continuous-observation freshness policy", () => {
 	const fresh = { generation: 2, address: "0xA", frame: null, capturedAt: 10_000 };
 
 	test("fresh snapshot anchored to the active window is accepted", () => {
-		expect(observationInputStatus({ snapshot: fresh, activeAddress: "0xA", freshFrame: null, now: 10_800 }))
-			.toMatchObject({ state: "fresh", ageMs: 800, address: "0xA" });
+		expect(
+			observationInputStatus({ snapshot: fresh, activeAddress: "0xA", freshFrame: null, now: 10_800 }),
+		).toMatchObject({ state: "fresh", ageMs: 800, address: "0xA" });
 	});
 
 	test("stale snapshot refuses with an actionable age", () => {
@@ -360,7 +461,12 @@ describe("continuous-observation freshness policy", () => {
 	});
 
 	test("a superseded snapshot never drives input", () => {
-		const s = observationInputStatus({ snapshot: { ...fresh, superseded: true }, activeAddress: "0xA", freshFrame: null, now: 10_100 });
+		const s = observationInputStatus({
+			snapshot: { ...fresh, superseded: true },
+			activeAddress: "0xA",
+			freshFrame: null,
+			now: 10_100,
+		});
 		expect(s).toMatchObject({ state: "superseded" });
 	});
 
@@ -372,9 +478,18 @@ describe("continuous-observation freshness policy", () => {
 
 	test("a fresh frame from the pre-action capture re-anchors an old generation", () => {
 		const oldSnap = { generation: 1, address: "0xOLD", frame: null, capturedAt: 9_000 };
-		const freshFrame = { ...FRAME, atX: 708, atY: 90, physW: 1190, physH: 968, kind: "window" as const, address: "0xA" };
-		expect(observationInputStatus({ snapshot: oldSnap, activeAddress: "0xA", freshFrame, now: 10_100 }))
-			.toMatchObject({ state: "fresh", ageMs: 0, address: "0xA" });
+		const freshFrame = {
+			...FRAME,
+			atX: 708,
+			atY: 90,
+			physW: 1190,
+			physH: 968,
+			kind: "window" as const,
+			address: "0xA",
+		};
+		expect(
+			observationInputStatus({ snapshot: oldSnap, activeAddress: "0xA", freshFrame, now: 10_100 }),
+		).toMatchObject({ state: "fresh", ageMs: 0, address: "0xA" });
 	});
 
 	// --- Desired contract (continuous visual control, fix): validity is
@@ -385,28 +500,61 @@ describe("continuous-observation freshness policy", () => {
 	// the real invalidation event, and a snapshot with no anchored frame
 	// cannot prove identity, so it falls back to wall-clock expiry.
 	const frameless = { generation: 2, address: "0xA", frame: null, capturedAt: 10_000 };
-	const GEO_FRAME = { kind: "window" as const, atX: 708, atY: 90, physW: 1190, physH: 968, scaledW: 1280, scaledH: 800, address: "0xA" };
+	const GEO_FRAME = {
+		kind: "window" as const,
+		atX: 708,
+		atY: 90,
+		physW: 1190,
+		physH: 968,
+		scaledW: 1280,
+		scaledH: 800,
+		address: "0xA",
+	};
 	const snapGeo = { generation: 2, address: "0xA", frame: GEO_FRAME, capturedAt: 10_000 };
 	const activeGeo = { at: [708, 90] as [number, number], size: [1190, 968] as [number, number] };
 
 	test("stale-by-wall-clock but identity-matching snapshot is accepted", () => {
-		const s = observationInputStatus({ snapshot: snapGeo, activeAddress: "0xA", activeGeometry: activeGeo, freshFrame: null, now: 10_000 + 5_000 });
+		const s = observationInputStatus({
+			snapshot: snapGeo,
+			activeAddress: "0xA",
+			activeGeometry: activeGeo,
+			freshFrame: null,
+			now: 10_000 + 5_000,
+		});
 		expect(s).toMatchObject({ state: "fresh", ageMs: 5_000, address: "0xA" });
 	});
 
 	test("focused-window geometry change refuses with a distinct code", () => {
 		const moved = { at: [708, 90] as [number, number], size: [1000, 500] as [number, number] };
-		const s = observationInputStatus({ snapshot: snapGeo, activeAddress: "0xA", activeGeometry: moved, freshFrame: null, now: 10_100 });
+		const s = observationInputStatus({
+			snapshot: snapGeo,
+			activeAddress: "0xA",
+			activeGeometry: moved,
+			freshFrame: null,
+			now: 10_100,
+		});
 		expect(s.state).toBe("geometry_mismatch");
 	});
 
 	test("a snapshot with no anchored frame still falls back to wall-clock expiry (fail-closed)", () => {
-		const s = observationInputStatus({ snapshot: frameless, activeAddress: "0xA", activeGeometry: activeGeo, freshFrame: null, now: 10_000 + 1_501 });
+		const s = observationInputStatus({
+			snapshot: frameless,
+			activeAddress: "0xA",
+			activeGeometry: activeGeo,
+			freshFrame: null,
+			now: 10_000 + 1_501,
+		});
 		expect(s.state).toBe("stale");
 	});
 
 	test("a probe-rect change refuses even when the frame rect matches (windowRect is authoritative)", () => {
-		const s2 = observationInputStatus({ snapshot: { ...snapGeo, windowRect: { at: [708, 90], size: [1190, 968] } }, activeAddress: "0xA", activeGeometry: { at: [708, 90], size: [1000, 500] }, freshFrame: null, now: 10_100 });
+		const s2 = observationInputStatus({
+			snapshot: { ...snapGeo, windowRect: { at: [708, 90], size: [1190, 968] } },
+			activeAddress: "0xA",
+			activeGeometry: { at: [708, 90], size: [1000, 500] },
+			freshFrame: null,
+			now: 10_100,
+		});
 		expect(s2.state).toBe("geometry_mismatch");
 	});
 
@@ -414,7 +562,12 @@ describe("continuous-observation freshness policy", () => {
 		const RECT = { at: [966, 90] as [number, number], size: [932, 968] as [number, number] };
 		function started() {
 			const c = new ObservationController();
-			const g = c.start("0xA", { kind: "window", atX: 966, atY: 90, physW: 932, physH: 968, scaledW: 932, scaledH: 968, address: "0xA" }, 10_000, RECT);
+			const g = c.start(
+				"0xA",
+				{ kind: "window", atX: 966, atY: 90, physW: 932, physH: 968, scaledW: 932, scaledH: 968, address: "0xA" },
+				10_000,
+				RECT,
+			);
 			return { c, g };
 		}
 		const probeSame = { address: "0xA", at: [966, 90] as [number, number], size: [932, 968] as [number, number] };
@@ -433,7 +586,15 @@ describe("continuous-observation freshness policy", () => {
 			expect(observeRefresherTick(g, drifted, c, 20_000).action).toBe("noop");
 			expect(c.get()!.windowRect).toEqual(RECT);
 			expect(c.get()!.capturedAt).toBe(10_000);
-			expect(observationInputStatus({ snapshot: c.get(), activeAddress: "0xA", freshFrame: null, activeGeometry: drifted.at && drifted.size ? { at: drifted.at, size: drifted.size } : null, now: 20_000 }).state).toBe("geometry_mismatch");
+			expect(
+				observationInputStatus({
+					snapshot: c.get(),
+					activeAddress: "0xA",
+					freshFrame: null,
+					activeGeometry: drifted.at && drifted.size ? { at: drifted.at, size: drifted.size } : null,
+					now: 20_000,
+				}).state,
+			).toBe("geometry_mismatch");
 		});
 
 		test("address change is NOT swallowed — the gate must still refuse address_mismatch", () => {
@@ -467,20 +628,78 @@ describe("continuous-observation freshness policy", () => {
 		// Regression: a snapshot whose rect is partially/wholly malformed must
 		// degrade to identity-unproven (wall-clock fallback), never a TypeError.
 		const bad: ObservationSnapshot[] = [
-			{ generation: 1, address: "0xA", frame: null, capturedAt: 10_000, windowRect: { at: undefined as unknown as [number, number], size: [10, 20] as [number, number] } },
-			{ generation: 1, address: "0xA", frame: null, capturedAt: 10_000, windowRect: { at: [1] as unknown as [number, number], size: [10, 20] as [number, number] } },
-			{ generation: 1, address: "0xA", frame: null, capturedAt: 10_000, windowRect: { at: [Number.NaN, 2], size: [10, 20] as [number, number] } },
+			{
+				generation: 1,
+				address: "0xA",
+				frame: null,
+				capturedAt: 10_000,
+				windowRect: { at: undefined as unknown as [number, number], size: [10, 20] as [number, number] },
+			},
+			{
+				generation: 1,
+				address: "0xA",
+				frame: null,
+				capturedAt: 10_000,
+				windowRect: { at: [1] as unknown as [number, number], size: [10, 20] as [number, number] },
+			},
+			{
+				generation: 1,
+				address: "0xA",
+				frame: null,
+				capturedAt: 10_000,
+				windowRect: { at: [Number.NaN, 2], size: [10, 20] as [number, number] },
+			},
 		];
 		for (const snapshot of bad) {
-			const s1 = observationInputStatus({ snapshot, activeAddress: "0xA", freshFrame: null, activeGeometry: { at: [1, 2], size: [10, 20] }, now: 10_100, maxAgeMs: 1500 });
+			const s1 = observationInputStatus({
+				snapshot,
+				activeAddress: "0xA",
+				freshFrame: null,
+				activeGeometry: { at: [1, 2], size: [10, 20] },
+				now: 10_100,
+				maxAgeMs: 1500,
+			});
 			expect(s1.state).toBe("fresh"); // within wall-clock window → fail-open only in time, never crash
-			const s2 = observationInputStatus({ snapshot, activeAddress: "0xA", freshFrame: null, activeGeometry: { at: [1, 2], size: [10, 20] }, now: 99_999, maxAgeMs: 1500 });
+			const s2 = observationInputStatus({
+				snapshot,
+				activeAddress: "0xA",
+				freshFrame: null,
+				activeGeometry: { at: [1, 2], size: [10, 20] },
+				now: 99_999,
+				maxAgeMs: 1500,
+			});
 			expect(s2.state).toBe("stale"); // outside window with unprovable identity → fail-closed
 		}
 		// Malformed ACTIVE geometry must also degrade, not throw.
-		const okSnap = { generation: 1, address: "0xA", frame: { kind: "window" as const, atX: 1, atY: 2, physW: 10, physH: 20, scaledW: 10, scaledH: 20, address: "0xA" }, capturedAt: 10_000 };
-		for (const g of [{ at: [1], size: [10, 20] } as unknown as { at: [number, number]; size: [number, number] }, { at: [1, 2], size: [] } as unknown as { at: [number, number]; size: [number, number] }]) {
-			expect(() => observationInputStatus({ snapshot: okSnap, activeAddress: "0xA", freshFrame: null, activeGeometry: g, now: 10_100, maxAgeMs: 1500 })).not.toThrow();
+		const okSnap = {
+			generation: 1,
+			address: "0xA",
+			frame: {
+				kind: "window" as const,
+				atX: 1,
+				atY: 2,
+				physW: 10,
+				physH: 20,
+				scaledW: 10,
+				scaledH: 20,
+				address: "0xA",
+			},
+			capturedAt: 10_000,
+		};
+		for (const g of [
+			{ at: [1], size: [10, 20] } as unknown as { at: [number, number]; size: [number, number] },
+			{ at: [1, 2], size: [] } as unknown as { at: [number, number]; size: [number, number] },
+		]) {
+			expect(() =>
+				observationInputStatus({
+					snapshot: okSnap,
+					activeAddress: "0xA",
+					freshFrame: null,
+					activeGeometry: g,
+					now: 10_100,
+					maxAgeMs: 1500,
+				}),
+			).not.toThrow();
 		}
 		expect(geometryIsKnown({ at: undefined as unknown as [number, number], size: [0, 0] })).toBe(false);
 	});
@@ -502,14 +721,29 @@ describe("continuous-observation freshness policy", () => {
 	});
 
 	test("validateInjection refuses non-fresh observations with fail-closed codes", () => {
-		const base = { action: "live_click", x: 10, y: 20, frame: { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" }, focusedAddress: "win1" };
+		const base = {
+			action: "live_click",
+			x: 10,
+			y: 20,
+			frame: { scaledW: 1280, scaledH: 800, kind: "window", address: "win1" },
+			focusedAddress: "win1",
+		};
 		const stale = validateInjection({ ...base, observation: { state: "stale", detail: "1600ms old", ageMs: 1600 } });
 		expect(stale).toMatchObject({ ok: false, code: "observation_stale" });
-		const missing = validateInjection({ ...base, observation: { state: "missing", detail: "no glance", ageMs: null } });
+		const missing = validateInjection({
+			...base,
+			observation: { state: "missing", detail: "no glance", ageMs: null },
+		});
 		expect(missing).toMatchObject({ ok: false, code: "no_observation" });
-		const superseded = validateInjection({ ...base, observation: { state: "superseded", detail: "re-anchor", ageMs: 900 } });
+		const superseded = validateInjection({
+			...base,
+			observation: { state: "superseded", detail: "re-anchor", ageMs: 900 },
+		});
 		expect(superseded).toMatchObject({ ok: false, code: "observation_superseded" });
-		const geomoved = validateInjection({ ...base, observation: { state: "geometry_mismatch", detail: "moved", ageMs: 900 } });
+		const geomoved = validateInjection({
+			...base,
+			observation: { state: "geometry_mismatch", detail: "moved", ageMs: 900 },
+		});
 		expect(geomoved).toMatchObject({ ok: false, code: "observation_geometry_mismatch" });
 		// Fresh observations (or absent ones — legacy callers) stay valid.
 		const freshOk = validateInjection({ ...base, observation: { state: "fresh", ageMs: 300, address: "win1" } });
@@ -521,9 +755,13 @@ describe("continuous-observation freshness policy", () => {
 for (const backend of ["ydotool", "xdotool"] as const) {
 	describe(`${backend} drag sequencing and cleanup`, () => {
 		const start = ["fake-move", "10", "20"];
-		const moves = [["fake-move", "50", "100"], ["fake-move", "100", "200"]];
+		const moves = [
+			["fake-move", "50", "100"],
+			["fake-move", "100", "200"],
+		];
 		const options = { backend, shift: true, start, moves };
-		const shiftDown = backend === "ydotool" ? ["ydotool", "key", "-d", "24", "42:1"] : ["xdotool", "keydown", "Shift_L"];
+		const shiftDown =
+			backend === "ydotool" ? ["ydotool", "key", "-d", "24", "42:1"] : ["xdotool", "keydown", "Shift_L"];
 		const shiftUp = backend === "ydotool" ? ["ydotool", "key", "-d", "24", "42:0"] : ["xdotool", "keyup", "Shift_L"];
 		const mouseDown = backend === "ydotool" ? ["ydotool", "click", "0x40"] : ["xdotool", "mousedown", "1"];
 		const mouseUp = backend === "ydotool" ? ["ydotool", "click", "0x80"] : ["xdotool", "mouseup", "1"];
@@ -541,15 +779,23 @@ for (const backend of ["ydotool", "xdotool"] as const) {
 
 		test("ordinary drag never sends Shift events", async () => {
 			const calls: string[][] = [];
-			expect(await runDragWithCleanup({ ...options, shift: false }, async argv => {
-				calls.push([...argv]);
-				return null;
-			})).toBeNull();
+			expect(
+				await runDragWithCleanup({ ...options, shift: false }, async argv => {
+					calls.push([...argv]);
+					return null;
+				}),
+			).toBeNull();
 			expect(calls).toEqual([start, mouseDown, ...moves, mouseUp]);
 		});
 
 		for (const failureMode of ["returned", "thrown"] as const) {
-			for (const [stage, failAt] of [["start", 0], ["Shift down", 1], ["mouse down", 2], ["first move", 3], ["last move", 4]] as const) {
+			for (const [stage, failAt] of [
+				["start", 0],
+				["Shift down", 1],
+				["mouse down", 2],
+				["first move", 3],
+				["last move", 4],
+			] as const) {
 				test(`${failureMode} failure at ${stage} stops movement and releases every possibly held input`, async () => {
 					const calls: string[][] = [];
 					const result = await runDragWithCleanup(options, async argv => {
@@ -604,10 +850,14 @@ for (const backend of ["ydotool", "xdotool"] as const) {
 			const controller = new AbortController();
 			controller.abort();
 			const calls: string[][] = [];
-			const result = await runDragWithCleanup(options, async argv => {
-				calls.push([...argv]);
-				return null;
-			}, controller.signal);
+			const result = await runDragWithCleanup(
+				options,
+				async argv => {
+					calls.push([...argv]);
+					return null;
+				},
+				controller.signal,
+			);
 			expect(result).toContain("aborted");
 			expect(calls).toEqual([]);
 		});
@@ -616,13 +866,20 @@ for (const backend of ["ydotool", "xdotool"] as const) {
 			test(`cancellation after input step ${abortAt} does not cancel cleanup`, async () => {
 				const controller = new AbortController();
 				const calls: string[][] = [];
-				const result = await runDragWithCleanup(options, async argv => {
-					calls.push([...argv]);
-					if (calls.length - 1 === abortAt) controller.abort();
-					return null;
-				}, controller.signal);
+				const result = await runDragWithCleanup(
+					options,
+					async argv => {
+						calls.push([...argv]);
+						if (calls.length - 1 === abortAt) controller.abort();
+						return null;
+					},
+					controller.signal,
+				);
 				expect(result).toContain("aborted");
-				expect(calls).toEqual([...sequence.slice(0, abortAt + 1), ...(abortAt === 1 ? [shiftUp] : [mouseUp, shiftUp])]);
+				expect(calls).toEqual([
+					...sequence.slice(0, abortAt + 1),
+					...(abortAt === 1 ? [shiftUp] : [mouseUp, shiftUp]),
+				]);
 			});
 		}
 	});

@@ -53,15 +53,9 @@ export class ConnectHub extends Container {
 
 		// Top chrome: border + title
 		this.addChild(new DynamicBorder());
+		this.addChild(new Text(theme.bold(theme.fg("accent", "  ⚡ Chat Platform Connectors Hub")), 0, 0));
 		this.addChild(
-			new Text(theme.bold(theme.fg("accent", "  ⚡ Chat Platform Connectors Hub")), 0, 0),
-		);
-		this.addChild(
-			new Text(
-				theme.fg("dim", "  Bridge your live Aery agent to Slack channels or Telegram direct chats"),
-				0,
-				0,
-			),
+			new Text(theme.fg("dim", "  Bridge your live Aery agent to Slack channels or Telegram direct chats"), 0, 0),
 		);
 
 		// Tab bar at top
@@ -82,11 +76,7 @@ export class ConnectHub extends Container {
 		// Footer: hint + bottom border
 		this.#footer = [
 			new Spacer(1),
-			new Text(
-				theme.fg("dim", "  ↑/↓: navigate · Enter: configure/connect · Tab: switch tab · Esc: close"),
-				0,
-				0,
-			),
+			new Text(theme.fg("dim", "  ↑/↓: navigate · Enter: configure/connect · Tab: switch tab · Esc: close"), 0, 0),
 			new DynamicBorder(),
 		];
 		for (const child of this.#footer) {
@@ -179,11 +169,7 @@ export class ConnectHub extends Container {
 			});
 
 			this.#setContent(() => {
-				this.#selectList = new SelectList(
-					selectItems,
-					Math.min(selectItems.length, 6),
-					getSelectListTheme(),
-				);
+				this.#selectList = new SelectList(selectItems, Math.min(selectItems.length, 6), getSelectListTheme());
 				this.#selectList.onSelect = item => {
 					const found = this.#state.platforms.find(p => p.id === item.value);
 					if (found) this.#openPlatformPanel(found);

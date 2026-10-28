@@ -42,9 +42,9 @@ import type { ObservableSession, SessionObserverRegistry } from "../session-obse
 import { getMarkdownTheme, theme } from "../theme/theme";
 import { matchesSelectDown, matchesSelectUp } from "../utils/keybinding-matchers";
 import type { AgentDashboard } from "./agent-dashboard";
-import { AeryStudioOverlay } from "./studio/studio-overlay.js";
 import { DynamicBorder } from "./dynamic-border";
 import { formatContextUsage } from "./status-line/context-thresholds";
+import { AeryStudioOverlay } from "./studio/studio-overlay.js";
 
 /** Max thinking characters in collapsed state */
 const MAX_THINKING_CHARS_COLLAPSED = 200;

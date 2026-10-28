@@ -79,7 +79,12 @@ const contextShape = {
 };
 
 const modeShape = {
-	mode: z.enum(["isolated", "team"]).optional().describe("execution mode: 'isolated' (fast dispatch) or 'team' (collaborative swarm with active peer discussion)"),
+	mode: z
+		.enum(["isolated", "team"])
+		.optional()
+		.describe(
+			"execution mode: 'isolated' (fast dispatch) or 'team' (collaborative swarm with active peer discussion)",
+		),
 };
 
 export const taskItemSchema = z.object({ ...taskItemShape, ...modeShape });

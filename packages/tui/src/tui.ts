@@ -1644,10 +1644,9 @@ export class TUI extends Container {
 		if (diff.firstChanged < prevViewportTop) {
 			const nativeViewportAtBottom = this.#readNativeViewportAtBottom();
 			const cleanTailAppend =
-				diff.appendedLines && (
-					this.#findAppendedTailStart(newLines) === this.#previousLines.length ||
-					(contentGrew && this.#previousLines.length >= height)
-				);
+				diff.appendedLines &&
+				(this.#findAppendedTailStart(newLines) === this.#previousLines.length ||
+					(contentGrew && this.#previousLines.length >= height));
 			if (
 				!isMultiplexerSession() &&
 				this.#canRebuildNativeScrollbackLive(nativeViewportAtBottom, allowUnknownViewportMutation)

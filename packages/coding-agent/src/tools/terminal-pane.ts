@@ -46,10 +46,7 @@ const terminalPaneSchema = z.object({
 		.string()
 		.optional()
 		.describe("Command or script to execute in the pane (e.g. 'aery', 'npm test', 'htop')."),
-	cwd: z
-		.string()
-		.optional()
-		.describe("Working directory for the pane. Defaults to the current project directory."),
+	cwd: z.string().optional().describe("Working directory for the pane. Defaults to the current project directory."),
 	paneId: z
 		.string()
 		.optional()

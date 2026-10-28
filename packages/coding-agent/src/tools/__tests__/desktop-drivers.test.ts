@@ -4,7 +4,9 @@ import { detectPlatformDriver, detectPlatformId, physicalToLogical } from "../de
 describe("platform driver detection (D001 cross-platform)", () => {
 	test("hyprland wins when the signature is present", () => {
 		expect(detectPlatformId({ HYPRLAND_INSTANCE_SIGNATURE: "abc" } as NodeJS.ProcessEnv, "linux")).toBe("hyprland");
-		expect(detectPlatformDriver({ HYPRLAND_INSTANCE_SIGNATURE: "abc" } as NodeJS.ProcessEnv, "linux").id).toBe("hyprland");
+		expect(detectPlatformDriver({ HYPRLAND_INSTANCE_SIGNATURE: "abc" } as NodeJS.ProcessEnv, "linux").id).toBe(
+			"hyprland",
+		);
 	});
 	test("pure x11 session resolves to x11", () => {
 		expect(detectPlatformId({ XDG_SESSION_TYPE: "x11", DISPLAY: ":0" } as NodeJS.ProcessEnv, "linux")).toBe("x11");

@@ -10,10 +10,10 @@ import {
 	resolveBackendChain,
 	specToXdotoolArgs,
 	specToYdotoolEvents,
-	ydoPageScroll,
 	xdoWheelScroll,
-	ydoMoveRelative,
 	ydoClearField,
+	ydoMoveRelative,
+	ydoPageScroll,
 } from "../live-input";
 
 describe("pointer aiming (hyprMoveCursor)", () => {
@@ -104,7 +104,10 @@ describe("normalized scroll builders", () => {
 	});
 
 	test("XWayland wheel notches are separate and capped", () => {
-		expect(xdoWheelScroll("up", 2)).toEqual([["xdotool", "click", "4"], ["xdotool", "click", "4"]]);
+		expect(xdoWheelScroll("up", 2)).toEqual([
+			["xdotool", "click", "4"],
+			["xdotool", "click", "4"],
+		]);
 		expect(xdoWheelScroll("down", 99)).toHaveLength(20);
 		expect(xdoWheelScroll("down", 0)).toEqual([]);
 	});

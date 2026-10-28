@@ -18,28 +18,15 @@ import type { EventBus } from "../utils/event-bus";
 import type { ToolSession } from "./index";
 
 const scheduleSchema = z.object({
-	Prompt: z
-		.string()
-		.optional()
-		.describe("Prompt or notification message sent when timer fires (agy format)"),
-	message: z
-		.string()
-		.optional()
-		.describe("Message content for the scheduled task (legacy aery format)"),
-	DurationSeconds: z
-		.number()
-		.int()
-		.optional()
-		.describe("Seconds to wait for a one-shot timer (relative duration)"),
+	Prompt: z.string().optional().describe("Prompt or notification message sent when timer fires (agy format)"),
+	message: z.string().optional().describe("Message content for the scheduled task (legacy aery format)"),
+	DurationSeconds: z.number().int().optional().describe("Seconds to wait for a one-shot timer (relative duration)"),
 	dueAt: z
 		.number()
 		.int()
 		.optional()
 		.describe("Unix timestamp (ms) for when the task should fire (absolute timestamp)"),
-	CronExpression: z
-		.string()
-		.optional()
-		.describe("Standard 5-field cron expression for a recurring schedule"),
+	CronExpression: z.string().optional().describe("Standard 5-field cron expression for a recurring schedule"),
 	TimerCondition: z
 		.string()
 		.optional()
@@ -115,10 +102,7 @@ function tick(sessionId: string): void {
  * Attach (or replace) the delivery target for a session. Returns a dispose
  * function; call it when the session UI tears down.
  */
-export function registerAmbientDeliveryTarget(
-	sessionId: string,
-	target: AmbientDeliveryTarget,
-): () => void {
+export function registerAmbientDeliveryTarget(sessionId: string, target: AmbientDeliveryTarget): () => void {
 	sessionTargets.set(sessionId, target);
 	return () => {
 		if (sessionTargets.get(sessionId) === target) {

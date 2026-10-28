@@ -17,8 +17,8 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import * as z from "zod/v4";
-import type { ToolSession } from "./index";
 import { captureScreenFrame } from "../voice/screen-vision";
+import type { ToolSession } from "./index";
 import { ocrFrame } from "./screen-ocr";
 
 const execFileAsync = promisify(execFile);
@@ -56,38 +56,27 @@ const cameraControlSchema = z.object({
 		.describe(
 			"Actions: 'capture' (frame + face detection), 'identify' (detect + WHO is in frame via enrolled face profiles), 'enroll_face' (register the person currently in frame under 'name'), 'list_profiles' (enrolled people), 'record' (webcam video mp4), 'record_screen' (screen video mp4, Hyprland/wf-recorder), 'watch_start'/'watch_stop'/'watch_status' (live-watch loop: screen OCR reads on change at a throttled cadence + camera face snapshots while you work — watch_status returns the latest on-screen text), 'watch_transcript' (append mode: return the accumulated OCR transcript for summarize/narrate — pair watch_start with append:true), 'watch_clear' (wipe the transcript), 'list_devices'.",
 		),
-	name: z
-		.string()
-		.optional()
-		.describe("Identity name for 'enroll_face' (e.g. the user's name)."),
+	name: z.string().optional().describe("Identity name for 'enroll_face' (e.g. the user's name)."),
 	append: z
 		.boolean()
 		.optional()
-		.describe("watch_start with append:true accumulates every distinct OCR reading into a session transcript (a ~'book' the model can summarize/narrate via 'watch_transcript'); append deltas stream into context within the 50k budget. Default false (latest-only, context-bounded)."),
-	duration: z
-		.number()
-		.optional()
-		.describe("Seconds to record for 'record'/'record_screen' (default 5, max 60)."),
+		.describe(
+			"watch_start with append:true accumulates every distinct OCR reading into a session transcript (a ~'book' the model can summarize/narrate via 'watch_transcript'); append deltas stream into context within the 50k budget. Default false (latest-only, context-bounded).",
+		),
+	duration: z.number().optional().describe("Seconds to record for 'record'/'record_screen' (default 5, max 60)."),
 	lanes: z
 		.enum(["both", "screen", "camera"])
 		.optional()
-		.describe("watch_start lane selection: 'both' (default) runs the screen lane (OCR) AND the camera lane (face snapshots); 'screen' = screen OCR only, no camera; 'camera' = camera face snapshots only, no screen OCR."),
-	face_detection: z
-		.boolean()
-		.optional()
-		.describe("Run YuNet face detection on the captured frame (default: true)."),
-	device: z
-		.string()
-		.optional()
-		.describe("Webcam device path (default: /dev/video0)."),
+		.describe(
+			"watch_start lane selection: 'both' (default) runs the screen lane (OCR) AND the camera lane (face snapshots); 'screen' = screen OCR only, no camera; 'camera' = camera face snapshots only, no screen OCR.",
+		),
+	face_detection: z.boolean().optional().describe("Run YuNet face detection on the captured frame (default: true)."),
+	device: z.string().optional().describe("Webcam device path (default: /dev/video0)."),
 	resolution: z
 		.string()
 		.optional()
 		.describe("Capture resolution as WIDTHxHEIGHT (default: 1280x720; lower like 640x480 is faster)."),
-	include_image: z
-		.boolean()
-		.optional()
-		.describe("Whether to return the JPEG image content block (default: true)."),
+	include_image: z.boolean().optional().describe("Whether to return the JPEG image content block (default: true)."),
 	ocr: z
 		.boolean()
 		.optional()
@@ -193,7 +182,12 @@ export function watchDiffFloor(a: string | undefined, b: string | undefined): nu
 /** Decision function backing #maybeOcr — exported so the gate is unit-testable
  *  without a display or tesseract. True when (a) enough time has passed since the
  *  last OCR (throttle) AND (b) the screen digest moved past WATCH_OCR_DIFF_THRESHOLD. */
-export function watchShouldOcr(lastOcrAt: number, now: number, lastDigest: string | undefined, digest: string): boolean {
+export function watchShouldOcr(
+	lastOcrAt: number,
+	now: number,
+	lastDigest: string | undefined,
+	digest: string,
+): boolean {
 	if (now - lastOcrAt < WATCH_OCR_MIN_INTERVAL_MS) return false;
 	return watchDiffFloor(lastDigest, digest) >= WATCH_OCR_DIFF_THRESHOLD;
 }
@@ -283,7 +277,10 @@ export class CameraWatchLoop {
 		CameraWatchLoop.#appendStreamOverflow = false;
 		CameraWatchLoop.#appendStreamDropped = 0;
 		if (append && CameraWatchLoop.#transcript.length > 0) {
-			CameraWatchLoop.#transcript.push({ at: Date.now(), text: `— watch session started ${new Date().toLocaleTimeString()} —` });
+			CameraWatchLoop.#transcript.push({
+				at: Date.now(),
+				text: `— watch session started ${new Date().toLocaleTimeString()} —`,
+			});
 		}
 		CameraWatchLoop.#timer = setInterval(() => {
 			void CameraWatchLoop.#tick();
@@ -343,11 +340,10 @@ export class CameraWatchLoop {
 		}
 		if (CameraWatchLoop.#steerCount >= WATCH_STEER_MAX_PER_MINUTE) return;
 		CameraWatchLoop.#steerCount++;
-		const trimmed = text.length > WATCH_APPEND_STEER_MAX_CHARS ? `${text.slice(0, WATCH_APPEND_STEER_MAX_CHARS)}…` : text;
+		const trimmed =
+			text.length > WATCH_APPEND_STEER_MAX_CHARS ? `${text.slice(0, WATCH_APPEND_STEER_MAX_CHARS)}…` : text;
 		await CameraWatchLoop.#sweepSteers();
-		const content = [
-			{ type: "text", text: `[watch] screen now reads (${text.length} chars):\n${trimmed}` },
-		];
+		const content = [{ type: "text", text: `[watch] screen now reads (${text.length} chars):\n${trimmed}` }];
 		try {
 			await CameraWatchLoop.#session?.sendCustomMessage?.(
 				{
@@ -368,7 +364,8 @@ export class CameraWatchLoop {
 	static async #steerAppendOcr(text: string, at: number): Promise<void> {
 		const trimmed = text.trim();
 		if (!trimmed) return;
-		const clipped = trimmed.length > WATCH_APPEND_STEER_MAX_CHARS ? `${trimmed.slice(0, WATCH_APPEND_STEER_MAX_CHARS)}…` : trimmed;
+		const clipped =
+			trimmed.length > WATCH_APPEND_STEER_MAX_CHARS ? `${trimmed.slice(0, WATCH_APPEND_STEER_MAX_CHARS)}…` : trimmed;
 		if (CameraWatchLoop.#appendStreamChars + clipped.length > WATCH_TRANSCRIPT_MAX_CHARS) {
 			CameraWatchLoop.#appendStreamOverflow = true;
 			CameraWatchLoop.#appendStreamDropped++;
@@ -389,7 +386,7 @@ export class CameraWatchLoop {
 				{ deliverAs: "steer", triggerTurn: false },
 			);
 			CameraWatchLoop.#appendStreamChars += clipped.length;
-	} catch {}
+		} catch {}
 	}
 
 	static async #tick(): Promise<void> {
@@ -422,7 +419,9 @@ export class CameraWatchLoop {
 					CameraWatchLoop.#push({
 						kind: "screen",
 						at,
-						note: ocrText ? `screen ${v.image.data.length}B · ocr ${ocrText.length} chars` : `screen ${v.image.data.length}B`,
+						note: ocrText
+							? `screen ${v.image.data.length}B · ocr ${ocrText.length} chars`
+							: `screen ${v.image.data.length}B`,
 						ocr: ocrText,
 						digest,
 					});
@@ -447,13 +446,26 @@ export class CameraWatchLoop {
 				});
 		}
 		// Camera lane — slower: face snapshot + identification every 10s.
-		if (CameraWatchLoop.#lanes !== "screen" && CameraWatchLoop.#tickNumber % (WATCH_CAMERA_INTERVAL_MS / WATCH_SCREEN_INTERVAL_MS) === 0 && !CameraWatchLoop.#cameraBusy) {
+		if (
+			CameraWatchLoop.#lanes !== "screen" &&
+			CameraWatchLoop.#tickNumber % (WATCH_CAMERA_INTERVAL_MS / WATCH_SCREEN_INTERVAL_MS) === 0 &&
+			!CameraWatchLoop.#cameraBusy
+		) {
 			CameraWatchLoop.#cameraBusy = true;
 			const generation = CameraWatchLoop.#generation;
 			try {
 				const { stdout } = await execFileAsync(
 					DEFAULT_VENV_PYTHON,
-					[DEFAULT_WORKER, "--device", "/dev/video0", "--resolution", "640x480", "--identify", "--score-threshold", "0.2"],
+					[
+						DEFAULT_WORKER,
+						"--device",
+						"/dev/video0",
+						"--resolution",
+						"640x480",
+						"--identify",
+						"--score-threshold",
+						"0.2",
+					],
 					{ timeout: 15_000 },
 				);
 				if (generation !== CameraWatchLoop.#generation) return; // stopped or restarted mid-flight
@@ -558,8 +570,10 @@ export class CameraWatchLoop {
 					],
 				};
 			}
-		const chars = CameraWatchLoop.#transcript.reduce((n, e) => n + e.text.length, 0);
-		const body = CameraWatchLoop.#transcript.map(e => `[${new Date(e.at).toLocaleTimeString()}${e.source ? ` ${e.source}` : ""}] ${e.text}`).join("\n\n");
+			const chars = CameraWatchLoop.#transcript.reduce((n, e) => n + e.text.length, 0);
+			const body = CameraWatchLoop.#transcript
+				.map(e => `[${new Date(e.at).toLocaleTimeString()}${e.source ? ` ${e.source}` : ""}] ${e.text}`)
+				.join("\n\n");
 			const streamSummary = CameraWatchLoop.#appendStreamOverflow
 				? `, append stream capped at ${WATCH_TRANSCRIPT_MAX_CHARS} chars (${CameraWatchLoop.#appendStreamDropped} delta(s) dropped)`
 				: "";
@@ -640,7 +654,7 @@ export class CameraWatchLoop {
 	}
 }
 
- export class CameraControlTool implements AgentTool<typeof cameraControlSchema> {
+export class CameraControlTool implements AgentTool<typeof cameraControlSchema> {
 	readonly name = "camera_control";
 	readonly approval = "read" as const;
 	readonly label = "Camera Control";
@@ -649,8 +663,7 @@ export class CameraWatchLoop {
 	readonly parameters = cameraControlSchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable";
-	readonly summary =
-		"Camera: webcam capture, face recognition (who), record webcam/screen video, live-watch mode";
+	readonly summary = "Camera: webcam capture, face recognition (who), record webcam/screen video, live-watch mode";
 
 	static createIf(session: ToolSession): CameraControlTool | null {
 		return new CameraControlTool(session);
@@ -757,9 +770,7 @@ export class CameraWatchLoop {
 		if (action === "enroll_face") {
 			if (!params.name) {
 				return {
-					content: [
-						{ type: "text", text: "Provide a 'name' to enroll (e.g. the user's name)." },
-					],
+					content: [{ type: "text", text: "Provide a 'name' to enroll (e.g. the user's name)." }],
 				};
 			}
 			const result = await this.#runWorker(this.#workerArgs(params, "enroll"));
@@ -804,7 +815,7 @@ export class CameraWatchLoop {
 					type: "text",
 					text: `I can see ${faces.length} face(s):\n${lines.join("\n")}`,
 				},
-				...(params.include_image ?? true
+				...((params.include_image ?? true)
 					? [
 							{
 								type: "image" as const,
@@ -870,10 +881,7 @@ export class CameraWatchLoop {
 			text += ` Face detection found ${faces.length} face(s) in ${result.detectionTimeMs}ms.`;
 			if (faces.length > 0) {
 				text += faces
-					.map(
-						f =>
-							`\n  Face ${f.x},${f.y} ${f.w}x${f.h} (confidence ${Math.round(f.confidence * 100) / 100})`,
-					)
+					.map(f => `\n  Face ${f.x},${f.y} ${f.w}x${f.h} (confidence ${Math.round(f.confidence * 100) / 100})`)
 					.join("");
 				text += "\nCoordinates are in image pixels, origin top-left.";
 			}
@@ -919,12 +927,24 @@ export class CameraWatchLoop {
 			await execFileAsync(
 				"ffmpeg",
 				[
-					"-hide_banner", "-loglevel", "error",
-					"-f", "v4l2", "-input_format", "mjpeg",
-					"-video_size", params.resolution ?? "1280x720",
-					"-i", device,
-					"-t", String(duration),
-					"-c:v", "libx264", "-preset", "ultrafast", "-y",
+					"-hide_banner",
+					"-loglevel",
+					"error",
+					"-f",
+					"v4l2",
+					"-input_format",
+					"mjpeg",
+					"-video_size",
+					params.resolution ?? "1280x720",
+					"-i",
+					device,
+					"-t",
+					String(duration),
+					"-c:v",
+					"libx264",
+					"-preset",
+					"ultrafast",
+					"-y",
 					outPath,
 				],
 				{ timeout: (duration + 15) * 1000 },
@@ -935,7 +955,10 @@ export class CameraWatchLoop {
 		const size = fs.existsSync(outPath) ? fs.statSync(outPath).size : 0;
 		return {
 			content: [
-				{ type: "text", text: `Recorded ${duration}s webcam video → ${outPath} (${Math.round(size / 1024)}KB, H.264).` },
+				{
+					type: "text",
+					text: `Recorded ${duration}s webcam video → ${outPath} (${Math.round(size / 1024)}KB, H.264).`,
+				},
 			],
 			details: { file: outPath, durationSec: duration, bytes: size },
 		};
@@ -961,7 +984,7 @@ export class CameraWatchLoop {
 					clearTimeout(t);
 					if (fs.existsSync(outPath) && fs.statSync(outPath).size > 0) resolve();
 					else reject(new Error(`wf-recorder exited ${code}; ${stderr.slice(-300)}`));
-		});
+				});
 				child.on("error", reject);
 			});
 		} catch (err) {

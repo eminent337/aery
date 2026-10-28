@@ -107,7 +107,13 @@ describe("validateInjection (fail-closed, pre-injection)", () => {
 	});
 	test("out-of-bounds drag end refuses", () => {
 		const v = validateInjection({
-			action: "live_drag", x: 10, y: 10, x2: 9999, y2: 10, frame: FRAME, focusedAddress: "win1",
+			action: "live_drag",
+			x: 10,
+			y: 10,
+			x2: 9999,
+			y2: 10,
+			frame: FRAME,
+			focusedAddress: "win1",
 		});
 		expect(v).toMatchObject({ ok: false, code: "out_of_bounds" });
 	});
@@ -125,17 +131,28 @@ describe("validateInjection (fail-closed, pre-injection)", () => {
 		}
 	});
 	test("guardrail refusal wins before bounds checks", () => {
-		const v = validateInjection({ action: "live_click", target: "Send", x: 10, y: 10, frame: FRAME, focusedAddress: "win1" });
+		const v = validateInjection({
+			action: "live_click",
+			target: "Send",
+			x: 10,
+			y: 10,
+			frame: FRAME,
+			focusedAddress: "win1",
+		});
 		expect(v).toMatchObject({ ok: false, code: "guardrail_refusal" });
 	});
 	test("keyboard payloads are required", () => {
 		expect(validateInjection({ action: "live_type", frame: FRAME, focusedAddress: "win1" })).toMatchObject({
-			ok: false, code: "missing_text",
+			ok: false,
+			code: "missing_text",
 		});
 		expect(validateInjection({ action: "live_key", frame: FRAME, focusedAddress: "win1" })).toMatchObject({
-			ok: false, code: "missing_keys",
+			ok: false,
+			code: "missing_keys",
 		});
-		expect(validateInjection({ action: "live_key", keys: "Return", frame: FRAME, focusedAddress: "win1" }).ok).toBe(true);
+		expect(validateInjection({ action: "live_key", keys: "Return", frame: FRAME, focusedAddress: "win1" }).ok).toBe(
+			true,
+		);
 	});
 });
 
@@ -156,11 +173,15 @@ describe("glide-in-flight refusal (D002: never inject into a moving pointer)", (
 	test("type and key refuse too — every press is blocked, not just clicks", () => {
 		beginGlide();
 		try {
-			expect(validateInjection({ action: "live_type", keys: "hello", frame: FRAME, focusedAddress: "win1" })).toMatchObject({
+			expect(
+				validateInjection({ action: "live_type", keys: "hello", frame: FRAME, focusedAddress: "win1" }),
+			).toMatchObject({
 				ok: false,
 				code: "glide_in_flight",
 			});
-			expect(validateInjection({ action: "live_key", keys: "Return", frame: FRAME, focusedAddress: "win1" })).toMatchObject({
+			expect(
+				validateInjection({ action: "live_key", keys: "Return", frame: FRAME, focusedAddress: "win1" }),
+			).toMatchObject({
 				ok: false,
 				code: "glide_in_flight",
 			});
@@ -171,7 +192,9 @@ describe("glide-in-flight refusal (D002: never inject into a moving pointer)", (
 	test("the pointer itself stays legal — a second glide must not deadlock", () => {
 		beginGlide();
 		try {
-			expect(validateInjection({ action: "live_move", x: 100, y: 100, frame: FRAME, focusedAddress: "win1" }).ok).toBe(true);
+			expect(
+				validateInjection({ action: "live_move", x: 100, y: 100, frame: FRAME, focusedAddress: "win1" }).ok,
+			).toBe(true);
 		} finally {
 			endGlide();
 		}
@@ -187,7 +210,9 @@ describe("glide-in-flight refusal (D002: never inject into a moving pointer)", (
 		expect(v).toMatchObject({ ok: false, code: "glide_in_flight" });
 		endGlide();
 		expect(glideInFlight()).toBe(false);
-		expect(validateInjection({ action: "live_click", x: 100, y: 100, frame: FRAME, focusedAddress: "win1" }).ok).toBe(true);
+		expect(validateInjection({ action: "live_click", x: 100, y: 100, frame: FRAME, focusedAddress: "win1" }).ok).toBe(
+			true,
+		);
 	});
 	test("an extra release can never go negative", () => {
 		endGlide();

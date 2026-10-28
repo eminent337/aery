@@ -1,15 +1,24 @@
 import { describe, expect, test } from "bun:test";
+import type { ObservationSnapshot } from "../live-observe";
 import {
 	DEFAULT_OBSERVATION_MAX_AGE_MS,
 	isObservationFresh,
+	ObservationController,
 	observationAgeMs,
 	observationMatchesAddress,
-	ObservationController,
 	selectObservationForInput,
 } from "../live-observe";
-import type { ObservationSnapshot } from "../live-observe";
 
-const FRAME = { kind: "window", atX: 708, atY: 90, physW: 1190, physH: 968, scaledW: 983, scaledH: 800, address: "0xA" } as const;
+const FRAME = {
+	kind: "window",
+	atX: 708,
+	atY: 90,
+	physW: 1190,
+	physH: 968,
+	scaledW: 983,
+	scaledH: 800,
+	address: "0xA",
+} as const;
 function snap(over: Partial<ObservationSnapshot> = {}, now = 10_000): ObservationSnapshot {
 	return { generation: 1, address: "0xA", frame: { ...FRAME }, capturedAt: now, ...over };
 }
@@ -72,7 +81,10 @@ describe("selectObservationForInput gate", () => {
 	});
 
 	test("a custom policy can relax the address requirement", () => {
-		const sel = selectObservationForInput(snap({}, 10_000), "0xB", 10_000, { maxAgeMs: 1500, requireAddressMatch: false });
+		const sel = selectObservationForInput(snap({}, 10_000), "0xB", 10_000, {
+			maxAgeMs: 1500,
+			requireAddressMatch: false,
+		});
 		expect(sel.ok).toBe(true);
 	});
 });
@@ -134,7 +146,10 @@ describe("ObservationController lifecycle", () => {
 		c.start("0xA", { ...FRAME }, 10_000);
 		expect(c.select("0xA", 10_500).ok).toBe(true);
 		expect(c.select("0xB", 10_500)).toMatchObject({ ok: false, reason: "address_mismatch" });
-		expect(c.select("0xA", 10_000 + DEFAULT_OBSERVATION_MAX_AGE_MS + 1)).toMatchObject({ ok: false, reason: "stale" });
+		expect(c.select("0xA", 10_000 + DEFAULT_OBSERVATION_MAX_AGE_MS + 1)).toMatchObject({
+			ok: false,
+			reason: "stale",
+		});
 	});
 
 	test("auto-refresh rejects bad intervals, stale generations, and self-stops when superseded", async () => {
@@ -144,10 +159,12 @@ describe("ObservationController lifecycle", () => {
 		expect(c.startAutoRefresh(g, 10_000, () => {})).toBe(false);
 		expect(c.startAutoRefresh(g + 1, 100, () => {})).toBe(false);
 		let ticks = 0;
-		expect(c.startAutoRefresh(g, 60, gen => {
-			ticks++;
-			if (gen !== c.get()!.generation) throw new Error("stale generation ticked");
-		})).toBe(true);
+		expect(
+			c.startAutoRefresh(g, 60, gen => {
+				ticks++;
+				if (gen !== c.get()!.generation) throw new Error("stale generation ticked");
+			}),
+		).toBe(true);
 		await new Promise(r => setTimeout(r, 160));
 		c.cancel();
 		const seen = ticks;

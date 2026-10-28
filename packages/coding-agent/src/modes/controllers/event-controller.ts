@@ -57,7 +57,6 @@ function extractSpokenSummary(markdown: string): string {
 	return sentences.slice(0, 2).join(" ").trim();
 }
 
-
 type AgentSessionEventHandlers = {
 	[E in AgentSessionEventKind]: (event: Extract<AgentSessionEvent, { type: E }>) => Promise<void>;
 };
@@ -691,7 +690,6 @@ export class EventController {
 				}
 			}, 600);
 		}
-
 	}
 
 	async speakTurnResponseIfNeeded(): Promise<void> {

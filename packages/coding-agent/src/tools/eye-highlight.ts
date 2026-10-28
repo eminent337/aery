@@ -63,10 +63,7 @@ export interface LayerGeometry {
  * anchored to. Same math as frameToPhysical: physical = frameOrigin + framePx/scale,
  * where scale = scaled/phys per axis. Clamps into the frame first.
  */
-export function frameRectToPhysical(
-	frame: InputFrame,
-	rect: FrameRect,
-): HighlightRect | null {
+export function frameRectToPhysical(frame: InputFrame, rect: FrameRect): HighlightRect | null {
 	if (frame.scaledW <= 0 || frame.scaledH <= 0 || frame.physW <= 0 || frame.physH <= 0) return null;
 	const sx = frame.scaledW / frame.physW;
 	const sy = frame.scaledH / frame.physH;
@@ -144,10 +141,8 @@ export function toBands(rects: HighlightRect[], opts: { pad: number; style: High
 export function mergeBands(bands: HighlightRect[], opts: { maxGap?: number } = {}): HighlightRect[] {
 	if (bands.length < 2) return [...bands];
 	const maxGap = opts.maxGap ?? 28;
-	const overlapY = (a: HighlightRect, b: HighlightRect) =>
-		Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
-	const sameLine = (a: HighlightRect, b: HighlightRect) =>
-		overlapY(a, b) >= 0.5 * Math.min(a.h, b.h);
+	const overlapY = (a: HighlightRect, b: HighlightRect) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+	const sameLine = (a: HighlightRect, b: HighlightRect) => overlapY(a, b) >= 0.5 * Math.min(a.h, b.h);
 	// Group into lines first (bands arrive in reading order, not row order).
 	const byY = [...bands].sort((a, b) => a.y - b.y || a.x - b.x);
 	const lines: HighlightRect[][] = [];

@@ -3,9 +3,8 @@ import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { Chat } from "chat";
 import * as os from "os";
 import * as path from "path";
-import { RpcClient } from "../modes/rpc/rpc-client";
-
 import { settings } from "../config/settings.js";
+import { RpcClient } from "../modes/rpc/rpc-client";
 import { SqliteStateAdapter } from "./sqlite-state-adapter.js";
 
 const threadClients = new Map<string, RpcClient>();
@@ -251,7 +250,9 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 					await client.setModel(provider, modelId);
 					await thread.post(`✅ *Switched Model to:* \`${provider}/${modelId}\``);
 				} else {
-					await thread.post(`⚠️ *Usage:* \`/model <provider>/<model-id>\` (e.g. \`/model google-gemini-cli/gemini-2.5-flash\`)`);
+					await thread.post(
+						`⚠️ *Usage:* \`/model <provider>/<model-id>\` (e.g. \`/model google-gemini-cli/gemini-2.5-flash\`)`,
+					);
 				}
 			} catch (err) {
 				await thread.post(`❌ *Failed to switch model:* ${err}`);
@@ -282,11 +283,12 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 						return;
 					}
 					const list = recent
-						.map(s => `• \`${s.id.slice(0, 8)}\` — *${s.title || "Untitled"}* (${new Date(s.modified).toLocaleTimeString()})`)
+						.map(
+							s =>
+								`• \`${s.id.slice(0, 8)}\` — *${s.title || "Untitled"}* (${new Date(s.modified).toLocaleTimeString()})`,
+						)
 						.join("\n");
-					await thread.post(
-						`📂 *Recent Sessions:*\n${list}\n\n_To resume: \`/resume <session-id-or-path>\`_`,
-					);
+					await thread.post(`📂 *Recent Sessions:*\n${list}\n\n_To resume: \`/resume <session-id-or-path>\`_`);
 				} catch (err) {
 					await thread.post(`Error listing sessions: ${err}`);
 				}
@@ -299,7 +301,9 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 				const all = await SessionManager.listAll();
 				const match = all.find(s => s.id === targetId || s.id.startsWith(targetId) || s.path === targetId);
 				if (!match) {
-					await thread.post(`❌ *Session not found:* \`${targetId}\`\nUse \`/resume\` or \`/sessions\` to view available sessions.`);
+					await thread.post(
+						`❌ *Session not found:* \`${targetId}\`\nUse \`/resume\` or \`/sessions\` to view available sessions.`,
+					);
 					return;
 				}
 				const result = await client.switchSession(match.path);

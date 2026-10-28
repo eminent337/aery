@@ -1,10 +1,10 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
-import { computeRms, pcmToWav } from "../voice/voice-daemon";
-import { defaultVoiceEngine } from "../voice/voice-engine";
 import * as path from "node:path";
 import { $which, logger, Snowflake } from "@aryee337/aery-utils";
 import { $ } from "bun";
+import { computeRms, pcmToWav } from "../voice/voice-daemon";
+import { defaultVoiceEngine } from "../voice/voice-engine";
 
 export interface RecordingHandle {
 	stop(): Promise<void>;
@@ -450,6 +450,7 @@ export async function startRecording(outputPath: string, onSilenceTimeout?: () =
 					return await startPwRecordRecording(outputPath, onSilenceTimeout);
 				case "sox":
 					return await startSoxRecording(outputPath);
+				case "ffmpeg":
 					return await startFFmpegRecording(outputPath);
 				case "arecord":
 					return await startArecordRecording(outputPath);

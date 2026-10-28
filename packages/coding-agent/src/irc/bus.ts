@@ -98,7 +98,7 @@ export class IrcBus {
 	 */
 	async send(msg: Omit<IrcMessage, "id" | "ts">): Promise<IrcDeliveryReceipt> {
 		const message: IrcMessage = { ...msg, id: Snowflake.next(), ts: Date.now() };
-		
+
 		// Notify bus listeners (e.g. Aery Studio)
 		for (const listener of this.#messageListeners) {
 			try {

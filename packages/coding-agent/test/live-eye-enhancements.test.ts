@@ -10,11 +10,7 @@ import {
 	rememberClickTargets,
 	resolveClickTarget,
 } from "../src/tools/desktop-control";
-import {
-	type EyeWindow,
-	eyeMarkPresent,
-	shouldUseFocusedFrame,
-} from "../src/tools/live-eye";
+import { type EyeWindow, eyeMarkPresent, shouldUseFocusedFrame } from "../src/tools/live-eye";
 
 describe("Live Eye Enhancements & Focus-First Defaults (AGY Parity)", () => {
 	const sampleWindow: EyeWindow = {

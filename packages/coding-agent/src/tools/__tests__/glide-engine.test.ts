@@ -11,13 +11,7 @@ import {
 	livePathPace,
 	livePathTrajectory,
 } from "../desktop-control";
-import {
-	frameAlignedGap,
-	hyprCommandSocketPath,
-	hyprGlidePaced,
-	parseFrameMs,
-	xdoGlideScript,
-} from "../live-input";
+import { frameAlignedGap, hyprCommandSocketPath, hyprGlidePaced, parseFrameMs, xdoGlideScript } from "../live-input";
 
 /** Reply the fake compositor sends for command `index`; a delayed reply keeps
  *  the client's socket open to model a compositor that stalls. */
@@ -267,7 +261,7 @@ describe("hyprGlidePaced", () => {
 				seen.push(applied);
 				// Cancel DURING hop 2's dwell: hop 2 was already dispatched, so
 				// its full frame-locked pause must still elapse (never-shorter),
-	// and hop 3 must never reach the compositor.
+				// and hop 3 must never reach the compositor.
 				if (applied === 2) controller.abort();
 			},
 		});
@@ -330,7 +324,7 @@ describe("hyprGlidePaced", () => {
 			signal: controller.signal,
 			onHop: () => {
 				// Models the mid-flight captureLiveFrame: slow async work that
-	// is scheduled, never awaited inside the hop loop.
+				// is scheduled, never awaited inside the hop loop.
 				void new Promise<string>(resolve => setTimeout(() => resolve("frame"), 400));
 			},
 		});
@@ -413,10 +407,7 @@ describe("convergeCursorLanding", () => {
 	});
 
 	test("an unreadable cursor reports no verdict at all", async () => {
-		const landing = await convergeCursorLanding(
-			{ x: 1, y: 1 },
-			{ read: async () => null, move: async () => {} },
-		);
+		const landing = await convergeCursorLanding({ x: 1, y: 1 }, { read: async () => null, move: async () => {} });
 		expect(landing).toEqual({ read: null, corrections: 0 });
 		expect(cursorVerifyNote({ x: 1, y: 1 }, landing.read)).toBe("");
 	});

@@ -10,14 +10,23 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
 import * as z from "zod/v4";
-import type { ToolSession } from "./index";
-import { defaultVoiceEngine } from "../voice/voice-engine";
-import { defaultVoiceDaemon } from "../voice/voice-daemon";
 import { enrollPeter } from "../voice/speaker-id";
+import { defaultVoiceDaemon } from "../voice/voice-daemon";
+import { defaultVoiceEngine } from "../voice/voice-engine";
+import type { ToolSession } from "./index";
 
 const voiceControlSchema = z.object({
 	action: z
-		.enum(["speak", "listen", "stop", "list_voices", "start_ambient", "stop_ambient", "ambient_status", "enroll_voice"])
+		.enum([
+			"speak",
+			"listen",
+			"stop",
+			"list_voices",
+			"start_ambient",
+			"stop_ambient",
+			"ambient_status",
+			"enroll_voice",
+		])
 		.describe(
 			"Action: 'speak' synthesizes text to speech, 'listen' records a single utterance, 'stop' halts speech playback, 'list_voices' lists voice models, 'start_ambient' starts hands-free background microphone listening, 'stop_ambient' stops ambient listening, 'ambient_status' queries listening state, 'enroll_voice' records a calibration sample of Peter's voice for voice biometrics.",
 		),
@@ -108,7 +117,9 @@ export class VoiceControlTool implements AgentTool<typeof voiceControlSchema> {
 						content: [
 							{
 								type: "text",
-								text: transcribed ? `Heard from microphone: "${transcribed}"` : "(No speech detected on microphone)",
+								text: transcribed
+									? `Heard from microphone: "${transcribed}"`
+									: "(No speech detected on microphone)",
 							},
 						],
 						details: { text: transcribed, durationMs: result.durationMs },

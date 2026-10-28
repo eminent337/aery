@@ -208,7 +208,6 @@ Use tools whenever they materially improve correctness, completeness, or groundi
 {{#if secretsEnabled}}
 ## Redacted Content
 Some values in tool output are intentionally redacted as `#XXXX#` tokens. Treat them as opaque strings.
-
 {{/if}}
 
 ## Interactive Terminal Input

@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@aryee337/aery-core";
 import type { ImageContent } from "@aryee337/aery-ai";
+import type { AgentMessage } from "@aryee337/aery-core";
 import { type CustomMessage, readQueueChipText } from "./messages";
 
 function queuedTextContent(message: AgentMessage): string | undefined {

@@ -22,14 +22,11 @@ export class SkillActionPanel extends Container {
 
 		// Header
 		this.addChild(new DynamicBorder());
-		const statusBadge = this.skill.installed
-			? theme.fg("success", "● Installed")
-			: theme.fg("muted", "○ Available");
+		const statusBadge = this.skill.installed ? theme.fg("success", "● Installed") : theme.fg("muted", "○ Available");
 
 		this.addChild(
 			new Text(
-				theme.bold(theme.fg("accent", `  ✦ ${this.skill.name}`)) +
-					`  [${this.skill.category}]  [${statusBadge}]`,
+				theme.bold(theme.fg("accent", `  ✦ ${this.skill.name}`)) + `  [${this.skill.category}]  [${statusBadge}]`,
 				0,
 				0,
 			),

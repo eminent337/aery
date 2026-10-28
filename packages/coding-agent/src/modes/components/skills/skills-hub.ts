@@ -96,15 +96,9 @@ export class SkillsHub extends Container {
 
 		// Top chrome: border + title
 		this.addChild(new DynamicBorder());
+		this.addChild(new Text(theme.bold(theme.fg("accent", "  ✦ Aery Skills Catalog & Hub")), 0, 0));
 		this.addChild(
-			new Text(theme.bold(theme.fg("accent", "  ✦ Aery Skills Catalog & Hub")), 0, 0),
-		);
-		this.addChild(
-			new Text(
-				theme.fg("dim", "  Browse, install, and manage specialized agent capabilities and workflows"),
-				0,
-				0,
-			),
+			new Text(theme.fg("dim", "  Browse, install, and manage specialized agent capabilities and workflows"), 0, 0),
 		);
 
 		// Tab bar
@@ -219,9 +213,7 @@ export class SkillsHub extends Container {
 			});
 		} else {
 			const selectItems: SelectItem[] = this.#state.filteredItems.map(skill => {
-				const statusBadge = skill.installed
-					? theme.fg("success", "● Installed")
-					: theme.fg("muted", "○ Available");
+				const statusBadge = skill.installed ? theme.fg("success", "● Installed") : theme.fg("muted", "○ Available");
 
 				return {
 					value: skill.name,
@@ -231,11 +223,7 @@ export class SkillsHub extends Container {
 			});
 
 			this.#setContent(() => {
-				this.#selectList = new SelectList(
-					selectItems,
-					Math.min(selectItems.length, 7),
-					getSelectListTheme(),
-				);
+				this.#selectList = new SelectList(selectItems, Math.min(selectItems.length, 7), getSelectListTheme());
 				this.#selectList.onSelect = item => {
 					const found = this.#state.items.find(s => s.name === item.value);
 					if (found) this.#openSkillPanel(found);

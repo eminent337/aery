@@ -29,9 +29,9 @@ describe("live_eye geometry + targeting (pure logic)", () => {
 	});
 
 	test("describeEyeTarget prefers window title", () => {
-		expect(
-			describeEyeTarget({ title: "Book1.xlsx", class: "ONLYOFFICE" }, undefined, "active_window"),
-		).toContain("Book1.xlsx");
+		expect(describeEyeTarget({ title: "Book1.xlsx", class: "ONLYOFFICE" }, undefined, "active_window")).toContain(
+			"Book1.xlsx",
+		);
 	});
 
 	test("describeEyeTarget falls back to target name", () => {
@@ -45,7 +45,11 @@ describe("live_eye vision auto-detection (pure logic)", () => {
 	//   wantOcr = params.ocr ?? (!modelSeesImages || textOnly)
 	// textOnly means "words, not pixels", so it implies OCR — otherwise a
 	// vision-default caller asking textOnly gets neither pixels nor text.
-	function decide(supportsVision: (() => boolean | undefined) | undefined, ocr: boolean | undefined, textOnly: boolean) {
+	function decide(
+		supportsVision: (() => boolean | undefined) | undefined,
+		ocr: boolean | undefined,
+		textOnly: boolean,
+	) {
 		const modelSeesImages = supportsVision?.() ?? true;
 		const wantOcr = ocr ?? (!modelSeesImages || textOnly);
 		return { modelSeesImages, wantOcr };

@@ -140,17 +140,13 @@ describe("xvfbTargetsAreCurrent (frame/target generation binding)", () => {
 
 	test("targets are current right after a reading that produced them", async () => {
 		const m = await import("../desktop-control");
-		m.rememberXvfbTargets(
-			[{ text: "B2", x: 271, y: 328, w: 57, h: 38, confidence: 0.93 }],
-		);
+		m.rememberXvfbTargets([{ text: "B2", x: 271, y: 328, w: 57, h: 38, confidence: 0.93 }]);
 		expect(m.xvfbTargetsAreCurrent()).toBe(true);
 	});
 
 	test("an ocr:false pass invalidates remembered targets", async () => {
 		const m = await import("../desktop-control");
-		m.rememberXvfbTargets([
-			{ text: "B2", x: 271, y: 328, w: 57, h: 38, confidence: 0.93 },
-		]);
+		m.rememberXvfbTargets([{ text: "B2", x: 271, y: 328, w: 57, h: 38, confidence: 0.93 }]);
 		// An ocr:false screenshot records NO targets for its new generation.
 		m.rememberXvfbTargets([]);
 		expect(m.xvfbTargetsAreCurrent()).toBe(false);
@@ -160,9 +156,7 @@ describe("xvfbTargetsAreCurrent (frame/target generation binding)", () => {
 
 	test("a resized reading invalidates targets from the old frame", async () => {
 		const m = await import("../desktop-control");
-		m.rememberXvfbTargets(
-			[{ text: "B2", x: 271, y: 328, w: 57, h: 38, confidence: 0.93 }],
-		);
+		m.rememberXvfbTargets([{ text: "B2", x: 271, y: 328, w: 57, h: 38, confidence: 0.93 }]);
 		// A capped 640-wide reading owns neither these boxes nor this frame.
 		m.rememberXvfbTargets([]);
 		expect(m.xvfbTargetsAreCurrent()).toBe(false);
@@ -230,7 +224,6 @@ describe("xvfbDragScript (held-drag batch choreography)", () => {
 		expect(lines.filter(l => /^mouse(up|down) /.test(l))).toHaveLength(2);
 	});
 });
-
 
 describe("xvfbAuthPromptHint (credential-prompt detection)", () => {
 	const cases: Array<[string, string | null]> = [

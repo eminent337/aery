@@ -4,17 +4,10 @@
  * reloading/disconnecting specific bots, and removing tokens with confirmation.
  */
 
-import {
-	Container,
-	type SelectItem,
-	SelectList,
-	Spacer,
-	Text,
-	Input,
-} from "@aryee337/aery-tui";
+import { Container, Input, type SelectItem, SelectList, Spacer, Text } from "@aryee337/aery-tui";
 import { getSelectListTheme, theme } from "../../../modes/theme/theme.js";
 import { DynamicBorder } from "../dynamic-border.js";
-import { ConnectStateManager, getBotDisplayName } from "./state.js";
+import { type ConnectStateManager, getBotDisplayName } from "./state.js";
 import type { PlatformConfig } from "./types.js";
 
 export class ConnectPlatformPanel extends Container {
@@ -222,7 +215,11 @@ export class ConnectPlatformPanel extends Container {
 			label: `  ● ${theme.bold(bot.name || "Bot")}`,
 			description: "Select to reload or disconnect this bot",
 		}));
-		items.push({ value: "disconnect-all", label: "■ Disconnect All Active Bots", description: "Shut down all connections" });
+		items.push({
+			value: "disconnect-all",
+			label: "■ Disconnect All Active Bots",
+			description: "Shut down all connections",
+		});
 		items.push({ value: "back", label: "← Back", description: "Return to menu" });
 
 		const list = new SelectList(items, Math.min(items.length, 7), getSelectListTheme());
@@ -336,7 +333,9 @@ export class ConnectPlatformPanel extends Container {
 		const botName = getBotDisplayName(token);
 		const submenu = new Container();
 		submenu.addChild(new Text(theme.bold(theme.fg("error", `  Confirm Delete: Remove ${botName}?`)), 0, 0));
-		submenu.addChild(new Text(theme.fg("muted", "  This will disconnect the bot and delete its token from settings."), 0, 0));
+		submenu.addChild(
+			new Text(theme.fg("muted", "  This will disconnect the bot and delete its token from settings."), 0, 0),
+		);
 		submenu.addChild(new Spacer(1));
 
 		const items: SelectItem[] = [
@@ -423,7 +422,9 @@ export class ConnectPlatformPanel extends Container {
 			} else if (mode === "passcode") {
 				this.stateManager.setPasscode(trimmed || undefined);
 				this.#statusText = new Text(
-					trimmed ? theme.fg("success", "  ✓ Security Passcode updated.") : theme.fg("muted", "  ○ Passcode cleared."),
+					trimmed
+						? theme.fg("success", "  ✓ Security Passcode updated.")
+						: theme.fg("muted", "  ○ Passcode cleared."),
 					0,
 					0,
 				);

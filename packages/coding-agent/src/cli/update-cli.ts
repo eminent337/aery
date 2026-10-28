@@ -480,11 +480,7 @@ export async function checkBackgroundUpdate(): Promise<string | undefined> {
 
 		const dir = path.dirname(cachePath);
 		await fs.promises.mkdir(dir, { recursive: true });
-		await fs.promises.writeFile(
-			cachePath,
-			JSON.stringify({ lastCheckedAt: now, latestVersion }),
-			"utf-8",
-		);
+		await fs.promises.writeFile(cachePath, JSON.stringify({ lastCheckedAt: now, latestVersion }), "utf-8");
 
 		if (compareVersions(latestVersion, VERSION) > 0) {
 			return latestVersion;

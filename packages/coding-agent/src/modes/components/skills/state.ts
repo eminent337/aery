@@ -9,9 +9,7 @@ export class SkillsStateManager {
 	) {}
 
 	async loadSkills(): Promise<SkillItem[]> {
-		const installedMap = new Map(
-			this.installedSkills.map(s => [s.name, s]),
-		);
+		const installedMap = new Map(this.installedSkills.map(s => [s.name, s]));
 
 		const items: SkillItem[] = [];
 		const seenNames = new Set<string>();

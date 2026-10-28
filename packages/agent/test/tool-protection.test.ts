@@ -129,7 +129,7 @@ describe("conditional tool-result protection", () => {
 				expect(typeof msg.prunedAt).toBe("number");
 			} else {
 				expect(msg.prunedAt).toBeUndefined();
-				expect(((msg.content[0] as TextContent).text)).toContain(`reading ${i}`);
+				expect((msg.content[0] as TextContent).text).toContain(`reading ${i}`);
 			}
 		}
 	});

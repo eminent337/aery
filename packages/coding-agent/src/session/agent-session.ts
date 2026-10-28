@@ -261,11 +261,7 @@ import {
 	stripImagesFromMessage,
 } from "./messages";
 import { buildPrivacyPolicy } from "./privacy-policy-builder";
-import {
-	isDisplayableQueuedMessage,
-	isUserQueuedMessage,
-	queueChipText,
-} from "./queued-messages";
+import { isDisplayableQueuedMessage, isUserQueuedMessage, queueChipText } from "./queued-messages";
 import { formatSessionDumpText } from "./session-dump-format";
 import { formatSessionHistoryMarkdown } from "./session-history-format";
 import type {
@@ -277,11 +273,7 @@ import type {
 	SessionContext,
 	SessionManager,
 } from "./session-manager";
-import {
-	EPHEMERAL_MODEL_CHANGE_ROLE,
-	getLatestCompactionEntry,
-	getRestorableSessionModels,
-} from "./session-manager";
+import { EPHEMERAL_MODEL_CHANGE_ROLE, getLatestCompactionEntry, getRestorableSessionModels } from "./session-manager";
 import type { ShakeMode, ShakeResult } from "./shake-types";
 import { SessionStateStore } from "./state-store.js";
 import { ToolChoiceQueue } from "./tool-choice-queue";
@@ -888,7 +880,6 @@ function extractPermissionLocations(
 // ============================================================================
 // AgentSession Class
 
-
 export class AgentSession {
 	readonly agent: Agent;
 	readonly sessionManager: SessionManager;
@@ -1357,8 +1348,8 @@ export class AgentSession {
 	/** Initialize event-sourced session log (called after constructor) */
 	async #initializeEventStore(): Promise<void> {
 		try {
-			const { getAgentDbPath } = await import("@aryee337/aery-utils");
-			this.#eventStore = new EventStore({ dir: `${getAgentDbPath()}/events` });
+			const { getAgentDir } = await import("@aryee337/aery-utils");
+			this.#eventStore = new EventStore({ dir: path.join(getAgentDir(), "events") });
 			await this.#eventStore.append({
 				id: this.#eventStore.generateEventId(),
 				type: "system/session-start",
@@ -1674,7 +1665,6 @@ export class AgentSession {
 	clearPlanCompactAbortPending(): void {
 		this.#planCompactAbortPending = false;
 	}
-
 
 	getAsyncJobSnapshot(options?: { recentLimit?: number }): AsyncJobSnapshot | null {
 		const manager = AsyncJobManager.instance();
@@ -3894,9 +3884,11 @@ export class AgentSession {
 		// tool list is byte-identical. Skipping the rebuild keeps the system prompt
 		// stable, which is required for Anthropic prompt caching to keep hitting.
 		if (this.#rebuildSystemPrompt) {
-			const signature = this.#computeAppliedToolSignature(validToolNames, tools);
+			const activeToolNames = this.getActiveToolNames();
+			const activeTools = this.agent.state.tools;
+			const signature = this.#computeAppliedToolSignature(activeToolNames, activeTools);
 			if (signature !== this.#lastAppliedToolSignature) {
-				const built = await this.#rebuildSystemPrompt(validToolNames, this.#toolRegistry);
+				const built = await this.#rebuildSystemPrompt(activeToolNames, this.#toolRegistry);
 				this.#baseSystemPrompt = built.systemPrompt;
 				this.agent.setSystemPrompt(this.#baseSystemPrompt);
 				this.#lastAppliedToolSignature = signature;
@@ -6404,7 +6396,14 @@ export class AgentSession {
 					// Text survives; only pixels are ephemeral. If the glance
 					// was image-only, leave a tombstone so the sweep is idempotent.
 					(entry as { content?: unknown }).content =
-						kept.length > 0 ? kept : [{ type: "text", text: "[eye glance superseded — image swept, reading kept in watch transcript]" }];
+						kept.length > 0
+							? kept
+							: [
+									{
+										type: "text",
+										text: "[eye glance superseded — image swept, reading kept in watch transcript]",
+									},
+								];
 					removed += dropped;
 				}
 				continue;
@@ -6459,7 +6458,14 @@ export class AgentSession {
 			const dropped = content.length - kept.length;
 			if (dropped > 0) {
 				(entry as { content?: unknown }).content =
-					kept.length > 0 ? kept : [{ type: "text", text: "[verify frame superseded — image swept, reading kept in watch transcript]" }];
+					kept.length > 0
+						? kept
+						: [
+								{
+									type: "text",
+									text: "[verify frame superseded — image swept, reading kept in watch transcript]",
+								},
+							];
 				removed += dropped;
 			}
 		}
@@ -6829,10 +6835,7 @@ export class AgentSession {
 	 * @param customInstructions Optional instructions for the compaction summary
 	 * @param options Optional callbacks for completion/error handling
 	 */
-	compactBackgroundPrefix(
-		customInstructions?: string,
-		options?: CompactOptions,
-	): Promise<CompactionResult | null> {
+	compactBackgroundPrefix(customInstructions?: string, options?: CompactOptions): Promise<CompactionResult | null> {
 		if (this.#isCompactingInBackground && this.#backgroundCompactionPromise) {
 			return this.#backgroundCompactionPromise;
 		}
@@ -8263,7 +8266,12 @@ export class AgentSession {
 			Boolean(this.settings.get("compaction.background" as any)) ||
 			(compactionSettings as any).mode === "background";
 
-		if (isBackgroundPreferred && !willRetry && compactionSettings.strategy !== "handoff" && compactionSettings.strategy !== "shake") {
+		if (
+			isBackgroundPreferred &&
+			!willRetry &&
+			compactionSettings.strategy !== "handoff" &&
+			compactionSettings.strategy !== "shake"
+		) {
 			await this.compactBackgroundPrefix();
 			return false;
 		}

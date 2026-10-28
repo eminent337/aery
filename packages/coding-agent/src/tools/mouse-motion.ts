@@ -217,7 +217,11 @@ export function windMousePath(
 			cumulativeWait += config.minWait;
 		}
 	}
-	if (steps.length === 0 || steps[steps.length - 1].x !== Math.round(toX) || steps[steps.length - 1].y !== Math.round(toY)) {
+	if (
+		steps.length === 0 ||
+		steps[steps.length - 1].x !== Math.round(toX) ||
+		steps[steps.length - 1].y !== Math.round(toY)
+	) {
 		steps.push({ x: Math.round(toX), y: Math.round(toY), waitMs: config.minWait });
 		cumulativeWait += config.minWait;
 	}
@@ -240,8 +244,7 @@ function scaleWaits(
 	// Fitts-informed band: small moves sit near min, long sweeps near max.
 	const band =
 		config.minDurationMs +
-		(config.maxDurationMs - config.minDurationMs) *
-			Math.min(1, Math.log2(distance / 100 + 1) / Math.log2(17));
+		(config.maxDurationMs - config.minDurationMs) * Math.min(1, Math.log2(distance / 100 + 1) / Math.log2(17));
 	const factor = total > 0 ? band / total : 1;
 	// Floor (not round) so per-step rounding can never push the total above the
 	// band ceiling — the band is a contract, not an estimate.

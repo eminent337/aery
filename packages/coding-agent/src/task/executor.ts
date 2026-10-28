@@ -1782,7 +1782,10 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			diagnosticLines.push(
 				"Recent Completed Tool Calls:\n" +
 					progress.recentTools
-						.map(t => `  - ${t.tool}(${t.args || ""}) [finished ${formatDuration(Math.max(0, Date.now() - t.endMs))} ago]`)
+						.map(
+							t =>
+								`  - ${t.tool}(${t.args || ""}) [finished ${formatDuration(Math.max(0, Date.now() - t.endMs))} ago]`,
+						)
 						.join("\n"),
 			);
 		}

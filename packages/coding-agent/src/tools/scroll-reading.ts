@@ -18,9 +18,10 @@
  * The pinning tests fail on these throws — the right reason — while the
  * change-based gate pin (same address+rect stays fresh at any age) passes.
  */
-import type { OcrWordBox } from "./screen-ocr";
+
 import type { ClickTarget } from "./desktop-control";
 import type { ObservationController } from "./live-observe";
+import type { OcrWordBox } from "./screen-ocr";
 
 /** A click target tagged with where it was read: viewport box + scroll
  *  offset + stable document-space y (viewport y + scroll offset). */
@@ -68,8 +69,14 @@ export function mergeScrollTargets(
 			// confidence (a crisper settled reread upgrades a blurred pass).
 			const t = out[hit];
 			out[hit] = {
-				...t, x: w.x, y: w.y, w: w.w, h: w.h, confidence: Math.max(t.confidence, w.confidence),
-				scrollY, docY,
+				...t,
+				x: w.x,
+				y: w.y,
+				w: w.w,
+				h: w.h,
+				confidence: Math.max(t.confidence, w.confidence),
+				scrollY,
+				docY,
 			};
 		} else {
 			out.push({ text: w.text, x: w.x, y: w.y, w: w.w, h: w.h, confidence: w.confidence, scrollY, docY });
@@ -260,15 +267,13 @@ export interface ScrollReadBurstResult {
  *  words into scroll-tagged targets. Untrustworthy frames are recorded but
  *  NOT merged (blur never poisons the target map). Focus loss aborts before
  *  the next injection — same contract as runScrollBurst. */
-export async function runScrollReadBurst(
-	steps: string[][],
-	io: ScrollReadBurstIO,
-): Promise<ScrollReadBurstResult> {
+export async function runScrollReadBurst(steps: string[][], io: ScrollReadBurstIO): Promise<ScrollReadBurstResult> {
 	const readings: ScrollReadBurstResult["readings"] = [];
 	let targets: ScrollTaggedTarget[] = [];
 	let completedSteps = 0;
 	for (let i = 0; i < steps.length; i++) {
-		if (io.signal?.aborted) return { failure: `Scroll-read burst aborted before step ${i + 1}.`, completedSteps, readings, targets };
+		if (io.signal?.aborted)
+			return { failure: `Scroll-read burst aborted before step ${i + 1}.`, completedSteps, readings, targets };
 		const focusError = await io.assertFocus(io.expectedWindowAddress);
 		if (focusError) return { failure: focusError, completedSteps, readings, targets };
 		const stepFailure = await io.run(steps[i]);
@@ -280,7 +285,12 @@ export async function runScrollReadBurst(
 				const { words, quality } = await io.ocrFrame(frame.path);
 				readings.push({ scrollY: frame.scrollY, at: frame.at, path: frame.path, quality });
 				if (quality.trustworthy) {
-					scrollReadTick(io.control.get()?.generation ?? -1, { address: io.expectedWindowAddress, scrollY: frame.scrollY }, io.control, frame.at);
+					scrollReadTick(
+						io.control.get()?.generation ?? -1,
+						{ address: io.expectedWindowAddress, scrollY: frame.scrollY },
+						io.control,
+						frame.at,
+					);
 					targets = mergeScrollTargets(targets, words, frame.scrollY, 880);
 				}
 			} catch {

@@ -174,8 +174,8 @@ import {
 import { ToolContextStore } from "./tools/context";
 import { getImageGenTools } from "./tools/image-gen";
 import { wrapToolWithMetaNotice } from "./tools/output-meta";
-import { ocrFrame } from "./tools/screen-ocr";
 import { queueResolveHandler } from "./tools/resolve";
+import { ocrFrame } from "./tools/screen-ocr";
 import { ToolError } from "./tools/tool-errors";
 import { ttsTool } from "./tools/tts";
 import { getVideoGenTools } from "./tools/video-gen";
@@ -2256,9 +2256,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		//     this per-image; doing it here covers tool results + eye glances too).
 		const modelSupportsImages = (model?.input ?? []).includes("image");
 
-		const ocrImageToText = async (
-			image: { data: string; mimeType?: string },
-		): Promise<string | null> => {
+		const ocrImageToText = async (image: { data: string; mimeType?: string }): Promise<string | null> => {
 			try {
 				const filePath = path.join(
 					os.tmpdir(),
@@ -2287,7 +2285,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 					const hasImages = content.some(c => c.type === "image");
 					if (!hasImages) return msg;
 
-
 					// Resolve every image block to its replacement text (OCR/placeholder).
 					// Promise.all keeps OCR time parallel across the turn's images.
 					const resolved = await Promise.all(
@@ -2305,14 +2302,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 							return [{ type: "text" as const, text: replacement, hidden: true }];
 						}),
 					);
-					const filteredContent = resolved
-						.flat()
-						.filter((c, i, arr) => {
-							// Dedupe consecutive "Image reading is disabled." texts
-							if (!(c.type === "text" && c.text === "Image reading is disabled." && i > 0)) return true;
-							const prev = arr[i - 1];
-							return !(prev.type === "text" && prev.text === "Image reading is disabled.");
-						});
+					const filteredContent = resolved.flat().filter((c, i, arr) => {
+						// Dedupe consecutive "Image reading is disabled." texts
+						if (!(c.type === "text" && c.text === "Image reading is disabled." && i > 0)) return true;
+						const prev = arr[i - 1];
+						return !(prev.type === "text" && prev.text === "Image reading is disabled.");
+					});
 					return { ...msg, content: filteredContent };
 				}),
 			);

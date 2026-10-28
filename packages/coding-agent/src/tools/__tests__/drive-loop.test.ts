@@ -40,7 +40,8 @@ describe("drive loop guardrails (clippy parity)", () => {
 	test(`${DRIVE_LOOP_MAX_REPEATS} repeats of the SAME STEP abort`, () => {
 		// Alternate first so the action name's counter restarts cleanly.
 		driveLoopObserve("live_move", true, undefined, "live_move|x:1,y:1");
-		for (let i = 0; i < DRIVE_LOOP_MAX_REPEATS; i++) driveLoopObserve("live_click", true, undefined, "live_click|t:Send");
+		for (let i = 0; i < DRIVE_LOOP_MAX_REPEATS; i++)
+			driveLoopObserve("live_click", true, undefined, "live_click|t:Send");
 		const reason = driveLoopAbortReason("live_click|t:Send");
 		expect(reason).toContain("live_click");
 		expect(reason).toContain("repeated");
@@ -60,7 +61,8 @@ describe("drive loop guardrails (clippy parity)", () => {
 		expect(driveLoopAbortReason("live_click|t:Development")).toBeNull();
 	});
 	test("re-look (re-plan) clears a tripped loop", () => {
-		for (let i = 0; i < DRIVE_LOOP_MAX_FAILURES; i++) driveLoopObserve("live_click", false, undefined, "live_click|t:Send");
+		for (let i = 0; i < DRIVE_LOOP_MAX_FAILURES; i++)
+			driveLoopObserve("live_click", false, undefined, "live_click|t:Send");
 		expect(driveLoopAbortReason("live_click|t:Send")).toContain("consecutive failures");
 		// The gate alone cannot recover — a read-tier re-look resets counters.
 		resetDriveLoop();

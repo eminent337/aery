@@ -4,18 +4,26 @@
  * which passes and guards the change-based contract under scroll).
  */
 import { describe, expect, test } from "bun:test";
+import { observationInputStatus } from "../desktop-control";
 import {
 	mergeScrollTargets,
 	resolveScrollTarget,
+	SCROLL_MERGE_TOLERANCE_PX,
 	scrollSettled,
 	scrollWordToDocument,
-	SCROLL_MERGE_TOLERANCE_PX,
 } from "../scroll-reading";
-import { observationInputStatus } from "../desktop-control";
 
 const WORD = { text: "Save", x: 100, y: 200, w: 60, h: 20, confidence: 0.9 };
 const TAGGED = (over: Record<string, unknown> = {}) => ({
-	text: "Save", x: 100, y: 200, w: 60, h: 20, confidence: 0.9, scrollY: 0, docY: 200, ...over,
+	text: "Save",
+	x: 100,
+	y: 200,
+	w: 60,
+	h: 20,
+	confidence: 0.9,
+	scrollY: 0,
+	docY: 200,
+	...over,
 });
 
 describe("scroll-reading pinning (phase 1: fail for the right reason)", () => {
@@ -68,21 +76,50 @@ describe("settled-gate pin (passes: scroll never invalidates identity)", () => {
 	// Pinned human-eye contract: scroll moves CONTENT, not the window — same
 	// address + same rect stays fresh at ANY age, so a post-scroll click on a
 	// settled frame is allowed without a re-glance.
-	const FRAME = { kind: "window", atX: 646, atY: 178, physW: 1252, physH: 880, scaledW: 1252, scaledH: 880, address: "0xB" } as const;
+	const FRAME = {
+		kind: "window",
+		atX: 646,
+		atY: 178,
+		physW: 1252,
+		physH: 880,
+		scaledW: 1252,
+		scaledH: 880,
+		address: "0xB",
+	} as const;
 	test("same address+rect is fresh after a scroll no matter the age", () => {
-		const snap: any = { generation: 1, address: "0xB", frame: { ...FRAME }, capturedAt: 1_000, windowRect: { at: [646, 90], size: [1252, 968] } };
+		const snap: any = {
+			generation: 1,
+			address: "0xB",
+			frame: { ...FRAME },
+			capturedAt: 1_000,
+			windowRect: { at: [646, 90], size: [1252, 968] },
+		};
 		const st = observationInputStatus({
-			snapshot: snap, activeAddress: "0xB", freshFrame: null,
-			activeGeometry: { at: [646, 90], size: [1252, 968] }, now: 60_000, maxAgeMs: 1500,
+			snapshot: snap,
+			activeAddress: "0xB",
+			freshFrame: null,
+			activeGeometry: { at: [646, 90], size: [1252, 968] },
+			now: 60_000,
+			maxAgeMs: 1500,
 		});
 		expect(st.state).toBe("fresh");
 		expect(st.ageMs).toBe(59_000);
 	});
 	test("a moved/resized window still refuses after scroll", () => {
-		const snap: any = { generation: 1, address: "0xB", frame: { ...FRAME }, capturedAt: 1_000, windowRect: { at: [646, 90], size: [1252, 968] } };
+		const snap: any = {
+			generation: 1,
+			address: "0xB",
+			frame: { ...FRAME },
+			capturedAt: 1_000,
+			windowRect: { at: [646, 90], size: [1252, 968] },
+		};
 		const st = observationInputStatus({
-			snapshot: snap, activeAddress: "0xB", freshFrame: null,
-			activeGeometry: { at: [700, 90], size: [1252, 968] }, now: 60_000, maxAgeMs: 1500,
+			snapshot: snap,
+			activeAddress: "0xB",
+			freshFrame: null,
+			activeGeometry: { at: [700, 90], size: [1252, 968] },
+			now: 60_000,
+			maxAgeMs: 1500,
 		});
 		expect(st.state).toBe("geometry_mismatch");
 	});
@@ -93,7 +130,12 @@ describe("scrollReadTick — reading feed policy for moving-but-same-document sc
 	function controllerWith(gen = 1): any {
 		const { ObservationController } = require("../live-observe");
 		const c = new ObservationController();
-		c.start("0xB", { kind: "window", atX: 646, atY: 178, physW: 1252, physH: 880, scaledW: 1252, scaledH: 880, address: "0xB" }, 1000, R0);
+		c.start(
+			"0xB",
+			{ kind: "window", atX: 646, atY: 178, physW: 1252, physH: 880, scaledW: 1252, scaledH: 880, address: "0xB" },
+			1000,
+			R0,
+		);
 		return c;
 	}
 	test("same address mid-scroll → notes scrollY + OCR and re-asserts freshness", () => {
@@ -175,7 +217,12 @@ describe("scroll frame quality + burst reader (phase 3)", () => {
 		const { ObservationController } = require("../live-observe");
 		const R0 = { at: [646, 90], size: [1252, 968] };
 		const c = new ObservationController();
-		c.start("0xB", { kind: "window", atX: 646, atY: 178, physW: 1252, physH: 880, scaledW: 1252, scaledH: 880, address: "0xB" }, 1000, R0);
+		c.start(
+			"0xB",
+			{ kind: "window", atX: 646, atY: 178, physW: 1252, physH: 880, scaledW: 1252, scaledH: 880, address: "0xB" },
+			1000,
+			R0,
+		);
 		let step = 0;
 		const scrolls = [0, 300, 600];
 		const frames = [
@@ -183,17 +230,20 @@ describe("scroll frame quality + burst reader (phase 3)", () => {
 			{ words: [{ ...GOOD[0], y: -40 }], quality: { wordCount: 1, overlap: 0.33, trustworthy: true } },
 			{ words: GOOD.map(w => ({ ...w, y: w.y - 400 })), quality: { wordCount: 3, overlap: 1, trustworthy: true } },
 		];
-		const res = await runScrollReadBurst(
-			[["ydotool"], ["ydotool"], ["ydotool"]],
-			{
-				intervalMs: 10, sample: true, expectedWindowAddress: "0xB",
-				assertFocus: async () => null,
-				run: async () => null,
-				captureFrame: async () => ({ scrollY: scrolls[Math.min(step, 2)], at: 1000 + step * 100, path: `/tmp/srb-${step}.png` }),
-				ocrFrame: async () => frames[Math.min(step++, 2)],
-				control: c,
-			},
-		);
+		const res = await runScrollReadBurst([["ydotool"], ["ydotool"], ["ydotool"]], {
+			intervalMs: 10,
+			sample: true,
+			expectedWindowAddress: "0xB",
+			assertFocus: async () => null,
+			run: async () => null,
+			captureFrame: async () => ({
+				scrollY: scrolls[Math.min(step, 2)],
+				at: 1000 + step * 100,
+				path: `/tmp/srb-${step}.png`,
+			}),
+			ocrFrame: async () => frames[Math.min(step++, 2)],
+			control: c,
+		});
 		expect(res.failure).toBeNull();
 		expect(res.completedSteps).toBe(3);
 		expect(res.readings).toHaveLength(3);
@@ -206,17 +256,16 @@ describe("scroll frame quality + burst reader (phase 3)", () => {
 		const c2 = new ObservationController();
 		c2.start("0xB", null, 1000, R0);
 		let ran = 0;
-		const res2 = await runScrollReadBurst(
-			[["a"], ["b"], ["c"]],
-			{
-				intervalMs: 0, sample: false, expectedWindowAddress: "0xB",
-				assertFocus: async () => (ran++ === 1 ? "focus lost" : null),
-				run: async () => null,
-				captureFrame: async () => ({ scrollY: 0, at: 0, path: "" }),
-				ocrFrame: async () => ({ words: [], quality: { wordCount: 0, overlap: 0, trustworthy: false } }),
-				control: c2,
-			},
-		);
+		const res2 = await runScrollReadBurst([["a"], ["b"], ["c"]], {
+			intervalMs: 0,
+			sample: false,
+			expectedWindowAddress: "0xB",
+			assertFocus: async () => (ran++ === 1 ? "focus lost" : null),
+			run: async () => null,
+			captureFrame: async () => ({ scrollY: 0, at: 0, path: "" }),
+			ocrFrame: async () => ({ words: [], quality: { wordCount: 0, overlap: 0, trustworthy: false } }),
+			control: c2,
+		});
 		expect(res2.failure).toBe("focus lost");
 		expect(res2.completedSteps).toBe(1);
 	});
@@ -255,7 +304,8 @@ describe("targets stay usable during AND after scroll (regression)", () => {
 		const offsets = [0, 300, 600, 880, 880, 880];
 		expect(scrollSettled(offsets)).toBe(true);
 		let t: any[] = [];
-		for (let i = 0; i < offsets.length - 1; i++) t = mergeScrollTargets(t, [W("Save", 880 - offsets[i])], offsets[i], 880);
+		for (let i = 0; i < offsets.length - 1; i++)
+			t = mergeScrollTargets(t, [W("Save", 880 - offsets[i])], offsets[i], 880);
 		const final = mergeScrollTargets(t, [W("Save", 0)], 880, 880); // settled read
 		const hit = resolveScrollTarget(final, "Save", 880);
 		expect(hit?.y).toBe(10);
@@ -265,7 +315,12 @@ describe("targets stay usable during AND after scroll (regression)", () => {
 
 describe("model-visible scroll digest (phase 1 pin: fails while stub throws)", () => {
 	const R = (over: Record<string, unknown> = {}) => ({
-		words: 3, chars: 20, trustworthy: true, ocrMs: 500, text: "Save Cancel Refresh", ...over,
+		words: 3,
+		chars: 20,
+		trustworthy: true,
+		ocrMs: 500,
+		text: "Save Cancel Refresh",
+		...over,
 	});
 	test("digest surfaces mid-scroll TEXT (not just a count) labelled by offset + trust", () => {
 		const { formatScrollReadDigest } = require("../scroll-reading");
@@ -278,7 +333,7 @@ describe("model-visible scroll digest (phase 1 pin: fails while stub throws)", (
 	test("untrusted/blurred frame is surfaced but explicitly marked NOT trusted", () => {
 		const { formatScrollReadDigest } = require("../scroll-reading");
 		const out = formatScrollReadDigest([R({ text: "c »phimestis", trustworthy: false })]);
-		expect(out).toContain("c »phimestis");       // never silently dropped
+		expect(out).toContain("c »phimestis"); // never silently dropped
 		expect(out).toMatch(/untrusted|not trusted|blur/i);
 	});
 

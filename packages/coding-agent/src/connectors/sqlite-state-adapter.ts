@@ -82,9 +82,9 @@ export class SqliteStateAdapter implements StateAdapter {
 
 	async get<T = unknown>(key: string): Promise<T | null> {
 		const now = Date.now();
-		const row = this.#db
-			.prepare("SELECT value, expires_at FROM kv_store WHERE key = ?")
-			.get(key) as { value: string; expires_at: number | null } | undefined;
+		const row = this.#db.prepare("SELECT value, expires_at FROM kv_store WHERE key = ?").get(key) as
+			| { value: string; expires_at: number | null }
+			| undefined;
 
 		if (!row) return null;
 		if (row.expires_at !== null && row.expires_at <= now) {
@@ -139,11 +139,13 @@ export class SqliteStateAdapter implements StateAdapter {
 	async getList<T = unknown>(key: string): Promise<T[]> {
 		const now = Date.now();
 		// Clean up expired items
-		this.#db.prepare("DELETE FROM list_store WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?").run(key, now);
+		this.#db
+			.prepare("DELETE FROM list_store WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?")
+			.run(key, now);
 
-		const rows = this.#db
-			.prepare("SELECT value FROM list_store WHERE key = ? ORDER BY id ASC")
-			.all(key) as Array<{ value: string }>;
+		const rows = this.#db.prepare("SELECT value FROM list_store WHERE key = ? ORDER BY id ASC").all(key) as Array<{
+			value: string;
+		}>;
 
 		const results: T[] = [];
 		for (const row of rows) {
@@ -261,9 +263,7 @@ export class SqliteStateAdapter implements StateAdapter {
 		const now = Date.now();
 		while (true) {
 			const row = this.#db
-				.prepare(
-					"SELECT id, data, expires_at FROM queue_entries WHERE thread_id = ? ORDER BY id ASC LIMIT 1",
-				)
+				.prepare("SELECT id, data, expires_at FROM queue_entries WHERE thread_id = ? ORDER BY id ASC LIMIT 1")
 				.get(threadId) as { id: number; data: string; expires_at: number } | undefined;
 
 			if (!row) return null;
@@ -284,9 +284,9 @@ export class SqliteStateAdapter implements StateAdapter {
 	async queueDepth(threadId: string): Promise<number> {
 		const now = Date.now();
 		this.#db.prepare("DELETE FROM queue_entries WHERE thread_id = ? AND expires_at <= ?").run(threadId, now);
-		const row = this.#db
-			.prepare("SELECT COUNT(*) as count FROM queue_entries WHERE thread_id = ?")
-			.get(threadId) as { count: number };
+		const row = this.#db.prepare("SELECT COUNT(*) as count FROM queue_entries WHERE thread_id = ?").get(threadId) as {
+			count: number;
+		};
 		return row.count;
 	}
 

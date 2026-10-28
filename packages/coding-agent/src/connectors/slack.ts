@@ -3,9 +3,8 @@ import { createSlackAdapter } from "@chat-adapter/slack";
 import { Chat } from "chat";
 import * as os from "os";
 import * as path from "path";
-import { RpcClient } from "../modes/rpc/rpc-client";
-
 import { settings } from "../config/settings.js";
+import { RpcClient } from "../modes/rpc/rpc-client";
 import { SqliteStateAdapter } from "./sqlite-state-adapter.js";
 
 const threadClients = new Map<string, RpcClient>();
@@ -103,12 +102,7 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 			client = new RpcClient({
 				cliPath,
 				cwd: options.cwd || process.cwd(),
-				sessionDir: path.join(
-					os.homedir(),
-					".aery",
-					"sessions",
-					`slack-${threadId.replace(/[^a-zA-Z0-9]/g, "-")}`,
-				),
+				sessionDir: path.join(os.homedir(), ".aery", "sessions", `slack-${threadId.replace(/[^a-zA-Z0-9]/g, "-")}`),
 				args: args.length > 0 ? args : undefined,
 			});
 
@@ -268,11 +262,12 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 						return;
 					}
 					const list = recent
-						.map(s => `• \`${s.id.slice(0, 8)}\` — *${s.title || "Untitled"}* (${new Date(s.modified).toLocaleTimeString()})`)
+						.map(
+							s =>
+								`• \`${s.id.slice(0, 8)}\` — *${s.title || "Untitled"}* (${new Date(s.modified).toLocaleTimeString()})`,
+						)
 						.join("\n");
-					await thread.post(
-						`📂 *Recent Sessions:*\n${list}\n\n_To resume: \`/resume <session-id-or-path>\`_`,
-					);
+					await thread.post(`📂 *Recent Sessions:*\n${list}\n\n_To resume: \`/resume <session-id-or-path>\`_`);
 				} catch (err) {
 					await thread.post(`Error listing sessions: ${err}`);
 				}
@@ -285,7 +280,9 @@ export async function startSlackConnector(options: ConnectSlackOptions, log: (ms
 				const all = await SessionManager.listAll();
 				const match = all.find(s => s.id === targetId || s.id.startsWith(targetId) || s.path === targetId);
 				if (!match) {
-					await thread.post(`❌ *Session not found:* \`${targetId}\`\nUse \`/resume\` or \`/sessions\` to view available sessions.`);
+					await thread.post(
+						`❌ *Session not found:* \`${targetId}\`\nUse \`/resume\` or \`/sessions\` to view available sessions.`,
+					);
 					return;
 				}
 				const result = await client.switchSession(match.path);
