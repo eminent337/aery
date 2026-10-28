@@ -42,6 +42,9 @@ export interface AgentRef {
 	sessionFile: string | null;
 	createdAt: number;
 	lastActivity: number;
+	currentTool?: string;
+	currentToolArgs?: string;
+	lastIntent?: string;
 }
 
 export type RegistryEvent =
@@ -88,6 +91,7 @@ export class AgentRegistry {
 
 	readonly #refs = new Map<string, AgentRef>();
 	readonly #listeners = new Set<RegistryListener>();
+	readonly #sessionUnsubscribers = new Map<string, () => void>();
 
 	/** Get a built-in subagent definition by type name. */
 	getBuiltinSubagent(typeName: string): BuiltinSubagentDefinition | undefined {
@@ -113,6 +117,9 @@ export class AgentRegistry {
 			lastActivity: now,
 		};
 		this.#refs.set(ref.id, ref);
+		if (input.session) {
+			this.attachSession(ref.id, input.session, input.sessionFile);
+		}
 		this.#emit({ type: "registered", ref });
 		return ref;
 	}
@@ -125,23 +132,88 @@ export class AgentRegistry {
 		this.#emit({ type: "status_changed", ref });
 	}
 
+	/** Update real-time progress (current tool, args, intent) for an agent. */
+	setProgress(id: string, progress: { currentTool?: string; currentToolArgs?: string; lastIntent?: string }): void {
+		const ref = this.#refs.get(id);
+		if (!ref) return;
+		if (progress.currentTool !== undefined) ref.currentTool = progress.currentTool;
+		if (progress.currentToolArgs !== undefined) ref.currentToolArgs = progress.currentToolArgs;
+		if (progress.lastIntent !== undefined) ref.lastIntent = progress.lastIntent;
+		ref.lastActivity = Date.now();
+		this.#emit({ type: "status_changed", ref });
+	}
+
 	attachSession(id: string, session: AgentSession, sessionFile?: string | null): void {
 		const ref = this.#refs.get(id);
 		if (!ref) return;
 		ref.session = session;
 		if (sessionFile !== undefined) ref.sessionFile = sessionFile;
 		ref.lastActivity = Date.now();
+
+		// Clean up existing session subscription if present
+		const existingUnsub = this.#sessionUnsubscribers.get(id);
+		if (existingUnsub) {
+			existingUnsub();
+			this.#sessionUnsubscribers.delete(id);
+		}
+
+		// Automatically hook subagent session events for live tool activity & status streaming
+		if (ref.kind === "sub" && typeof (session as any)?.subscribe === "function") {
+			const unsub = (session as any).subscribe((event: any) => {
+				if (event.type === "tool_execution_start") {
+					const toolArgsSummary =
+						typeof event.args === "string"
+							? event.args
+							: typeof event.args === "object" && event.args !== null
+								? Object.values(event.args)
+										.map(v => (typeof v === "string" ? v : JSON.stringify(v)))
+										.join(" ")
+								: "";
+					ref.currentTool = event.toolName;
+					ref.currentToolArgs = toolArgsSummary;
+					ref.status = "running";
+					ref.lastActivity = Date.now();
+					this.#emit({ type: "status_changed", ref });
+				} else if (event.type === "tool_execution_end") {
+					ref.currentTool = undefined;
+					ref.currentToolArgs = undefined;
+					ref.lastActivity = Date.now();
+					this.#emit({ type: "status_changed", ref });
+				} else if (event.type === "turn_start") {
+					ref.status = "running";
+					ref.lastActivity = Date.now();
+					this.#emit({ type: "status_changed", ref });
+				} else if (event.type === "turn_end") {
+					ref.status = "idle";
+					ref.currentTool = undefined;
+					ref.currentToolArgs = undefined;
+					ref.lastActivity = Date.now();
+					this.#emit({ type: "status_changed", ref });
+				}
+			});
+			this.#sessionUnsubscribers.set(id, unsub);
+		}
 	}
 
 	detachSession(id: string): void {
 		const ref = this.#refs.get(id);
 		if (!ref) return;
+		const unsub = this.#sessionUnsubscribers.get(id);
+		if (unsub) {
+			unsub();
+			this.#sessionUnsubscribers.delete(id);
+		}
 		ref.session = null;
 	}
 
 	unregister(id: string): void {
 		const ref = this.#refs.get(id);
 		if (!ref) return;
+		const unsub = this.#sessionUnsubscribers.get(id);
+		if (unsub) {
+			unsub();
+			this.#sessionUnsubscribers.delete(id);
+		}
 		this.#refs.delete(id);
 		this.#emit({ type: "removed", ref });
 	}

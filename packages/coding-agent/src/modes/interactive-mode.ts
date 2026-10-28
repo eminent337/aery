@@ -47,6 +47,7 @@ import {
 import chalk from "chalk";
 import type { ScheduledItem } from "../ambient/scheduler";
 import { reset as resetCapabilities } from "../capability";
+import { checkBackgroundUpdate } from "../cli/update-cli";
 import { KeybindingsManager } from "../config/keybindings";
 import { MODEL_ROLES, type ModelRole } from "../config/model-registry";
 import { isSettingsInitialized, Settings, settings } from "../config/settings";
@@ -74,6 +75,7 @@ import planModeApprovedPrompt from "../prompts/system/plan-mode-approved.md" wit
 import planModeCompactInstructionsPrompt from "../prompts/system/plan-mode-compact-instructions.md" with {
 	type: "text",
 };
+import { AgentRegistry } from "../registry/agent-registry";
 import type { AgentSession, AgentSessionEvent, ResolvedRoleModel } from "../session/agent-session";
 import { HistoryStorage } from "../session/history-storage";
 import type { SessionContext, SessionManager } from "../session/session-manager";
@@ -106,7 +108,6 @@ import { StatusLineComponent } from "./components/status-line";
 import { StudioStateManager } from "./components/studio/state.js";
 import type { ToolExecutionHandle } from "./components/tool-execution";
 import { WelcomeComponent, type LspServerInfo as WelcomeLspServerInfo } from "./components/welcome";
-import { checkBackgroundUpdate } from "../cli/update-cli";
 import { BtwController } from "./controllers/btw-controller";
 import { CommandController } from "./controllers/command-controller";
 import { EventController } from "./controllers/event-controller";
@@ -290,6 +291,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	loopLimit: LoopLimitRuntime | undefined = undefined;
 	#loopAutoSubmitTimer: NodeJS.Timeout | undefined;
 	#todoAutoClearTimer: NodeJS.Timeout | undefined;
+	#subagentAnimTimer: NodeJS.Timeout | undefined;
+	#agentRegistryUnsubscribe: (() => void) | undefined;
 	todoPhases: TodoPhase[] = [];
 	hideThinkingBlock = false;
 	pendingImages: ImageContent[] = [];
@@ -587,9 +590,9 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.#observerRegistry.subscribeToEventBus(this.#eventBus);
 		}
 		this.#observerRegistry.setMainSession(this.sessionManager.getSessionFile() ?? undefined);
-		this.#observerRegistry.onChange(() => {
+		const syncSubagentStatus = () => {
 			const sessions = this.#observerRegistry.getSessions();
-			const activeSubagents = sessions
+			const activeFromObserver = sessions
 				.filter(s => s.kind === "subagent" && s.status === "active")
 				.map(s => ({
 					id: s.id,
@@ -599,8 +602,40 @@ export class InteractiveMode implements InteractiveModeContext {
 					currentToolArgs: s.progress?.currentToolArgs,
 					lastIntent: s.progress?.lastIntent,
 				}));
-			this.statusLine.setActiveSubagents(activeSubagents);
-			this.statusLine.setSubagentCount(activeSubagents.length);
+
+			const activeFromRegistry = AgentRegistry.global()
+				.list()
+				.filter(a => a.kind === "sub" && (a.status === "running" || a.currentTool !== undefined))
+				.map(a => ({
+					id: a.id,
+					agent: a.displayName || a.id,
+					status: a.status,
+					currentTool: a.currentTool,
+					currentToolArgs: a.currentToolArgs,
+					lastIntent: a.lastIntent,
+				}));
+
+			const merged: Array<{
+				id: string;
+				agent: string;
+				status: string;
+				currentTool?: string;
+				currentToolArgs?: string;
+				lastIntent?: string;
+			}> = [...activeFromRegistry];
+			for (const obs of activeFromObserver) {
+				if (!merged.some(m => m.id === obs.id)) {
+					merged.push(obs);
+				}
+			}
+
+			this.statusLine.setActiveSubagents(merged);
+			this.statusLine.setSubagentCount(merged.length);
+			if (merged.length > 0) {
+				this.#startSubagentAnimationTimer();
+			} else {
+				this.#stopSubagentAnimationTimer();
+			}
 			// Auto-checkmark todos whose matching subagent just succeeded, then
 			// re-render so the running override (the static "live" glyph when a
 			// subagent is doing the work for a still-pending todo) updates as
@@ -609,7 +644,10 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.#syncTodoAutoClearTimer();
 			this.#renderTodoList();
 			this.ui.requestRender();
-		});
+		};
+
+		this.#observerRegistry.onChange(syncSubagentStatus);
+		this.#agentRegistryUnsubscribe = AgentRegistry.global().onChange(syncSubagentStatus);
 
 		// Load initial todos
 		await this.#loadTodoList();
@@ -638,11 +676,15 @@ export class InteractiveMode implements InteractiveModeContext {
 		await this.#restoreModeFromSession();
 
 		// Asynchronously check for a newer version in the background (non-blocking, cached 24h)
-		checkBackgroundUpdate().then(newVersion => {
-			if (newVersion) {
-				this.showStatus(`💡 A new version of Aery is available (v${this.#version} → v${newVersion}). Run 'aery update' to install.`);
-			}
-		}).catch(() => {});
+		checkBackgroundUpdate()
+			.then(newVersion => {
+				if (newVersion) {
+					this.showStatus(
+						`💡 A new version of Aery is available (v${this.#version} → v${newVersion}). Run 'aery update' to install.`,
+					);
+				}
+			})
+			.catch(() => {});
 
 		// Restore unsent editor draft from previous session shutdown (Ctrl+D).
 		// One-shot: consumeDraft removes the sidecar after read so the next
@@ -1168,6 +1210,21 @@ export class InteractiveMode implements InteractiveModeContext {
 			if (tasks.length > 0) next.push({ name: phase.name, tasks });
 		}
 		return next;
+	}
+
+	#startSubagentAnimationTimer(): void {
+		if (this.#subagentAnimTimer) return;
+		this.#subagentAnimTimer = setInterval(() => {
+			this.statusLine.invalidate();
+			this.ui.requestRender();
+		}, 80);
+	}
+
+	#stopSubagentAnimationTimer(): void {
+		if (this.#subagentAnimTimer) {
+			clearInterval(this.#subagentAnimTimer);
+			this.#subagentAnimTimer = undefined;
+		}
 	}
 
 	#syncTodoAutoClearTimer(): void {
@@ -2361,6 +2418,11 @@ export class InteractiveMode implements InteractiveModeContext {
 			unsubscribe();
 		}
 		this.#eventBusUnsubscribers = [];
+		this.#stopSubagentAnimationTimer();
+		if (this.#agentRegistryUnsubscribe) {
+			this.#agentRegistryUnsubscribe();
+			this.#agentRegistryUnsubscribe = undefined;
+		}
 		this.#observerRegistry.dispose();
 		this.#eventController.dispose();
 		this.statusLine.dispose();

@@ -309,6 +309,8 @@ const subagentsSegment: StatusLineSegment = {
 					action = `: ${a.currentTool}${argsSummary}`;
 				} else if (a.lastIntent) {
 					action = `: ${a.lastIntent.replace(/\s+/g, " ").slice(0, 24)}`;
+				} else {
+					action = ": working...";
 				}
 				return `[${a.agent}]${action}`;
 			})
