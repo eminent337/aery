@@ -301,7 +301,11 @@ async function cmdRelease(version: string, skipWatch: boolean = false): Promise<
 	console.log("Regenerating lockfiles...");
 	await $`rm -f bun.lock`;
 	await $`bun install`;
-	await $`cargo generate-lockfile`;
+	const cargoGenResult = await $`cargo generate-lockfile`.nothrow();
+	if (cargoGenResult.exitCode !== 0) {
+		console.log("  cargo generate-lockfile failed (e.g. yanked crates), falling back to workspace lock update...");
+		await $`cargo check -p aery-engine`;
+	}
 	console.log();
 
 	// 5. Update changelogs
