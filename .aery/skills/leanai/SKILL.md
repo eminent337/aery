@@ -5,27 +5,23 @@ description: Use when inspecting application architectures, decoding binary form
 
 # leanai: Application Architecture Inspection & Schema Synthesis Framework
 
-`leanai` is a multi-ecosystem software architecture inspection and interface synthesis framework. It combines **zero-dependency native CLI speed** with **automated TypeScript schema generation**, **protobuf wire decoding**, and **REA semantic analysis**.
+`leanai` is a zero-dependency, high-velocity software architecture inspection and interface synthesis framework. It provides automated **TypeScript schema synthesis**, **runtime inspection**, **protobuf wire decoding**, and **native binary forensics**.
 
 ---
 
 ## 1. Core Principles & Workflow
 
 ### The 3-Turn Architecture Recon Cycle
-1. **Turn 1 (Recon & Routing)**: Run `leanai <target>` or a single batched native probe (`file`, magic bytes, strings, imports/exports).
-2. **Turn 2 (Targeted Slicing & Schemas)**: Use `leanai schema <target>` or slice exact function/channel logic.
-3. **Turn 3 (Synthesis & Evidence)**: Synthesize findings citing concrete offsets, endpoints, or types.
+Turns cost more than bytes. Complete architecture inspection in 2–4 targeted turns:
+1. **Turn 1 (Recon & Routing)**: Run `leanai <target>` to inventory file format, runtime, dependencies, and API routes.
+2. **Turn 2 (Schema & Code Slicing)**: Run `leanai schema <target>` or slice exact function/channel logic.
+3. **Turn 3 (Synthesis & Evidence)**: Deliver a structured report citing concrete offsets, endpoints, or generated TypeScript interfaces.
 
 ### Evidence Classification Rule
 Never guess or hallucinate code paths. In your final report, strictly tag every assertion:
 * **`[SEEN: target@offset/symbol]`**: Directly witnessed in output (e.g. `[SEEN: agy@0x81fa7c0]`).
 * **`[INFERRED]`**: Logically deduced from surrounding structures, imports, or naming.
 * **`[UNKNOWN]`**: Not located during the session (never claim "absent" when search is incomplete).
-
-### Dual-Engine Strategy (Fast CLI + REA Integration)
-* **Default / Fast Path**: Use native CLI tools (`readelf`, `objdump`, `nm`, `strings`, `rg -uu`, `jq`, `@electron/asar`, `python3`). Guaranteed zero setup, runs instantly on any server.
-* **Deep Semantic Path**: When `rea` is available (installed at `rea` / MCP), use high-level commands (`rea analyze`, `rea compare-application-versions`, `rea recover-javascript-sources`, `rea xrefs`).
-* **Resilience Rule**: If `rea` returns `provider_unavailable` (missing external disassemblers), **immediately drop to native CLI tools without failing**.
 
 ---
 
@@ -34,7 +30,7 @@ Never guess or hallucinate code paths. In your final report, strictly tag every 
 ```sh
 # 1. Inspect architecture of any executable, package, or database
 leanai <target-path>
-# Deep mode with REA semantic engine:
+# Deep disassembly & instruction slicing mode:
 leanai <target-path> --deep
 
 # 2. Automatically synthesize TypeScript interfaces and API schemas
@@ -51,18 +47,18 @@ leanai env
 
 ## 3. Architecture Routers & Fast Paths
 
-| Target Ecosystem | Primary Fast Path (`leanai` / Native) | REA Semantic Command (If available) |
+| Target Ecosystem | Native Fast Path Command | Key Output |
 | :--- | :--- | :--- |
-| **Electron (`app.asar`)** | `leanai schema app.asar` $\rightarrow$ auto-generates IPC interface | `rea analyze-javascript-application` |
-| **Web / Minified JS** | `jq -r '.sources[]' < map` or `prettier --parser babel F` $\rightarrow$ `rg -uu -o` | `rea recover-javascript-sources` |
-| **Go Executable** | `leanai ./bin` (auto-detects pclntab, Bazel sections, and RPC endpoints) | `rea analyze ./bin` |
-| **Protobuf / Binary Wire** | `leanai decode-proto <hex\|base64\|file>` $\rightarrow$ JSON + inferred types | `protoc --decode_raw` |
-| **Rust Executable** | `strings -a T \| rg -o '/rustc/[0-9a-f]{40}'` + `cargo audit bin T` | `rea analyze T` |
-| **ELF (Linux Native)** | `readelf -hlSW T`, `nm -D T`, `objdump -d -M intel T` | `rea decompile --procedure <name>` |
-| **Mach-O (macOS Native)** | `otool -L`, `otool -tV`, `nm -gU`, `xcrun swift-demangle` | `rea demangle-swift`, `rea xrefs` |
-| **Android APK** | `unzip -l a.apk`, `apktool d --no-src -o X a.apk`, detect Flutter / Hermes | `rea decode-android-resources` |
-| **SQLite / State DB** | `leanai schema db.sqlite` $\rightarrow$ auto-generates TypeScript Row types | `sqlite3 'file:db?mode=ro' '.schema'` |
-| **OS Keyring / Tokens** | `leanai env` (reads DBus / Secret-Service / Keychain) | System keyring inspection |
+| **Electron (`app.asar`)** | `leanai schema app.asar` | Auto-generated TypeScript IPC interface & manifests |
+| **Web / Minified JS** | `jq -r '.sources[]' < map` or `prettier --parser babel F` | Formatted source tree & module recovery |
+| **Go Executable** | `leanai ./bin` | Pclntab offset, Bazel/cgo sections, and RPC endpoints |
+| **Protobuf / Wire Streams** | `leanai decode-proto <hex\|base64\|file>` | Structured JSON & inferred Protobuf type definitions |
+| **Rust Executable** | `strings -a T \| rg -o '/rustc/[0-9a-f]{40}'` | Compiler toolchain & dependency crate audit |
+| **ELF (Linux Native)** | `readelf -hlSW T`, `nm -D T`, `objdump -d -M intel T` | Dynamic libraries, exports, and disassembly |
+| **Mach-O (macOS Native)** | `otool -L`, `otool -tV`, `nm -gU`, `xcrun swift-demangle` | Load commands, entitlements, and ObjC/Swift classes |
+| **Android APK** | `unzip -l a.apk`, `apktool d --no-src -o X a.apk` | Manifest, DEX count, Flutter Dart AOT, Hermes |
+| **SQLite / State DB** | `leanai schema db.sqlite` | Auto-generated TypeScript table row types |
+| **OS Keyring / Tokens** | `leanai env` | DBus / Secret-Service / Keychain active credentials |
 
 ---
 
@@ -99,5 +95,4 @@ leanai decode-proto /tmp/captured_payload.bin
 ## 5. Quality Checklist Before Replying
 - [ ] Did you avoid `cat` on large/minified files and use `rg -uu -o` slicing?
 - [ ] Are all factual assertions tagged as `[SEEN: location]` or `[INFERRED]`?
-- [ ] If a tool was missing, did you seamlessly switch to a native fallback?
 - [ ] Is the output focused on answering the user's specific feature/schema question?

@@ -410,16 +410,22 @@ def main():
             print(f"- {item}")
         print()
 
-    rea_path = shutil.which("rea")
-    if "--deep" in sys.argv and rea_path:
-        print("### REA Deep Overview (`rea analyze`)")
-        rea_out = run_cmd([rea_path, "analyze", target, "--format", "md"], timeout=20)
-        if rea_out:
-            print(rea_out[:2000])
-        else:
-            print("*(REA analyze yielded no markdown output or required external disassembler)*")
-    elif rea_path:
-        print(f"*(REA MCP/CLI ready at `{rea_path}` — use `leanai {target} --deep` or `rea <command>` for semantic procedures & xrefs)*")
+    if "--deep" in sys.argv:
+        print("### Deep Binary Code & Disassembly Slicing")
+        if is_elf:
+            dis = run_cmd(["objdump", "-d", "-M", "intel", "--no-show-raw-insn", target], timeout=10)
+            if dis:
+                lines = dis.splitlines()[:60]
+                print("```assembly\n" + "\n".join(lines) + "\n```")
+            else:
+                print("*(No disassembleable text section or stripped)*")
+        elif is_macho:
+            dis = run_cmd(["otool", "-tV", target], timeout=10)
+            if dis:
+                lines = dis.splitlines()[:60]
+                print("```assembly\n" + "\n".join(lines) + "\n```")
+            else:
+                print("*(No disassembleable text section)*")
 
 if __name__ == "__main__":
     main()
