@@ -1,0 +1,425 @@
+#!/usr/bin/env python3
+"""
+leanai: High-Velocity Application Architecture Inspection & Schema Synthesis Tool.
+Zero-dependency native speed + protocol decoding + automated TypeScript schema generation.
+"""
+
+import sys
+import os
+import subprocess
+import shutil
+import re
+import json
+import base64
+
+def run_cmd(cmd, timeout=10):
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
+        return p.stdout.strip()
+    except Exception:
+        return ""
+
+def get_magic_bytes(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read(16)
+    except Exception:
+        return b""
+
+def extract_endpoints_from_binary(path, max_results=15):
+    results = set()
+    try:
+        raw = run_cmd(["strings", "-a", "-n", "8", path], timeout=15)
+        for line in raw.splitlines():
+            line = line.strip()
+            if any(prefix in line for prefix in ("googleapis.com", "/v1internal:", "/v1beta:", "/v1main:", "https://", "wss://")):
+                if len(line) < 120 and not any(skip in line for skip in ("json-schema.org", "w3.org", "schemas.")):
+                    results.add(line)
+            if len(results) >= max_results:
+                break
+    except Exception:
+        pass
+    return sorted(list(results))[:max_results]
+
+def inspect_go(path, sections=""):
+    info = []
+    go_sections = [l.strip() for l in sections.splitlines() if any(k in l for k in (".go.", "gopclntab", "google_"))]
+    if go_sections:
+        names = []
+        for s in go_sections:
+            m = re.search(r'\[\s*\d+\]\s+([a-zA-Z0-9_\.]+)', s)
+            if m:
+                names.append(m.group(1))
+        if names:
+            info.append(f"**Go / Bazel Binary Sections**: `{', '.join(names[:8])}`")
+
+    gov = run_cmd(["go", "version", "-m", path])
+    if gov and "not a Go executable" not in gov:
+        lines = gov.splitlines()
+        info.append(f"**Toolchain & Module**: {lines[0]}")
+        deps = [l.strip() for l in lines[1:15] if l.strip().startswith("dep") or l.strip().startswith("path")]
+        if deps:
+            info.append("**Key Dependencies / Path**:\n" + "\n".join(f"  - `{d}`" for d in deps[:8]))
+    else:
+        s = run_cmd(["strings", "-a", "-n", "7", path], timeout=10)
+        match = re.search(r'go1\.\d+(\.\d+)?', s)
+        if match:
+            info.append(f"**Embedded Go Runtime**: `{match.group(0)}` (cgo / Bazel internal build)")
+
+    try:
+        with open(path, "rb") as f:
+            data = f.read(64 * 1024 * 1024)
+        magics = [b"\xfb\xff\xff\xff", b"\xfa\xff\xff\xff", b"\xf0\xff\xff\xff"]
+        for m in magics:
+            idx = data.find(m)
+            if idx != -1:
+                info.append(f"**Go Runtime pclntab**: Present at offset `{hex(idx)}` (Symbol layout intact)")
+                break
+    except Exception:
+        pass
+
+    endpoints = extract_endpoints_from_binary(path, max_results=10)
+    if endpoints:
+        info.append("**Identified API Routes & Endpoints**:\n" + "\n".join(f"  - `{e}`" for e in endpoints))
+
+    return info
+
+def inspect_native_elf(path, sections=""):
+    info = []
+    readelf_d = run_cmd(["readelf", "-dW", path])
+    if readelf_d:
+        needed = [l.split("[")[1].split("]")[0] for l in readelf_d.splitlines() if "(NEEDED)" in l and "[" in l]
+        if needed:
+            info.append(f"**Shared Libraries**: {', '.join(needed[:10])}")
+
+    nm_out = run_cmd(["nm", "-D", "--defined-only", path], timeout=5)
+    if nm_out:
+        funcs = [l.split()[-1] for l in nm_out.splitlines() if len(l.split()) >= 3 and l.split()[1] in ("T", "W")]
+        info.append(f"**Exported Functions**: {len(funcs)} exports (e.g. {', '.join(funcs[:5])})")
+    else:
+        info.append("**Exported Symbols**: Stripped")
+
+    endpoints = extract_endpoints_from_binary(path, max_results=8)
+    if endpoints:
+        info.append("**Embedded URLs & Endpoints**:\n" + "\n".join(f"  - `{e}`" for e in endpoints))
+
+    return info
+
+def inspect_asar(path):
+    info = []
+    tmp_dir = f"/tmp/leanai_asar_{os.getpid()}"
+    run_cmd(["npx", "-y", "@electron/asar", "extract", path, tmp_dir], timeout=15)
+    
+    pkg_path = os.path.join(tmp_dir, "package.json")
+    if os.path.exists(pkg_path):
+        try:
+            with open(pkg_path) as f:
+                pkg = json.load(f)
+            info.append(f"**Electron App**: `{pkg.get('name', 'unknown')}` v`{pkg.get('version', '0.0.0')}` (main: `{pkg.get('main', 'index.js')}`)")
+        except Exception:
+            pass
+
+    rg_ipc = run_cmd(["rg", "-o", r'(?:ipcMain|ipcRenderer)\.(?:handle|on|send|invoke)\([\'"][^\'",]+', tmp_dir], timeout=5)
+    if rg_ipc:
+        channels = sorted(list(set(rg_ipc.splitlines())))[:8]
+        info.append("**IPC Channels**:\n" + "\n".join(f"  - `{c}`" for c in channels))
+
+    addons = []
+    for root, _, files in os.walk(tmp_dir):
+        for file in files:
+            if file.endswith(".node"):
+                addons.append(file)
+    if addons:
+        info.append(f"**Native C++ Node Addons**: {', '.join(addons[:8])}")
+
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    return info
+
+def inspect_apk(path):
+    info = []
+    unzip_l = run_cmd(["unzip", "-l", path])
+    files = [l.split()[-1] for l in unzip_l.splitlines() if len(l.split()) >= 4]
+    
+    has_flutter = any("libflutter.so" in f for f in files)
+    has_hermes = any("libhermes.so" in f for f in files)
+    dex_count = sum(1 for f in files if f.endswith(".dex"))
+
+    info.append(f"**Android Package**: Contains {dex_count} DEX file(s)")
+    if has_flutter:
+        info.append("  - **Framework**: Flutter (Dart AOT runtime detected)")
+    if has_hermes:
+        info.append("  - **Framework**: React Native with Hermes bytecode")
+
+    return info
+
+def inspect_sqlite(path):
+    info = []
+    schema = run_cmd(["sqlite3", path, ".schema"])
+    if schema:
+        tables = re.findall(r'CREATE TABLE\s+(?:IF NOT EXISTS\s+)?([a-zA-Z0-9_"]+)', schema, re.IGNORECASE)
+        info.append(f"**SQLite Database**: {len(tables)} tables ({', '.join(tables[:12])})")
+    return info
+
+def generate_sqlite_types(path):
+    schema = run_cmd(["sqlite3", path, ".schema"])
+    if not schema:
+        return "// No schema found or unable to read SQLite database"
+
+    types_out = ["/** Auto-generated TypeScript definitions by leanai */\n"]
+    tables = re.split(r'CREATE TABLE\s+(?:IF NOT EXISTS\s+)?', schema, flags=re.IGNORECASE)[1:]
+    for t in tables:
+        lines = t.strip().splitlines()
+        if not lines:
+            continue
+        header = lines[0].strip().split("(")[0].strip().strip('"').strip('`')
+        pascal_name = "".join(word.capitalize() for word in re.split(r'[^a-zA-Z0-9]', header) if word) + "Row"
+        types_out.append(f"export interface {pascal_name} {{")
+        for line in lines[1:]:
+            line = line.strip().rstrip(",")
+            if line.startswith(")") or line.startswith("PRIMARY KEY") or line.startswith("FOREIGN KEY") or not line:
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                col = parts[0].strip('"`')
+                col_type = parts[1].upper()
+                ts_type = "string"
+                if any(x in col_type for x in ("INT", "REAL", "FLOAT", "NUMERIC", "DOUBLE")):
+                    ts_type = "number"
+                elif "BLOB" in col_type:
+                    ts_type = "Uint8Array"
+                elif "BOOL" in col_type:
+                    ts_type = "boolean"
+                
+                is_nullable = "NOT NULL" not in line.upper() and "PRIMARY KEY" not in line.upper()
+                optional = "?" if is_nullable else ""
+                types_out.append(f"  {col}{optional}: {ts_type};")
+        types_out.append("}\n")
+    return "\n".join(types_out)
+
+def generate_electron_ipc_types(path):
+    tmp_dir = f"/tmp/leanai_schema_{os.getpid()}"
+    run_cmd(["npx", "-y", "@electron/asar", "extract", path, tmp_dir], timeout=15)
+    
+    rg_ipc = run_cmd(["rg", "-o", r'(?:ipcMain|ipcRenderer)\.(?:handle|on|send|invoke)\([\'"][^\'",]+', tmp_dir], timeout=5)
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if not rg_ipc:
+        return "// No IPC channels detected in Electron bundle"
+
+    invokes = set()
+    sends = set()
+    for line in rg_ipc.splitlines():
+        m = re.search(r'\.(handle|invoke|on|send)\([\'"]([^\'"]+)', line)
+        if m:
+            kind, channel = m.group(1), m.group(2)
+            if kind in ("handle", "invoke"):
+                invokes.add(channel)
+            else:
+                sends.add(channel)
+
+    out = ["/** Auto-generated Electron IPC Interface by leanai */\n"]
+    if invokes:
+        inv_union = " | ".join(f'"{c}"' for c in sorted(list(invokes)))
+        out.append(f"export type IPCInvokeChannel = {inv_union};\n")
+    if sends:
+        snd_union = " | ".join(f'"{c}"' for c in sorted(list(sends)))
+        out.append(f"export type IPCSendChannel = {snd_union};\n")
+
+    out.append("""export interface ElectronAppBridge {
+  invoke<T = unknown>(channel: IPCInvokeChannel, ...args: unknown[]): Promise<T>;
+  send(channel: IPCSendChannel, ...args: unknown[]): void;
+  on(channel: IPCSendChannel, listener: (...args: unknown[]) => void): () => void;
+}
+""")
+    return "\n".join(out)
+
+def decode_protobuf_payload(data_str):
+    raw_bytes = None
+    if os.path.exists(data_str):
+        with open(data_str, "rb") as f:
+            raw_bytes = f.read()
+    else:
+        # Try hex
+        try:
+            raw_bytes = bytes.fromhex(data_str.strip())
+        except Exception:
+            pass
+        # Try base64
+        if not raw_bytes:
+            try:
+                raw_bytes = base64.b64decode(data_str.strip())
+            except Exception:
+                pass
+
+    if not raw_bytes:
+        return "Error: Input must be a valid file path, hex string, or base64 protobuf payload."
+
+    # 1. Try blackboxprotobuf
+    try:
+        import blackboxprotobuf
+        message, typedef = blackboxprotobuf.decode_message(raw_bytes)
+        return json.dumps({
+            "decoded_message": message,
+            "inferred_typedef": typedef
+        }, indent=2, default=str)
+    except Exception:
+        pass
+
+    # 2. Fallback protoc --decode_raw
+    try:
+        p = subprocess.run(["protoc", "--decode_raw"], input=raw_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+        if p.returncode == 0 and p.stdout:
+            return p.stdout.decode("utf-8", errors="replace")
+    except Exception:
+        pass
+
+    return "Failed to decode protobuf payload (malformed or unrecognized wire format)."
+
+def inspect_environment():
+    print("## [LEANAI ENVIRONMENT FORENSICS]")
+    
+    # Keyring tokens
+    print("\n### 1. OS Keyring & Authenticated Credentials")
+    st = run_cmd(["secret-tool", "lookup", "service", "gemini", "username", "antigravity"])
+    if st:
+        try:
+            d = json.loads(st)
+            email = d.get("id_token_email", "unknown")
+            expiry = d.get("token", {}).get("expiry", "unknown")
+            print(f"- **Antigravity Keyring**: Account `{email}`, Expiry `{expiry}` (Token Active)")
+        except Exception:
+            print("- **Antigravity Keyring**: Entry exists (non-JSON or encrypted)")
+    else:
+        print("- **Antigravity Keyring**: None present")
+
+    # Local state databases
+    print("\n### 2. Local State & Database Stores")
+    db_paths = [
+        os.path.expanduser("~/.aery/agent/auth.db"),
+        os.path.expanduser("~/.aery/agent.db"),
+        os.path.expanduser("~/.gemini/antigravity-cli/"),
+    ]
+    for p in db_paths:
+        if os.path.exists(p):
+            sz = os.path.getsize(p) if os.path.isfile(p) else "directory"
+            print(f"- `{p}`: Present ({sz})")
+
+    # Active listening ports
+    print("\n### 3. Active Local Sockets & Services")
+    ss_out = run_cmd(["ss", "-tulpn"])
+    for l in ss_out.splitlines()[:8]:
+        if "LISTEN" in l:
+            print(f"- `{l.strip()}`")
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print("Usage:")
+        print("  leanai <target-path> [--deep]             Reconnaissance & architecture inspection")
+        print("  leanai inspect <target-path> [--deep]     Alias for inspect")
+        print("  leanai schema <target-path>               Auto-generate TypeScript definitions")
+        print("  leanai decode-proto <hex|base64|file>     Decode protobuf payload into JSON & types")
+        print("  leanai env                                Non-invasive local environment forensics")
+        sys.exit(0)
+
+    cmd = sys.argv[1]
+
+    if cmd == "env":
+        inspect_environment()
+        sys.exit(0)
+
+    if cmd == "decode-proto":
+        if len(sys.argv) < 3:
+            print("Usage: leanai decode-proto <hex|base64|file>")
+            sys.exit(1)
+        print(decode_protobuf_payload(sys.argv[2]))
+        sys.exit(0)
+
+    if cmd == "schema":
+        if len(sys.argv) < 3:
+            print("Usage: leanai schema <target-path>")
+            sys.exit(1)
+        target = sys.argv[2]
+        if not os.path.exists(target):
+            print(f"Error: Target '{target}' does not exist.")
+            sys.exit(1)
+        magic = get_magic_bytes(target)
+        if magic.startswith(b"SQLite format 3"):
+            print(generate_sqlite_types(target))
+        elif target.endswith(".asar") or "app.asar" in target:
+            print(generate_electron_ipc_types(target))
+        else:
+            # Fallback endpoints schema
+            endpoints = extract_endpoints_from_binary(target, max_results=30)
+            if endpoints:
+                print("/** Auto-generated API Endpoints Contract by leanai */\n")
+                print("export const DiscoveredEndpoints = [")
+                for e in endpoints:
+                    print(f'  "{e}",')
+                print("] as const;\nexport type DiscoveredEndpoint = typeof DiscoveredEndpoints[number];")
+            else:
+                print("// No structured schema extractor matches this file type")
+        sys.exit(0)
+
+    # Default to inspect mode
+    target = sys.argv[2] if cmd == "inspect" and len(sys.argv) > 2 else sys.argv[1]
+    if not os.path.exists(target):
+        print(f"Error: Target '{target}' does not exist.")
+        sys.exit(1)
+
+    file_type = run_cmd(["file", "-b", target])
+    magic = get_magic_bytes(target)
+
+    print(f"## [LEANAI ARCHITECTURE RECON] {os.path.basename(target)}")
+    print(f"- **Path**: `{os.path.abspath(target)}`")
+    print(f"- **Size**: {os.path.getsize(target):,} bytes")
+    print(f"- **Type**: `{file_type}`")
+    print(f"- **Magic**: `{magic.hex(' ')}`\n")
+
+    is_electron = target.endswith(".asar") or "app.asar" in target
+    is_apk = target.endswith(".apk") or (magic.startswith(b"PK\x03\x04") and "apk" in target.lower())
+    is_sqlite = magic.startswith(b"SQLite format 3")
+    is_elf = magic.startswith(b"\x7fELF")
+    is_macho = magic in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
+
+    sections = ""
+    is_go = False
+    if is_elf:
+        sections = run_cmd(["readelf", "-S", target])
+        if any(k in sections for k in (".go.buildinfo", ".gopclntab", "google_init", "google_malloc")):
+            is_go = True
+    elif is_macho:
+        otool_l = run_cmd(["otool", "-l", target])
+        if "__gopclntab" in otool_l or "go.buildinfo" in otool_l:
+            is_go = True
+
+    recon_results = []
+    if is_go:
+        recon_results.append(("Go Runtime Binary Architecture", inspect_go(target, sections)))
+    elif is_elf:
+        recon_results.append(("Native ELF Binary Architecture", inspect_native_elf(target, sections)))
+    elif is_electron:
+        recon_results.append(("Electron Application Package", inspect_asar(target)))
+    elif is_apk:
+        recon_results.append(("Android APK Package", inspect_apk(target)))
+    elif is_sqlite:
+        recon_results.append(("SQLite Storage Database", inspect_sqlite(target)))
+
+    for title, items in recon_results:
+        print(f"### {title}")
+        for item in items:
+            print(f"- {item}")
+        print()
+
+    rea_path = shutil.which("rea")
+    if "--deep" in sys.argv and rea_path:
+        print("### REA Deep Overview (`rea analyze`)")
+        rea_out = run_cmd([rea_path, "analyze", target, "--format", "md"], timeout=20)
+        if rea_out:
+            print(rea_out[:2000])
+        else:
+            print("*(REA analyze yielded no markdown output or required external disassembler)*")
+    elif rea_path:
+        print(f"*(REA MCP/CLI ready at `{rea_path}` — use `leanai {target} --deep` or `rea <command>` for semantic procedures & xrefs)*")
+
+if __name__ == "__main__":
+    main()
