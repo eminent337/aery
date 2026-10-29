@@ -52,7 +52,8 @@ export async function executeExternalAgent(
 			const jobId = manager.register(
 				"task",
 				`external-agent:${agentId}`,
-				async ({ signal: jobSignal, onProgress }) => {
+				async ({ signal: jobSignal, reportProgress }) => {
+					let output = "";
 					await new Promise<void>((resolve, reject) => {
 						const child = spawn(resolvedBinaryPath, invocation.args, {
 							cwd,
@@ -65,12 +66,14 @@ export async function executeExternalAgent(
 
 						child.stdout?.on("data", (chunk: Buffer) => {
 							const text = chunk.toString();
-							if (onProgress) void onProgress(text);
+							output += text;
+							if (reportProgress) void reportProgress(text);
 						});
 
 						child.stderr?.on("data", (chunk: Buffer) => {
 							const text = chunk.toString();
-							if (onProgress) void onProgress(text);
+							output += text;
+							if (reportProgress) void reportProgress(text);
 						});
 
 						child.on("close", code => {
@@ -84,6 +87,7 @@ export async function executeExternalAgent(
 							reject(err);
 						});
 					});
+					return output;
 				},
 			);
 

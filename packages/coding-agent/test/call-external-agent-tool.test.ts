@@ -1,38 +1,54 @@
-import { describe, expect, it, vi } from "vitest";
-
-// Mock the runner module so we don't call real external agents in tests
-vi.mock("../src/extensibility/external-agents/runner", () => ({
-	executeExternalAgent: vi.fn().mockResolvedValue({
-		agent: "custom",
-		binary: "/bin/echo",
-		exitCode: 0,
-		stdout: "hello tool test",
-		stderr: "",
-		durationMs: 50,
-		timedOut: false,
-	}),
-}));
-
-// Mock discovery so the test is deterministic
-vi.mock("../src/extensibility/external-agents/discovery", () => ({
-	detectExternalAgents: vi.fn().mockResolvedValue({
-		installed: [
-			{ id: "agy", displayName: "Google Antigravity (agy)", binaryPath: "/home/user/.local/bin/agy", installed: true, version: "1.4.10" },
-			{ id: "codex", displayName: "OpenAI Codex CLI", binaryPath: "/usr/bin/codex", installed: true, version: "0.147.0" },
-		],
-		uninstalled: [
-			{ id: "claude", displayName: "Anthropic Claude Code CLI", defaultBinary: "claude" },
-		],
-	}),
-	findBinaryInPath: vi.fn(),
-}));
-
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import * as discovery from "../src/extensibility/external-agents/discovery";
+import * as runner from "../src/extensibility/external-agents/runner";
 import { CallExternalAgentTool } from "../src/tools/external-agent";
 
 describe("CallExternalAgentTool", () => {
 	// Minimal mock session matching ToolSession interface
 	const mockSession = { cwd: process.cwd() } as any;
 	const tool = new CallExternalAgentTool(mockSession);
+
+	let detectSpy: any;
+	let executeSpy: any;
+
+	beforeEach(() => {
+		detectSpy = spyOn(discovery, "detectExternalAgents").mockResolvedValue({
+			installed: [
+				{
+					id: "agy",
+					displayName: "Google Antigravity (agy)",
+					binaryPath: "/home/user/.local/bin/agy",
+					installed: true,
+					version: "1.4.10",
+				},
+				{
+					id: "codex",
+					displayName: "OpenAI Codex CLI",
+					binaryPath: "/usr/bin/codex",
+					installed: true,
+					version: "0.147.0",
+				},
+			],
+			uninstalled: [
+				{ id: "claude", displayName: "Anthropic Claude Code CLI", defaultBinary: "claude" },
+			],
+		});
+
+		executeSpy = spyOn(runner, "executeExternalAgent").mockResolvedValue({
+			agent: "custom",
+			binary: "/bin/echo",
+			exitCode: 0,
+			stdout: "hello tool test",
+			stderr: "",
+			durationMs: 50,
+			timedOut: false,
+		});
+	});
+
+	afterEach(() => {
+		detectSpy?.mockRestore();
+		executeSpy?.mockRestore();
+	});
 
 	it("has correct tool metadata", () => {
 		expect(tool.name).toBe("call_external_agent");

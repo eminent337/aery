@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { executeExternalAgent } from "../src/extensibility/external-agents/runner";
 
 describe("External Agent Runner", () => {
