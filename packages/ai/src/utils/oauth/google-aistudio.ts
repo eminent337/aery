@@ -15,8 +15,12 @@ const DEFAULT_CLIENT_SECRET = decode("R09DU1BYLTR1SGdNUG0tMW83U2stZ2VWNkN1NWNsWE
 export const GOOGLE_AISTUDIO_CALLBACK_PORT = 51122;
 export const GOOGLE_AISTUDIO_CALLBACK_PATH = "/oauth2callback";
 
+// Note: "generative-language" is a restricted scope requiring app verification.
+// We use "cloud-platform" only, which is pre-approved for the existing OAuth client
+// and accepted by the Generative Language API via Bearer token.
+// For Google AI Studio models, prefer setting GEMINI_API_KEY from aistudio.google.com/apikey
+// which is the officially supported zero-OAuth path.
 export const GOOGLE_AISTUDIO_SCOPES = [
-	"https://www.googleapis.com/auth/generative-language",
 	"https://www.googleapis.com/auth/cloud-platform",
 	"https://www.googleapis.com/auth/userinfo.email",
 	"https://www.googleapis.com/auth/userinfo.profile",
