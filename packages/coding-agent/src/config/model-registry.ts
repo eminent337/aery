@@ -2462,7 +2462,11 @@ export class ModelRegistry {
 		if (this.#keylessProviders.has(model.provider) && !this.authStorage.hasAuth(model.provider)) {
 			return kNoAuth;
 		}
-		return this.authStorage.getApiKey(model.provider, sessionId, { baseUrl: model.baseUrl, modelId: model.id });
+		const key = await this.authStorage.getApiKey(model.provider, sessionId, { baseUrl: model.baseUrl, modelId: model.id });
+		if (!key && model.provider === "google") {
+			return this.authStorage.getApiKey("google-aistudio", sessionId, { baseUrl: model.baseUrl, modelId: model.id });
+		}
+		return key;
 	}
 
 	/**
@@ -2472,21 +2476,32 @@ export class ModelRegistry {
 		if (this.#keylessProviders.has(provider) && !this.authStorage.hasAuth(provider)) {
 			return kNoAuth;
 		}
-		return this.authStorage.getApiKey(provider, sessionId, { baseUrl });
+		const key = await this.authStorage.getApiKey(provider, sessionId, { baseUrl });
+		if (!key && provider === "google") {
+			return this.authStorage.getApiKey("google-aistudio", sessionId, { baseUrl });
+		}
+		return key;
 	}
 
 	async #peekApiKeyForProvider(provider: string): Promise<string | undefined> {
 		if (this.#keylessProviders.has(provider) && !this.authStorage.hasAuth(provider)) {
 			return kNoAuth;
 		}
-		return this.authStorage.peekApiKey(provider);
+		const key = await this.authStorage.peekApiKey(provider);
+		if (!key && provider === "google") {
+			return this.authStorage.peekApiKey("google-aistudio");
+		}
+		return key;
 	}
 
 	/**
 	 * Check if a model is using OAuth credentials (subscription).
 	 */
 	isUsingOAuth(model: Model<Api>): boolean {
-		return this.authStorage.hasOAuth(model.provider);
+		return (
+			this.authStorage.hasOAuth(model.provider) ||
+			(model.provider === "google" && this.authStorage.hasOAuth("google-aistudio"))
+		);
 	}
 
 	#clearRuntimeProviderState(providerName: string): void {

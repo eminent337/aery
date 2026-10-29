@@ -13,6 +13,7 @@ const CALLBACK_SERVER_PROVIDERS: Partial<Record<OAuthProvider, true>> = {
 	"gitlab-duo": true,
 	"google-gemini-cli": true,
 	"google-antigravity": true,
+	"google-aistudio": true,
 };
 
 interface PromptState {

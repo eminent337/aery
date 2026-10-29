@@ -55,6 +55,11 @@ const builtInOAuthProviders: OAuthProviderInfo[] = [
 		available: true,
 	},
 	{
+		id: "google-aistudio",
+		name: "Google AI Studio (Gemini 4 Argon, Gemini 2.5)",
+		available: true,
+	},
+	{
 		id: "google-gemini-cli",
 		name: "Google Cloud Code Assist (Gemini CLI)",
 		available: true,
@@ -359,6 +364,11 @@ export async function refreshOAuthToken(
 				throw new Error("Antigravity credentials missing projectId");
 			}
 			newCredentials = await refreshAntigravityToken(credentials.refresh, credentials.projectId);
+			break;
+		}
+		case "google-aistudio": {
+			const { refreshGoogleAiStudioToken } = await import("./google-aistudio");
+			newCredentials = await refreshGoogleAiStudioToken(credentials.refresh, credentials.projectId);
 			break;
 		}
 		case "openai-codex":

@@ -24,15 +24,21 @@ export const streamGoogle: StreamFunction<"google-generative-ai"> = (
 		prepare: (): GoogleGenAIRequestPlan => {
 			const apiKey = options?.apiKey || getEnvApiKey(model.provider);
 			if (!apiKey) {
-				throw new Error("Google Generative AI requires an API key (GEMINI_API_KEY or options.apiKey).");
+				throw new Error(
+					"Google Generative AI requires authentication. Run /login google-aistudio or set GEMINI_API_KEY.",
+				);
 			}
 			const params = buildGoogleGenerateContentParams(model, context, options ?? {});
 			// `model.baseUrl` already includes the API version segment when set (mirrors the
 			// `apiVersion: ""` reset that the SDK relied on for custom base URLs).
 			const base = model.baseUrl?.trim() || DEFAULT_GENERATIVE_LANGUAGE_BASE;
 			const url = `${base}/models/${model.id}:streamGenerateContent?alt=sse`;
+			const isBearer = apiKey.startsWith("ya29.") || apiKey.startsWith("Bearer ");
+			const authHeader: Record<string, string> = isBearer
+				? { Authorization: apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}` }
+				: { "x-goog-api-key": apiKey };
 			const headers: Record<string, string> = {
-				"x-goog-api-key": apiKey,
+				...authHeader,
 				...(model.headers ?? {}),
 				...(options?.headers ?? {}),
 			};

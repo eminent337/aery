@@ -1521,6 +1521,17 @@ export class AuthStorage {
 				});
 				break;
 			}
+			case "google-aistudio": {
+				const { loginGoogleAiStudio } = await import("./utils/oauth/google-aistudio");
+				credentials = await loginGoogleAiStudio({
+					...ctrl,
+					onManualCodeInput: ctrl.onManualCodeInput ?? manualCodeInput,
+				});
+				const newCredential: OAuthCredential = { type: "oauth", ...credentials };
+				await this.#upsertOAuthCredential("google-aistudio", newCredential);
+				await this.#upsertOAuthCredential("google", newCredential);
+				return;
+			}
 			case "openai-codex": {
 				const { loginOpenAICodex } = await import("./utils/oauth/openai-codex");
 				credentials = await loginOpenAICodex({

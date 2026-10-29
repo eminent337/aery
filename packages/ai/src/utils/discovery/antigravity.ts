@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { Effort } from "../../model-thinking";
 import { getAntigravityUserAgent } from "../../providers/google-gemini-headers";
 import type { Model } from "../../types";
 import { toPositiveNumber } from "../../utils";
@@ -37,8 +38,8 @@ export const DEFAULT_ANTIGRAVITY_STATIC_MODELS: readonly Omit<Model<"google-gemi
 		maxTokens: 65_536,
 		thinking: {
 			mode: "google-level",
-			minLevel: "low",
-			maxLevel: "high",
+			minLevel: Effort.Low,
+			maxLevel: Effort.High,
 		},
 	},
 	{
@@ -53,8 +54,8 @@ export const DEFAULT_ANTIGRAVITY_STATIC_MODELS: readonly Omit<Model<"google-gemi
 		maxTokens: 65_536,
 		thinking: {
 			mode: "google-level",
-			minLevel: "low",
-			maxLevel: "low",
+			minLevel: Effort.Low,
+			maxLevel: Effort.Low,
 		},
 	},
 	{
@@ -69,8 +70,8 @@ export const DEFAULT_ANTIGRAVITY_STATIC_MODELS: readonly Omit<Model<"google-gemi
 		maxTokens: 65_536,
 		thinking: {
 			mode: "google-level",
-			minLevel: "medium",
-			maxLevel: "medium",
+			minLevel: Effort.Medium,
+			maxLevel: Effort.Medium,
 		},
 	},
 	{
@@ -85,8 +86,8 @@ export const DEFAULT_ANTIGRAVITY_STATIC_MODELS: readonly Omit<Model<"google-gemi
 		maxTokens: 65_536,
 		thinking: {
 			mode: "google-level",
-			minLevel: "high",
-			maxLevel: "high",
+			minLevel: Effort.High,
+			maxLevel: Effort.High,
 		},
 	},
 ];
