@@ -233,6 +233,129 @@ def generate_electron_ipc_types(path):
 """)
     return "\n".join(out)
 
+def inspect_web_js(path):
+    with open(path, "r", errors="ignore") as f:
+        text = f.read()
+
+    info = []
+    # Detect framework & runtime
+    frameworks = []
+    if "mat-" in text or "cdk-" in text or "@angular" in text or "da:[[\"\"" in text:
+        frameworks.append("Angular (with Material/CDK)")
+    if "boq_" in text or "default_MakerSuite" in text or "_.$Fa" in text or "WIZ_global_data" in text:
+        frameworks.append("Google Boq Web Runtime (Closure Compiler)")
+    if "react" in text.lower():
+        frameworks.append("React")
+    if "vue" in text.lower():
+        frameworks.append("Vue")
+    if frameworks:
+        fw_str = ", ".join(frameworks)
+        info.append(f"**Web Framework / Runtime**: {fw_str}")
+
+    # Models & identifiers
+    models = sorted(list(set(re.findall(r"(?:gemini-[0-9][a-zA-Z0-9\.\-_]*|models/gemini-[0-9][a-zA-Z0-9\.\-_]*|models/veo[a-zA-Z0-9\.\-_]*|models/lyria)", text))))
+    if models:
+        info.append(f"**Identified Model Catalog ({len(models)} models)**:\n" + "\n".join(f"  - `{m}`" for m in models[:12]))
+
+    # Services
+    matches = re.findall(r"/([a-zA-Z0-9_\.]+/([a-zA-Z0-9_]+))", text)
+    services = {}
+    for full_path, method in matches:
+        if full_path.startswith("google.") and ("Service" in full_path or ".proto." in full_path):
+            srv = full_path.rsplit("/", 1)[0]
+            services.setdefault(srv, set()).add(method)
+    if services:
+        srv_lines = [f"**Discovered Boq / gRPC Services ({len(services)})**:"]
+        for srv, meths in sorted(services.items())[:8]:
+            srv_lines.append(f"  - `{srv}` ({len(meths)} methods)")
+        info.append("\n".join(srv_lines))
+
+    # Routes
+    routes = sorted(list(set(re.findall(r"path:[\"\x27]([a-zA-Z0-9_\-/:*]+)[\"\x27]", text))))
+    if routes:
+        info.append(f"**Client Application Routes ({len(routes)})**:\n" + "\n".join(f"  - `/{r.lstrip('/')}`" for r in routes[:15]))
+
+    return info
+
+def generate_web_js_types(path):
+    with open(path, "r", errors="ignore") as f:
+        text = f.read()
+
+    out = ["/** Auto-generated TypeScript definitions for Web Client & Services by leanai */\n"]
+
+    # Models
+    models = sorted(list(set(re.findall(r"(?:gemini-[0-9][a-zA-Z0-9\.\-_]*|models/gemini-[0-9][a-zA-Z0-9\.\-_]*|models/veo[a-zA-Z0-9\.\-_]*|models/lyria)", text))))
+    if models:
+        m_union = " | ".join(["\"" + m + "\"" for m in models])
+        out.append(f"export type DiscoveredModel = {m_union};\n")
+
+    # Routes
+    routes = sorted(list(set(re.findall(r"path:[\"\x27]([a-zA-Z0-9_\-/:*]+)[\"\x27]", text))))
+    if routes:
+        clean_routes = ["\"/" + r.lstrip("/") + "\"" for r in routes]
+        out.append("export type DiscoveredRoute =\n  | " + "\n  | ".join(clean_routes[:35]) + ";\n")
+
+    # Services
+    matches = re.findall(r"/([a-zA-Z0-9_\.]+/([a-zA-Z0-9_]+))", text)
+    services = {}
+    for full_path, method in matches:
+        if full_path.startswith("google.") and ("Service" in full_path or ".proto." in full_path):
+            srv = full_path.rsplit("/", 1)[0]
+            services.setdefault(srv, set()).add(method)
+
+    for srv, meths in sorted(services.items()):
+        short_name = srv.split(".")[-1]
+        out.append(f"export interface {short_name} {{")
+        for m in sorted(meths)[:25]:
+            camel_m = m[0].lower() + m[1:]
+            out.append(f"  {camel_m}(params: Record<string, unknown>): Promise<unknown>;")
+        if len(meths) > 25:
+            out.append(f"  // ... and {len(meths) - 25} more methods")
+        out.append("}\n")
+
+    # Generation Config & Proxy calls
+    out.append("""export interface HarmSetting {
+  category: number;
+  threshold: number;
+}
+
+export interface GenerationConfig {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  maxOutputTokens?: number;
+  maxTotalTokens?: number;
+  thinkingBudget?: number;
+  thinkingLevel?: string;
+  responseMimeType?: string;
+  responseModalities?: string[];
+  speechConfig?: Record<string, unknown>;
+  aspectRatio?: string;
+  outputResolution?: string;
+  durationSeconds?: number;
+  safetySettings?: HarmSetting[];
+  enableSearchAsATool?: boolean;
+  enableImageSearch?: boolean;
+  enableGoogleMaps?: boolean;
+  enableCodeExecution?: boolean;
+  functionDeclarations?: Array<{
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  }>;
+}
+
+export interface BoqProxyCallRequest {
+  method: string;
+  request: string;
+  httpMethod: "GET" | "POST" | "DELETE" | "PUT";
+  project?: string;
+  headers?: Record<string, string>;
+  fileContent?: Uint8Array;
+}
+""")
+    return "\n".join(out)
+
 def decode_protobuf_payload(data_str):
     raw_bytes = None
     if os.path.exists(data_str):
@@ -343,10 +466,14 @@ def main():
             print(f"Error: Target '{target}' does not exist.")
             sys.exit(1)
         magic = get_magic_bytes(target)
+        file_type = run_cmd(["file", "-b", target])
+        is_js = target.endswith(".js") or target.endswith(".mjs") or target.endswith(".bundle") or "javascript" in file_type.lower() or "ascii text" in file_type.lower()
         if magic.startswith(b"SQLite format 3"):
             print(generate_sqlite_types(target))
         elif target.endswith(".asar") or "app.asar" in target:
             print(generate_electron_ipc_types(target))
+        elif is_js:
+            print(generate_web_js_types(target))
         else:
             # Fallback endpoints schema
             endpoints = extract_endpoints_from_binary(target, max_results=30)
@@ -380,6 +507,7 @@ def main():
     is_sqlite = magic.startswith(b"SQLite format 3")
     is_elf = magic.startswith(b"\x7fELF")
     is_macho = magic in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
+    is_js = target.endswith(".js") or target.endswith(".mjs") or target.endswith(".bundle") or "javascript" in file_type.lower() or "ascii text" in file_type.lower()
 
     sections = ""
     is_go = False
@@ -403,6 +531,8 @@ def main():
         recon_results.append(("Android APK Package", inspect_apk(target)))
     elif is_sqlite:
         recon_results.append(("SQLite Storage Database", inspect_sqlite(target)))
+    elif is_js:
+        recon_results.append(("JavaScript Web Application Architecture", inspect_web_js(target)))
 
     for title, items in recon_results:
         print(f"### {title}")
