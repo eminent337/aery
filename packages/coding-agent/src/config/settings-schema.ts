@@ -1433,6 +1433,48 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"compaction.maxThresholdTokens": {
+		type: "number",
+		default: 160000,
+		ui: {
+			tab: "context",
+			group: "Compaction",
+			label: "Max Compaction Token Ceiling",
+			description: "Maximum token ceiling for automatic compaction threshold (agy-style). Caps large-context models (1M-2M) to maintain responsiveness. Set to -1 to disable.",
+			options: [
+				{ value: "default", label: "Default (160K)", description: "Standard agy-style ceiling" },
+				{ value: "40000", label: "40K tokens", description: "Flash-Lite / fast tier" },
+				{ value: "80000", label: "80K tokens", description: "Aggressive ceiling" },
+				{ value: "120000", label: "120K tokens", description: "Flash / balanced tier" },
+				{ value: "160000", label: "160K tokens", description: "Default balanced ceiling" },
+				{ value: "200000", label: "200K tokens", description: "Pro tier ceiling" },
+				{ value: "-1", label: "Disabled (-1)", description: "Pure context window percentage without ceiling" },
+			],
+		},
+	},
+
+	"compaction.tierAware": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "context",
+			group: "Compaction",
+			label: "Model-Tier Aware Compaction",
+			description: "Automatically scale compaction ceiling to model tier (Flash-Lite: 40k, Flash: 120k, Pro: 180k) ported from agy.",
+		},
+	},
+
+	"compaction.background": {
+		type: "boolean",
+		default: false,
+		ui: {
+			tab: "context",
+			group: "Compaction",
+			label: "Background Compaction",
+			description: "Perform prefix compaction asynchronously in the background without blocking the conversation flow.",
+		},
+	},
+
 	"compaction.handoffSaveToDisk": {
 		type: "boolean",
 		default: false,
@@ -3670,6 +3712,9 @@ export interface CompactionSettings {
 	strategy: "context-full" | "handoff" | "shake" | "off";
 	thresholdPercent: number;
 	thresholdTokens: number;
+	maxThresholdTokens: number;
+	tierAware: boolean;
+	background: boolean;
 	reserveTokens: number;
 	keepRecentTokens: number;
 	handoffSaveToDisk: boolean;

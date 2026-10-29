@@ -7285,7 +7285,7 @@ export class AgentSession {
 			}
 		}
 
-		if (!shouldCompact(contextTokens, contextWindow, compactionSettings)) return;
+		if (!shouldCompact(contextTokens, contextWindow, compactionSettings, model.id)) return;
 
 		logger.debug("Pre-prompt context maintenance triggered by pending prompt size", {
 			contextTokens,
@@ -7293,8 +7293,8 @@ export class AgentSession {
 			model: `${model.provider}/${model.id}`,
 		});
 		const isBackground =
-			Boolean((compactionSettings as any).background) ||
-			Boolean(this.settings.get("compaction.background" as any)) ||
+			compactionSettings.background ||
+			Boolean(this.settings.get("compaction.background")) ||
 			(compactionSettings as any).mode === "background";
 		if (isBackground && compactionSettings.strategy !== "off" && compactionSettings.strategy !== "handoff") {
 			await this.compactBackgroundPrefix();
@@ -7425,13 +7425,13 @@ export class AgentSession {
 		if (pruneResult) {
 			contextTokens = Math.max(0, contextTokens - pruneResult.tokensSaved);
 		}
-		if (shouldCompact(contextTokens, contextWindow, compactionSettings)) {
+		if (shouldCompact(contextTokens, contextWindow, compactionSettings, this.model?.id)) {
 			// Try promotion first — if a larger model is available, switch instead of compacting
 			const promoted = await this.#tryContextPromotion(assistantMessage);
 			if (!promoted) {
 				const isBackground =
-					Boolean((compactionSettings as any).background) ||
-					Boolean(this.settings.get("compaction.background" as any)) ||
+					compactionSettings.background ||
+					Boolean(this.settings.get("compaction.background")) ||
 					(compactionSettings as any).mode === "background";
 				if (isBackground && compactionSettings.strategy !== "handoff") {
 					void this.compactBackgroundPrefix().catch(err => {

@@ -133,16 +133,59 @@ export interface CompactionResult<T = unknown> {
 // Types
 // ============================================================================
 
+export type CompactionModelTier = "lite" | "standard" | "pro";
+
+export const DEFAULT_MAX_THRESHOLD_TOKENS = 160_000;
+
+export const TIER_MAX_THRESHOLD_TOKENS: Record<CompactionModelTier, number> = {
+	lite: 40_000,
+	standard: 120_000,
+	pro: 180_000,
+};
+
+/**
+ * Detect model tier for smart compaction thresholds (ported from agy).
+ */
+export function detectCompactionModelTier(modelIdOrName?: string): CompactionModelTier {
+	if (!modelIdOrName) return "standard";
+	const lower = modelIdOrName.toLowerCase();
+	// Avoid false positive matching "mini" inside "gemini"
+	const sanitized = lower.replace(/gemini/g, "");
+	if (
+		sanitized.includes("lite") ||
+		sanitized.includes("haiku") ||
+		sanitized.includes("flash-lite") ||
+		sanitized.includes("mini")
+	) {
+		return "lite";
+	}
+	if (
+		sanitized.includes("pro") ||
+		sanitized.includes("opus") ||
+		sanitized.includes("sonnet") ||
+		sanitized.includes("o1") ||
+		sanitized.includes("o3") ||
+		sanitized.includes("r1")
+	) {
+		return "pro";
+	}
+	return "standard";
+}
+
 export interface CompactionSettings {
 	enabled: boolean;
 	strategy?: "context-full" | "handoff" | "shake" | "off";
 	thresholdPercent?: number;
 	thresholdTokens?: number;
+	maxThresholdTokens?: number;
+	tierAware?: boolean;
 	reserveTokens: number;
 	keepRecentTokens: number;
 	autoContinue?: boolean;
 	remoteEnabled?: boolean;
 	remoteEndpoint?: string;
+	background?: boolean;
+	mode?: "foreground" | "background";
 }
 
 export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
@@ -150,10 +193,13 @@ export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
 	strategy: "context-full",
 	thresholdPercent: -1,
 	thresholdTokens: -1,
+	maxThresholdTokens: DEFAULT_MAX_THRESHOLD_TOKENS,
+	tierAware: true,
 	reserveTokens: 16384,
 	keepRecentTokens: 20000,
 	autoContinue: true,
 	remoteEnabled: true,
+	background: false,
 };
 
 // ============================================================================
@@ -214,14 +260,23 @@ export function effectiveReserveTokens(contextWindow: number, settings: Compacti
 /**
  * Check if compaction should trigger based on context usage.
  */
-export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {
+export function shouldCompact(
+	contextTokens: number,
+	contextWindow: number,
+	settings: CompactionSettings,
+	modelIdOrName?: string,
+): boolean {
 	if (!settings.enabled || settings.strategy === "off" || contextWindow <= 0) return false;
-	const thresholdTokens = resolveThresholdTokens(contextWindow, settings);
+	const thresholdTokens = resolveThresholdTokens(contextWindow, settings, modelIdOrName);
 	return contextTokens > thresholdTokens;
 }
 
-export function resolveThresholdTokens(contextWindow: number, settings: CompactionSettings): number {
-	// Fixed token limit takes priority over percentage
+export function resolveThresholdTokens(
+	contextWindow: number,
+	settings: CompactionSettings,
+	modelIdOrName?: string,
+): number {
+	// Fixed token limit takes priority over percentage and ceiling
 	const thresholdTokens = settings.thresholdTokens;
 	if (typeof thresholdTokens === "number" && Number.isFinite(thresholdTokens) && thresholdTokens > 0) {
 		// Clamp to [1, contextWindow - 1] so there's always room
@@ -230,11 +285,30 @@ export function resolveThresholdTokens(contextWindow: number, settings: Compacti
 
 	// Percentage-based threshold
 	const thresholdPercent = settings.thresholdPercent;
+	let baseThreshold: number;
 	if (typeof thresholdPercent !== "number" || !Number.isFinite(thresholdPercent) || thresholdPercent <= 0) {
-		return contextWindow - effectiveReserveTokens(contextWindow, settings);
+		baseThreshold = contextWindow - effectiveReserveTokens(contextWindow, settings);
+	} else {
+		const clampedThresholdPercent = Math.min(99, Math.max(1, thresholdPercent));
+		baseThreshold = Math.floor(contextWindow * (clampedThresholdPercent / 100));
 	}
-	const clampedThresholdPercent = Math.min(99, Math.max(1, thresholdPercent));
-	return Math.floor(contextWindow * (clampedThresholdPercent / 100));
+
+	// Determine max ceiling (agy-style). Set to -1 to disable.
+	const explicitMaxThreshold = settings.maxThresholdTokens;
+	if (explicitMaxThreshold !== undefined && explicitMaxThreshold <= 0) {
+		return baseThreshold;
+	}
+
+	let effectiveCeiling = explicitMaxThreshold ?? DEFAULT_MAX_THRESHOLD_TOKENS;
+	if (settings.tierAware !== false && modelIdOrName) {
+		const tier = detectCompactionModelTier(modelIdOrName);
+		effectiveCeiling = explicitMaxThreshold !== undefined
+			? Math.min(explicitMaxThreshold, TIER_MAX_THRESHOLD_TOKENS[tier])
+			: TIER_MAX_THRESHOLD_TOKENS[tier];
+	}
+
+	// Clamp to at least reserveTokens and at most baseThreshold
+	return Math.min(baseThreshold, Math.max(settings.reserveTokens, effectiveCeiling));
 }
 
 // ============================================================================

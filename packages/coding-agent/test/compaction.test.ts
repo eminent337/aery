@@ -13,6 +13,7 @@ import {
 	findCutPoint,
 	getLastAssistantUsage,
 	prepareCompaction,
+	resolveThresholdTokens,
 	shouldCompact,
 } from "@aryee337/aery-core/compaction/compaction";
 import { hookFetch } from "@aryee337/aery-utils";
@@ -284,6 +285,83 @@ describe("shouldCompact", () => {
 		};
 
 		expect(shouldCompact(95000, 100000, settings)).toBe(false);
+	});
+
+	describe("agy-style compaction threshold & tier-aware ceiling", () => {
+		it("should cap large context windows (1M) with agy-style max threshold ceiling", () => {
+			const settings: CompactionSettings = {
+				enabled: true,
+				reserveTokens: 16384,
+				keepRecentTokens: 20000,
+			};
+
+			// Without agy ceiling, 1M context with 15% reserve would be 850,000.
+			// With agy ceiling, default is capped at 160,000 tokens.
+			expect(resolveThresholdTokens(1_000_000, settings)).toBe(160_000);
+			expect(shouldCompact(160_001, 1_000_000, settings)).toBe(true);
+			expect(shouldCompact(159_999, 1_000_000, settings)).toBe(false);
+		});
+
+		it("should respect tier-aware ceilings for flash-lite, flash, and pro models", () => {
+			const settings: CompactionSettings = {
+				enabled: true,
+				reserveTokens: 16384,
+				keepRecentTokens: 20000,
+				tierAware: true,
+			};
+
+			// Flash-Lite: capped at 40k
+			expect(resolveThresholdTokens(1_000_000, settings, "gemini-2.5-flash-lite")).toBe(40_000);
+			expect(shouldCompact(40_001, 1_000_000, settings, "gemini-2.5-flash-lite")).toBe(true);
+			expect(shouldCompact(39_999, 1_000_000, settings, "gemini-2.5-flash-lite")).toBe(false);
+
+			// Flash / Standard: capped at 120k
+			expect(resolveThresholdTokens(1_000_000, settings, "gemini-2.5-flash")).toBe(120_000);
+			expect(shouldCompact(120_001, 1_000_000, settings, "gemini-2.5-flash")).toBe(true);
+			expect(shouldCompact(119_999, 1_000_000, settings, "gemini-2.5-flash")).toBe(false);
+
+			// Pro: capped at 180k
+			expect(resolveThresholdTokens(1_000_000, settings, "gemini-1.5-pro")).toBe(180_000);
+			expect(shouldCompact(180_001, 1_000_000, settings, "gemini-1.5-pro")).toBe(true);
+			expect(shouldCompact(179_999, 1_000_000, settings, "gemini-1.5-pro")).toBe(false);
+		});
+
+		it("should allow disabling max threshold ceiling with maxThresholdTokens: -1", () => {
+			const settings: CompactionSettings = {
+				enabled: true,
+				reserveTokens: 16384,
+				keepRecentTokens: 20000,
+				maxThresholdTokens: -1,
+			};
+
+			// Reverts to pure 85% formula: 1,000,000 - 150,000 = 850,000
+			expect(resolveThresholdTokens(1_000_000, settings)).toBe(850_000);
+			expect(shouldCompact(850_001, 1_000_000, settings)).toBe(true);
+			expect(shouldCompact(849_999, 1_000_000, settings)).toBe(false);
+		});
+
+		it("should respect explicit custom maxThresholdTokens", () => {
+			const settings: CompactionSettings = {
+				enabled: true,
+				reserveTokens: 16384,
+				keepRecentTokens: 20000,
+				maxThresholdTokens: 200_000,
+				tierAware: false,
+			};
+
+			expect(resolveThresholdTokens(1_000_000, settings)).toBe(200_000);
+		});
+
+		it("should prioritize explicit thresholdTokens over ceiling", () => {
+			const settings: CompactionSettings = {
+				enabled: true,
+				reserveTokens: 16384,
+				keepRecentTokens: 20000,
+				thresholdTokens: 500_000,
+			};
+
+			expect(resolveThresholdTokens(1_000_000, settings)).toBe(500_000);
+		});
 	});
 });
 
