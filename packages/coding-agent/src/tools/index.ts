@@ -58,6 +58,7 @@ import { HandoffTool } from "./handoff";
 import { InspectImageTool } from "./inspect-image";
 import { IrcTool } from "./irc";
 import { JobTool } from "./job";
+import { CallExternalAgentTool } from "./external-agent";
 import { ManageSubagentsTool } from "./manage-subagents";
 import { ManageTaskTool } from "./manage-task";
 import { MemoryEditTool } from "./memory-edit";
@@ -639,6 +640,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	manage_task: () => new ManageTaskTool(),
 	ask_question: s => new AskQuestionTool(s),
 	manage_subagents: () => new ManageSubagentsTool(),
+	call_external_agent: s => new CallExternalAgentTool(s),
 	best_of_n: () => new BestOfNTool(),
 	multi_prompt_review: () => new MultiPromptReviewTool(),
 	explore: s => new ExploreTool(s),
