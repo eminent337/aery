@@ -126,6 +126,14 @@ export async function fetchGeminiModels(
 		nextPageToken = token;
 	}
 
+	// Retain static bundled Argon models when connecting via GEMINI_API_KEY,
+	// mirroring agy's fix for Gemini 4 Argon visibility under API key auth.
+	for (const [id, bundled] of bundledById.entries()) {
+		if (!modelsById.has(id) && id.includes("argon")) {
+			modelsById.set(id, bundled);
+		}
+	}
+
 	return Array.from(modelsById.values()).sort((left, right) => left.id.localeCompare(right.id));
 }
 

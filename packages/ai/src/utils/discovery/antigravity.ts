@@ -5,6 +5,7 @@ import { toPositiveNumber } from "../../utils";
 
 const DEFAULT_ANTIGRAVITY_DISCOVERY_ENDPOINTS = [
 	"https://daily-cloudcode-pa.googleapis.com",
+	"https://cloudcode-pa.googleapis.com",
 	"https://daily-cloudcode-pa.sandbox.googleapis.com",
 ] as const;
 const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels";
@@ -18,6 +19,77 @@ const ANTIGRAVITY_DISCOVERY_DENYLIST = new Set([
 	"gemini-3-pro-low",
 	"gemini-2.5-pro",
 ]);
+
+/**
+ * Built-in static models for Google Antigravity that are always surfaced
+ * alongside dynamic endpoint models (matches agy's defaultmodels.ModelInfos).
+ */
+export const DEFAULT_ANTIGRAVITY_STATIC_MODELS: readonly Omit<Model<"google-gemini-cli">, "baseUrl">[] = [
+	{
+		id: "gemini-4-argon",
+		name: "Gemini 4 Argon (Medium) (Antigravity)",
+		api: "google-gemini-cli",
+		provider: "google-antigravity",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 65_536,
+		thinking: {
+			mode: "google-level",
+			minLevel: "low",
+			maxLevel: "high",
+		},
+	},
+	{
+		id: "gemini-4-argon-low",
+		name: "Gemini 4 Argon (Low) (Antigravity)",
+		api: "google-gemini-cli",
+		provider: "google-antigravity",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 65_536,
+		thinking: {
+			mode: "google-level",
+			minLevel: "low",
+			maxLevel: "low",
+		},
+	},
+	{
+		id: "gemini-4-argon-medium",
+		name: "Gemini 4 Argon (Medium) (Antigravity)",
+		api: "google-gemini-cli",
+		provider: "google-antigravity",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 65_536,
+		thinking: {
+			mode: "google-level",
+			minLevel: "medium",
+			maxLevel: "medium",
+		},
+	},
+	{
+		id: "gemini-4-argon-high",
+		name: "Gemini 4 Argon (High) (Antigravity)",
+		api: "google-gemini-cli",
+		provider: "google-antigravity",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 65_536,
+		thinking: {
+			mode: "google-level",
+			minLevel: "high",
+			maxLevel: "high",
+		},
+	},
+];
 
 /**
  * Raw model metadata returned by Antigravity's `fetchAvailableModels` endpoint.
@@ -174,6 +246,8 @@ export interface FetchAntigravityDiscoveryModelsOptions {
 	signal?: AbortSignal;
 	/** Optional fetch implementation override for tests. */
 	fetcher?: typeof fetch;
+	/** When true, merges built-in static models (like Gemini 4 Argon) alongside dynamic models. */
+	includeDefaultModels?: boolean;
 }
 
 /**
@@ -270,6 +344,20 @@ export async function fetchAntigravityDiscoveryModels(
 				contextWindow: toPositiveNumber(model.maxTokens, DEFAULT_CONTEXT_WINDOW),
 				maxTokens: toPositiveNumber(model.maxOutputTokens, DEFAULT_MAX_TOKENS),
 			});
+		}
+
+		// When requested, inject built-in Antigravity models (e.g. Gemini 4 Argon) that
+		// Google maintains in defaultmodels but omits from the raw dynamic listing payload.
+		if (options.includeDefaultModels) {
+			const seenIds = new Set(models.map(m => m.id));
+			for (const defModel of DEFAULT_ANTIGRAVITY_STATIC_MODELS) {
+				if (!seenIds.has(defModel.id) && !ANTIGRAVITY_DISCOVERY_DENYLIST.has(defModel.id) && !deprecatedIds.has(defModel.id)) {
+					models.push({
+						...defModel,
+						baseUrl: endpoint,
+					});
+				}
+			}
 		}
 
 		models.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));

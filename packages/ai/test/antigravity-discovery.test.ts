@@ -163,4 +163,24 @@ describe("antigravity discovery static pruning via authoritative fetch", () => {
 			await rm(tempDir, { recursive: true, force: true });
 		}
 	});
+
+	it("preserves built-in gemini-4-argon models when includeDefaultModels is enabled", async () => {
+		const mockFetcher = (async () =>
+			new Response(JSON.stringify(ACTIVE_MODEL_PAYLOAD), { status: 200 })) as unknown as typeof fetch;
+
+		const models = await fetchAntigravityDiscoveryModels({
+			token: "test-token",
+			endpoint: ENDPOINT,
+			fetcher: mockFetcher,
+			includeDefaultModels: true,
+		});
+
+		expect(models).not.toBeNull();
+		const ids = models!.map(m => m.id);
+		expect(ids).toContain("gemini-4-argon");
+		expect(ids).toContain("gemini-4-argon-low");
+		expect(ids).toContain("gemini-4-argon-medium");
+		expect(ids).toContain("gemini-4-argon-high");
+		expect(ids).toContain("claude-sonnet-4-6");
+	});
 });

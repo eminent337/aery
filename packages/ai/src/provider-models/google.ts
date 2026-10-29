@@ -63,6 +63,7 @@ export function googleAntigravityModelManagerOptions(
 						return fetchAntigravityDiscoveryModels({
 							token,
 							endpoint: config?.endpoint,
+							includeDefaultModels: true,
 						});
 					},
 				}
@@ -87,6 +88,7 @@ export function googleGeminiCliModelManagerOptions(
 						const models = await fetchAntigravityDiscoveryModels({
 							token,
 							endpoint,
+							includeDefaultModels: true,
 						});
 						if (models === null) {
 							return null;
