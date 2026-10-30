@@ -3,7 +3,12 @@ import { CommandController } from "@aryee337/aery/modes/controllers/command-cont
 import type { InteractiveModeContext } from "@aryee337/aery/modes/types";
 import * as native from "@aryee337/aery-engine";
 
-function createController(options: { assistantText?: string; hasAssistantMessage?: boolean; handoffText?: string }) {
+function createController(options: {
+	assistantText?: string;
+	hasAssistantMessage?: boolean;
+	handoffText?: string;
+	lastBtwAnswer?: string;
+}) {
 	const showStatus = vi.fn();
 	const showError = vi.fn();
 	const ctx = {
@@ -12,6 +17,7 @@ function createController(options: { assistantText?: string; hasAssistantMessage
 			hasCopyCandidateAssistantMessage: () => options.hasAssistantMessage ?? options.assistantText !== undefined,
 			getLastVisibleHandoffText: () => options.handoffText,
 		},
+		getLastBtwAnswer: () => options.lastBtwAnswer,
 		showStatus,
 		showError,
 	} as unknown as InteractiveModeContext;
@@ -49,5 +55,31 @@ describe("/copy command", () => {
 		expect(copySpy).not.toHaveBeenCalled();
 		expect(showStatus).not.toHaveBeenCalled();
 		expect(showError).toHaveBeenCalledWith("No agent messages to copy yet.");
+	});
+
+	it("copies /btw answer to clipboard when available", () => {
+		const copySpy = vi.spyOn(native, "copyToClipboard").mockImplementation(() => undefined);
+		const { controller, showStatus, showError } = createController({
+			lastBtwAnswer: "This is the /btw answer.",
+		});
+
+		controller.handleCopyCommand("btw");
+
+		expect(copySpy).toHaveBeenCalledWith("This is the /btw answer.");
+		expect(showStatus).toHaveBeenCalledWith("Copied /btw response to clipboard");
+		expect(showError).not.toHaveBeenCalled();
+	});
+
+	it("shows error when /copy btw is invoked without a /btw answer", () => {
+		const copySpy = vi.spyOn(native, "copyToClipboard").mockImplementation(() => undefined);
+		const { controller, showStatus, showError } = createController({
+			lastBtwAnswer: undefined,
+		});
+
+		controller.handleCopyCommand("btw");
+
+		expect(copySpy).not.toHaveBeenCalled();
+		expect(showStatus).not.toHaveBeenCalled();
+		expect(showError).toHaveBeenCalledWith("No /btw response to copy.");
 	});
 });

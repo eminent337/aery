@@ -202,6 +202,7 @@ import planModeToolDecisionReminderPrompt from "../prompts/system/plan-mode-tool
 import ttsrInterruptTemplate from "../prompts/system/ttsr-interrupt.md" with { type: "text" };
 import ttsrToolReminderTemplate from "../prompts/system/ttsr-tool-reminder.md" with { type: "text" };
 import unexpectedStopRetryTemplate from "../prompts/system/unexpected-stop-retry.md" with { type: "text" };
+import btwSystemPreamble from "../prompts/system/btw-system-preamble.md" with { type: "text" };
 import { deobfuscateSessionContext, type SecretObfuscator } from "../secrets/obfuscator";
 import { executeAcpBuiltinSlashCommand } from "../slash-commands/acp-builtins";
 import type { SlashCommandRuntime } from "../slash-commands/types";
@@ -9768,6 +9769,123 @@ export class AgentSession {
 		}
 		return {
 			replyText: args.dedupeReply === false ? replyText.trim() : dedupeEphemeralReply(replyText.trim()),
+			assistantMessage,
+		};
+	}
+
+	/**
+	 * Run a `/btw` side-question turn against this session's current model +
+	 * history using the agy-style read-only subagent guardrail.
+	 *
+	 * When `#advisorReadOnlyTools` are available the subagent receives them so
+	 * it can actively inspect files, grep code, and fetch external context.
+	 * When no read-only tools are provisioned the call degrades gracefully to a
+	 * tool-disabled ephemeral turn (identical behaviour to `runEphemeralTurn`).
+	 *
+	 * The session's history and persisted state are NOT modified by this call.
+	 * A 60-second hard timeout is enforced matching the agy behaviour.
+	 */
+	async runSideQuestion(args: {
+		question: string;
+		onTextDelta?: (delta: string) => void;
+		signal?: AbortSignal;
+	}): Promise<{ replyText: string; assistantMessage: AssistantMessage }> {
+		const model = this.model;
+		if (!model) {
+			throw new Error("No active model on session");
+		}
+		const apiKey = await this.#modelRegistry.getApiKey(model, this.sessionId);
+		if (!apiKey) {
+			throw new Error(`No API key for ${model.provider}/${model.id}`);
+		}
+
+		const promptText = prompt.render(btwSystemPreamble, { question: args.question });
+		const snapshot = this.#buildEphemeralSnapshot(promptText);
+		const llmMessages = await this.convertMessagesToLlm(snapshot, args.signal);
+
+		const readOnlyTools = this.#advisorReadOnlyTools ?? [];
+		const hasTools = readOnlyTools.length > 0;
+
+		const context: Context = {
+			systemPrompt: this.systemPrompt,
+			messages: llmMessages,
+			// Provide read-only tools when available so the subagent can actively
+			// inspect files.  Strip tool catalog entirely (not empty-array) when no
+			// read-only tools exist to avoid provider-specific empty-tools errors.
+			...(hasTools ? { tools: readOnlyTools } : { tools: [] }),
+		};
+
+		const cacheSessionId = this.sessionId;
+		// 60-second hard timeout matching agy behaviour.
+		const BTW_TIMEOUT_MS = 60_000;
+		const timeoutController = new AbortController();
+		const timeoutId = setTimeout(() => timeoutController.abort(), BTW_TIMEOUT_MS);
+
+		// Compose caller signal with the 60s timeout signal.
+		const effectiveSignal: AbortSignal = args.signal
+			? AbortSignal.any([args.signal, timeoutController.signal])
+			: timeoutController.signal;
+
+		const options = this.prepareSimpleStreamOptions(
+			{
+				apiKey,
+				sessionId: `${cacheSessionId}:side:${Snowflake.next()}`,
+				promptCacheKey: cacheSessionId,
+				preferWebsockets: false,
+				reasoning: toReasoningEffort(this.thinkingLevel),
+				hideThinkingSummary: this.agent.hideThinkingSummary,
+				serviceTier: this.serviceTier,
+				signal: effectiveSignal,
+				toolChoice: hasTools ? "auto" : "none",
+			},
+			model.provider,
+		);
+
+		let providerReplyText = "";
+		let emittedReplyText = "";
+		let assistantMessage: AssistantMessage | undefined;
+		try {
+			const stream = streamSimple(model, context, options);
+			for await (const event of stream) {
+				if (event.type === "text_delta") {
+					providerReplyText += event.delta;
+					if (args.onTextDelta) {
+						const readyText = this.#deobfuscatedProviderTextReadyForDelta(providerReplyText);
+						if (readyText.length > emittedReplyText.length) {
+							const delta = readyText.slice(emittedReplyText.length);
+							emittedReplyText = readyText;
+							args.onTextDelta(delta);
+						}
+					}
+					continue;
+				}
+				if (event.type === "done") {
+					assistantMessage = this.#obfuscator?.hasSecrets()
+						? { ...event.message, content: this.#obfuscator.deobfuscateObject(event.message.content) }
+						: event.message;
+					break;
+				}
+				if (event.type === "error") {
+					throw new Error(event.error.errorMessage || "Side-question turn failed");
+				}
+			}
+		} finally {
+			clearTimeout(timeoutId);
+		}
+
+		if (timeoutController.signal.aborted && !args.signal?.aborted) {
+			throw new Error("btw response timed out after 60s");
+		}
+
+		if (!assistantMessage) {
+			throw new Error("Side-question turn ended without a final message");
+		}
+		const replyText = this.#obfuscator?.deobfuscate(providerReplyText) ?? providerReplyText;
+		if (args.onTextDelta && replyText.length > emittedReplyText.length) {
+			args.onTextDelta(replyText.slice(emittedReplyText.length));
+		}
+		return {
+			replyText: dedupeEphemeralReply(replyText.trim()),
 			assistantMessage,
 		};
 	}

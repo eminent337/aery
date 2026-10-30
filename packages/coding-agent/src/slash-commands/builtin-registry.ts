@@ -830,6 +830,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			{ name: "code", description: "Copy last code block" },
 			{ name: "all", description: "Copy all code blocks from last message" },
 			{ name: "cmd", description: "Copy last bash/python command" },
+			{ name: "btw", description: "Copy last /btw side-question response" },
 		],
 		allowArgs: true,
 		handleTui: async (command, runtime) => {

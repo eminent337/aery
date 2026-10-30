@@ -158,4 +158,33 @@ describe("BtwController", () => {
 		expect(runEphemeralTurn).not.toHaveBeenCalled();
 		expect(ctx.showError).toHaveBeenCalled();
 	});
+
+	it("dispatches to runSideQuestion when available on session and preserves last answer", async () => {
+		const runSideQuestion = vi.fn(async (_args: { question: string; onTextDelta?: (d: string) => void; signal?: AbortSignal }) => ({
+			replyText: "Side question subagent answer",
+			assistantMessage: createAssistantMessage("Side question subagent answer"),
+		}));
+		const session = {
+			model: { provider: "google", id: "gemini-2.5-flash" },
+			runSideQuestion,
+		} as unknown as InteractiveModeContext["session"];
+		const btwContainer = new Container();
+		const ctx = makeCtx(session, btwContainer);
+		const controller = new BtwController(ctx);
+
+		await controller.start("Where is the threshold defined?");
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(runSideQuestion).toHaveBeenCalledTimes(1);
+		expect(runSideQuestion.mock.calls[0]?.[0]?.question).toBe("Where is the threshold defined?");
+		expect(controller.getLastAnswer()).toBe("Side question subagent answer");
+		expect(controller.getCurrentOrLastAnswer()).toBe("Side question subagent answer");
+
+		// Dismiss via Escape — answer must remain cached for /copy btw
+		expect(controller.handleEscape()).toBe(true);
+		expect(controller.hasActiveRequest()).toBe(false);
+		expect(controller.getLastAnswer()).toBe("Side question subagent answer");
+		expect(controller.getCurrentOrLastAnswer()).toBe("Side question subagent answer");
+	});
 });

@@ -255,12 +255,23 @@ export class CommandController {
 				return this.#copyAllCode();
 			case "cmd":
 				return this.#copyLastCommand();
+			case "btw":
+				return this.#copyBtwAnswer();
 			case "last":
 			case undefined:
 				return this.#copyLastMessage();
 			default:
-				this.ctx.showError(`Unknown subcommand: ${sub}. Use code, all, cmd, or last.`);
+				this.ctx.showError(`Unknown subcommand: ${sub}. Use code, all, cmd, btw, or last.`);
 		}
+	}
+
+	#copyBtwAnswer() {
+		const answer = this.ctx.getLastBtwAnswer?.();
+		if (!answer) {
+			this.ctx.showError("No /btw response to copy.");
+			return;
+		}
+		this.#doCopy(answer, "Copied /btw response to clipboard");
 	}
 
 	#copyLastMessage() {

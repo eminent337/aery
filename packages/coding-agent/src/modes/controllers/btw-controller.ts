@@ -1,5 +1,3 @@
-import { prompt } from "@aryee337/aery-utils";
-import btwUserPrompt from "../../prompts/system/btw-user.md" with { type: "text" };
 import { BtwPanelComponent } from "../components/btw-panel";
 import type { InteractiveModeContext } from "../types";
 
@@ -11,11 +9,24 @@ interface BtwRequest {
 
 export class BtwController {
 	#activeRequest: BtwRequest | undefined;
+	#lastAnswer: string | undefined;
 
 	constructor(private readonly ctx: InteractiveModeContext) {}
 
 	hasActiveRequest(): boolean {
 		return this.#activeRequest !== undefined;
+	}
+
+	getLastAnswer(): string | undefined {
+		return this.#lastAnswer;
+	}
+
+	getCurrentOrLastAnswer(): string | undefined {
+		if (this.#activeRequest) {
+			const current = this.#activeRequest.component.getAnswer().trim();
+			if (current) return current;
+		}
+		return this.#lastAnswer;
 	}
 
 	handleEscape(): boolean {
@@ -57,22 +68,36 @@ export class BtwController {
 
 	async #runRequest(request: BtwRequest): Promise<void> {
 		try {
-			const promptText = prompt.render(btwUserPrompt, { question: request.question });
-			const { replyText } = await this.ctx.session.runEphemeralTurn({
-				promptText,
-				onTextDelta: delta => {
-					if (this.#isActiveRequest(request)) {
-						request.component.appendText(delta);
-					}
-				},
-				signal: request.abortController.signal,
-			});
+			let replyText = "";
+			const session = this.ctx.session;
+			const onTextDelta = (delta: string) => {
+				if (this.#isActiveRequest(request)) {
+					request.component.appendText(delta);
+				}
+			};
+			if (typeof (session as unknown as Record<string, unknown>).runSideQuestion === "function") {
+				const result = await session.runSideQuestion({
+					question: request.question,
+					onTextDelta,
+					signal: request.abortController.signal,
+				});
+				replyText = result?.replyText ?? "";
+			} else {
+				const btwPrompt = `<btw>\n${request.question}\n</btw>`;
+				const result = await session.runEphemeralTurn({
+					promptText: btwPrompt,
+					onTextDelta,
+					signal: request.abortController.signal,
+				});
+				replyText = result?.replyText ?? "";
+			}
 
 			if (!this.#isActiveRequest(request)) {
 				return;
 			}
 			if (replyText) {
 				request.component.setAnswer(replyText);
+				this.#lastAnswer = replyText;
 			}
 			request.component.markComplete();
 		} catch (error) {

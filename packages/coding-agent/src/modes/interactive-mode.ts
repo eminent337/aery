@@ -3210,6 +3210,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		return this.#btwController.handleEscape();
 	}
 
+	getLastBtwAnswer(): string | undefined {
+		return this.#btwController.getCurrentOrLastAnswer();
+	}
+
 	handleTanCommand(work: string): Promise<void> {
 		return this.#tanController.start(work);
 	}

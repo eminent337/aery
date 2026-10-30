@@ -31,6 +31,10 @@ export class BtwPanelComponent extends Container {
 		this.#rebuild();
 	}
 
+	getAnswer(): string {
+		return this.#answer;
+	}
+
 	setAnswer(text: string): void {
 		if (this.#closed) return;
 		this.#answer = text;
