@@ -257,6 +257,10 @@ export class StatusLineComponent implements Component {
 		this.#setupGitWatcher();
 	}
 
+	getBranch(): string | null {
+		return this.#getCurrentBranch();
+	}
+
 	#setupGitWatcher(): void {
 		if (this.#gitWatcher) {
 			this.#gitWatcher.close();
@@ -596,6 +600,7 @@ export class StatusLineComponent implements Component {
 			usageStats,
 			contextPercent,
 			contextWindow,
+			usedTokens: contextTokens,
 			autoCompactEnabled: this.#autoCompactEnabled,
 			subagentCount: this.#subagentCount,
 			activeSubagents: this.#activeSubagents,

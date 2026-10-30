@@ -13,7 +13,7 @@ import {
 	type TUI,
 	visibleWidth,
 } from "@aryee337/aery-tui";
-import { getProjectDir, logger, sanitizeText } from "@aryee337/aery-utils";
+import { formatDuration, getProjectDir, logger, sanitizeText } from "@aryee337/aery-utils";
 import type { SnapshotStore } from "@aryee337/hashline";
 import { EDIT_MODE_STRATEGIES, type EditMode, type PerFileDiffPreview } from "../../edit";
 import { shimmerEnabled } from "../../modes/theme/shimmer";
@@ -197,6 +197,13 @@ export class ToolExecutionComponent extends Container {
 	#todoStrikeInterval?: NodeJS.Timeout;
 	// Track if args are still being streamed (for edit/write spinner)
 	#argsComplete = false;
+	#startTime: number = Date.now();
+	#durationMs?: number;
+
+	get durationMs(): number | undefined {
+		return this.#durationMs;
+	}
+
 	#renderState: {
 		spinnerFrame?: number;
 		expanded: boolean;
@@ -361,9 +368,12 @@ export class ToolExecutionComponent extends Container {
 	): void {
 		this.#result = result;
 		this.#isPartial = isPartial;
-		// When tool is complete, ensure args are marked complete so spinner stops
+		// When tool is complete, ensure args are marked complete so spinner stops and duration is recorded
 		if (!isPartial) {
 			this.#argsComplete = true;
+			if (this.#durationMs === undefined) {
+				this.#durationMs = Math.max(0, Date.now() - this.#startTime);
+			}
 		}
 		this.#updateSpinnerAnimation();
 		this.#updateTodoStrikeAnimation();
@@ -832,6 +842,10 @@ export class ToolExecutionComponent extends Container {
 	 */
 	#buildRenderContext(): Record<string, unknown> {
 		const context: Record<string, unknown> = {};
+		if (this.#durationMs !== undefined) {
+			context.durationMs = this.#durationMs;
+			context.durationStr = formatDuration(this.#durationMs);
+		}
 		const normalizeTimeoutSeconds = (value: unknown, maxSeconds: number): number | undefined => {
 			if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
 			return Math.max(1, Math.min(maxSeconds, value));
@@ -915,7 +929,11 @@ export class ToolExecutionComponent extends Container {
 	#formatToolExecution(): string {
 		const lines: string[] = [];
 		const icon = this.#isPartial ? "pending" : this.#result?.isError ? "error" : "success";
-		lines.push(renderStatusLine({ icon, title: this.#toolLabel }, theme));
+		const meta: string[] = [];
+		if (!this.#isPartial && this.#durationMs !== undefined) {
+			meta.push(formatDuration(this.#durationMs));
+		}
+		lines.push(renderStatusLine({ icon, title: this.#toolLabel, meta: meta.length > 0 ? meta : undefined }, theme));
 
 		const argsObject = this.#args && typeof this.#args === "object" ? (this.#args as Record<string, unknown>) : null;
 		if (!this.#expanded && argsObject && Object.keys(argsObject).length > 0) {
@@ -1012,7 +1030,8 @@ export class ToolExecutionComponent extends Container {
 		const CYAN = "\x1b[36m";
 		const DIM = "\x1b[2m";
 		const toolPart = ` ${icon} ${BOLD}${this.#toolName}${RESET} `;
-		const badge = ""; // Could add duration here
+		const badge =
+			!this.#isPartial && this.#durationMs !== undefined ? ` ${DIM}(${formatDuration(this.#durationMs)})${RESET} ` : "";
 		const toolVis = visibleWidth(` ${icon} ${this.#toolName} `) - visibleWidth(icon) + 2;
 		const badgeVis = visibleWidth(badge);
 		const fillCount = Math.max(2, width - toolVis - badgeVis - 3);

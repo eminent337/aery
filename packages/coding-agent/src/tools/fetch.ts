@@ -1470,11 +1470,18 @@ export function renderReadUrlResult(
 	const truncation = details.meta?.truncation;
 	const truncated = Boolean(details.truncated || truncation);
 
+	const durationStr = (options as { renderContext?: { durationStr?: string } }).renderContext?.durationStr;
+	const meta: string[] = [];
+	if (durationStr && !options.isPartial) {
+		meta.push(durationStr);
+	}
+
 	const header = renderStatusLine(
 		{
 			icon: truncated ? "warning" : "success",
 			title: "Read",
 			description: `${domain}${path ? ` ${path}` : ""}`,
+			meta: meta.length > 0 ? meta : undefined,
 		},
 		uiTheme,
 	);

@@ -116,12 +116,14 @@ export class InputController {
 				this.ctx.editor.setText("");
 				this.ctx.isBashMode = false;
 				this.ctx.updateEditorBorderColor();
+				this.ctx.updateEditorTopBorder();
 			} else if (this.ctx.session.isEvalRunning) {
 				this.ctx.session.abortEval();
 			} else if (this.ctx.isPythonMode) {
 				this.ctx.editor.setText("");
 				this.ctx.isPythonMode = false;
 				this.ctx.updateEditorBorderColor();
+				this.ctx.updateEditorTopBorder();
 			} else if (this.ctx.session.isStreaming) {
 				void this.ctx.session.abort();
 			} else if (!this.ctx.editor.getText().trim()) {
@@ -219,6 +221,7 @@ export class InputController {
 				const next = current === "yolo" ? "always-ask" : "yolo";
 				settings.set("tools.approvalMode", next);
 				this.ctx.showStatus(`Auto-approve mode: ${next === "yolo" ? "ON (YOLO)" : "OFF (Always Ask)"}`);
+				this.ctx.updateEditorTopBorder();
 			});
 		}
 
@@ -269,6 +272,7 @@ export class InputController {
 			this.ctx.isPythonMode = trimmed.startsWith("$") && !trimmed.startsWith("${");
 			if (wasBashMode !== this.ctx.isBashMode || wasPythonMode !== this.ctx.isPythonMode) {
 				this.ctx.updateEditorBorderColor();
+				this.ctx.updateEditorTopBorder();
 			}
 		};
 
@@ -852,6 +856,7 @@ export class InputController {
 			this.ctx.showStatus("Current model does not support thinking");
 		} else {
 			this.ctx.statusLine.invalidate();
+			this.ctx.headerBar?.setModel(this.ctx.session.model?.id ?? "");
 			this.ctx.updateEditorBorderColor();
 			this.ctx.updateEditorTopBorder();
 		}
@@ -867,6 +872,7 @@ export class InputController {
 			}
 
 			this.ctx.statusLine.invalidate();
+			this.ctx.headerBar?.setModel(this.ctx.session.model?.id ?? "");
 			this.ctx.updateEditorBorderColor();
 			this.ctx.updateEditorTopBorder();
 			// The status line already reports the resolved model + thinking level, so

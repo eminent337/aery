@@ -183,6 +183,7 @@ export class FooterComponent implements Component {
 		const contextPercentDisplay = `${formatContextUsage(
 			contextUsage?.percent === null ? null : contextPercentValue,
 			contextWindow,
+			contextUsage?.tokens,
 		)}${autoIndicator}`;
 		if (contextUsage?.percent !== null && contextUsage?.percent !== undefined) {
 			const color = getContextUsageThemeColor(getContextUsageLevel(contextPercentValue, contextWindow));

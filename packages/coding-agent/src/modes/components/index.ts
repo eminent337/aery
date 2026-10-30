@@ -12,6 +12,7 @@ export * from "./custom-message";
 export * from "./diff";
 export * from "./dynamic-border";
 export * from "./footer";
+export * from "./header-bar";
 export * from "./hook-editor";
 export * from "./hook-input";
 export * from "./hook-message";

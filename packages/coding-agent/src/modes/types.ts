@@ -27,6 +27,8 @@ import type { HookEditorComponent } from "./components/hook-editor";
 import type { HookInputComponent } from "./components/hook-input";
 import type { HookSelectorComponent, HookSelectorOptions } from "./components/hook-selector";
 import type { StatusLineComponent } from "./components/status-line";
+import type { HeaderBarComponent } from "./components/header-bar";
+import type { SubagentActivityHudComponent } from "./components/subagent-hud";
 import type { ToolExecutionHandle } from "./components/tool-execution";
 
 import type { LoopLimitRuntime } from "./loop-limit";
@@ -82,6 +84,8 @@ export interface InteractiveModeContext {
 	omfgContainer: Container;
 	editor: CustomEditor;
 	editorContainer: Container;
+	headerBar?: HeaderBarComponent;
+	subagentHud?: SubagentActivityHudComponent;
 	hookWidgetContainerAbove: Container;
 	hookWidgetContainerBelow: Container;
 	statusLine: StatusLineComponent;

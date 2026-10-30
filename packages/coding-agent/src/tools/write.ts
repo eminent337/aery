@@ -1074,12 +1074,19 @@ export const writeToolRenderer = {
 			? `${uiTheme.fg("dim", " · ")}${uiTheme.fg("success", "made executable!")}`
 			: "";
 
+		const durationStr = (options as { renderContext?: { durationStr?: string } }).renderContext?.durationStr;
+		const meta: string[] = [];
+		if (durationStr && !options.isPartial) {
+			meta.push(durationStr);
+		}
+
 		// Build header with status icon
 		const header = renderStatusLine(
 			{
 				icon: "success",
 				title: "Write",
 				description: `${langIcon} ${pathDisplay}${lineSuffix}${execSuffix}`,
+				meta: meta.length > 0 ? meta : undefined,
 			},
 			uiTheme,
 		);

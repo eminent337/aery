@@ -1125,6 +1125,10 @@ export interface BashRenderContext {
 	previewLines?: number;
 	/** Timeout in seconds */
 	timeout?: number;
+	/** Execution duration in ms */
+	durationMs?: number;
+	/** Formatted execution duration */
+	durationStr?: string;
 }
 
 export interface ShellRendererConfig<TArgs> {
@@ -1300,9 +1304,15 @@ export function createShellRenderer<TArgs>(config: ShellRendererConfig<TArgs>) {
 					if (timeoutLine) outputLines.push(timeoutLine);
 					if (warningLine) outputLines.push(warningLine);
 
+					const meta: string[] = [];
+					if (renderContext?.durationStr && !options.isPartial) {
+						meta.push(renderContext.durationStr);
+					}
+					const currentHeader = meta.length > 0 ? renderStatusLine({ icon, title, meta }, uiTheme) : header;
+
 					return outputBlock.render(
 						{
-							header,
+							header: currentHeader,
 							state: options.isPartial ? "pending" : isError ? "error" : "success",
 							sections: [
 								{ lines: cmdLines ?? [] },

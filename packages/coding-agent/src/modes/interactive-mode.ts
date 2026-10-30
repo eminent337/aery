@@ -104,6 +104,7 @@ import type { EvalExecutionComponent } from "./components/eval-execution";
 import type { HookEditorComponent } from "./components/hook-editor";
 import type { HookInputComponent } from "./components/hook-input";
 import type { HookSelectorComponent, HookSelectorSlider } from "./components/hook-selector";
+import { HeaderBarComponent } from "./components/header-bar";
 import { StatusLineComponent } from "./components/status-line";
 import { SubagentActivityHudComponent } from "./components/subagent-hud";
 import { StudioStateManager } from "./components/studio/state.js";
@@ -273,6 +274,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	omfgContainer: Container;
 	editor: CustomEditor;
 	editorContainer: Container;
+	headerBar: HeaderBarComponent;
 	subagentHud: SubagentActivityHudComponent;
 	hookWidgetContainerAbove: Container;
 	hookWidgetContainerBelow: Container;
@@ -445,6 +447,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		this.hookWidgetContainerAbove = new Container();
 		this.hookWidgetContainerAbove.addChild(new Spacer(1));
+		this.headerBar = new HeaderBarComponent({
+			cwd: this.sessionManager.getCwd(),
+			model: this.session.model?.id ?? "",
+		});
 		this.subagentHud = new SubagentActivityHudComponent();
 		this.hookWidgetContainerBelow = new Container();
 		this.editorContainer = new Container();
@@ -580,6 +586,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.ui.addChild(this.btwContainer);
 		this.ui.addChild(this.omfgContainer);
 		this.ui.addChild(this.hookWidgetContainerAbove);
+		this.ui.addChild(this.headerBar);
 		this.ui.addChild(this.subagentHud);
 		this.ui.addChild(this.editorContainer);
 		this.ui.addChild(this.statusLine); // Renders flat status line natively below editor
@@ -730,11 +737,13 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		// Set up git branch watcher
 		this.statusLine.watchBranch(() => {
+			this.headerBar.setBranch(this.statusLine.getBranch());
 			this.updateEditorTopBorder();
 			this.ui.requestRender();
 		});
 
-		// Initial top border update
+		// Initial headerBar branch & top border update
+		this.headerBar.setBranch(this.statusLine.getBranch());
 		this.updateEditorTopBorder();
 	}
 
@@ -779,6 +788,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		await this.refreshSlashCommandState(newCwd);
 		await this.session.refreshSshTool({ activateIfAvailable: true });
 		setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
+		this.headerBar.setWorkspace(newCwd);
 		this.statusLine.invalidate();
 		this.updateEditorTopBorder();
 	}
@@ -1117,15 +1127,54 @@ export class InteractiveMode implements InteractiveModeContext {
 			const bar = "█".repeat(filled) + "░".repeat(empty);
 			const text = ` Images [${bar}] ${currentImages}/${MAX_IMAGES} `;
 			this.editor.setTopBorder({ content: text, width: text.length });
+			return;
+		}
+
+		// Dual-pill: Mode Pill on left, Reasoning Effort on right
+		let modeName = "auto";
+		let modeColor: "dim" | "warning" | "accent" | "error" = "dim";
+		if (this.isBashMode) {
+			modeName = "bash";
+			modeColor = "warning";
+		} else if (this.isPythonMode) {
+			modeName = "python";
+			modeColor = "warning";
+		} else if (this.planModeEnabled) {
+			modeName = "plan";
+			modeColor = "accent";
+		} else if (isSettingsInitialized() && settings.get("tools.approvalMode") === "yolo") {
+			modeName = "yolo";
+			modeColor = "error";
+		}
+		const modeText = ` [mode: ${modeName}] `;
+		const modeStyled = theme.fg(modeColor, modeText);
+
+		const thinkingLevel = this.session?.thinkingLevel;
+		const hasEffort = Boolean(thinkingLevel && thinkingLevel !== "off");
+		const effortText = hasEffort ? ` [effort: ${thinkingLevel} (alt+e)] ` : "";
+		const effortStyled = hasEffort ? theme.fg("accent", effortText) : "";
+
+		const termWidth = this.ui?.terminal?.columns ?? 80;
+		const availableWidth = this.editor.getTopBorderAvailableWidth(termWidth);
+		const totalLength = modeText.length + effortText.length;
+
+		if (hasEffort && availableWidth >= totalLength + 4) {
+			const gap = Math.max(1, availableWidth - totalLength);
+			const separator = theme.fg("dim", "─".repeat(gap));
+			this.editor.setTopBorder({
+				content: `${modeStyled}${separator}${effortStyled}`,
+				width: availableWidth,
+			});
+		} else if (hasEffort) {
+			this.editor.setTopBorder({
+				content: `${modeStyled}${effortStyled}`,
+				width: totalLength,
+			});
 		} else {
-			const thinkingLevel = this.session?.thinkingLevel;
-			if (thinkingLevel && thinkingLevel !== "off") {
-				const badge = ` [effort: ${thinkingLevel} (alt+e)] `;
-				const styled = theme.fg("accent", badge);
-				this.editor.setTopBorder({ content: styled, width: badge.length });
-			} else {
-				this.editor.setTopBorder(undefined);
-			}
+			this.editor.setTopBorder({
+				content: modeStyled,
+				width: modeText.length,
+			});
 		}
 	}
 

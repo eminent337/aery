@@ -43,6 +43,7 @@ export interface SegmentContext {
 	};
 	contextPercent: number;
 	contextWindow: number;
+	usedTokens?: number;
 	autoCompactEnabled: boolean;
 	subagentCount: number;
 	activeSubagents?: Array<{
