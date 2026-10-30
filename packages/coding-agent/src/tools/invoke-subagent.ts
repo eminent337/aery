@@ -12,7 +12,7 @@
 import * as z from "zod/v4";
 import type { AgentTool, AgentToolContext, AgentToolResult } from "@aryee337/aery-core";
 import { AgentRegistry } from "../registry/agent-registry";
-import { getBuiltinSubagentDefinition } from "../registry/builtin-subagents";
+import { getSubagentDefinition } from "../registry/builtin-subagents";
 import type { ToolSession } from "./index";
 
 const invokeSubagentSchema = z.object({
@@ -63,12 +63,12 @@ export class InvokeSubagentTool implements AgentTool<typeof invokeSubagentSchema
 	): Promise<AgentToolResult> {
 		const registry = AgentRegistry.global();
 
-		// Look up the built-in definition (if any) to validate TypeName
-		const builtinDef = getBuiltinSubagentDefinition(params.TypeName);
+		// Look up the definition (built-in or custom) to validate TypeName
+		const subagentDef = getSubagentDefinition(params.TypeName);
 		const typeName = params.TypeName;
 		const role = params.Role;
 
-		if (!builtinDef && typeName !== "inherit") {
+		if (!subagentDef && typeName !== "inherit") {
 			// Unknown type — still register as a generic sub so send_message can route to it
 			// In a full implementation this would spawn a new agent process.
 			// For now we register the intent and return an id for routing.
@@ -94,7 +94,7 @@ export class InvokeSubagentTool implements AgentTool<typeof invokeSubagentSchema
 			status: "idle",
 		});
 
-		const description = builtinDef?.description ?? `Custom subagent of type '${typeName}'`;
+		const description = subagentDef?.description ?? `Custom subagent of type '${typeName}'`;
 		const model = params.Model ?? "inherit";
 		const workspace = params.Workspace ?? "inherit";
 

@@ -90,3 +90,66 @@ export function getBuiltinSubagentDefinition(typeName: string): BuiltinSubagentD
 export function listBuiltinSubagents(): BuiltinSubagentDefinition[] {
 	return Object.values(BUILTIN_SUBAGENTS);
 }
+
+export interface CustomSubagentDefinition {
+	name: string;
+	description: string;
+	systemPrompt: string;
+	enableWriteTools?: boolean;
+	enableSubagentTools?: boolean;
+	enableMCPTools?: boolean;
+	createdAt: number;
+}
+
+const customSubagents = new Map<string, CustomSubagentDefinition>();
+
+export function defineCustomSubagent(def: Omit<CustomSubagentDefinition, "createdAt">): CustomSubagentDefinition {
+	const registered: CustomSubagentDefinition = {
+		...def,
+		createdAt: Date.now(),
+	};
+	customSubagents.set(def.name, registered);
+	return registered;
+}
+
+export function getCustomSubagentDefinition(name: string): CustomSubagentDefinition | undefined {
+	return customSubagents.get(name);
+}
+
+export function listCustomSubagents(): CustomSubagentDefinition[] {
+	return Array.from(customSubagents.values());
+}
+
+export function resetCustomSubagentsForTests(): void {
+	customSubagents.clear();
+}
+
+/**
+ * Retrieve the definition for any subagent (built-in or custom) by type name.
+ */
+export function getSubagentDefinition(typeName: string): BuiltinSubagentDefinition | undefined {
+	const builtin = BUILTIN_SUBAGENTS[typeName];
+	if (builtin) return builtin;
+
+	const custom = customSubagents.get(typeName);
+	if (custom) {
+		const tools: string[] = ["read_file", "search_web", "find_by_name", "grep_search", "list_dir", "send_message"];
+		if (custom.enableWriteTools) {
+			tools.push("write_file", "edit_file", "run_command", "bash");
+		}
+		if (custom.enableSubagentTools) {
+			tools.push("invoke_subagent", "define_subagent", "manage_subagents");
+		}
+		if (custom.enableMCPTools) {
+			tools.push("call_mcp_tool", "list_resources", "read_resource");
+		}
+		return {
+			typeName: custom.name,
+			role: custom.name,
+			description: custom.description,
+			systemPrompt: custom.systemPrompt,
+			tools,
+		};
+	}
+	return undefined;
+}

@@ -59,6 +59,7 @@ import { InspectImageTool } from "./inspect-image";
 import { IrcTool } from "./irc";
 import { JobTool } from "./job";
 import { CallExternalAgentTool } from "./external-agent";
+import { DefineSubagentTool } from "./define-subagent";
 import { InvokeSubagentTool } from "./invoke-subagent";
 import { ManageSubagentsTool } from "./manage-subagents";
 import { ManageTaskTool } from "./manage-task";
@@ -73,15 +74,18 @@ import { MultiPromptReviewTool } from "./multi-prompt-review";
 import { wrapToolWithMetaNotice } from "./output-meta";
 import { EnterPlanModeTool, ExitPlanModeTool } from "./plan-mode";
 import { ReadTool } from "./read";
+import { ReadFileTool } from "./read-file";
 import { ReadDocTool } from "./read-doc";
 import { RenderMermaidTool } from "./render-mermaid";
 import { createReportToolIssueTool, isAutoQaEnabled } from "./report-tool-issue";
 import { ResolveTool } from "./resolve";
 import { reportFindingTool } from "./review";
+import { RunCommandTool } from "./run-command";
 import { ScheduleTool } from "./schedule";
 import { SearchTool } from "./search";
 import { SearchContextTool } from "./search-context";
 import { SearchToolBm25Tool } from "./search-tool-bm25";
+import { SearchWebTool } from "./search-web";
 import { SendInputTool } from "./send-input";
 import { SetFastTool } from "./set-fast";
 import { SetModelTool } from "./set-model";
@@ -92,6 +96,7 @@ import { TerminalPaneTool } from "./terminal-pane";
 import { type TodoPhase, TodoWriteTool } from "./todo-write";
 import { VoiceControlTool } from "./voice-control";
 import { WriteTool } from "./write";
+import { WriteFileTool } from "./write-file";
 import { YieldTool } from "./yield";
 
 // Exa MCP tools (22 tools)
@@ -192,16 +197,20 @@ export * from "./memory-retain";
 export * from "./multi-prompt-review";
 export * from "./plan-mode";
 export * from "./read";
+export * from "./read-file";
 export * from "./render-mermaid";
 export * from "./report-tool-issue";
 export * from "./resolve";
 export * from "./review";
+export * from "./run-command";
 export * from "./schedule";
 export * from "./search";
 export * from "./search-context";
 export * from "./search-tool-bm25";
+export * from "./search-web";
 export * from "./send-input";
 export * from "./send-message";
+export * from "./define-subagent";
 export * from "./invoke-subagent";
 export * from "./set-fast";
 export * from "./set-model";
@@ -213,6 +222,7 @@ export * from "./todo-write";
 export * from "./tts";
 export * from "./voice-control";
 export * from "./write";
+export * from "./write-file";
 export * from "./yield";
 
 /** Tool type (AgentTool from aery-ai) */
@@ -586,7 +596,9 @@ export function computeEssentialBuiltinNames(settings: Settings): string[] {
  */
 export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	read: s => new ReadTool(s),
+	read_file: s => new ReadFileTool(s),
 	bash: s => new BashTool(s),
+	run_command: s => new RunCommandTool(s),
 	edit: s => new EditTool(s),
 	edit_file: s => new EditFileTool(s),
 	ast_grep: s => new AstGrepTool(s),
@@ -614,7 +626,9 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	search_tool_bm25: SearchToolBm25Tool.createIf,
 	conversation_search: ConversationSearchTool.createIf,
 	web_search: s => new WebSearchTool(s),
+	search_web: s => new SearchWebTool(s),
 	write: s => new WriteTool(s),
+	write_file: s => new WriteFileTool(s),
 	memory_edit: MemoryEditTool.createIf,
 	retain: MemoryRetainTool.createIf,
 	recall: MemoryRecallTool.createIf,
@@ -644,6 +658,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	manage_task: () => new ManageTaskTool(),
 	ask_question: s => new AskQuestionTool(s),
 	manage_subagents: () => new ManageSubagentsTool(),
+	define_subagent: s => new DefineSubagentTool(s),
 	invoke_subagent: s => new InvokeSubagentTool(s),
 	send_message: s => new SendMessageTool(s),
 	call_external_agent: s => new CallExternalAgentTool(s),

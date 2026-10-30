@@ -14,10 +14,11 @@ import {
 	type BuiltinSubagentDefinition,
 	getBuiltinSubagentDefinition,
 	listBuiltinSubagents,
+	listCustomSubagents,
 } from "../registry/builtin-subagents";
 
 export type { BuiltinSubagentDefinition };
-export { getBuiltinSubagentDefinition, listBuiltinSubagents };
+export { getBuiltinSubagentDefinition, listBuiltinSubagents, listCustomSubagents };
 
 const manageSubagentsSchema = z.object({
 	Action: z
@@ -55,11 +56,12 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 				const allAgents = registry.list();
 				const subagents = allAgents.filter(a => a.kind === "sub");
 				const builtinSubagents = listBuiltinSubagents();
+				const customSubagents = listCustomSubagents();
 
 				if (subagents.length === 0) {
 					return {
 						content: [{ type: "text", text: "### Active Subagents\nNo subagents currently registered." }],
-						details: { subagents: [], builtinSubagents },
+						details: { subagents: [], builtinSubagents, customSubagents },
 					};
 				}
 
@@ -76,7 +78,7 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 
 				return {
 					content: [{ type: "text", text: lines.join("\n") }],
-					details: { subagents, builtinSubagents },
+					details: { subagents, builtinSubagents, customSubagents },
 				};
 			}
 
