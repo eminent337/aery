@@ -59,8 +59,10 @@ import { InspectImageTool } from "./inspect-image";
 import { IrcTool } from "./irc";
 import { JobTool } from "./job";
 import { CallExternalAgentTool } from "./external-agent";
+import { InvokeSubagentTool } from "./invoke-subagent";
 import { ManageSubagentsTool } from "./manage-subagents";
 import { ManageTaskTool } from "./manage-task";
+import { SendMessageTool } from "./send-message";
 import { MemoryEditTool } from "./memory-edit";
 import { MemoryLinkTool } from "./memory-link";
 import { MemoryRecallTool } from "./memory-recall";
@@ -199,6 +201,8 @@ export * from "./search";
 export * from "./search-context";
 export * from "./search-tool-bm25";
 export * from "./send-input";
+export * from "./send-message";
+export * from "./invoke-subagent";
 export * from "./set-fast";
 export * from "./set-model";
 export * from "./shadow";
@@ -640,6 +644,8 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	manage_task: () => new ManageTaskTool(),
 	ask_question: s => new AskQuestionTool(s),
 	manage_subagents: () => new ManageSubagentsTool(),
+	invoke_subagent: s => new InvokeSubagentTool(s),
+	send_message: s => new SendMessageTool(s),
 	call_external_agent: s => new CallExternalAgentTool(s),
 	best_of_n: () => new BestOfNTool(),
 	multi_prompt_review: () => new MultiPromptReviewTool(),
