@@ -284,6 +284,8 @@ export interface InteractiveModeContext {
 	hasActiveBtw(): boolean;
 	handleBtwEscape(): boolean;
 	getLastBtwAnswer(): string | undefined;
+	/** Direct access to the BtwController for promote/copy operations. */
+	btwController?: { promote(): Promise<boolean> };
 	handleTanCommand(work: string): Promise<void>;
 	handleOmfgCommand(complaint: string): Promise<void>;
 	hasActiveOmfg(): boolean;

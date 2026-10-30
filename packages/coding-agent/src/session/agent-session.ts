@@ -9891,6 +9891,53 @@ export class AgentSession {
 	}
 
 	/**
+	 * Promote a completed /btw side-question answer into the main conversation.
+	 *
+	 * Injects the exact agy banner ("This conversation was promoted from a side
+	 * question (/btw); the side-question guardrail above no longer applies.") as
+	 * a prefix on the assistant reply, then appends the user question + assistant
+	 * answer as a synthetic exchange in both the agent message history and the
+	 * session manager.  The session is NOT reset; the new messages simply extend
+	 * the existing history like any normal exchange.
+	 */
+	async promoteSideQuestion(args: { question: string; answer: string }): Promise<void> {
+		const BTW_PROMOTION_BANNER =
+			"This conversation was promoted from a side question (/btw); the side-question guardrail above no longer applies.";
+
+		const model = this.model;
+
+		const userMsg = {
+			role: "user" as const,
+			content: [{ type: "text" as const, text: args.question }],
+			attribution: "user" as const,
+			timestamp: Date.now(),
+		};
+
+		const assistantMsg = {
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: `${BTW_PROMOTION_BANNER}\n\n${args.answer}` }],
+			api: (model?.api ?? "anthropic-messages") as AssistantMessage["api"],
+			provider: (model?.provider ?? "anthropic") as AssistantMessage["provider"],
+			model: model?.id ?? "promoted-btw",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop" as const,
+			timestamp: Date.now(),
+		};
+
+		this.agent.appendMessage(userMsg);
+		this.sessionManager.appendMessage(userMsg);
+		this.agent.appendMessage(assistantMsg);
+		this.sessionManager.appendMessage(assistantMsg);
+	}
+
+	/**
 	 * Build a message snapshot for an ephemeral side-channel turn.  Includes
 	 * the in-flight streaming assistant message (if any) so the model sees
 	 * the partial response in context, then appends the prompt as a virtual

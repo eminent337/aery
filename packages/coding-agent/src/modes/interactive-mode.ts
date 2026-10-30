@@ -3214,6 +3214,11 @@ export class InteractiveMode implements InteractiveModeContext {
 		return this.#btwController.getCurrentOrLastAnswer();
 	}
 
+	/** Expose BtwController for slash-command access (e.g. /btw promote). */
+	get btwController(): BtwController {
+		return this.#btwController;
+	}
+
 	handleTanCommand(work: string): Promise<void> {
 		return this.#tanController.start(work);
 	}

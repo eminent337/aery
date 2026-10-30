@@ -10,6 +10,7 @@ interface BtwRequest {
 export class BtwController {
 	#activeRequest: BtwRequest | undefined;
 	#lastAnswer: string | undefined;
+	#lastQuestion: string | undefined;
 
 	constructor(private readonly ctx: InteractiveModeContext) {}
 
@@ -27,6 +28,34 @@ export class BtwController {
 			if (current) return current;
 		}
 		return this.#lastAnswer;
+	}
+
+	/**
+	 * Promote the current or last /btw answer into the main conversation.
+	 * Injects the exact agy promotion banner then appends the Q+A pair to
+	 * the live session history.  Closes the active /btw card if open.
+	 *
+	 * Returns true when promotion succeeded, false when there is nothing to promote.
+	 */
+	async promote(): Promise<boolean> {
+		const question = this.#activeRequest?.question ?? this.#lastQuestion;
+		const answer = this.getCurrentOrLastAnswer();
+
+		if (!question || !answer) {
+			this.ctx.showStatus("No /btw response to promote.");
+			return false;
+		}
+
+		// Close the panel before promoting so the main chat gets focus back
+		this.#closeActiveRequest({ abort: false });
+
+		const session = this.ctx.session;
+		if (typeof (session as unknown as Record<string, unknown>).promoteSideQuestion === "function") {
+			await session.promoteSideQuestion({ question, answer });
+		}
+
+		this.ctx.showStatus("Promoted /btw response to main conversation.");
+		return true;
 	}
 
 	handleEscape(): boolean {
@@ -98,6 +127,7 @@ export class BtwController {
 			if (replyText) {
 				request.component.setAnswer(replyText);
 				this.#lastAnswer = replyText;
+				this.#lastQuestion = request.question;
 			}
 			request.component.markComplete();
 		} catch (error) {

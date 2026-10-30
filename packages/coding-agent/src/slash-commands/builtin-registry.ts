@@ -1183,8 +1183,15 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		description: "Ask an ephemeral side question using the current session context",
 		inlineHint: "<question>",
 		allowArgs: true,
+		subcommands: [{ name: "promote", description: "Promote the last /btw answer into the main conversation" }],
 		handleTui: async (command, runtime) => {
-			const question = command.text.slice(`/${command.name}`.length).trim();
+			const rawArgs = command.text.slice(`/${command.name}`.length).trim();
+			if (rawArgs === "promote") {
+				runtime.ctx.editor.setText("");
+				await runtime.ctx.btwController?.promote();
+				return commandConsumed();
+			}
+			const question = rawArgs;
 			runtime.ctx.editor.setText("");
 			await runtime.ctx.handleBtwCommand(question);
 		},

@@ -187,4 +187,49 @@ describe("BtwController", () => {
 		expect(controller.getLastAnswer()).toBe("Side question subagent answer");
 		expect(controller.getCurrentOrLastAnswer()).toBe("Side question subagent answer");
 	});
+
+	it("promotes the active or last /btw answer to the main conversation", async () => {
+		const runSideQuestion = vi.fn(async () => ({
+			replyText: "Analysis of the cache layout",
+			assistantMessage: createAssistantMessage("Analysis of the cache layout"),
+		}));
+		const promoteSideQuestion = vi.fn();
+		const session = {
+			model: { provider: "google", id: "gemini-2.5-flash" },
+			runSideQuestion,
+			promoteSideQuestion,
+		} as unknown as InteractiveModeContext["session"];
+		const btwContainer = new Container();
+		const ctx = makeCtx(session, btwContainer);
+		const controller = new BtwController(ctx);
+
+		await controller.start("How is the cache laid out?");
+		await Promise.resolve();
+		await Promise.resolve();
+
+		const promoted = await controller.promote();
+		expect(promoted).toBe(true);
+		expect(promoteSideQuestion).toHaveBeenCalledWith({
+			question: "How is the cache laid out?",
+			answer: "Analysis of the cache layout",
+		});
+		expect(ctx.showStatus).toHaveBeenCalledWith("Promoted /btw response to main conversation.");
+		expect(controller.hasActiveRequest()).toBe(false);
+		expect(btwContainer.children).toHaveLength(0);
+	});
+
+	it("shows error when promote is called with no active or cached /btw answer", async () => {
+		const promoteSideQuestion = vi.fn();
+		const session = {
+			model: { provider: "google", id: "gemini-2.5-flash" },
+			promoteSideQuestion,
+		} as unknown as InteractiveModeContext["session"];
+		const ctx = makeCtx(session);
+		const controller = new BtwController(ctx);
+
+		const promoted = await controller.promote();
+		expect(promoted).toBe(false);
+		expect(promoteSideQuestion).not.toHaveBeenCalled();
+		expect(ctx.showStatus).toHaveBeenCalledWith("No /btw response to promote.");
+	});
 });
