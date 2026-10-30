@@ -17,6 +17,9 @@ export class BtwPanelComponent extends Container {
 	#answer = "";
 	#errorMessage: string | undefined;
 	#closed = false;
+	#scrollOffset = 0;
+	#maxContentLines = 14;
+	#lastTotalContentLines = 0;
 
 	constructor(options: BtwPanelComponentOptions) {
 		super();
@@ -66,30 +69,90 @@ export class BtwPanelComponent extends Container {
 		this.#closed = true;
 	}
 
+	scrollBy(delta: number): boolean {
+		if (this.#closed) return false;
+		const totalLines = this.totalContentLines;
+		const maxOffset = Math.max(0, totalLines - this.#maxContentLines);
+		if (maxOffset <= 0) return false;
+		const prev = this.#scrollOffset;
+		this.#scrollOffset = Math.max(0, Math.min(this.#scrollOffset + delta, maxOffset));
+		if (this.#scrollOffset !== prev) {
+			this.#rebuild();
+		}
+		return true;
+	}
+
+	canScroll(): boolean {
+		return this.totalContentLines > this.#maxContentLines;
+	}
+
+	get scrollOffset(): number {
+		return this.#scrollOffset;
+	}
+
+	get maxContentLines(): number {
+		return this.#maxContentLines;
+	}
+
+	get totalContentLines(): number {
+		if (this.#lastTotalContentLines > 0) return this.#lastTotalContentLines;
+		const text = this.#answer.trim();
+		return text ? text.split("\n").length : 0;
+	}
+
+	override render(width: number): string[] {
+		width = Math.max(1, width);
+		const borderTop = new DynamicBorder(str => theme.fg("dim", str)).render(width);
+		const question = new Text(theme.fg("accent", replaceTabs(this.#question)), 1, 0).render(width);
+		const contentComp = this.#contentComponent();
+		const allContentLines = contentComp.render(width);
+		this.#lastTotalContentLines = allContentLines.length;
+
+		const isScrollable = allContentLines.length > this.#maxContentLines;
+		const maxOffset = Math.max(0, allContentLines.length - this.#maxContentLines);
+		this.#scrollOffset = Math.max(0, Math.min(this.#scrollOffset, maxOffset));
+
+		const visibleContentLines = isScrollable
+			? allContentLines.slice(this.#scrollOffset, this.#scrollOffset + this.#maxContentLines)
+			: allContentLines;
+
+		const lines: string[] = [];
+		lines.push(...borderTop);
+		lines.push("");
+		lines.push(...question);
+		lines.push("");
+		lines.push(...visibleContentLines);
+
+		if (isScrollable) {
+			const startLine = this.#scrollOffset + 1;
+			const endLine = Math.min(this.#scrollOffset + this.#maxContentLines, allContentLines.length);
+			const scrollInfo = theme.fg("dim", `[lines ${startLine}-${endLine} of ${allContentLines.length}]`);
+			lines.push(...new Text(scrollInfo, 1, 0).render(width));
+		}
+
+		lines.push("");
+		lines.push(...new Text(this.#footerLine(isScrollable), 1, 0).render(width));
+		lines.push("");
+		lines.push(...new DynamicBorder(str => theme.fg("dim", str)).render(width));
+
+		return lines;
+	}
+
 	#rebuild(): void {
-		this.clear();
-		this.addChild(new DynamicBorder(str => theme.fg("dim", str)));
-		this.addChild(new Spacer(1));
-		this.addChild(new Text(theme.fg("accent", replaceTabs(this.#question)), 1, 0));
-		this.addChild(new Spacer(1));
-		this.addChild(this.#contentComponent());
-		this.addChild(new Spacer(1));
-		this.addChild(new Text(this.#footerLine(), 1, 0));
-		this.addChild(new Spacer(1));
-		this.addChild(new DynamicBorder(str => theme.fg("dim", str)));
 		this.#tui.requestRender();
 	}
 
-	#footerLine(): string {
+	#footerLine(isScrollable: boolean = false): string {
+		const scrollHint = isScrollable ? "↑/↓ scroll · " : "";
 		switch (this.#state) {
 			case "running":
-				return theme.fg("muted", "Esc cancel /btw");
+				return theme.fg("muted", `${scrollHint}Esc cancel /btw`);
 			case "complete":
-				return theme.fg("muted", "Esc dismiss");
+				return theme.fg("muted", `${scrollHint}Esc dismiss · /btw promote`);
 			case "aborted":
-				return theme.fg("warning", `${theme.status.warning} Cancelled · Esc dismiss`);
+				return theme.fg("warning", `${scrollHint}${theme.status.warning} Cancelled · Esc dismiss`);
 			case "error":
-				return theme.fg("error", `${theme.status.error} Error · Esc dismiss`);
+				return theme.fg("error", `${scrollHint}${theme.status.error} Error · Esc dismiss`);
 		}
 	}
 

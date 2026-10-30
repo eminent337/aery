@@ -97,6 +97,8 @@ function renderIntraLineDiff(oldContent: string, newContent: string): { removedL
 export interface RenderDiffOptions {
 	/** File path used to resolve indentation (.editorconfig + defaults) */
 	filePath?: string;
+	/** Whether to expand all lines without folding long context blocks (default: false) */
+	expanded?: boolean;
 }
 
 /**
@@ -209,13 +211,51 @@ export function renderDiff(diffText: string, options: RenderDiffOptions = {}): s
 			);
 			i++;
 		} else {
-			const highlighted = contextHighlights.get(i);
-			const content =
-				highlighted !== undefined
-					? replaceTabs(highlighted, options.filePath)
-					: visualizeIndent(parsed.content, options.filePath);
-			result.push(theme.fg("toolDiffContext", formatLine(" ", parsed.lineNum, content)));
-			i++;
+			const contextRun: Array<{
+				index: number;
+				parsed: { prefix: CodeFrameMarker; lineNum: string; content: string };
+			}> = [];
+			while (i < lines.length) {
+				const p = parseDiffLine(lines[i]);
+				if (!p || p.prefix === "-" || p.prefix === "+") {
+					break;
+				}
+				contextRun.push({ index: i, parsed: p });
+				i++;
+			}
+
+			const renderContextItem = (item: {
+				index: number;
+				parsed: { prefix: CodeFrameMarker; lineNum: string; content: string };
+			}) => {
+				const highlighted = contextHighlights.get(item.index);
+				const content =
+					highlighted !== undefined
+						? replaceTabs(highlighted, options.filePath)
+						: visualizeIndent(item.parsed.content, options.filePath);
+				result.push(theme.fg("toolDiffContext", formatLine(" ", item.parsed.lineNum, content)));
+			};
+
+			if (!options.expanded && contextRun.length > 15) {
+				// Preserve the first 3 lines
+				for (let k = 0; k < 3; k++) {
+					renderContextItem(contextRun[k]);
+				}
+				const skippedCount = contextRun.length - 6;
+				const skipMarker = lineNumberWidth > 0
+					? `${"".padStart(lineNumberWidth + 1, " ")}│ ··· ${skippedCount} unchanged lines ···`
+					: ` ··· ${skippedCount} unchanged lines ···`;
+				prevLineNum = "";
+				result.push(theme.fg("dim", skipMarker));
+				// Preserve the last 3 lines
+				for (let k = contextRun.length - 3; k < contextRun.length; k++) {
+					renderContextItem(contextRun[k]);
+				}
+			} else {
+				for (const item of contextRun) {
+					renderContextItem(item);
+				}
+			}
 		}
 	}
 

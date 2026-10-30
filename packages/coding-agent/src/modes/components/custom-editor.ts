@@ -27,7 +27,7 @@ const DEFAULT_ACTION_KEYS: Record<ConfigurableEditorAction, KeyId[]> = {
 	"app.clear": ["ctrl+c"],
 	"app.exit": ["ctrl+d"],
 	"app.suspend": ["ctrl+z"],
-	"app.thinking.cycle": ["shift+tab"],
+	"app.thinking.cycle": ["shift+tab", "alt+e"],
 	"app.model.cycleForward": ["ctrl+p"],
 	"app.model.cycleBackward": ["shift+ctrl+p"],
 	"app.model.select": ["ctrl+l"],
@@ -73,6 +73,8 @@ export class CustomEditor extends Editor {
 	onDequeue?: () => void;
 	/** Called when Caps Lock is pressed. */
 	onCapsLock?: () => void;
+	/** Called when page up / page down / up / down is pressed while an active card (e.g. /btw) wants navigation. Return true to consume. */
+	onNavigationKey?: (key: "up" | "down" | "pageup" | "pagedown") => boolean;
 
 	/** Custom key handlers from extensions and non-built-in app actions. */
 	#customKeyHandlers = new Map<KeyId, () => void>();
@@ -115,6 +117,14 @@ export class CustomEditor extends Editor {
 	}
 
 	handleInput(data: string): void {
+		// Intercept navigation keys if handler registered and consumes it (e.g. scrollable /btw card)
+		if (this.onNavigationKey) {
+			if (matchesKey(data, "pageUp") && this.onNavigationKey("pageup")) return;
+			if (matchesKey(data, "pageDown") && this.onNavigationKey("pagedown")) return;
+			if (matchesKey(data, "up") && this.onNavigationKey("up")) return;
+			if (matchesKey(data, "down") && this.onNavigationKey("down")) return;
+		}
+
 		const parsed = parseKittySequence(data);
 		if (parsed && (parsed.modifier & 64) !== 0 && this.onCapsLock) {
 			// Caps Lock is modifier bit 64

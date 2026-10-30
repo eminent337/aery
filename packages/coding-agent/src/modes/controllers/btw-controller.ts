@@ -64,6 +64,11 @@ export class BtwController {
 		return true;
 	}
 
+	handleScroll(delta: number): boolean {
+		if (!this.#activeRequest) return false;
+		return this.#activeRequest.component.scrollBy(delta);
+	}
+
 	dispose(): void {
 		this.#closeActiveRequest({ abort: true });
 	}

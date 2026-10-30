@@ -283,6 +283,7 @@ export interface InteractiveModeContext {
 	handleBtwCommand(question: string): Promise<void>;
 	hasActiveBtw(): boolean;
 	handleBtwEscape(): boolean;
+	handleBtwScroll(delta: number): boolean;
 	getLastBtwAnswer(): string | undefined;
 	/** Direct access to the BtwController for promote/copy operations. */
 	btwController?: { promote(): Promise<boolean> };

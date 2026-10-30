@@ -90,7 +90,7 @@ export const KEYBINDINGS = {
 		description: "Suspend application",
 	},
 	"app.thinking.cycle": {
-		defaultKeys: "alt+shift+t",
+		defaultKeys: ["shift+tab", "alt+e", "alt+shift+t"],
 		description: "Cycle thinking level",
 	},
 	"app.thinking.toggle": {

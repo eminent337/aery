@@ -105,6 +105,7 @@ import type { HookEditorComponent } from "./components/hook-editor";
 import type { HookInputComponent } from "./components/hook-input";
 import type { HookSelectorComponent, HookSelectorSlider } from "./components/hook-selector";
 import { StatusLineComponent } from "./components/status-line";
+import { SubagentActivityHudComponent } from "./components/subagent-hud";
 import { StudioStateManager } from "./components/studio/state.js";
 import type { ToolExecutionHandle } from "./components/tool-execution";
 import { WelcomeComponent, type LspServerInfo as WelcomeLspServerInfo } from "./components/welcome";
@@ -272,6 +273,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	omfgContainer: Container;
 	editor: CustomEditor;
 	editorContainer: Container;
+	subagentHud: SubagentActivityHudComponent;
 	hookWidgetContainerAbove: Container;
 	hookWidgetContainerBelow: Container;
 	statusLine: StatusLineComponent;
@@ -443,6 +445,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		this.hookWidgetContainerAbove = new Container();
 		this.hookWidgetContainerAbove.addChild(new Spacer(1));
+		this.subagentHud = new SubagentActivityHudComponent();
 		this.hookWidgetContainerBelow = new Container();
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor);
@@ -577,6 +580,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.ui.addChild(this.btwContainer);
 		this.ui.addChild(this.omfgContainer);
 		this.ui.addChild(this.hookWidgetContainerAbove);
+		this.ui.addChild(this.subagentHud);
 		this.ui.addChild(this.editorContainer);
 		this.ui.addChild(this.statusLine); // Renders flat status line natively below editor
 		this.ui.addChild(this.hookWidgetContainerBelow);
@@ -631,6 +635,7 @@ export class InteractiveMode implements InteractiveModeContext {
 
 			this.statusLine.setActiveSubagents(merged);
 			this.statusLine.setSubagentCount(merged.length);
+			this.subagentHud.setSubagents(merged);
 			if (merged.length > 0) {
 				this.#startSubagentAnimationTimer();
 			} else {
@@ -1113,7 +1118,14 @@ export class InteractiveMode implements InteractiveModeContext {
 			const text = ` Images [${bar}] ${currentImages}/${MAX_IMAGES} `;
 			this.editor.setTopBorder({ content: text, width: text.length });
 		} else {
-			this.editor.setTopBorder(undefined);
+			const thinkingLevel = this.session?.thinkingLevel;
+			if (thinkingLevel && thinkingLevel !== "off") {
+				const badge = ` [effort: ${thinkingLevel} (alt+e)] `;
+				const styled = theme.fg("accent", badge);
+				this.editor.setTopBorder({ content: styled, width: badge.length });
+			} else {
+				this.editor.setTopBorder(undefined);
+			}
 		}
 	}
 
@@ -3208,6 +3220,10 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	handleBtwEscape(): boolean {
 		return this.#btwController.handleEscape();
+	}
+
+	handleBtwScroll(delta: number): boolean {
+		return this.#btwController.handleScroll(delta);
 	}
 
 	getLastBtwAnswer(): string | undefined {

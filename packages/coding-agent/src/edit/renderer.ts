@@ -138,7 +138,7 @@ export interface EditRenderContext {
 	/** Raw in-flight edit text shown while a computed diff preview is unavailable */
 	editStreamingFallback?: string;
 	/** Function to render diff text with syntax highlighting */
-	renderDiff?: (diffText: string, options?: { filePath?: string }) => string;
+	renderDiff?: (diffText: string, options?: { filePath?: string; expanded?: boolean }) => string;
 }
 
 const EDIT_STREAMING_PREVIEW_LINES = 12;
@@ -257,7 +257,7 @@ function formatStreamingDiff(diff: string, rawPath: string, uiTheme: Theme, labe
 		remainder.push(`${hiddenLines} more lines`);
 		text += `${uiTheme.fg("dim", `… (${remainder.join(", ")} above)`)}\n`;
 	}
-	text += renderDiffColored(visible.join("\n"), { filePath: rawPath });
+	text += renderDiffColored(visible.join("\n"), { filePath: rawPath, expanded: false });
 	text += uiTheme.fg("dim", `\n(${label})`);
 	return text;
 }
@@ -390,7 +390,7 @@ function renderDiffSection(
 	rawPath: string,
 	expanded: boolean,
 	uiTheme: Theme,
-	renderDiffFn: (t: string, o?: { filePath?: string }) => string,
+	renderDiffFn: (t: string, o?: { filePath?: string; expanded?: boolean }) => string,
 ): string {
 	let text = "";
 	const diffStats = getDiffStats(diff);
@@ -409,7 +409,7 @@ function renderDiffSection(
 		? { text: diff, hiddenHunks: 0, hiddenLines: 0 }
 		: truncateDiffByHunk(diff, PREVIEW_LIMITS.DIFF_COLLAPSED_HUNKS, PREVIEW_LIMITS.DIFF_COLLAPSED_LINES);
 
-	text += `\n\n${renderDiffFn(truncatedDiff, { filePath: rawPath })}`;
+	text += `\n\n${renderDiffFn(truncatedDiff, { filePath: rawPath, expanded })}`;
 	if (!expanded && (hiddenHunks > 0 || hiddenLines > 0)) {
 		const remainder: string[] = [];
 		if (hiddenHunks > 0) remainder.push(`${hiddenHunks} more hunks`);

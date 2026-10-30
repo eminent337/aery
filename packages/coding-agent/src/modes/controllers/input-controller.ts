@@ -149,6 +149,19 @@ export class InputController {
 		this.ctx.editor.onExit = () => this.handleCtrlD();
 		this.ctx.editor.setActionKeys("app.suspend", this.ctx.keybindings.getKeys("app.suspend"));
 		this.ctx.editor.onSuspend = () => this.handleCtrlZ();
+
+		// Intercept navigation keys for scrollable side cards (e.g. /btw)
+		this.ctx.editor.onNavigationKey = (key: "up" | "down" | "pageup" | "pagedown") => {
+			if (this.ctx.hasActiveBtw()) {
+				if (key === "pageup") return this.ctx.handleBtwScroll(-5);
+				if (key === "pagedown") return this.ctx.handleBtwScroll(5);
+				if (this.ctx.editor.getText().length === 0) {
+					if (key === "up") return this.ctx.handleBtwScroll(-1);
+					if (key === "down") return this.ctx.handleBtwScroll(1);
+				}
+			}
+			return false;
+		};
 		this.ctx.editor.setActionKeys("app.thinking.cycle", this.ctx.keybindings.getKeys("app.thinking.cycle"));
 		this.ctx.editor.onCycleThinkingLevel = () => this.cycleThinkingLevel();
 		this.ctx.editor.setActionKeys("app.model.cycleForward", this.ctx.keybindings.getKeys("app.model.cycleForward"));
@@ -840,6 +853,7 @@ export class InputController {
 		} else {
 			this.ctx.statusLine.invalidate();
 			this.ctx.updateEditorBorderColor();
+			this.ctx.updateEditorTopBorder();
 		}
 	}
 
@@ -854,6 +868,7 @@ export class InputController {
 
 			this.ctx.statusLine.invalidate();
 			this.ctx.updateEditorBorderColor();
+			this.ctx.updateEditorTopBorder();
 			// The status line already reports the resolved model + thinking level, so
 			// the cycle status is just a status-line-style chip track (active role
 			// filled), matching the plan-approval model slider.
