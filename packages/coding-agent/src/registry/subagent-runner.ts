@@ -215,7 +215,7 @@ export class SubagentRunner {
 			parentId: opts.parentId,
 			session: session as any,
 			sessionFile: logPath,
-			status: "running",
+			status: opts.prompt ? "running" : "idle",
 		});
 
 		// AgentRegistry.attachSession handles turn_start, turn_end, tool_execution_start/end.
@@ -260,18 +260,22 @@ export class SubagentRunner {
 							: ((session as any)?.lastAssistantText ?? "Task completed.");
 
 					if (parentSession && typeof parentSession.sendCustomMessage === "function") {
-						const timestamp = new Date().toISOString();
-						const completionNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${conversationId} priority=MESSAGE_PRIORITY_HIGH content=Subagent completed execution:\n\n${finalOutput || "Task completed."}\n</SYSTEM_MESSAGE>`;
-						await parentSession.sendCustomMessage(
-							{
-								customType: "agent_message",
-								content: completionNotice,
-								display: true,
-								details: { from: conversationId, priority: "MESSAGE_PRIORITY_HIGH", status: "completed" },
-								attribution: "agent",
-							},
-							{ triggerTurn: true, deliverAs: "followUp" },
-						);
+						try {
+							const timestamp = new Date().toISOString();
+							const completionNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${conversationId} priority=MESSAGE_PRIORITY_HIGH content=Subagent completed execution:\n\n${finalOutput || "Task completed."}\n</SYSTEM_MESSAGE>`;
+							await parentSession.sendCustomMessage(
+								{
+									customType: "agent_message",
+									content: completionNotice,
+									display: true,
+									details: { from: conversationId, priority: "MESSAGE_PRIORITY_HIGH", status: "completed" },
+									attribution: "agent",
+								},
+								{ triggerTurn: true, deliverAs: "followUp" },
+							);
+						} catch {
+							// Parent session might have aborted or closed; ignore delivery failure
+						}
 					}
 				}
 			} catch (error) {
@@ -280,18 +284,22 @@ export class SubagentRunner {
 				const parentSession = parentRef?.session as any;
 
 				if (parentSession && typeof parentSession.sendCustomMessage === "function") {
-					const timestamp = new Date().toISOString();
-					const failureNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${conversationId} priority=MESSAGE_PRIORITY_HIGH content=Subagent terminated with error: ${error instanceof Error ? error.message : String(error)}\n</SYSTEM_MESSAGE>`;
-					await parentSession.sendCustomMessage(
-						{
-							customType: "agent_message",
-							content: failureNotice,
-							display: true,
-							details: { from: conversationId, priority: "MESSAGE_PRIORITY_HIGH", status: "error" },
-							attribution: "agent",
-						},
-						{ triggerTurn: true, deliverAs: "followUp" },
-					);
+					try {
+						const timestamp = new Date().toISOString();
+						const failureNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${conversationId} priority=MESSAGE_PRIORITY_HIGH content=Subagent terminated with error: ${error instanceof Error ? error.message : String(error)}\n</SYSTEM_MESSAGE>`;
+						await parentSession.sendCustomMessage(
+							{
+								customType: "agent_message",
+								content: failureNotice,
+								display: true,
+								details: { from: conversationId, priority: "MESSAGE_PRIORITY_HIGH", status: "error" },
+								attribution: "agent",
+							},
+							{ triggerTurn: true, deliverAs: "followUp" },
+						);
+					} catch {
+						// Parent session might have aborted or closed; ignore delivery failure
+					}
 				}
 			} finally {
 				this.registry.setStatus(conversationId, "idle");
@@ -338,7 +346,7 @@ export class SubagentRunner {
 				parentId: opts.parentId,
 				session: null,
 				sessionFile: null,
-				status: "running",
+				status: opts.prompt ? "running" : "idle",
 			});
 
 			const { session } = await createSession({

@@ -136,9 +136,9 @@ export class AgentRegistry {
 	setProgress(id: string, progress: { currentTool?: string; currentToolArgs?: string; lastIntent?: string }): void {
 		const ref = this.#refs.get(id);
 		if (!ref) return;
-		if (progress.currentTool !== undefined) ref.currentTool = progress.currentTool;
-		if (progress.currentToolArgs !== undefined) ref.currentToolArgs = progress.currentToolArgs;
-		if (progress.lastIntent !== undefined) ref.lastIntent = progress.lastIntent;
+		if ("currentTool" in progress) ref.currentTool = progress.currentTool;
+		if ("currentToolArgs" in progress) ref.currentToolArgs = progress.currentToolArgs;
+		if ("lastIntent" in progress) ref.lastIntent = progress.lastIntent;
 		ref.lastActivity = Date.now();
 		this.#emit({ type: "status_changed", ref });
 	}

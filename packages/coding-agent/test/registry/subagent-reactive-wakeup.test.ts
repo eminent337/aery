@@ -254,4 +254,68 @@ describe("SubagentRunner - Reactive Wakeup Engine", () => {
 		const ref = registry.get(launchResult.conversationId);
 		expect(ref?.status).toBe("idle");
 	});
+
+	it("handles delivery failure gracefully if parent session throws during completion wakeup", async () => {
+		const throwingParentSession: any = {
+			sendCustomMessage: mock(async () => {
+				throw new Error("Parent transport severed");
+			}),
+		};
+
+		const registry = AgentRegistry.global();
+		registry.register({
+			id: "parent-throwing",
+			displayName: "Throwing Parent",
+			kind: "main",
+			session: throwingParentSession,
+			status: "idle",
+		});
+
+		const mockChildSession = createMockSubagentSession();
+		mockChildSession.prompt = mock(async () => {});
+
+		const runner = new SubagentRunner(registry, async () => ({
+			session: mockChildSession as any,
+		}));
+
+		const launchResult = await runner.launch({
+			TypeName: "research",
+			Role: "Resilient Subagent",
+			Prompt: "Finish despite parent crash",
+			parentId: "parent-throwing",
+		});
+
+		// Wait for background execution to complete and ensure no uncaught rejection
+		await new Promise(r => setTimeout(r, 50));
+
+		const childRef = registry.get(launchResult.conversationId);
+		expect(childRef?.status).toBe("idle");
+	});
+
+	it("initializes status to idle and clears tool progress when prompt is omitted", async () => {
+		const registry = AgentRegistry.global();
+		const runner = new SubagentRunner(registry);
+
+		const launchResult = await runner.launchMock({
+			TypeName: "research",
+			Role: "Idle Helper",
+		});
+
+		const ref = registry.get(launchResult.conversationId);
+		expect(ref?.status).toBe("idle");
+
+		// Test setProgress clearing with undefined
+		registry.setProgress(launchResult.conversationId, {
+			currentTool: "read_file",
+			currentToolArgs: "package.json",
+		});
+		expect(ref?.currentTool).toBe("read_file");
+
+		registry.setProgress(launchResult.conversationId, {
+			currentTool: undefined,
+			currentToolArgs: undefined,
+		});
+		expect(ref?.currentTool).toBeUndefined();
+		expect(ref?.currentToolArgs).toBeUndefined();
+	});
 });
