@@ -76,6 +76,7 @@ export class InvokeSubagentTool implements AgentTool<typeof invokeSubagentSchema
 
 		const parentId = this.session?.getAgentId?.() ?? undefined;
 		const cwd = this.session?.cwd;
+		const parentModel = this.session?.getModelState?.()?.currentModel ?? undefined;
 
 		const launchResult = await this.runner.launch({
 			TypeName: typeName,
@@ -84,6 +85,7 @@ export class InvokeSubagentTool implements AgentTool<typeof invokeSubagentSchema
 			Model: params.Model,
 			Workspace: params.Workspace,
 			parentId: parentId || undefined,
+			parentModel: parentModel || undefined,
 			cwd: cwd || undefined,
 		});
 

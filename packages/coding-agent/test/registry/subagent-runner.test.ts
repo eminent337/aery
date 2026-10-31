@@ -131,6 +131,69 @@ describe("SubagentRunner Engine", () => {
 		it("passes through explicit model names unchanged", () => {
 			expect(resolveSubagentModel("anthropic/claude-3-opus")).toBe("anthropic/claude-3-opus");
 		});
+
+		it("resolves provider-aware speed tiers for Anthropic parent model", () => {
+			expect(resolveSubagentModel("flash", "anthropic/claude-3-7-sonnet")).toBe("claude-3-5-haiku");
+			expect(resolveSubagentModel("flash_lite", "anthropic/claude-3-7-sonnet")).toBe("claude-3-5-haiku");
+			expect(resolveSubagentModel("pro", "anthropic/claude-3-7-sonnet")).toBe("claude-3-7-sonnet");
+		});
+
+		it("resolves provider-aware speed tiers for OpenAI parent model", () => {
+			expect(resolveSubagentModel("flash", "openai/gpt-4o")).toBe("gpt-4o-mini");
+			expect(resolveSubagentModel("flash_lite", "openai/gpt-4o")).toBe("gpt-4o-mini");
+			expect(resolveSubagentModel("pro", "openai/gpt-4o")).toBe("gpt-4o");
+		});
+	});
+
+	describe("Workspace Isolation", () => {
+		it("launchMock: returns parent cwd when Workspace is 'inherit'", async () => {
+			const runner = new SubagentRunner();
+			const result = await runner.launchMock({
+				Role: "Inherit Worker",
+				Workspace: "inherit",
+				cwd: "/home/user/project",
+			});
+			expect(result.workspaceUris).toEqual(["/home/user/project"]);
+		});
+
+		it("launchMock: returns isolated directory when Workspace is 'branch' or 'share'", async () => {
+			const runner = new SubagentRunner();
+			const branchResult = await runner.launchMock({
+				Role: "Branch Worker",
+				Workspace: "branch",
+				cwd: "/home/user/project",
+			});
+			expect(branchResult.workspaceUris[0]).not.toBe("/home/user/project");
+			expect(branchResult.workspaceUris[0]).toContain(".system_generated");
+			expect(branchResult.workspaceUris[0]).toContain(branchResult.conversationId);
+
+			const shareResult = await runner.launchMock({
+				Role: "Share Worker",
+				Workspace: "share",
+				cwd: "/home/user/project",
+			});
+			expect(shareResult.workspaceUris[0]).not.toBe("/home/user/project");
+			expect(shareResult.workspaceUris[0]).toContain(shareResult.conversationId);
+		});
+
+		it("launch: passes isolated cwd to createSession when Workspace is 'branch'", async () => {
+			let capturedCwd: string | undefined;
+			const mockSession = createMockSubagentSession();
+			const runner = new SubagentRunner(AgentRegistry.global(), async (options: any) => {
+				capturedCwd = options.cwd;
+				return { session: mockSession as any };
+			});
+
+			const result = await runner.launch({
+				Role: "Branch Worker",
+				Workspace: "branch",
+				cwd: "/home/user/project",
+			});
+
+			expect(result.workspaceUris[0]).not.toBe("/home/user/project");
+			expect(result.workspaceUris[0]).toContain(result.conversationId);
+			expect(capturedCwd).toBe(result.workspaceUris[0]);
+		});
 	});
 
 	describe("SubagentRunner.launchMock", () => {

@@ -5,6 +5,8 @@
  * turn/tool events for live progress and status streaming.
  */
 
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { AgentRegistry, MAIN_AGENT_ID } from "./agent-registry";
 import { getSubagentDefinition } from "./builtin-subagents";
@@ -38,6 +40,18 @@ export const SUBAGENT_MODEL_TIERS: Record<string, string> = {
 	flash: "gemini-2.5-flash",
 	flash_lite: "gemini-2.5-flash-lite",
 	pro: "gemini-2.5-pro",
+};
+
+export const ANTHROPIC_SUBAGENT_MODEL_TIERS: Record<string, string> = {
+	flash: "claude-3-5-haiku",
+	flash_lite: "claude-3-5-haiku",
+	pro: "claude-3-7-sonnet",
+};
+
+export const OPENAI_SUBAGENT_MODEL_TIERS: Record<string, string> = {
+	flash: "gpt-4o-mini",
+	flash_lite: "gpt-4o-mini",
+	pro: "gpt-4o",
 };
 
 export const DEFAULT_SUBAGENT_MODEL = "gemini-2.5-flash";
@@ -92,6 +106,18 @@ export function resolveSubagentModel(model?: string, parentModel?: string): stri
 	if (!normalized || normalized === "inherit") {
 		return parentModel || DEFAULT_SUBAGENT_MODEL;
 	}
+
+	const parentLower = parentModel?.toLowerCase() ?? "";
+	if (parentLower.includes("claude") || parentLower.includes("anthropic")) {
+		if (normalized in ANTHROPIC_SUBAGENT_MODEL_TIERS) {
+			return ANTHROPIC_SUBAGENT_MODEL_TIERS[normalized];
+		}
+	} else if (parentLower.includes("gpt") || parentLower.includes("openai")) {
+		if (normalized in OPENAI_SUBAGENT_MODEL_TIERS) {
+			return OPENAI_SUBAGENT_MODEL_TIERS[normalized];
+		}
+	}
+
 	if (normalized in SUBAGENT_MODEL_TIERS) {
 		return SUBAGENT_MODEL_TIERS[normalized];
 	}
@@ -199,9 +225,14 @@ export class SubagentRunner {
 		const resolvedModel = resolveSubagentModel(opts.model, opts.parentModel);
 		const resolvedTools = resolveSubagentTools(opts.typeName, opts.customTools);
 
+		let effectiveCwd = opts.cwd;
+		if (opts.workspace === "branch" || opts.workspace === "share") {
+			effectiveCwd = path.resolve(opts.cwd, ".system_generated", "workspaces", conversationId);
+		}
+
 		const logPath = path.resolve(opts.cwd, ".system_generated", "logs", `${conversationId}.jsonl`);
 		const logAbsoluteUri = `file://${logPath}`;
-		const workspaceUris = [opts.cwd];
+		const workspaceUris = [effectiveCwd];
 
 		const session = createMockSubagentSession(logPath);
 		session.model = resolvedModel;
@@ -327,9 +358,31 @@ export class SubagentRunner {
 		const resolvedModel = resolveSubagentModel(opts.model, opts.parentModel);
 		const resolvedTools = resolveSubagentTools(opts.typeName, opts.customTools);
 
+		let effectiveCwd = opts.cwd;
+		let isolationHandle: any;
+
+		if (opts.workspace === "branch" || opts.workspace === "share") {
+			try {
+				const { ensureIsolation } = await import("../task/worktree");
+				isolationHandle = await ensureIsolation(opts.cwd, conversationId);
+				effectiveCwd = isolationHandle.mergedDir;
+			} catch {
+				// Fallback to isolated scratch workspace directory
+				try {
+					const fallbackDir = path.resolve(opts.cwd, ".system_generated", "workspaces", conversationId);
+					await fs.mkdir(fallbackDir, { recursive: true });
+					effectiveCwd = fallbackDir;
+				} catch {
+					const tmpDir = path.resolve(os.tmpdir(), "aery-workspaces", conversationId);
+					await fs.mkdir(tmpDir, { recursive: true });
+					effectiveCwd = tmpDir;
+				}
+			}
+		}
+
 		const logPath = path.resolve(opts.cwd, ".system_generated", "logs", `${conversationId}.jsonl`);
 		const logAbsoluteUri = `file://${logPath}`;
-		const workspaceUris = [opts.cwd];
+		const workspaceUris = [effectiveCwd];
 
 		const customCreator = options.sessionCreator ?? this.sessionCreator;
 
@@ -356,7 +409,7 @@ export class SubagentRunner {
 			});
 
 			const { session } = await createSession({
-				cwd: opts.cwd,
+				cwd: effectiveCwd,
 				agentId: conversationId,
 				agentDisplayName: `${opts.role} [${opts.typeName}]`,
 				agentRegistry: this.registry,
@@ -367,6 +420,20 @@ export class SubagentRunner {
 				systemPrompt: systemPrompt ? [systemPrompt] : undefined,
 				hasUI: false,
 			});
+
+			if (isolationHandle && typeof (session as any)?.dispose === "function") {
+				const origDispose = (session as any).dispose.bind(session);
+				(session as any).dispose = async () => {
+					try {
+						await origDispose();
+					} finally {
+						try {
+							const { cleanupIsolation } = await import("../task/worktree");
+							await cleanupIsolation(isolationHandle);
+						} catch {}
+					}
+				};
+			}
 
 			const sessionFile =
 				typeof (session as any)?.sessionManager?.getSessionFile === "function"
@@ -386,6 +453,12 @@ export class SubagentRunner {
 				workspaceUris,
 			};
 		} catch (error) {
+			if (isolationHandle) {
+				try {
+					const { cleanupIsolation } = await import("../task/worktree");
+					await cleanupIsolation(isolationHandle);
+				} catch {}
+			}
 			this.registry.unregister(conversationId);
 			if (opts.mock || (!customCreator && (process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test"))) {
 				return await this.launchMock(options);

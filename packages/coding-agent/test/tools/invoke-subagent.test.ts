@@ -94,6 +94,7 @@ describe("InvokeSubagentTool", () => {
 			getAgentId: () => "parent-agent-99",
 			hasUI: false,
 			getSessionFile: () => null,
+			getModelState: () => ({ currentModel: "anthropic/claude-3-7-sonnet", available: [] }),
 		};
 
 		const toolFromFactory = InvokeSubagentTool.createIf(mockSession, customRunner);
@@ -110,6 +111,7 @@ describe("InvokeSubagentTool", () => {
 		expect(launchedOptions.Role).toBe("Autonomous Builder");
 		expect(launchedOptions.Prompt).toBe("Build the module");
 		expect(launchedOptions.Model).toBe("pro");
+		expect(launchedOptions.parentModel).toBe("anthropic/claude-3-7-sonnet");
 		expect(launchedOptions.Workspace).toBe("branch");
 		expect(launchedOptions.parentId).toBe("parent-agent-99");
 		expect(launchedOptions.cwd).toBe("/workspace/project");
