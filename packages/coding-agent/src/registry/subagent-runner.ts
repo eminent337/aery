@@ -318,26 +318,35 @@ export class SubagentRunner {
 					}
 				}
 			} catch (error) {
-				const parentId = opts.parentId || MAIN_AGENT_ID;
-				const parentRef = this.registry.get(parentId);
-				const parentSession = parentRef?.session as any;
+				const isAborted =
+					this.registry.get(conversationId)?.status === "aborted" ||
+					(error as any)?.name === "AbortError" ||
+					String((error as any)?.message ?? "")
+						.toLowerCase()
+						.includes("abort");
 
-				if (parentSession && typeof parentSession.sendCustomMessage === "function") {
-					try {
-						const timestamp = new Date().toISOString();
-						const failureNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${conversationId} priority=MESSAGE_PRIORITY_HIGH content=Subagent terminated with error: ${error instanceof Error ? error.message : String(error)}\n</SYSTEM_MESSAGE>`;
-						await parentSession.sendCustomMessage(
-							{
-								customType: "agent_message",
-								content: failureNotice,
-								display: true,
-								details: { from: conversationId, priority: "MESSAGE_PRIORITY_HIGH", status: "error" },
-								attribution: "agent",
-							},
-							{ triggerTurn: true, deliverAs: "followUp" },
-						);
-					} catch {
-						// Parent session might have aborted or closed; ignore delivery failure
+				if (!isAborted) {
+					const parentId = opts.parentId || MAIN_AGENT_ID;
+					const parentRef = this.registry.get(parentId);
+					const parentSession = parentRef?.session as any;
+
+					if (parentSession && typeof parentSession.sendCustomMessage === "function") {
+						try {
+							const timestamp = new Date().toISOString();
+							const failureNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${conversationId} priority=MESSAGE_PRIORITY_HIGH content=Subagent terminated with error: ${error instanceof Error ? error.message : String(error)}\n</SYSTEM_MESSAGE>`;
+							await parentSession.sendCustomMessage(
+								{
+									customType: "agent_message",
+									content: failureNotice,
+									display: true,
+									details: { from: conversationId, priority: "MESSAGE_PRIORITY_HIGH", status: "error" },
+									attribution: "agent",
+								},
+								{ triggerTurn: true, deliverAs: "followUp" },
+							);
+						} catch {
+							// Parent session might have aborted or closed; ignore delivery failure
+						}
 					}
 				}
 			} finally {

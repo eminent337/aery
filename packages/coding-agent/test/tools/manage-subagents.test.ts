@@ -137,4 +137,50 @@ describe("ManageSubagentsTool", () => {
 		const text = (result.content[0] as any).text;
 		expect(text).toContain("Not found or already inactive: sub-unknown-999");
 	});
+
+	it("kill: treats already-aborted subagents as notFound", async () => {
+		const registry = AgentRegistry.global();
+		registry.register({
+			id: "sub-already-dead",
+			displayName: "Dead Worker",
+			kind: "sub",
+			status: "aborted",
+			session: null,
+		});
+
+		const tool = new ManageSubagentsTool();
+		const result = await tool.execute("call-6", {
+			Action: "kill",
+			ConversationIds: ["sub-already-dead"],
+		});
+
+		const text = (result.content[0] as any).text;
+		expect(text).toContain("Not found or already inactive: sub-already-dead");
+	});
+
+	it("list: sanitizes newlines and pipes in tool arguments to preserve table structure", async () => {
+		const registry = AgentRegistry.global();
+		registry.register({
+			id: "sub-ugly-args",
+			displayName: "Ugly Worker | Role",
+			kind: "sub",
+			status: "running",
+			session: null,
+		});
+
+		registry.setProgress("sub-ugly-args", {
+			currentTool: "bash",
+			currentToolArgs: "cat file.txt | grep `hello` \n echo done",
+		});
+
+		const tool = new ManageSubagentsTool();
+		const result = await tool.execute("call-7", { Action: "list" });
+		const text = (result.content[0] as any).text;
+
+		expect(text).toContain("sub-ugly-args");
+		expect(text).toContain("Ugly Worker \\| Role");
+		// Unescaped newlines and raw pipe inside args should be replaced with spaces
+		expect(text).not.toContain("\n echo done");
+		expect(text).toContain("cat file.txt   grep  hello    echo done");
+	});
 });

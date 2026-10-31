@@ -82,8 +82,9 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 					const toolDetails = agent.currentTool
 						? `${agent.currentTool}${cleanArgs ? ` (${cleanArgs})` : ""}`
 						: "—";
+					const cleanName = agent.displayName.replace(/\|/g, "\\|");
 					lines.push(
-						`| **${agent.id}** | ${agent.displayName} | \`${agent.status}\` | \`${toolDetails}\` | ${createdStr} |`,
+						`| **${agent.id}** | ${cleanName} | \`${agent.status}\` | \`${toolDetails}\` | ${createdStr} |`,
 					);
 				}
 
@@ -103,33 +104,35 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 				const killed: string[] = [];
 				const notFound: string[] = [];
 
-				for (const id of params.ConversationIds) {
-					const agent = registry.get(id);
-					if (!agent) {
-						notFound.push(id);
-						continue;
-					}
-
-					try {
-						if (agent.session) {
-							try {
-								await agent.session.abort();
-							} catch {}
-							try {
-								await agent.session.dispose();
-							} catch {}
+				await Promise.allSettled(
+					params.ConversationIds.map(async id => {
+						const agent = registry.get(id);
+						if (!agent || agent.status === "aborted") {
+							notFound.push(id);
+							return;
 						}
-						registry.detachSession(agent.id);
-						registry.setStatus(agent.id, "aborted");
-						registry.setProgress(agent.id, {
-							currentTool: undefined,
-							currentToolArgs: undefined,
-						});
-						killed.push(agent.id);
-					} catch {
-						notFound.push(id);
-					}
-				}
+
+						try {
+							registry.setStatus(agent.id, "aborted");
+							registry.setProgress(agent.id, {
+								currentTool: undefined,
+								currentToolArgs: undefined,
+							});
+							if (agent.session) {
+								try {
+									await agent.session.abort();
+								} catch {}
+								try {
+									await agent.session.dispose();
+								} catch {}
+							}
+							registry.detachSession(agent.id);
+							killed.push(agent.id);
+						} catch {
+							notFound.push(id);
+						}
+					}),
+				);
 
 				const summary: string[] = [];
 				if (killed.length > 0) {
@@ -150,6 +153,11 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 				await Promise.allSettled(
 					activeSubagents.map(async agent => {
 						try {
+							registry.setStatus(agent.id, "aborted");
+							registry.setProgress(agent.id, {
+								currentTool: undefined,
+								currentToolArgs: undefined,
+							});
 							if (agent.session) {
 								try {
 									await agent.session.abort();
@@ -159,11 +167,6 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 								} catch {}
 							}
 							registry.detachSession(agent.id);
-							registry.setStatus(agent.id, "aborted");
-							registry.setProgress(agent.id, {
-								currentTool: undefined,
-								currentToolArgs: undefined,
-							});
 						} catch {}
 					}),
 				);

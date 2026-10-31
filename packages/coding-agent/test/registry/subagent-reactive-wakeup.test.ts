@@ -382,4 +382,41 @@ describe("SubagentRunner - Reactive Wakeup Engine", () => {
 		const callArgs = parentSendCustomMock.mock.calls[0] as any[];
 		expect(callArgs[0].content).toContain("Follow-up turn complete");
 	});
+
+	it("suppresses error notice to parent when subagent execution is intentionally aborted", async () => {
+		const parentSendCustomMock = mock(async () => {});
+		const registry = AgentRegistry.global();
+		registry.register({
+			id: MAIN_AGENT_ID,
+			displayName: "Main Agent",
+			kind: "main",
+			session: { sendCustomMessage: parentSendCustomMock } as any,
+			status: "idle",
+		});
+
+		const mockChildSession = createMockSubagentSession();
+		mockChildSession.prompt = mock(async () => {
+			const err = new Error("Session was aborted");
+			err.name = "AbortError";
+			throw err;
+		});
+
+		const runner = new SubagentRunner(registry, async () => ({
+			session: mockChildSession as any,
+		}));
+
+		const launchResult = await runner.launch({
+			TypeName: "research",
+			Role: "Aborting Subagent",
+			Prompt: "Task interrupted",
+		});
+
+		// Abort status set
+		registry.setStatus(launchResult.conversationId, "aborted");
+
+		await new Promise(r => setTimeout(r, 50));
+
+		// Parent should NOT be woken up with a crash error
+		expect(parentSendCustomMock).not.toHaveBeenCalled();
+	});
 });
