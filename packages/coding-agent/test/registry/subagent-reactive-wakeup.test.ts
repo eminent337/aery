@@ -318,4 +318,68 @@ describe("SubagentRunner - Reactive Wakeup Engine", () => {
 		expect(ref?.currentTool).toBeUndefined();
 		expect(ref?.currentToolArgs).toBeUndefined();
 	});
+
+	it("preserves 'aborted' status if agent was killed during execution", async () => {
+		const registry = AgentRegistry.global();
+		const mockChildSession = createMockSubagentSession();
+		mockChildSession.prompt = mock(async () => {
+			// Abort occurs mid-turn
+			registry.setStatus("sub-aborted-test", "aborted");
+			throw new Error("Session aborted");
+		});
+
+		const runner = new SubagentRunner(registry, async () => ({
+			session: mockChildSession as any,
+		}));
+
+		const launchResult = await runner.launch({
+			TypeName: "research",
+			Role: "Aborted Worker",
+			Prompt: "Run doomed task",
+		});
+
+		// Force the id to match test hook
+		registry.setStatus(launchResult.conversationId, "aborted");
+
+		await new Promise(r => setTimeout(r, 50));
+
+		const ref = registry.get(launchResult.conversationId);
+		expect(ref?.status).toBe("aborted");
+	});
+
+	it("resets __sentParentMessage at start of new execution allowing follow-up turn wakeup", async () => {
+		const parentSendCustomMock = mock(async () => {});
+		const registry = AgentRegistry.global();
+		registry.register({
+			id: MAIN_AGENT_ID,
+			displayName: "Main Agent",
+			kind: "main",
+			session: { sendCustomMessage: parentSendCustomMock } as any,
+			status: "idle",
+		});
+
+		const mockChildSession = createMockSubagentSession();
+		// Simulate subagent having sent a parent message in an earlier turn
+		(mockChildSession as any).__sentParentMessage = true;
+		(mockChildSession as any).getLastAssistantText = () => "Follow-up turn complete";
+
+		const runner = new SubagentRunner(registry, async () => ({
+			session: mockChildSession as any,
+		}));
+
+		const launchResult = await runner.launch({
+			TypeName: "research",
+			Role: "Follow-up Worker",
+			Prompt: "Turn 2 prompt",
+		});
+
+		expect(launchResult.conversationId).toStartWith("sub-");
+
+		await new Promise(r => setTimeout(r, 50));
+
+		// Flag was reset, so completion message for turn 2 is sent!
+		expect(parentSendCustomMock).toHaveBeenCalledTimes(1);
+		const callArgs = parentSendCustomMock.mock.calls[0] as any[];
+		expect(callArgs[0].content).toContain("Follow-up turn complete");
+	});
 });

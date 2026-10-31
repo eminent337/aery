@@ -130,13 +130,6 @@ export class SendMessageTool implements AgentTool<typeof sendMessageSchema> {
 		if (recipientSession && typeof recipientSession.sendCustomMessage === "function") {
 			try {
 				if (isParent) {
-					if (this.session) {
-						(this.session as any).__sentParentMessage = true;
-					}
-					const senderRegistryRef = senderId !== "unknown" ? registry.get(senderId) : undefined;
-					if (senderRegistryRef?.session) {
-						(senderRegistryRef.session as any).__sentParentMessage = true;
-					}
 					const timestamp = new Date().toISOString();
 					const formattedNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${senderId} priority=MESSAGE_PRIORITY_HIGH content=${Message}\n</SYSTEM_MESSAGE>`;
 					await recipientSession.sendCustomMessage(
@@ -149,6 +142,13 @@ export class SendMessageTool implements AgentTool<typeof sendMessageSchema> {
 						},
 						{ deliverAs: "followUp", triggerTurn: true },
 					);
+					if (this.session) {
+						(this.session as any).__sentParentMessage = true;
+					}
+					const senderRegistryRef = senderId !== "unknown" ? registry.get(senderId) : undefined;
+					if (senderRegistryRef?.session) {
+						(senderRegistryRef.session as any).__sentParentMessage = true;
+					}
 				} else {
 					await recipientSession.sendCustomMessage(
 						{

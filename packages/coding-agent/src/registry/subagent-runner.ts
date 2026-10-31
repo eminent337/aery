@@ -215,7 +215,7 @@ export class SubagentRunner {
 			parentId: opts.parentId,
 			session: session as any,
 			sessionFile: logPath,
-			status: opts.prompt ? "running" : "idle",
+			status: opts.prompt?.trim() ? "running" : "idle",
 		});
 
 		// AgentRegistry.attachSession handles turn_start, turn_end, tool_execution_start/end.
@@ -238,6 +238,9 @@ export class SubagentRunner {
 	 */
 	runBackgroundExecution(conversationId: string, session: any, opts: { prompt?: string; parentId?: string }): void {
 		void (async () => {
+			if (session) {
+				(session as any).__sentParentMessage = false;
+			}
 			try {
 				if (opts.prompt && typeof session?.prompt === "function") {
 					await session.prompt(opts.prompt);
@@ -302,7 +305,10 @@ export class SubagentRunner {
 					}
 				}
 			} finally {
-				this.registry.setStatus(conversationId, "idle");
+				const currentStatus = this.registry.get(conversationId)?.status;
+				if (currentStatus !== "aborted") {
+					this.registry.setStatus(conversationId, "idle");
+				}
 				this.registry.setProgress(conversationId, {
 					currentTool: undefined,
 					currentToolArgs: undefined,
@@ -346,7 +352,7 @@ export class SubagentRunner {
 				parentId: opts.parentId,
 				session: null,
 				sessionFile: null,
-				status: opts.prompt ? "running" : "idle",
+				status: opts.prompt?.trim() ? "running" : "idle",
 			});
 
 			const { session } = await createSession({
