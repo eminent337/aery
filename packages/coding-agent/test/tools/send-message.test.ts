@@ -383,4 +383,82 @@ describe("SendMessageTool - Bidirectional Messaging", () => {
 		expect(pending).toHaveLength(1);
 		expect(pending[0].message).toBe("Message to crash-prone session");
 	});
+
+	it("does not hijack Recipient: 'parent' when another agent has ID prefix 'parent-'", async () => {
+		const mainSendCustomMessageMock = mock(async () => {});
+		const prefixAgentSendCustomMessageMock = mock(async () => {});
+
+		const registry = AgentRegistry.global();
+		// Register a main session
+		registry.register({
+			id: MAIN_AGENT_ID,
+			displayName: "Main Agent",
+			kind: "main",
+			session: { sendCustomMessage: mainSendCustomMessageMock } as any,
+			status: "idle",
+		});
+
+		// Register a distracting agent with id 'parent-coordinator'
+		registry.register({
+			id: "parent-coordinator",
+			displayName: "Parent Coordinator Worker",
+			kind: "sub",
+			session: { sendCustomMessage: prefixAgentSendCustomMessageMock } as any,
+			status: "idle",
+		});
+
+		// Register child whose parent is MAIN_AGENT_ID
+		registry.register({
+			id: "sub-worker-99",
+			displayName: "Worker 99",
+			kind: "sub",
+			parentId: MAIN_AGENT_ID,
+			session: null,
+			status: "running",
+		});
+
+		const childToolSession: any = {
+			getAgentId: () => "sub-worker-99",
+		};
+		const tool = new SendMessageTool(childToolSession);
+		const result = await tool.execute("call-prefix-test", {
+			Recipient: "parent",
+			Message: "Notice for actual parent",
+		});
+
+		const details = result.details as Record<string, unknown>;
+		expect(details.delivered).toBe(true);
+		// Main agent must receive the message, NOT parent-coordinator
+		expect(mainSendCustomMessageMock).toHaveBeenCalledTimes(1);
+		expect(prefixAgentSendCustomMessageMock).not.toHaveBeenCalled();
+	});
+
+	it("queues under canonical agent ID when Recipient is 'parent' and parent is offline", async () => {
+		const registry = AgentRegistry.global();
+		// Register an offline main agent
+		registry.register({
+			id: MAIN_AGENT_ID,
+			displayName: "Main Agent",
+			kind: "main",
+			session: null,
+			status: "idle",
+		});
+
+		const childToolSession: any = {
+			getAgentId: () => "sub-worker-100",
+		};
+		const tool = new SendMessageTool(childToolSession);
+		const result = await tool.execute("call-queue-canon", {
+			Recipient: "parent",
+			Message: "Important offline notice",
+		});
+
+		const details = result.details as Record<string, unknown>;
+		expect(details.queued).toBe(true);
+
+		// Must be drainable by MAIN_AGENT_ID
+		const pending = drainPendingMessages(MAIN_AGENT_ID);
+		expect(pending).toHaveLength(1);
+		expect(pending[0].message).toBe("Important offline notice");
+	});
 });

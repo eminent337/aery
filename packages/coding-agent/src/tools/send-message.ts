@@ -75,24 +75,30 @@ export class SendMessageTool implements AgentTool<typeof sendMessageSchema> {
 
 		// Look up recipient in the registry
 		const registry = this.session?.agentRegistry ?? AgentRegistry.global();
-		let recipientRef = registry.get(Recipient);
-
-		// If recipient wasn't found directly and Recipient is "parent" (or case-insensitive "parent"),
-		// try resolving the sender's parentId or MAIN_AGENT_ID
 		const senderRef = senderId !== "unknown" ? registry.get(senderId) : undefined;
-		if (!recipientRef && Recipient.toLowerCase() === "parent") {
-			if (senderRef?.parentId) {
-				recipientRef = registry.get(senderRef.parentId);
-			} else {
-				recipientRef = registry.get(MAIN_AGENT_ID);
-			}
+		let recipientRef = undefined as ReturnType<typeof registry.get>;
+
+		// Check "parent" alias first before prefix matching in registry to avoid prefix collisions (e.g. "parent-agent")
+		if (Recipient.toLowerCase() === "parent") {
+			const targetParentId =
+				senderRef?.parentId ||
+				(this.session as any)?.parentId ||
+				(typeof (this.session as any)?.getParentId === "function"
+					? (this.session as any).getParentId()
+					: undefined) ||
+				MAIN_AGENT_ID;
+			recipientRef = registry.get(targetParentId);
+		} else {
+			recipientRef = registry.get(Recipient);
 		}
 
 		if (!recipientRef) {
-			// Queue message for delivery when/if the recipient registers later
-			const queue = pendingMessages.get(Recipient) ?? [];
+			// Queue message under canonical target ID if known
+			const targetQueueKey =
+				Recipient.toLowerCase() === "parent" ? (senderRef?.parentId ?? MAIN_AGENT_ID) : Recipient;
+			const queue = pendingMessages.get(targetQueueKey) ?? [];
 			queue.push({ from: senderId, message: Message, timestamp: Date.now() });
-			pendingMessages.set(Recipient, queue);
+			pendingMessages.set(targetQueueKey, queue);
 
 			return {
 				content: [
@@ -163,10 +169,11 @@ export class SendMessageTool implements AgentTool<typeof sendMessageSchema> {
 			}
 		}
 
-		// Recipient exists but has no live session — queue for later delivery
-		const queue = pendingMessages.get(Recipient) ?? [];
+		// Recipient exists but has no live session — queue under canonical ID for later delivery
+		const targetQueueKey = recipientRef?.id ?? Recipient;
+		const queue = pendingMessages.get(targetQueueKey) ?? [];
 		queue.push({ from: senderId, message: Message, timestamp: Date.now() });
-		pendingMessages.set(Recipient, queue);
+		pendingMessages.set(targetQueueKey, queue);
 
 		return {
 			content: [
