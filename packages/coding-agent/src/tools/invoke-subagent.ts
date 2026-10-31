@@ -9,10 +9,11 @@
  * Custom types can be defined via define_subagent (not yet wired — registry lookup only).
  */
 
-import * as z from "zod/v4";
 import type { AgentTool, AgentToolContext, AgentToolResult } from "@aryee337/aery-core";
+import * as z from "zod/v4";
 import { AgentRegistry } from "../registry/agent-registry";
 import { getSubagentDefinition } from "../registry/builtin-subagents";
+import { SubagentRunner } from "../registry/subagent-runner";
 import type { ToolSession } from "./index";
 
 const invokeSubagentSchema = z.object({
@@ -48,10 +49,17 @@ export class InvokeSubagentTool implements AgentTool<typeof invokeSubagentSchema
 	readonly loadMode = "discoverable" as const;
 	readonly summary = "Subagent launcher matching agy invoke_subagent schema";
 
-	constructor(private readonly session?: ToolSession) {}
+	private readonly runner: SubagentRunner;
 
-	static createIf(session: ToolSession): InvokeSubagentTool {
-		return new InvokeSubagentTool(session);
+	constructor(
+		private readonly session?: ToolSession,
+		runner?: SubagentRunner,
+	) {
+		this.runner = runner ?? new SubagentRunner(session?.agentRegistry ?? AgentRegistry.global());
+	}
+
+	static createIf(session: ToolSession, runner?: SubagentRunner): InvokeSubagentTool {
+		return new InvokeSubagentTool(session, runner);
 	}
 
 	async execute(
@@ -61,70 +69,56 @@ export class InvokeSubagentTool implements AgentTool<typeof invokeSubagentSchema
 		_onUpdate?: unknown,
 		_context?: AgentToolContext,
 	): Promise<AgentToolResult> {
-		const registry = AgentRegistry.global();
-
-		// Look up the definition (built-in or custom) to validate TypeName
-		const subagentDef = getSubagentDefinition(params.TypeName);
 		const typeName = params.TypeName;
 		const role = params.Role;
-
-		if (!subagentDef && typeName !== "inherit") {
-			// Unknown type — still register as a generic sub so send_message can route to it
-			// In a full implementation this would spawn a new agent process.
-			// For now we register the intent and return an id for routing.
-		}
-
-		// Generate a stable, human-readable conversation ID
-		const timestamp = Date.now();
-		const baseId = role
-			.split(/\s+/)
-			.slice(0, 3)
-			.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-			.join("");
-		const conversationId = `${baseId}-${timestamp % 10000}`;
-
-		// Register in the global agent registry so manage_subagents and send_message can find it
-		registry.register({
-			id: conversationId,
-			displayName: `${role} [${typeName}]`,
-			kind: "sub",
-			parentId: this.session?.getAgentId?.() ?? undefined,
-			session: null, // No live session yet — subagent is logically spawned
-			sessionFile: null,
-			status: "idle",
-		});
-
-		const description = subagentDef?.description ?? `Custom subagent of type '${typeName}'`;
 		const model = params.Model ?? "inherit";
 		const workspace = params.Workspace ?? "inherit";
+
+		const parentId = this.session?.getAgentId?.() ?? undefined;
+		const cwd = this.session?.cwd;
+
+		const launchResult = await this.runner.launch({
+			TypeName: typeName,
+			Role: role,
+			Prompt: params.Prompt,
+			Model: params.Model,
+			Workspace: params.Workspace,
+			parentId: parentId || undefined,
+			cwd: cwd || undefined,
+		});
+
+		const subagentDef = getSubagentDefinition(typeName);
+		const description = subagentDef?.description ?? `Custom subagent of type '${typeName}'`;
 
 		const resultLines = [
 			`Subagent launched successfully.`,
 			``,
 			`| Field | Value |`,
 			`| :--- | :--- |`,
-			`| **conversationId** | \`${conversationId}\` |`,
+			`| **conversationId** | \`${launchResult.conversationId}\` |`,
 			`| **TypeName** | ${typeName} |`,
 			`| **Role** | ${role} |`,
 			`| **Model** | ${model} |`,
 			`| **Workspace** | ${workspace} |`,
+			`| **Log** | \`${launchResult.logAbsoluteUri}\` |`,
 			``,
 			`**Description:** ${description}`,
 			``,
-			`Use \`send_message\` with \`Recipient: "${conversationId}"\` to communicate with this subagent.`,
+			`Use \`send_message\` with \`Recipient: "${launchResult.conversationId}"\` to communicate with this subagent.`,
 			`Use \`manage_subagents\` with \`Action: "list"\` to view all active subagents.`,
 		];
 
 		return {
 			content: [{ type: "text", text: resultLines.join("\n") }],
 			details: {
-				conversationId,
+				conversationId: launchResult.conversationId,
+				logAbsoluteUri: launchResult.logAbsoluteUri,
+				workspaceUris: launchResult.workspaceUris,
 				typeName,
 				role,
 				model,
 				workspace,
 				description,
-				registeredAt: timestamp,
 			},
 		};
 	}

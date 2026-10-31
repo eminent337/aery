@@ -2,10 +2,11 @@
  * Tests for InvokeSubagentTool and SendMessageTool — agy subagent orchestration.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { AgentRegistry } from "../../src/registry/agent-registry";
+import { createMockSubagentSession, SubagentRunner } from "../../src/registry/subagent-runner";
 import { InvokeSubagentTool } from "../../src/tools/invoke-subagent";
-import { SendMessageTool, drainPendingMessages } from "../../src/tools/send-message";
+import { drainPendingMessages, SendMessageTool } from "../../src/tools/send-message";
 
 function getText(result: { content: Array<{ type: string; text?: string }> }): string {
 	const c = result.content[0];
@@ -24,7 +25,7 @@ describe("InvokeSubagentTool", () => {
 		expect(tool.loadMode).toBe("discoverable");
 	});
 
-	it("returns a conversationId for a built-in type", async () => {
+	it("returns a conversationId starting with 'sub-' and log/workspace URIs for a built-in type", async () => {
 		const tool = new InvokeSubagentTool();
 		const result = await tool.execute("call-1", {
 			TypeName: "research",
@@ -36,15 +37,20 @@ describe("InvokeSubagentTool", () => {
 		expect(text).toContain("Subagent launched successfully");
 		expect(text).toContain("conversationId");
 
-		// Details should include conversationId
+		// Details should include conversationId, logAbsoluteUri, workspaceUris
 		const details = result.details as Record<string, unknown>;
 		expect(typeof details.conversationId).toBe("string");
-		expect((details.conversationId as string).length).toBeGreaterThan(0);
+		expect(details.conversationId as string).toStartWith("sub-");
+		expect(details.conversationId as string).toContain("codebase-researcher");
 		expect(details.typeName).toBe("research");
 		expect(details.role).toBe("Codebase Researcher");
+		expect(typeof details.logAbsoluteUri).toBe("string");
+		expect(details.logAbsoluteUri as string).toStartWith("file://");
+		expect(Array.isArray(details.workspaceUris)).toBe(true);
+		expect((details.workspaceUris as string[]).length).toBeGreaterThan(0);
 	});
 
-	it("registers the subagent in the global AgentRegistry", async () => {
+	it("registers the subagent in global AgentRegistry with status 'running' and live session attached", async () => {
 		const tool = new InvokeSubagentTool();
 		const result = await tool.execute("call-2", {
 			TypeName: "self",
@@ -61,7 +67,91 @@ describe("InvokeSubagentTool", () => {
 		const ref = registry.get(conversationId);
 		expect(ref).toBeDefined();
 		expect(ref?.kind).toBe("sub");
+		expect(ref?.status).toBe("running");
 		expect(ref?.displayName).toContain("self");
+		expect(ref?.session).toBeDefined();
+		expect(ref?.session).not.toBeNull();
+		expect(ref?.sessionFile).toBeDefined();
+		expect(typeof ref?.sessionFile).toBe("string");
+		expect(ref?.sessionFile?.endsWith(".jsonl")).toBe(true);
+	});
+
+	it("supports dependency injection of custom SubagentRunner in constructor and createIf", async () => {
+		let launchedOptions: any;
+		const customRunner = {
+			async launch(opts: any) {
+				launchedOptions = opts;
+				return {
+					conversationId: "sub-mock-custom-123",
+					logAbsoluteUri: "file:///mock/logs/sub-mock-custom-123.jsonl",
+					workspaceUris: ["/mock/workspace"],
+				};
+			},
+		} as unknown as SubagentRunner;
+
+		const mockSession: any = {
+			cwd: "/workspace/project",
+			getAgentId: () => "parent-agent-99",
+			hasUI: false,
+			getSessionFile: () => null,
+		};
+
+		const toolFromFactory = InvokeSubagentTool.createIf(mockSession, customRunner);
+		const result = await toolFromFactory.execute("call-di", {
+			TypeName: "self",
+			Role: "Autonomous Builder",
+			Prompt: "Build the module",
+			Model: "pro",
+			Workspace: "branch",
+		});
+
+		expect(launchedOptions).toBeDefined();
+		expect(launchedOptions.TypeName).toBe("self");
+		expect(launchedOptions.Role).toBe("Autonomous Builder");
+		expect(launchedOptions.Prompt).toBe("Build the module");
+		expect(launchedOptions.Model).toBe("pro");
+		expect(launchedOptions.Workspace).toBe("branch");
+		expect(launchedOptions.parentId).toBe("parent-agent-99");
+		expect(launchedOptions.cwd).toBe("/workspace/project");
+
+		const details = result.details as Record<string, unknown>;
+		expect(details.conversationId).toBe("sub-mock-custom-123");
+		expect(details.logAbsoluteUri).toBe("file:///mock/logs/sub-mock-custom-123.jsonl");
+		expect(details.workspaceUris).toEqual(["/mock/workspace"]);
+	});
+
+	it("returns immediately without blocking on subagent execution", async () => {
+		let promptResolve: () => void;
+		const promptPromise = new Promise<void>(resolve => {
+			promptResolve = resolve;
+		});
+
+		const mockSession = createMockSubagentSession();
+		mockSession.prompt = async () => {
+			await promptPromise;
+		};
+
+		const runner = new SubagentRunner(AgentRegistry.global(), async () => ({
+			session: mockSession as any,
+		}));
+
+		const tool = new InvokeSubagentTool(undefined, runner);
+
+		const startTime = Date.now();
+		const result = await tool.execute("call-nonblock", {
+			TypeName: "research",
+			Role: "Slow Worker",
+			Prompt: "Take a long time to complete",
+		});
+		const elapsedMs = Date.now() - startTime;
+
+		expect(elapsedMs).toBeLessThan(100);
+		const details = result.details as Record<string, unknown>;
+		expect(details.conversationId).toBeDefined();
+		expect(details.conversationId as string).toStartWith("sub-");
+
+		// Resolve prompt promise to clean up
+		promptResolve!();
 	});
 
 	it("works for unknown custom type names (logs as generic sub)", async () => {
@@ -74,6 +164,7 @@ describe("InvokeSubagentTool", () => {
 
 		const details = result.details as Record<string, unknown>;
 		expect(typeof details.conversationId).toBe("string");
+		expect(details.conversationId as string).toStartWith("sub-");
 		expect(details.typeName).toBe("my-custom-agent");
 	});
 
@@ -88,6 +179,8 @@ describe("InvokeSubagentTool", () => {
 		const details = result.details as Record<string, unknown>;
 		expect(details.model).toBe("inherit");
 		expect(details.workspace).toBe("inherit");
+		expect(details.logAbsoluteUri).toBeDefined();
+		expect(details.workspaceUris).toBeDefined();
 	});
 });
 
@@ -159,8 +252,8 @@ describe("SendMessageTool", () => {
 		expect(text).toContain("queued");
 	});
 
-	it("invoke_subagent + send_message round trip works", async () => {
-		// Full round trip: invoke → get conversationId → send message
+	it("invoke_subagent + send_message round trip works with live session delivery", async () => {
+		// Full round trip: invoke → get conversationId → send message delivers to live session
 		const invokeTool = new InvokeSubagentTool();
 		const sendTool = new SendMessageTool();
 
@@ -172,19 +265,17 @@ describe("SendMessageTool", () => {
 
 		const invokeDetails = invokeResult.details as Record<string, unknown>;
 		const conversationId = invokeDetails.conversationId as string;
+		expect(conversationId).toStartWith("sub-");
 
 		const sendResult = await sendTool.execute("send-rt", {
 			Recipient: conversationId,
 			Message: "Please also check the test files",
 		});
 
-		// Message should be queued (no live session attached)
+		// Message should be delivered to the live session attached by SubagentRunner
 		const sendText = getText(sendResult as any);
-		expect(sendText).toContain("queued");
-
-		// Drain should return the message
-		const drained = drainPendingMessages(conversationId);
-		expect(drained).toHaveLength(1);
-		expect(drained[0].message).toBe("Please also check the test files");
+		expect(sendText).toContain("delivered");
+		const sendDetails = sendResult.details as Record<string, unknown>;
+		expect(sendDetails.delivered).toBe(true);
 	});
 });

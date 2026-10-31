@@ -328,5 +328,33 @@ describe("SubagentRunner Engine", () => {
 				if (origBunEnv !== undefined) process.env.BUN_ENV = origBunEnv;
 			}
 		});
+
+		it("unregisters pre-registered agent in registry if session creation throws", async () => {
+			const registry = AgentRegistry.global();
+			let capturedConversationId: string | undefined;
+
+			const runner = new SubagentRunner(registry, async (opts: any) => {
+				capturedConversationId = opts.agentId;
+				// Agent was pre-registered before session creator was called
+				const preRegistered = registry.get(capturedConversationId!);
+				expect(preRegistered).toBeDefined();
+				expect(preRegistered?.status).toBe("running");
+				expect(preRegistered?.session).toBeNull();
+
+				throw new Error("Session init failed");
+			});
+
+			await expect(
+				runner.launch({
+					TypeName: "research",
+					Role: "Failing Researcher",
+					Prompt: "Doomed",
+				}),
+			).rejects.toThrow("Session init failed");
+
+			// After launch fails, the pre-registered record must be cleaned up
+			expect(capturedConversationId).toBeDefined();
+			expect(registry.get(capturedConversationId!)).toBeUndefined();
+		});
 	});
 });

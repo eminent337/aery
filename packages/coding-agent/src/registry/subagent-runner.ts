@@ -239,11 +239,31 @@ export class SubagentRunner {
 		const logAbsoluteUri = `file://${logPath}`;
 		const workspaceUris = [opts.cwd];
 
-		const sessionCreator = options.sessionCreator ?? this.sessionCreator;
-		if (sessionCreator) {
+		const customCreator = options.sessionCreator ?? this.sessionCreator;
+
+		try {
+			const createSession =
+				customCreator ??
+				(async (creatorOpts: any) => {
+					const { createAgentSession } = await import("../sdk");
+					return createAgentSession(creatorOpts);
+				});
+
 			const def = getSubagentDefinition(opts.typeName);
 			const systemPrompt = def?.systemPrompt;
-			const { session } = await sessionCreator({
+
+			// Pre-register so that early session initialization and IRC peer rosters observe this subagent
+			this.registry.register({
+				id: conversationId,
+				displayName: `${opts.role} [${opts.typeName}]`,
+				kind: "sub",
+				parentId: opts.parentId,
+				session: null,
+				sessionFile: null,
+				status: "running",
+			});
+
+			const { session } = await createSession({
 				cwd: opts.cwd,
 				agentId: conversationId,
 				agentDisplayName: `${opts.role} [${opts.typeName}]`,
@@ -261,63 +281,6 @@ export class SubagentRunner {
 					? ((session as any).sessionManager.getSessionFile() ?? null)
 					: logPath;
 
-			this.registry.register({
-				id: conversationId,
-				displayName: `${opts.role} [${opts.typeName}]`,
-				kind: "sub",
-				parentId: opts.parentId,
-				session,
-				sessionFile,
-				status: "running",
-			});
-
-			wireAgentEndEvent(this.registry, conversationId, session);
-
-			if (opts.prompt && typeof session?.prompt === "function") {
-				void session.prompt(opts.prompt).catch(() => {});
-			}
-
-			return {
-				conversationId,
-				logAbsoluteUri,
-				workspaceUris,
-			};
-		}
-
-		try {
-			const { createAgentSession } = await import("../sdk");
-			const def = getSubagentDefinition(opts.typeName);
-			const systemPrompt = def?.systemPrompt;
-
-			// Pre-register so that early session initialization and IRC peer rosters observe this subagent
-			this.registry.register({
-				id: conversationId,
-				displayName: `${opts.role} [${opts.typeName}]`,
-				kind: "sub",
-				parentId: opts.parentId,
-				session: null,
-				sessionFile: null,
-				status: "running",
-			});
-
-			const { session } = await createAgentSession({
-				cwd: opts.cwd,
-				agentId: conversationId,
-				agentDisplayName: `${opts.role} [${opts.typeName}]`,
-				agentRegistry: this.registry,
-				taskDepth: 1,
-				parentTaskPrefix: opts.parentId,
-				modelPattern: resolvedModel,
-				toolNames: resolvedTools.includes("*") ? undefined : resolvedTools,
-				systemPrompt: systemPrompt ? [systemPrompt] : undefined,
-				hasUI: false,
-			});
-
-			const sessionFile =
-				typeof (session as any)?.sessionManager?.getSessionFile === "function"
-					? ((session as any).sessionManager.getSessionFile() ?? null)
-					: null;
-
 			this.registry.attachSession(conversationId, session, sessionFile);
 			wireAgentEndEvent(this.registry, conversationId, session);
 
@@ -331,7 +294,8 @@ export class SubagentRunner {
 				workspaceUris,
 			};
 		} catch (error) {
-			if (opts.mock || process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test") {
+			this.registry.unregister(conversationId);
+			if (opts.mock || (!customCreator && (process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test"))) {
 				return await this.launchMock(options);
 			}
 			throw new Error(
