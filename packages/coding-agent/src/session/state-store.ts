@@ -12,6 +12,15 @@ export interface PersistedSessionState {
 	updatedAt: number;
 }
 
+export interface SessionPruningOptions {
+	/** Maximum number of completed sessions to retain (default: 10). */
+	maxCompleted?: number;
+	/** Maximum number of crashed sessions to retain (default: 20). */
+	maxCrashed?: number;
+	/** Maximum age in seconds for retaining completed/crashed sessions (default: 7 days). */
+	maxAgeSeconds?: number;
+}
+
 const instances = new Map<string, SessionStateStore>();
 
 /**
@@ -27,6 +36,8 @@ export class SessionStateStore {
 
 	#initializeSchema(): void {
 		this.#db.exec(`
+			PRAGMA journal_mode = WAL;
+			PRAGMA synchronous = NORMAL;
 			CREATE TABLE IF NOT EXISTS session_states (
 				session_id TEXT PRIMARY KEY,
 				data TEXT NOT NULL,
@@ -34,7 +45,72 @@ export class SessionStateStore {
 				created_at INTEGER,
 				updated_at INTEGER
 			);
+			CREATE INDEX IF NOT EXISTS idx_session_states_status_updated ON session_states (status, updated_at DESC);
 		`);
+	}
+
+	getJournalMode(): string {
+		const row = this.#db.prepare("PRAGMA journal_mode;").get() as { journal_mode?: string } | undefined;
+		return row?.journal_mode ?? "delete";
+	}
+
+	vacuum(): void {
+		try {
+			this.#db.exec("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;");
+		} catch (err) {
+			logger.warn("SessionStateStore failed to vacuum database", { error: String(err) });
+		}
+	}
+
+	pruneStaleSessions(options: SessionPruningOptions = {}): number {
+		const maxCompleted = options.maxCompleted ?? 10;
+		const maxCrashed = options.maxCrashed ?? 20;
+		const maxAgeSeconds = options.maxAgeSeconds ?? 86400 * 7;
+		const cutoff = Math.floor(Date.now() / 1000) - maxAgeSeconds;
+
+		let prunedCount = 0;
+
+		// 1. Delete completed and crashed sessions older than cutoff
+		const ageResult = this.#db
+			.prepare("DELETE FROM session_states WHERE status IN ('completed', 'crashed') AND updated_at < ?")
+			.run(cutoff);
+		prunedCount += ageResult.changes;
+
+		// 2. Prune excess completed sessions beyond maxCompleted
+		if (maxCompleted >= 0) {
+			const excessCompleted = this.#db
+				.prepare(`
+					DELETE FROM session_states
+					WHERE status = 'completed'
+					AND session_id NOT IN (
+						SELECT session_id FROM session_states
+						WHERE status = 'completed'
+						ORDER BY updated_at DESC
+						LIMIT ?
+					)
+				`)
+				.run(maxCompleted);
+			prunedCount += excessCompleted.changes;
+		}
+
+		// 3. Prune excess crashed sessions beyond maxCrashed
+		if (maxCrashed >= 0) {
+			const excessCrashed = this.#db
+				.prepare(`
+					DELETE FROM session_states
+					WHERE status = 'crashed'
+					AND session_id NOT IN (
+						SELECT session_id FROM session_states
+						WHERE status = 'crashed'
+						ORDER BY updated_at DESC
+						LIMIT ?
+					)
+				`)
+				.run(maxCrashed);
+			prunedCount += excessCrashed.changes;
+		}
+
+		return prunedCount;
 	}
 
 	static open(dbPath?: string): SessionStateStore {
@@ -63,7 +139,7 @@ export class SessionStateStore {
 
 	save(state: PersistedSessionState): void {
 		const now = Math.floor(Date.now() / 1000);
-		state.updatedAt = now;
+		if (!state.updatedAt) state.updatedAt = now;
 		if (!state.createdAt) state.createdAt = now;
 
 		this.#db

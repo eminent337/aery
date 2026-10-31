@@ -8,6 +8,9 @@ import { SessionStateStore } from "./state-store.js";
 export function recoverStrandedSessions(): void {
 	try {
 		const store = SessionStateStore.open();
+		// AGY style: prune stale completed/crashed sessions so the database stays lean and fast
+		store.pruneStaleSessions();
+
 		const runningSessions = store.listByStatus("running");
 
 		if (runningSessions.length === 0) {
