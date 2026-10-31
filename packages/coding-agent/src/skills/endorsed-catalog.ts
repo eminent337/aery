@@ -32,6 +32,46 @@ export interface EndorsedSkill {
  */
 export const ENDORSED_SKILLS: readonly EndorsedSkill[] = [
 	{
+		name: "cybersec",
+		description:
+			"Zero-dependency cybersecurity engine for vulnerability scanning, secret leak detection, dependency auditing, host posture, and log triage.",
+		category: "Aery",
+		source: "bundled with Aery skills",
+		install: null,
+	},
+	{
+		name: "leanai",
+		description:
+			"Inspect application architectures, decode binary formats and protocols, analyze Electron/Go/native runtimes, and extract type schemas.",
+		category: "Aery",
+		source: "bundled with Aery skills",
+		install: null,
+	},
+	{
+		name: "perf-opt",
+		description:
+			"Zero-dependency performance, memory, and latency profiling engine for CPU/RSS sampling, leak detection, event-loop lag, and benchmarking.",
+		category: "Aery",
+		source: "bundled with Aery skills",
+		install: null,
+	},
+	{
+		name: "agent-eval",
+		description:
+			"AI agent evaluation and benchmark framework for measuring tool-calling accuracy, parameter alignment, hallucination rates, and token costs.",
+		category: "Aery",
+		source: "bundled with Aery skills",
+		install: null,
+	},
+	{
+		name: "linux-ops",
+		description:
+			"Zero-dependency Linux resident system services, daemon automation, hardened systemd unit generation, and crash watchdog supervisor.",
+		category: "Aery",
+		source: "bundled with Aery skills",
+		install: null,
+	},
+	{
 		name: "optimization",
 		description:
 			"Improve performance, latency, throughput, memory usage, or general efficiency by defining metrics, measuring, attributing bottlenecks, and prioritizing macro-optimizations.",
