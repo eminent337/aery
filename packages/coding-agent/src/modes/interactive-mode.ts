@@ -450,6 +450,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.headerBar = new HeaderBarComponent({
 			cwd: this.sessionManager.getCwd(),
 			model: this.session.model?.id ?? "",
+			enabled: false,
 		});
 		this.subagentHud = new SubagentActivityHudComponent();
 		this.hookWidgetContainerBelow = new Container();
@@ -586,7 +587,6 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.ui.addChild(this.btwContainer);
 		this.ui.addChild(this.omfgContainer);
 		this.ui.addChild(this.hookWidgetContainerAbove);
-		this.ui.addChild(this.headerBar);
 		this.ui.addChild(this.subagentHud);
 		this.ui.addChild(this.editorContainer);
 		this.ui.addChild(this.statusLine); // Renders flat status line natively below editor
