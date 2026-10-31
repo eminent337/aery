@@ -10,9 +10,9 @@
  * it to report results back to the parent.
  */
 
-import * as z from "zod/v4";
 import type { AgentTool, AgentToolContext, AgentToolResult } from "@aryee337/aery-core";
-import { AgentRegistry } from "../registry/agent-registry";
+import * as z from "zod/v4";
+import { AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
 import type { ToolSession } from "./index";
 
 const sendMessageSchema = z.object({
@@ -33,12 +33,17 @@ const pendingMessages = new Map<string, Array<{ from: string; message: string; t
  * Retrieve and drain all pending messages for an agent ID.
  * Called by agent sessions on startup to receive any messages sent before the session was live.
  */
-export function drainPendingMessages(
-	recipientId: string,
-): Array<{ from: string; message: string; timestamp: number }> {
+export function drainPendingMessages(recipientId: string): Array<{ from: string; message: string; timestamp: number }> {
 	const msgs = pendingMessages.get(recipientId) ?? [];
 	pendingMessages.delete(recipientId);
 	return msgs;
+}
+
+/**
+ * Clear the pending messages queue. Test-only.
+ */
+export function clearPendingMessagesForTests(): void {
+	pendingMessages.clear();
 }
 
 export class SendMessageTool implements AgentTool<typeof sendMessageSchema> {
@@ -69,8 +74,19 @@ export class SendMessageTool implements AgentTool<typeof sendMessageSchema> {
 		const senderId = this.session?.getAgentId?.() ?? "unknown";
 
 		// Look up recipient in the registry
-		const registry = AgentRegistry.global();
-		const recipientRef = registry.get(Recipient);
+		const registry = this.session?.agentRegistry ?? AgentRegistry.global();
+		let recipientRef = registry.get(Recipient);
+
+		// If recipient wasn't found directly and Recipient is "parent" (or case-insensitive "parent"),
+		// try resolving the sender's parentId or MAIN_AGENT_ID
+		const senderRef = senderId !== "unknown" ? registry.get(senderId) : undefined;
+		if (!recipientRef && Recipient.toLowerCase() === "parent") {
+			if (senderRef?.parentId) {
+				recipientRef = registry.get(senderRef.parentId);
+			} else {
+				recipientRef = registry.get(MAIN_AGENT_ID);
+			}
+		}
 
 		if (!recipientRef) {
 			// Queue message for delivery when/if the recipient registers later
@@ -89,20 +105,49 @@ export class SendMessageTool implements AgentTool<typeof sendMessageSchema> {
 			};
 		}
 
+		// Identify whether recipient is a parent session or peer subagent
+		const senderParentId = senderRef?.parentId;
+		const isParent =
+			Recipient === MAIN_AGENT_ID ||
+			recipientRef.id === MAIN_AGENT_ID ||
+			recipientRef.kind === "main" ||
+			Recipient.toLowerCase() === "parent" ||
+			(senderParentId !== undefined && (Recipient === senderParentId || recipientRef.id === senderParentId)) ||
+			(Boolean((this.session as any)?.parentId) &&
+				(Recipient === (this.session as any).parentId || recipientRef.id === (this.session as any).parentId)) ||
+			(typeof (this.session as any)?.getParentId === "function" &&
+				(Recipient === (this.session as any).getParentId() ||
+					recipientRef.id === (this.session as any).getParentId()));
+
 		// If the recipient has a live session with sendCustomMessage support, use it
 		const recipientSession = recipientRef.session as any;
 		if (recipientSession && typeof recipientSession.sendCustomMessage === "function") {
 			try {
-				await recipientSession.sendCustomMessage(
-					{
-						customType: "agent_message",
-						content: Message,
-						display: true,
-						details: { from: senderId },
-						attribution: "user",
-					},
-					{ deliverAs: "followUp", triggerTurn: true },
-				);
+				if (isParent) {
+					const timestamp = new Date().toISOString();
+					const formattedNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${senderId} priority=MESSAGE_PRIORITY_HIGH content=${Message}\n</SYSTEM_MESSAGE>`;
+					await recipientSession.sendCustomMessage(
+						{
+							customType: "agent_message",
+							content: formattedNotice,
+							display: true,
+							details: { from: senderId, priority: "MESSAGE_PRIORITY_HIGH" },
+							attribution: "agent",
+						},
+						{ deliverAs: "followUp", triggerTurn: true },
+					);
+				} else {
+					await recipientSession.sendCustomMessage(
+						{
+							customType: "agent_message",
+							content: Message,
+							display: true,
+							details: { from: senderId },
+							attribution: "user",
+						},
+						{ deliverAs: "followUp", triggerTurn: true },
+					);
+				}
 
 				return {
 					content: [
@@ -113,7 +158,7 @@ export class SendMessageTool implements AgentTool<typeof sendMessageSchema> {
 					],
 					details: { recipient: Recipient, delivered: true, from: senderId },
 				};
-			} catch (err: any) {
+			} catch {
 				// Fall through to pending queue on delivery failure
 			}
 		}
