@@ -24,6 +24,7 @@ export interface SubagentLaunchOptions {
 	Workspace?: "inherit" | "branch" | "share";
 	customTools?: string[];
 	cwd?: string;
+	mock?: boolean;
 	sessionCreator?: (options: any) => Promise<{ session: any }>;
 }
 
@@ -107,6 +108,7 @@ function normalizeLaunchOptions(options: SubagentLaunchOptions) {
 	const parentId = options.parentId;
 	const parentModel = options.parentModel;
 	const customTools = options.customTools;
+	const mock = options.mock;
 	return {
 		typeName,
 		role,
@@ -117,6 +119,7 @@ function normalizeLaunchOptions(options: SubagentLaunchOptions) {
 		parentId,
 		parentModel,
 		customTools,
+		mock,
 	};
 }
 
@@ -125,6 +128,7 @@ export interface MockSubagentSession {
 	model?: string;
 	tools?: string[];
 	conversationId?: string;
+	sessionManager?: { getSessionFile: () => string };
 	subscribe(cb: (event: any) => void): () => void;
 	emitEvent(event: any): void;
 	sendCustomMessage(msg: any): Promise<void>;
@@ -134,10 +138,11 @@ export interface MockSubagentSession {
 	prompt(text: string): Promise<void>;
 }
 
-export function createMockSubagentSession(): MockSubagentSession {
+export function createMockSubagentSession(logPath?: string): MockSubagentSession {
 	const listeners = new Set<(event: any) => void>();
 	return {
 		listeners,
+		sessionManager: logPath ? { getSessionFile: () => logPath } : undefined,
 		subscribe(cb: (event: any) => void) {
 			listeners.add(cb);
 			return () => {
@@ -161,6 +166,20 @@ export function createMockSubagentSession(): MockSubagentSession {
 	};
 }
 
+function wireAgentEndEvent(registry: AgentRegistry, conversationId: string, session: any): void {
+	if (typeof session?.subscribe === "function") {
+		session.subscribe((event: any) => {
+			if (event?.type === "agent_end") {
+				registry.setStatus(conversationId, "idle");
+				registry.setProgress(conversationId, {
+					currentTool: undefined,
+					currentToolArgs: undefined,
+				});
+			}
+		});
+	}
+}
+
 export class SubagentRunner {
 	constructor(
 		private readonly registry: AgentRegistry = AgentRegistry.global(),
@@ -176,7 +195,11 @@ export class SubagentRunner {
 		const resolvedModel = resolveSubagentModel(opts.model, opts.parentModel);
 		const resolvedTools = resolveSubagentTools(opts.typeName, opts.customTools);
 
-		const session = createMockSubagentSession();
+		const logPath = path.resolve(opts.cwd, ".system_generated", "logs", `${conversationId}.jsonl`);
+		const logAbsoluteUri = `file://${logPath}`;
+		const workspaceUris = [opts.cwd];
+
+		const session = createMockSubagentSession(logPath);
 		session.model = resolvedModel;
 		session.tools = resolvedTools;
 		session.conversationId = conversationId;
@@ -187,15 +210,13 @@ export class SubagentRunner {
 			kind: "sub",
 			parentId: opts.parentId,
 			session: session as any,
-			sessionFile: null,
+			sessionFile: logPath,
 			status: "running",
 		});
 
-		this.#wireSessionEvents(conversationId, session);
-
-		const logPath = path.resolve(opts.cwd, ".system_generated", "logs", `${conversationId}.jsonl`);
-		const logAbsoluteUri = `file://${logPath}`;
-		const workspaceUris = [opts.cwd];
+		// AgentRegistry.attachSession handles turn_start, turn_end, tool_execution_start/end.
+		// wireAgentEndEvent only listens for terminal agent_end without duplicate subscriptions.
+		wireAgentEndEvent(this.registry, conversationId, session);
 
 		return {
 			conversationId,
@@ -206,7 +227,7 @@ export class SubagentRunner {
 
 	/**
 	 * Launch a subagent session. In runtime environments with live LLM credentials,
-	 * creates an AgentSession. Falls back cleanly to launchMock in test/hermetic setups.
+	 * creates an AgentSession.
 	 */
 	async launch(options: SubagentLaunchOptions): Promise<SubagentLaunchResult> {
 		const opts = normalizeLaunchOptions(options);
@@ -224,10 +245,21 @@ export class SubagentRunner {
 			const systemPrompt = def?.systemPrompt;
 			const { session } = await sessionCreator({
 				cwd: opts.cwd,
+				agentId: conversationId,
+				agentDisplayName: `${opts.role} [${opts.typeName}]`,
+				agentRegistry: this.registry,
+				taskDepth: 1,
+				parentTaskPrefix: opts.parentId,
 				modelPattern: resolvedModel,
 				toolNames: resolvedTools.includes("*") ? undefined : resolvedTools,
 				systemPrompt: systemPrompt ? [systemPrompt] : undefined,
+				hasUI: false,
 			});
+
+			const sessionFile =
+				typeof (session as any)?.sessionManager?.getSessionFile === "function"
+					? ((session as any).sessionManager.getSessionFile() ?? null)
+					: logPath;
 
 			this.registry.register({
 				id: conversationId,
@@ -235,11 +267,11 @@ export class SubagentRunner {
 				kind: "sub",
 				parentId: opts.parentId,
 				session,
-				sessionFile: null,
+				sessionFile,
 				status: "running",
 			});
 
-			this.#wireSessionEvents(conversationId, session);
+			wireAgentEndEvent(this.registry, conversationId, session);
 
 			if (opts.prompt && typeof session?.prompt === "function") {
 				void session.prompt(opts.prompt).catch(() => {});
@@ -257,26 +289,39 @@ export class SubagentRunner {
 			const def = getSubagentDefinition(opts.typeName);
 			const systemPrompt = def?.systemPrompt;
 
-			const { session } = await createAgentSession({
-				cwd: opts.cwd,
-				modelPattern: resolvedModel,
-				toolNames: resolvedTools.includes("*") ? undefined : resolvedTools,
-				systemPrompt: systemPrompt ? [systemPrompt] : undefined,
-			});
-
+			// Pre-register so that early session initialization and IRC peer rosters observe this subagent
 			this.registry.register({
 				id: conversationId,
 				displayName: `${opts.role} [${opts.typeName}]`,
 				kind: "sub",
 				parentId: opts.parentId,
-				session,
+				session: null,
 				sessionFile: null,
 				status: "running",
 			});
 
-			this.#wireSessionEvents(conversationId, session);
+			const { session } = await createAgentSession({
+				cwd: opts.cwd,
+				agentId: conversationId,
+				agentDisplayName: `${opts.role} [${opts.typeName}]`,
+				agentRegistry: this.registry,
+				taskDepth: 1,
+				parentTaskPrefix: opts.parentId,
+				modelPattern: resolvedModel,
+				toolNames: resolvedTools.includes("*") ? undefined : resolvedTools,
+				systemPrompt: systemPrompt ? [systemPrompt] : undefined,
+				hasUI: false,
+			});
 
-			if (opts.prompt) {
+			const sessionFile =
+				typeof (session as any)?.sessionManager?.getSessionFile === "function"
+					? ((session as any).sessionManager.getSessionFile() ?? null)
+					: null;
+
+			this.registry.attachSession(conversationId, session, sessionFile);
+			wireAgentEndEvent(this.registry, conversationId, session);
+
+			if (opts.prompt && typeof session?.prompt === "function") {
 				void session.prompt(opts.prompt).catch(() => {});
 			}
 
@@ -285,44 +330,14 @@ export class SubagentRunner {
 				logAbsoluteUri,
 				workspaceUris,
 			};
-		} catch {
-			return await this.launchMock(options);
-		}
-	}
-
-	#wireSessionEvents(conversationId: string, session: any): void {
-		if (typeof session?.subscribe === "function") {
-			session.subscribe((event: any) => {
-				if (!event || typeof event !== "object") return;
-				if (event.type === "agent_end" || event.type === "turn_end") {
-					this.registry.setStatus(conversationId, "idle");
-					this.registry.setProgress(conversationId, {
-						currentTool: undefined,
-						currentToolArgs: undefined,
-					});
-				} else if (event.type === "turn_start") {
-					this.registry.setStatus(conversationId, "running");
-				} else if (event.type === "tool_execution_start") {
-					const toolArgsSummary =
-						typeof event.args === "string"
-							? event.args
-							: typeof event.args === "object" && event.args !== null
-								? Object.values(event.args)
-										.map(v => (typeof v === "string" ? v : JSON.stringify(v)))
-										.join(" ")
-								: "";
-					this.registry.setStatus(conversationId, "running");
-					this.registry.setProgress(conversationId, {
-						currentTool: event.toolName,
-						currentToolArgs: toolArgsSummary,
-					});
-				} else if (event.type === "tool_execution_end") {
-					this.registry.setProgress(conversationId, {
-						currentTool: undefined,
-						currentToolArgs: undefined,
-					});
-				}
-			});
+		} catch (error) {
+			if (opts.mock || process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test") {
+				return await this.launchMock(options);
+			}
+			throw new Error(
+				`Failed to launch subagent "${conversationId}": ${error instanceof Error ? error.message : String(error)}`,
+				{ cause: error },
+			);
 		}
 	}
 }

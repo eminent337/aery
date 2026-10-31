@@ -154,7 +154,7 @@ describe("SubagentRunner Engine", () => {
 			expect(result.workspaceUris.length).toBeGreaterThan(0);
 		});
 
-		it("registers the subagent in AgentRegistry.global() with status 'running'", async () => {
+		it("registers the subagent in AgentRegistry.global() with status 'running' and sessionFile", async () => {
 			const registry = AgentRegistry.global();
 			const runner = new SubagentRunner();
 
@@ -173,6 +173,8 @@ describe("SubagentRunner Engine", () => {
 			expect(ref?.parentId).toBe("main-session-id");
 			expect(ref?.displayName).toContain("Autonomous Bug Fixer");
 			expect(ref?.session).toBeDefined();
+			expect(ref?.sessionFile).toBeDefined();
+			expect(ref?.sessionFile).toContain(result.conversationId);
 		});
 
 		it("syncs subagent turn and tool events to AgentRegistry", async () => {
@@ -241,14 +243,19 @@ describe("SubagentRunner Engine", () => {
 	});
 
 	describe("SubagentRunner.launch", () => {
-		it("provides launch method that returns SubagentLaunchResult and registers in AgentRegistry", async () => {
+		it("passes subagent identity, taskDepth, and config to session creator", async () => {
 			const mockSession = createMockSubagentSession();
+			let capturedOptions: any;
 			let promptCalledWith: string | undefined;
 			mockSession.prompt = async (text: string) => {
 				promptCalledWith = text;
 			};
 
-			const runner = new SubagentRunner(AgentRegistry.global(), async () => ({ session: mockSession as any }));
+			const runner = new SubagentRunner(AgentRegistry.global(), async (options: any) => {
+				capturedOptions = options;
+				return { session: mockSession as any };
+			});
+
 			const result = await runner.launch({
 				TypeName: "research",
 				Role: "Researcher",
@@ -260,11 +267,66 @@ describe("SubagentRunner Engine", () => {
 			expect(result.logAbsoluteUri).toStartWith("file://");
 			expect(result.workspaceUris.length).toBeGreaterThan(0);
 
+			// Verify subagent identity parameters passed directly
+			expect(capturedOptions.agentId).toBe(result.conversationId);
+			expect(capturedOptions.agentDisplayName).toContain("Researcher [research]");
+			expect(capturedOptions.agentRegistry).toBe(AgentRegistry.global());
+			expect(capturedOptions.taskDepth).toBe(1);
+			expect(capturedOptions.parentTaskPrefix).toBe("parent-456");
+			expect(capturedOptions.modelPattern).toBe("gemini-2.5-flash");
+			expect(capturedOptions.toolNames).toContain("read_file");
+			expect(capturedOptions.toolNames).toContain("send_message");
+			expect(capturedOptions.hasUI).toBe(false);
+
 			const ref = AgentRegistry.global().get(result.conversationId);
 			expect(ref).toBeDefined();
 			expect(ref?.status).toBe("running");
 			expect(ref?.parentId).toBe("parent-456");
 			expect(promptCalledWith).toBe("Find files in src/");
+		});
+
+		it("sets sessionFile from sessionManager on AgentRegistry", async () => {
+			const mockSession = createMockSubagentSession();
+			mockSession.sessionManager = {
+				getSessionFile: () => "/tmp/sessions/subagent-session.jsonl",
+			};
+
+			const runner = new SubagentRunner(AgentRegistry.global(), async () => ({
+				session: mockSession as any,
+			}));
+
+			const result = await runner.launch({
+				TypeName: "research",
+				Role: "Inspector",
+				Prompt: "Inspect",
+			});
+
+			const ref = AgentRegistry.global().get(result.conversationId);
+			expect(ref?.sessionFile).toBe("/tmp/sessions/subagent-session.jsonl");
+		});
+
+		it("rethrows error when session creator fails outside test mode", async () => {
+			const origNodeEnv = process.env.NODE_ENV;
+			const origBunEnv = process.env.BUN_ENV;
+			delete (process.env as any).NODE_ENV;
+			delete (process.env as any).BUN_ENV;
+
+			try {
+				const runner = new SubagentRunner(AgentRegistry.global(), async () => {
+					throw new Error("Out of quota");
+				});
+
+				expect(
+					runner.launch({
+						TypeName: "research",
+						Role: "Researcher",
+						Prompt: "Inspect",
+					}),
+				).rejects.toThrow("Out of quota");
+			} finally {
+				if (origNodeEnv !== undefined) process.env.NODE_ENV = origNodeEnv;
+				if (origBunEnv !== undefined) process.env.BUN_ENV = origBunEnv;
+			}
 		});
 	});
 });
