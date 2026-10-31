@@ -83,6 +83,7 @@ describe("ManageSubagentsTool", () => {
 
 		const ref = registry.get("sub-worker-kill-1");
 		expect(ref?.status).toBe("aborted");
+		expect(ref?.session).toBeNull();
 		expect(ref?.currentTool).toBeUndefined();
 
 		const text = (result.content[0] as any).text;

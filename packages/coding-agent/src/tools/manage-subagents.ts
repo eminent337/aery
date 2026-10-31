@@ -73,8 +73,14 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 
 				for (const agent of subagents) {
 					const createdStr = new Date(agent.createdAt).toLocaleTimeString();
+					const cleanArgs = agent.currentToolArgs
+						? agent.currentToolArgs
+								.replace(/[\r\n|`]/g, " ")
+								.trim()
+								.slice(0, 50)
+						: "";
 					const toolDetails = agent.currentTool
-						? `${agent.currentTool}${agent.currentToolArgs ? ` (${agent.currentToolArgs.slice(0, 50)})` : ""}`
+						? `${agent.currentTool}${cleanArgs ? ` (${cleanArgs})` : ""}`
 						: "—";
 					lines.push(
 						`| **${agent.id}** | ${agent.displayName} | \`${agent.status}\` | \`${toolDetails}\` | ${createdStr} |`,
@@ -113,6 +119,7 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 								await agent.session.dispose();
 							} catch {}
 						}
+						registry.detachSession(agent.id);
 						registry.setStatus(agent.id, "aborted");
 						registry.setProgress(agent.id, {
 							currentTool: undefined,
@@ -139,11 +146,9 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 			}
 
 			case "kill_all": {
-				const allSubagents = registry.list().filter(a => a.kind === "sub");
-				let count = 0;
-
-				for (const agent of allSubagents) {
-					if (agent.status !== "aborted") {
+				const activeSubagents = registry.list().filter(a => a.kind === "sub" && a.status !== "aborted");
+				await Promise.allSettled(
+					activeSubagents.map(async agent => {
 						try {
 							if (agent.session) {
 								try {
@@ -153,16 +158,17 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 									await agent.session.dispose();
 								} catch {}
 							}
+							registry.detachSession(agent.id);
 							registry.setStatus(agent.id, "aborted");
 							registry.setProgress(agent.id, {
 								currentTool: undefined,
 								currentToolArgs: undefined,
 							});
-							count++;
 						} catch {}
-					}
-				}
+					}),
+				);
 
+				const count = activeSubagents.length;
 				return {
 					content: [
 						{
