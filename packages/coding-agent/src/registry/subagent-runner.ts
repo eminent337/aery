@@ -102,8 +102,13 @@ export function resolveSubagentTools(typeName: string, customTools?: string[]): 
  * Resolve a requested model tier ("flash", "flash_lite", "pro", "inherit") to a concrete model identifier.
  */
 export function resolveSubagentModel(model?: string, parentModel?: string): string {
-	const normalized = model?.trim();
-	if (!normalized || normalized === "inherit") {
+	const trimmed = model?.trim();
+	if (!trimmed) {
+		return parentModel || DEFAULT_SUBAGENT_MODEL;
+	}
+
+	const normalized = trimmed.toLowerCase();
+	if (normalized === "inherit") {
 		return parentModel || DEFAULT_SUBAGENT_MODEL;
 	}
 
@@ -121,7 +126,7 @@ export function resolveSubagentModel(model?: string, parentModel?: string): stri
 	if (normalized in SUBAGENT_MODEL_TIERS) {
 		return SUBAGENT_MODEL_TIERS[normalized];
 	}
-	return normalized;
+	return trimmed;
 }
 
 function normalizeLaunchOptions(options: SubagentLaunchOptions) {
@@ -360,6 +365,7 @@ export class SubagentRunner {
 
 		let effectiveCwd = opts.cwd;
 		let isolationHandle: any;
+		let createdScratchDir: string | undefined;
 
 		if (opts.workspace === "branch" || opts.workspace === "share") {
 			try {
@@ -372,10 +378,12 @@ export class SubagentRunner {
 					const fallbackDir = path.resolve(opts.cwd, ".system_generated", "workspaces", conversationId);
 					await fs.mkdir(fallbackDir, { recursive: true });
 					effectiveCwd = fallbackDir;
+					createdScratchDir = fallbackDir;
 				} catch {
 					const tmpDir = path.resolve(os.tmpdir(), "aery-workspaces", conversationId);
 					await fs.mkdir(tmpDir, { recursive: true });
 					effectiveCwd = tmpDir;
+					createdScratchDir = tmpDir;
 				}
 			}
 		}
@@ -421,16 +429,23 @@ export class SubagentRunner {
 				hasUI: false,
 			});
 
-			if (isolationHandle && typeof (session as any)?.dispose === "function") {
+			if ((isolationHandle || createdScratchDir) && typeof (session as any)?.dispose === "function") {
 				const origDispose = (session as any).dispose.bind(session);
 				(session as any).dispose = async () => {
 					try {
 						await origDispose();
 					} finally {
-						try {
-							const { cleanupIsolation } = await import("../task/worktree");
-							await cleanupIsolation(isolationHandle);
-						} catch {}
+						if (isolationHandle) {
+							try {
+								const { cleanupIsolation } = await import("../task/worktree");
+								await cleanupIsolation(isolationHandle);
+							} catch {}
+						}
+						if (createdScratchDir) {
+							try {
+								await fs.rm(createdScratchDir, { recursive: true, force: true });
+							} catch {}
+						}
 					}
 				};
 			}
@@ -457,6 +472,11 @@ export class SubagentRunner {
 				try {
 					const { cleanupIsolation } = await import("../task/worktree");
 					await cleanupIsolation(isolationHandle);
+				} catch {}
+			}
+			if (createdScratchDir) {
+				try {
+					await fs.rm(createdScratchDir, { recursive: true, force: true });
 				} catch {}
 			}
 			this.registry.unregister(conversationId);

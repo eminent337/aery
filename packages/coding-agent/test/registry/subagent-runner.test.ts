@@ -143,6 +143,13 @@ describe("SubagentRunner Engine", () => {
 			expect(resolveSubagentModel("flash_lite", "openai/gpt-4o")).toBe("gpt-4o-mini");
 			expect(resolveSubagentModel("pro", "openai/gpt-4o")).toBe("gpt-4o");
 		});
+
+		it("normalizes case-insensitively for tier names like 'Flash' and 'PRO'", () => {
+			expect(resolveSubagentModel("Flash")).toBe("gemini-2.5-flash");
+			expect(resolveSubagentModel("PRO")).toBe("gemini-2.5-pro");
+			expect(resolveSubagentModel("FLASH_LITE")).toBe("gemini-2.5-flash-lite");
+			expect(resolveSubagentModel("Flash", "anthropic/claude-3-7-sonnet")).toBe("claude-3-5-haiku");
+		});
 	});
 
 	describe("Workspace Isolation", () => {
@@ -193,6 +200,37 @@ describe("SubagentRunner Engine", () => {
 			expect(result.workspaceUris[0]).not.toBe("/home/user/project");
 			expect(result.workspaceUris[0]).toContain(result.conversationId);
 			expect(capturedCwd).toBe(result.workspaceUris[0]);
+		});
+
+		it("launch: cleans up fallback scratch directory when session.dispose is called", async () => {
+			const fs = await import("node:fs/promises");
+			const mockSession = createMockSubagentSession();
+			const runner = new SubagentRunner(AgentRegistry.global(), async () => ({
+				session: mockSession as any,
+			}));
+
+			const result = await runner.launch({
+				Role: "Cleanup Test Worker",
+				Workspace: "branch",
+			});
+
+			const workspacePath = result.workspaceUris[0];
+			let exists = false;
+			try {
+				await fs.access(workspacePath);
+				exists = true;
+			} catch {}
+			expect(exists).toBe(true);
+
+			// Dispose session
+			await mockSession.dispose();
+
+			let existsAfter = false;
+			try {
+				await fs.access(workspacePath);
+				existsAfter = true;
+			} catch {}
+			expect(existsAfter).toBe(false);
 		});
 	});
 
