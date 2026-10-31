@@ -53,6 +53,7 @@ import {
 	sanitizeRehydratedOpenAIResponsesAssistantMessage,
 	stripInternalDetailsFields,
 } from "./messages";
+import { getWorkspaceRoot, isSameWorkspace, SessionIndexStore } from "./session-index";
 import type { SessionStorage, SessionStorageWriter } from "./session-storage";
 import { FileSessionStorage, MemorySessionStorage } from "./session-storage";
 
@@ -851,12 +852,12 @@ async function readTerminalBreadcrumb(cwd: string): Promise<string | null> {
 		const breadcrumbCwd = lines[0];
 		const sessionFile = lines[1];
 
-		// Only return if cwd matches (user might have cd'd)
-		if (path.resolve(breadcrumbCwd) !== path.resolve(cwd)) return null;
+		// Only return if cwd matches or is in the same workspace (user might have cd'd into a subfolder)
+		if (path.resolve(breadcrumbCwd) !== path.resolve(cwd) && !isSameWorkspace(breadcrumbCwd, cwd)) return null;
 
-		// Verify the session file still exists
+		// Verify the session file still exists and has content (not an unwritten 0-byte stub)
 		const stat = fs.statSync(sessionFile, { throwIfNoEntry: false });
-		if (stat?.isFile()) return sessionFile;
+		if (stat?.isFile() && stat.size > 0) return sessionFile;
 	} catch (err) {
 		if (!isEnoent(err)) logger.debug("Terminal breadcrumb read failed", { err });
 		// Breadcrumb doesn't exist or is corrupt — fall through
@@ -1192,9 +1193,31 @@ async function getSortedSessions(sessionDir: string, storage: SessionStorage): P
 export async function findMostRecentSession(
 	sessionDir: string,
 	storage: SessionStorage = new FileSessionStorage(),
+	cwd?: string,
 ): Promise<string | null> {
+	if (cwd && storage instanceof FileSessionStorage) {
+		try {
+			const indexStore = SessionIndexStore.open();
+			const recentRecord = indexStore.getMostRecentForWorkspace(cwd);
+			if (recentRecord && storage.existsSync(recentRecord.filePath)) {
+				return recentRecord.filePath;
+			}
+		} catch {}
+	}
 	const sessions = await getSortedSessions(sessionDir, storage);
-	return sessions[0]?.path || null;
+	if (sessions.length > 0) {
+		return sessions[0].path;
+	}
+	if (cwd) {
+		try {
+			const workspaceSessions = await SessionManager.list(cwd, undefined, storage);
+			if (workspaceSessions.length > 0) {
+				const withMessages = workspaceSessions.find(s => s.messageCount > 0);
+				return withMessages?.path ?? workspaceSessions[0].path;
+			}
+		} catch {}
+	}
+	return null;
 }
 
 /** Format a time difference as a human-readable string */
@@ -1932,6 +1955,11 @@ export async function resolveResumableSession(
 		return undefined;
 	}
 
+	// Match within the same workspace (e.g. subfolder or parent git repo) is considered local
+	if (isSameWorkspace(cwd, globalMatch.cwd || cwd)) {
+		return { session: globalMatch, scope: "local" };
+	}
+
 	return { session: globalMatch, scope: "global" };
 }
 export interface ForkSessionOptions {
@@ -2113,6 +2141,7 @@ export class SessionManager {
 			this.#buildIndex();
 			this.#flushed = true;
 			this.#ensuredOnDisk = true;
+			this.#notifyIndexed();
 		} else {
 			const explicitPath = this.#sessionFile;
 			this.#newSessionSync();
@@ -2135,6 +2164,11 @@ export class SessionManager {
 		await this.#closePersistWriter();
 		try {
 			await this.storage.deleteSessionWithArtifacts(sessionPath);
+			if (this.storage instanceof FileSessionStorage) {
+				try {
+					SessionIndexStore.open().deleteSession(sessionPath);
+				} catch {}
+			}
 		} catch (err) {
 			if (isEnoent(err)) return;
 			throw err;
@@ -2566,7 +2600,50 @@ export class SessionManager {
 
 	// Called after save() succeeds so we can notify indexing tools
 	#notifyIndexed(): void {
+		this.#updateIndexStore();
 		this.#onSessionIndexed?.(this.#sessionId);
+	}
+
+	#updateIndexStore(): void {
+		if (!this.persist || !this.#sessionFile || !(this.storage instanceof FileSessionStorage)) {
+			return;
+		}
+		try {
+			const header = this.#fileEntries.find(e => e.type === "session") as SessionHeader | undefined;
+			if (!header) return;
+
+			let messageCount = 0;
+			let firstPrompt: string | undefined;
+			for (const entry of this.#fileEntries) {
+				if (entry.type === "message") {
+					messageCount++;
+					if (!firstPrompt && entry.message.role === "user") {
+						const textContent = extractTextFromContent(entry.message.content);
+						if (textContent) firstPrompt = textContent;
+					}
+				}
+			}
+
+			const resolvedFile = path.resolve(this.#sessionFile);
+			const canonicalCwd = resolveEquivalentPath(this.cwd);
+			const workspaceRoot = getWorkspaceRoot(canonicalCwd);
+			const createdAt = header.timestamp ? new Date(header.timestamp).getTime() : Date.now();
+			const updatedAt = Date.now();
+
+			SessionIndexStore.open().upsertSession({
+				sessionId: this.#sessionId,
+				filePath: resolvedFile,
+				cwd: this.cwd,
+				canonicalCwd,
+				workspaceRoot,
+				title: this.#sessionName ?? header.title,
+				messageCount,
+				createdAt,
+				updatedAt,
+				firstPrompt,
+				parentSession: header.parentSession,
+			});
+		} catch {}
 	}
 
 	isPersisted(): boolean {
@@ -2590,6 +2667,7 @@ export class SessionManager {
 			if (this.#persistWriter) {
 				await this.#persistWriter.flush();
 				await this.#persistWriter.fsync();
+				this.#notifyIndexed();
 			}
 		});
 		if (this.#persistError) throw this.#persistError;
@@ -3694,9 +3772,9 @@ export class SessionManager {
 		storage: SessionStorage = new FileSessionStorage(),
 	): Promise<SessionManager> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
-		// Prefer terminal-scoped breadcrumb (handles concurrent sessions correctly)
+		// Prefer terminal-scoped breadcrumb (handles concurrent sessions correctly in the active workspace)
 		const terminalSession = await readTerminalBreadcrumb(cwd);
-		const mostRecent = terminalSession ?? (await findMostRecentSession(dir, storage));
+		const mostRecent = terminalSession ?? (await findMostRecentSession(dir, storage, cwd));
 		const manager = new SessionManager(cwd, dir, true, storage);
 		if (mostRecent) {
 			await manager.#initSessionFile(mostRecent);
@@ -3730,7 +3808,30 @@ export class SessionManager {
 		try {
 			await recoverOrphanedBackups(dir, storage);
 			const files = storage.listFilesSync(dir, "*.jsonl");
-			return await collectSessionsFromFiles(files, storage);
+			const localSessions = await collectSessionsFromFiles(files, storage);
+			if (!sessionDir && storage instanceof FileSessionStorage) {
+				try {
+					const indexStore = SessionIndexStore.open();
+					const workspaceRecords = indexStore.listForWorkspace(cwd);
+					if (workspaceRecords.length > 0) {
+						const seenPaths = new Set(localSessions.map(s => path.resolve(s.path)));
+						const missingFiles: string[] = [];
+						for (const rec of workspaceRecords) {
+							const resolvedPath = path.resolve(rec.filePath);
+							if (!seenPaths.has(resolvedPath) && storage.existsSync(resolvedPath)) {
+								seenPaths.add(resolvedPath);
+								missingFiles.push(resolvedPath);
+							}
+						}
+						if (missingFiles.length > 0) {
+							const extraSessions = await collectSessionsFromFiles(missingFiles, storage);
+							localSessions.push(...extraSessions);
+							localSessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+						}
+					}
+				} catch {}
+			}
+			return localSessions;
 		} catch {
 			return [];
 		}

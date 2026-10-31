@@ -527,7 +527,7 @@ async function resolveRepoFromEntry(
 	};
 }
 
-function resolveRepositorySync(startDir: string): GitRepository | null {
+export function resolveRepositorySync(startDir: string): GitRepository | null {
 	let current = path.resolve(startDir);
 	while (true) {
 		const gitEntryPath = path.join(current, ".git");
@@ -542,7 +542,7 @@ function resolveRepositorySync(startDir: string): GitRepository | null {
 	}
 }
 
-async function resolveRepository(startDir: string): Promise<GitRepository | null> {
+export async function resolveRepository(startDir: string): Promise<GitRepository | null> {
 	let current = path.resolve(startDir);
 	while (true) {
 		const gitEntryPath = path.join(current, ".git");

@@ -68,6 +68,7 @@ import {
 } from "./sdk";
 import type { AgentSession } from "./session/agent-session";
 import type { AuthStorage } from "./session/auth-storage";
+import { isSameWorkspace } from "./session/session-index";
 import { resolveResumableSession, type SessionInfo, SessionManager } from "./session/session-manager";
 import { resolvePromptInput } from "./system-prompt";
 import { AUTO_THINKING } from "./thinking";
@@ -430,7 +431,7 @@ export async function createSessionManager(
 		if (match.scope === "global") {
 			const normalizedCwd = normalizePathForComparison(cwd);
 			const normalizedMatchCwd = normalizePathForComparison(match.session.cwd || cwd);
-			if (normalizedCwd !== normalizedMatchCwd) {
+			if (normalizedCwd !== normalizedMatchCwd && !isSameWorkspace(normalizedCwd, normalizedMatchCwd)) {
 				const forkPromptResult = await askToForkSession(match.session);
 				if (forkPromptResult === "unavailable") {
 					throw new Error(
