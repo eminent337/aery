@@ -67,13 +67,18 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 
 				const lines = [
 					"### Registered Subagents",
-					"| Conversation ID | Role / Name | Status | Created |",
-					"| :--- | :--- | :--- | :--- |",
+					"| Conversation ID | Role / Name | Status | Active Tool | Created |",
+					"| :--- | :--- | :--- | :--- | :--- |",
 				];
 
 				for (const agent of subagents) {
 					const createdStr = new Date(agent.createdAt).toLocaleTimeString();
-					lines.push(`| **${agent.id}** | ${agent.displayName} | \`${agent.status}\` | ${createdStr} |`);
+					const toolDetails = agent.currentTool
+						? `${agent.currentTool}${agent.currentToolArgs ? ` (${agent.currentToolArgs.slice(0, 50)})` : ""}`
+						: "—";
+					lines.push(
+						`| **${agent.id}** | ${agent.displayName} | \`${agent.status}\` | \`${toolDetails}\` | ${createdStr} |`,
+					);
 				}
 
 				return {
@@ -101,9 +106,18 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 
 					try {
 						if (agent.session) {
-							void agent.session.abort();
+							try {
+								await agent.session.abort();
+							} catch {}
+							try {
+								await agent.session.dispose();
+							} catch {}
 						}
 						registry.setStatus(agent.id, "aborted");
+						registry.setProgress(agent.id, {
+							currentTool: undefined,
+							currentToolArgs: undefined,
+						});
 						killed.push(agent.id);
 					} catch {
 						notFound.push(id);
@@ -132,9 +146,18 @@ export class ManageSubagentsTool implements AgentTool<typeof manageSubagentsSche
 					if (agent.status !== "aborted") {
 						try {
 							if (agent.session) {
-								void agent.session.abort();
+								try {
+									await agent.session.abort();
+								} catch {}
+								try {
+									await agent.session.dispose();
+								} catch {}
 							}
 							registry.setStatus(agent.id, "aborted");
+							registry.setProgress(agent.id, {
+								currentTool: undefined,
+								currentToolArgs: undefined,
+							});
 							count++;
 						} catch {}
 					}

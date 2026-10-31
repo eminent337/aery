@@ -107,7 +107,7 @@ export function resolveSubagentModel(model?: string, parentModel?: string): stri
 		return parentModel || DEFAULT_SUBAGENT_MODEL;
 	}
 
-	const normalized = trimmed.toLowerCase();
+	const normalized = trimmed.toLowerCase().replace(/-/g, "_");
 	if (normalized === "inherit") {
 		return parentModel || DEFAULT_SUBAGENT_MODEL;
 	}
@@ -364,7 +364,7 @@ export class SubagentRunner {
 		const resolvedTools = resolveSubagentTools(opts.typeName, opts.customTools);
 
 		let effectiveCwd = opts.cwd;
-		let isolationHandle: any;
+		let isolationHandle: import("../task/worktree").IsolationHandle | undefined;
 		let createdScratchDir: string | undefined;
 
 		if (opts.workspace === "branch" || opts.workspace === "share") {
@@ -436,14 +436,18 @@ export class SubagentRunner {
 						await origDispose();
 					} finally {
 						if (isolationHandle) {
+							const handleToClean = isolationHandle;
+							isolationHandle = undefined;
 							try {
 								const { cleanupIsolation } = await import("../task/worktree");
-								await cleanupIsolation(isolationHandle);
+								await cleanupIsolation(handleToClean);
 							} catch {}
 						}
 						if (createdScratchDir) {
+							const dirToClean = createdScratchDir;
+							createdScratchDir = undefined;
 							try {
-								await fs.rm(createdScratchDir, { recursive: true, force: true });
+								await fs.rm(dirToClean, { recursive: true, force: true });
 							} catch {}
 						}
 					}
