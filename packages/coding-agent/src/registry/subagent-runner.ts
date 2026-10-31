@@ -6,7 +6,7 @@
  */
 
 import * as path from "node:path";
-import { AgentRegistry } from "./agent-registry";
+import { AgentRegistry, MAIN_AGENT_ID } from "./agent-registry";
 import { getSubagentDefinition } from "./builtin-subagents";
 
 export interface SubagentLaunchOptions {
@@ -136,6 +136,7 @@ export interface MockSubagentSession {
 	abort(): Promise<void>;
 	waitForIdle(): Promise<void>;
 	prompt(text: string): Promise<void>;
+	getLastAssistantText?(): string | undefined;
 }
 
 export function createMockSubagentSession(logPath?: string): MockSubagentSession {
@@ -163,6 +164,9 @@ export function createMockSubagentSession(logPath?: string): MockSubagentSession
 		async abort() {},
 		async waitForIdle() {},
 		async prompt(_text: string) {},
+		getLastAssistantText() {
+			return "Mock subagent execution complete";
+		},
 	};
 }
 
@@ -218,11 +222,85 @@ export class SubagentRunner {
 		// wireAgentEndEvent only listens for terminal agent_end without duplicate subscriptions.
 		wireAgentEndEvent(this.registry, conversationId, session);
 
+		if (opts.prompt && typeof session?.prompt === "function") {
+			this.runBackgroundExecution(conversationId, session, opts);
+		}
+
 		return {
 			conversationId,
 			logAbsoluteUri,
 			workspaceUris,
 		};
+	}
+
+	/**
+	 * Run subagent prompt in background and trigger reactive wakeup upon completion or failure.
+	 */
+	runBackgroundExecution(conversationId: string, session: any, opts: { prompt?: string; parentId?: string }): void {
+		void (async () => {
+			try {
+				if (opts.prompt && typeof session?.prompt === "function") {
+					await session.prompt(opts.prompt);
+				}
+				if (typeof session?.waitForIdle === "function") {
+					await session.waitForIdle();
+				}
+
+				// Check if subagent already notified the parent during this turn
+				const alreadyNotified = (session as any)?.__sentParentMessage === true;
+
+				if (!alreadyNotified) {
+					const parentId = opts.parentId || MAIN_AGENT_ID;
+					const parentRef = this.registry.get(parentId);
+					const parentSession = parentRef?.session as any;
+
+					const finalOutput =
+						typeof session?.getLastAssistantText === "function"
+							? session.getLastAssistantText()
+							: ((session as any)?.lastAssistantText ?? "Task completed.");
+
+					if (parentSession && typeof parentSession.sendCustomMessage === "function") {
+						const timestamp = new Date().toISOString();
+						const completionNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${conversationId} priority=MESSAGE_PRIORITY_HIGH content=Subagent completed execution:\n\n${finalOutput || "Task completed."}\n</SYSTEM_MESSAGE>`;
+						await parentSession.sendCustomMessage(
+							{
+								customType: "agent_message",
+								content: completionNotice,
+								display: true,
+								details: { from: conversationId, priority: "MESSAGE_PRIORITY_HIGH", status: "completed" },
+								attribution: "agent",
+							},
+							{ triggerTurn: true, deliverAs: "followUp" },
+						);
+					}
+				}
+			} catch (error) {
+				const parentId = opts.parentId || MAIN_AGENT_ID;
+				const parentRef = this.registry.get(parentId);
+				const parentSession = parentRef?.session as any;
+
+				if (parentSession && typeof parentSession.sendCustomMessage === "function") {
+					const timestamp = new Date().toISOString();
+					const failureNotice = `<SYSTEM_MESSAGE>\n[Message] timestamp=${timestamp} sender=${conversationId} priority=MESSAGE_PRIORITY_HIGH content=Subagent terminated with error: ${error instanceof Error ? error.message : String(error)}\n</SYSTEM_MESSAGE>`;
+					await parentSession.sendCustomMessage(
+						{
+							customType: "agent_message",
+							content: failureNotice,
+							display: true,
+							details: { from: conversationId, priority: "MESSAGE_PRIORITY_HIGH", status: "error" },
+							attribution: "agent",
+						},
+						{ triggerTurn: true, deliverAs: "followUp" },
+					);
+				}
+			} finally {
+				this.registry.setStatus(conversationId, "idle");
+				this.registry.setProgress(conversationId, {
+					currentTool: undefined,
+					currentToolArgs: undefined,
+				});
+			}
+		})();
 	}
 
 	/**
@@ -285,7 +363,7 @@ export class SubagentRunner {
 			wireAgentEndEvent(this.registry, conversationId, session);
 
 			if (opts.prompt && typeof session?.prompt === "function") {
-				void session.prompt(opts.prompt).catch(() => {});
+				this.runBackgroundExecution(conversationId, session, opts);
 			}
 
 			return {
