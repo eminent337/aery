@@ -47,6 +47,15 @@ import { DaemonTool } from "./daemon";
 import { DaemonControlTool } from "./daemon-control";
 import { DebugTool } from "./debug";
 import { DesktopControlTool } from "./desktop-control";
+import {
+	TakeScreenshotTool,
+	ClickAtTool,
+	MoveCursorTool,
+	TypeTextTool,
+	PressKeyTool,
+	DragAndDropAtTool,
+	ScrollAtTool,
+} from "./agy-computer-use";
 import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
@@ -177,6 +186,7 @@ export * from "./checkpoint";
 export * from "./conversation-search";
 export * from "./debug";
 export * from "./desktop-control";
+export * from "./agy-computer-use";
 export * from "./eval";
 export * from "./eval-backends";
 export * from "./explore";
@@ -639,6 +649,13 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	send_input: SendInputTool.createIf,
 	terminal_pane: TerminalPaneTool.createIf,
 	desktop_control: DesktopControlTool.createIf,
+	take_screenshot: TakeScreenshotTool.createIf,
+	click_at: ClickAtTool.createIf,
+	move_cursor: MoveCursorTool.createIf,
+	type_text: TypeTextTool.createIf,
+	press_key: PressKeyTool.createIf,
+	drag_and_drop_at: DragAndDropAtTool.createIf,
+	scroll_at: ScrollAtTool.createIf,
 	voice_control: VoiceControlTool.createIf,
 	camera_control: CameraControlTool.createIf,
 	search_context: SearchContextTool.createIf,

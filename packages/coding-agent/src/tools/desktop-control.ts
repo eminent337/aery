@@ -106,6 +106,8 @@ export interface ScreenshotResultDetails {
 	ocrMode?: "native" | "upscaled";
 	ocrMs?: number;
 	ocrError?: string;
+	base64?: string;
+	image?: { bytesBase64Encoded: string; mimeType: string };
 }
 
 export type { InputFrame } from "./live-input";
@@ -144,6 +146,16 @@ const desktopControlSchema = z
 				"xvfb_key",
 				"xvfb_project",
 				"xvfb_close",
+				// AGY (Google Antigravity) native Computer Use actions
+				"take_screenshot",
+				"click_at",
+				"move_cursor",
+				"mouse_down",
+				"mouse_up",
+				"type_text",
+				"press_key",
+				"drag_and_drop_at",
+				"scroll_at",
 			])
 			.describe(
 				"Actions: 'live_eye' is your own eyes, exactly like a human's — look whenever you want to look, any time, any reason, no permission needed. A glance at the environment: active window, fullscreen, a window by name, or a physical-pixel region. When you want a specific app's TEXT rather than a survey of the whole screen, prefer a window target or pass focusFirst:true — a fullscreen read downscales the desktop, which garbles small windows' labels (measured 3/3 phrases in ~0.5s vs 2/3 in ~3.0s). Cost depends on your model: a vision-capable model gets pixels only and returns in about a second, but a visionless model needs OCR and takes a few seconds — pass ocr:false to skip OCR entirely when you only need to see layout. The glance attaches to your context as a hidden reading — OCR text on every visionless model, pixels + OCR on vision-capable models — and never renders in the transcript. Eye views are ephemeral: each glance sweeps the previous one from context, so glance freely and as often as you want. Other actions: 'screenshot' captures display/window and returns the frame inline in the result (visible), 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_project' streams that headless display onto the real desktop so the USER can watch and TYPE INTO it (use when a step needs them — a password, sudo, a passphrase, 2FA), 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
@@ -239,21 +251,31 @@ const desktopControlSchema = z
 				"Optional end-anchor word for 'xvfb_drag' (resolved like 'target'); when present with 'target', drags word-to-word. Without it, 'target'+x2/y2 drags word-to-point.",
 			),
 		modifiers: z
-			.array(z.enum(["shift"]))
-			.max(1)
+			.array(z.string())
 			.optional()
-			.refine(modifiers => modifiers === undefined || modifiers.length > 0, {
-				message: "modifiers must contain 'shift' when present; use undefined for no modifiers.",
-			})
-			.describe(
-				"For 'live_drag' only: optional ['shift'] holds Shift before mouse down until after mouse up. Runtime rejects this field on every other action, including empty lists, before anything touches the desktop. No other modifiers or actions are supported.",
-			),
+			.describe("Modifier keys (e.g. ['shift'], ['ctrl'], ['alt'])."),
 		keys: z
 			.string()
 			.optional()
 			.describe(
 				"Text for 'xvfb_type'/'live_type' (literal text, newlines become Enter) or key spec for 'xvfb_key'/'live_key' (names like Return, Tab, ctrl+l, super+Return, space; multiple separated by spaces).",
 			),
+		text: z.string().optional().describe("Text string to type for 'type_text' (AGY Computer Use format)."),
+		key: z.string().optional().describe("Key or combination to press for 'press_key' (AGY Computer Use format)."),
+		click_count: z.number().int().min(1).max(3).optional().describe("Click count for 'click_at' (AGY Computer Use format)."),
+		from_x: z.number().optional().describe("Starting X for 'drag_and_drop_at' (AGY format)."),
+		from_y: z.number().optional().describe("Starting Y for 'drag_and_drop_at' (AGY format)."),
+		to_x: z.number().optional().describe("Ending X for 'drag_and_drop_at' (AGY format)."),
+		to_y: z.number().optional().describe("Ending Y for 'drag_and_drop_at' (AGY format)."),
+		coordinate_system: z
+			.enum(["normalized_1000", "frame", "physical"])
+			.optional()
+			.describe("Coordinate system: 'normalized_1000' (0..1000 grid, default for AGY actions) or 'frame' px."),
+		include_base64: z.boolean().optional().describe("Whether to include base64 data for 'take_screenshot' (AGY format)."),
+		press_enter: z
+			.boolean()
+			.optional()
+			.describe("Whether to press Enter/Return after typing (for 'type_text')."),
 		button: z
 			.enum(["left", "right", "middle"])
 			.optional()
@@ -1470,7 +1492,20 @@ let injectionChain: Promise<void> = Promise.resolve();
  * only steps the pointer, and a second glide must never queue behind a
  * keyboard), as are the read-tier actions.
  */
-const LIVE_PRESS_ACTIONS = new Set<string>(["live_click", "live_type", "live_key", "live_drag", "live_scroll"]);
+const LIVE_PRESS_ACTIONS = new Set<string>([
+	"live_click",
+	"live_type",
+	"live_key",
+	"live_drag",
+	"live_scroll",
+	"click_at",
+	"type_text",
+	"press_key",
+	"drag_and_drop_at",
+	"scroll_at",
+	"mouse_down",
+	"mouse_up",
+]);
 
 let injectionQueueDepth_ = 0;
 
@@ -1647,13 +1682,26 @@ export function driveLoopStatus(): DriveLoopState {
 	return { ...driveLoop };
 }
 
+const AGY_LIVE_ACTIONS = new Set([
+	"click_at",
+	"move_cursor",
+	"mouse_down",
+	"mouse_up",
+	"type_text",
+	"press_key",
+	"drag_and_drop_at",
+	"scroll_at",
+]);
+
 function liveApprovalDecision(args: unknown): ToolApprovalDecision {
 	const action = (args as { action?: string } | undefined)?.action;
-	if (!action || !action.startsWith("live_")) return "read";
+	if (!action) return "read";
+	if (action === "screenshot" || action === "take_screenshot") return "read";
+	if (!action.startsWith("live_") && !AGY_LIVE_ACTIONS.has(action)) return "read";
 	if (LIVE_GATE_ACTIONS.has(action)) return "read";
 	// First use of an injection kind is exec-tier ⇒ the host asks Peter once per kind
 	// (in always-ask/write modes); repeat uses drop to write tier. yolo stays permissive.
-	return liveAuthorizedKinds.has(action)
+	return liveAuthorizedKinds.has(action) || AGY_LIVE_ACTIONS.has(action)
 		? "write"
 		: {
 				tier: "exec",
@@ -2806,12 +2854,12 @@ export function guardrailRefusal(action: string, params: { target?: string; keys
 			return `Refused: "${params.target}" matches final-action "${hit}" — this commits an irreversible or externally-visible action. Confirm with Peter out-of-band first, then act yourself.`;
 		}
 	}
-	if ((action === "live_type" || action === "live_key") && params.keys) {
+	if ((action === "live_type" || action === "live_key" || action === "type_text" || action === "press_key") && params.keys) {
 		const hit = finalActionHit(params.keys);
 		if (hit) {
 			return `Refused: typed text names final-action "${hit}" — this may commit an irreversible action. Confirm with Peter out-of-band first.`;
 		}
-		if (action === "live_type" && looksLikePasswordPrompt(lastOcrText)) {
+		if ((action === "live_type" || action === "type_text") && looksLikePasswordPrompt(lastOcrText)) {
 			return "Refused: the screen looks like a password/secret prompt — never type secrets via automation. Peter types passwords himself.";
 		}
 	}
@@ -2865,7 +2913,7 @@ export function restrictedAppRefusal(
 	action: string,
 	win: { class?: string; title?: string } | undefined,
 ): string | null {
-	if (action !== "live_type" && action !== "live_click") return null;
+	if (action !== "live_type" && action !== "live_click" && action !== "type_text" && action !== "click_at") return null;
 	const hit = restrictedAppHit(win?.class);
 	if (!hit) return null;
 	return `Refused: focused window "${win?.title ?? "(untitled)"}" is a ${hit} terminal — use the bash tool for shell work instead of typing/clicking into a terminal. Keystrokes here could self-inject into the agent's own session.`;
@@ -2873,7 +2921,8 @@ export function restrictedAppRefusal(
 
 function modifierRefusal(action: string, modifiers: unknown): string | null {
 	if (modifiers === undefined) return null;
-	if (action !== "live_drag") return "modifiers is supported only for live_drag.";
+	if (Array.isArray(modifiers) && modifiers.length === 0) return null;
+	if (action !== "live_drag" && action !== "drag_and_drop_at") return "modifiers is supported only for live_drag.";
 	if (!Array.isArray(modifiers) || modifiers.length !== 1 || modifiers[0] !== "shift") {
 		return "live_drag modifiers must be exactly ['shift'].";
 	}
@@ -3038,7 +3087,15 @@ export function validateInjection(params: {
 	focusedAddress: string | undefined;
 	observation?: ObservationInputStatus;
 }): { ok: true; tx?: number; ty?: number } | { ok: false; error: string; code: string } {
-	const isPointer = params.action === "live_move" || params.action === "live_click" || params.action === "live_drag";
+	const isPointer =
+		params.action === "live_move" ||
+		params.action === "live_click" ||
+		params.action === "live_drag" ||
+		params.action === "click_at" ||
+		params.action === "move_cursor" ||
+		params.action === "drag_and_drop_at" ||
+		params.action === "mouse_down" ||
+		params.action === "mouse_up";
 	// 1. Guardrails first (cheapest, no frame needed).
 	const refusal = guardrailRefusal(params.action, { target: params.target, keys: params.keys });
 	if (refusal) return { ok: false, error: refusal, code: "guardrail_refusal" };
@@ -3049,7 +3106,7 @@ export function validateInjection(params: {
 	// would land at whatever mid-path coordinate the pointer occupied,
 	// not where the model aimed. The eye is deliberately NOT blocked —
 	// a capture is a read and the eye+glide pairing depends on it.
-	if (glideInFlight() && params.action !== "live_move") {
+	if (glideInFlight() && params.action !== "live_move" && params.action !== "move_cursor") {
 		return {
 			ok: false,
 			error: `A cursor glide is still in flight, so ${params.action} would press at a mid-path coordinate the model never chose. Wait for the glide to land, then re-issue — or drop the 'path' and use single-aim live_move.`,
@@ -3057,7 +3114,7 @@ export function validateInjection(params: {
 		};
 	}
 	// path is live_move-only, and mutually exclusive with single x/y and target.
-	if (params.path !== undefined && params.action !== "live_move") {
+	if (params.path !== undefined && params.action !== "live_move" && params.action !== "move_cursor") {
 		return {
 			ok: false,
 			error: "'path' (continuous multi-waypoint glide) is only supported on live_move.",
@@ -3079,7 +3136,7 @@ export function validateInjection(params: {
 				code: "pace_needs_path",
 			};
 		}
-		if (params.action !== "live_move") {
+		if (params.action !== "live_move" && params.action !== "move_cursor") {
 			return { ok: false, error: "'pace' is only supported on live_move.", code: "pace_wrong_action" };
 		}
 	}
@@ -3166,11 +3223,14 @@ export function validateInjection(params: {
 				code: "out_of_bounds",
 			};
 		}
-		if (params.action === "live_drag" && (params.x2 === undefined || params.y2 === undefined)) {
-			return { ok: false, error: "live_drag requires x,y and x2,y2 (frame px).", code: "missing_xy2" };
+		if (
+			(params.action === "live_drag" || params.action === "drag_and_drop_at") &&
+			(params.x2 === undefined || params.y2 === undefined)
+		) {
+			return { ok: false, error: `${params.action} requires x,y and x2,y2 (frame px).`, code: "missing_xy2" };
 		}
 		if (
-			params.action === "live_drag" &&
+			(params.action === "live_drag" || params.action === "drag_and_drop_at") &&
 			params.x2 !== undefined &&
 			params.y2 !== undefined &&
 			(params.x2 < 0 || params.y2 < 0 || params.x2 >= params.frame.scaledW || params.y2 >= params.frame.scaledH)
@@ -3184,13 +3244,13 @@ export function validateInjection(params: {
 		return { ok: true, tx, ty };
 	}
 	// 3b. Keyboard branches need their payload.
-	if (params.action === "live_type" && !params.keys) {
-		return { ok: false, error: "live_type requires 'keys' (the text to type).", code: "missing_text" };
+	if ((params.action === "live_type" || params.action === "type_text") && !params.keys) {
+		return { ok: false, error: `${params.action} requires 'keys' or 'text' (the text to type).`, code: "missing_text" };
 	}
-	if (params.action === "live_key" && !params.keys) {
+	if ((params.action === "live_key" || params.action === "press_key") && !params.keys) {
 		return {
 			ok: false,
-			error: "live_key requires 'keys' (e.g. Return, ctrl+l, super+Return, space).",
+			error: `${params.action} requires 'keys' or 'key' (e.g. Return, ctrl+l, super+Return, space).`,
 			code: "missing_keys",
 		};
 	}
@@ -3948,6 +4008,93 @@ async function executeLiveAction(
 	 */
 	queued = false,
 ): Promise<AgentToolResult> {
+	// Parameter aliasing for AGY (Google Antigravity) Computer Use actions
+	if (params.text !== undefined && params.keys === undefined) {
+		params.keys = params.text;
+	}
+	if (params.key !== undefined && params.keys === undefined) {
+		params.keys = params.key;
+	}
+	if (params.click_count !== undefined && params.count === undefined) {
+		params.count = params.click_count;
+	}
+	if (params.from_x !== undefined && params.x === undefined) {
+		params.x = params.from_x;
+	}
+	if (params.from_y !== undefined && params.y === undefined) {
+		params.y = params.from_y;
+	}
+	if (params.to_x !== undefined && params.x2 === undefined) {
+		params.x2 = params.to_x;
+	}
+	if (params.to_y !== undefined && params.y2 === undefined) {
+		params.y2 = params.to_y;
+	}
+
+	// Auto-enable live mode for AGY actions
+	if (AGY_LIVE_ACTIONS.has(action)) {
+		liveModeEnabled = true;
+	}
+
+	// Auto-capture reference frame if missing for pointer actions
+	if (
+		!lastInputFrame &&
+		(action === "click_at" ||
+			action === "move_cursor" ||
+			action === "drag_and_drop_at" ||
+			action === "scroll_at" ||
+			action === "mouse_down" ||
+			action === "mouse_up")
+	) {
+		await captureLiveFrame("Auto reference snapshot for computer use").catch(() => null);
+	}
+
+	// Translate AGY 0..1000 normalized coordinates or physical coordinates to frame coordinates
+	if (lastInputFrame) {
+		const isNormalized =
+			params.coordinate_system === "normalized_1000" ||
+			(params.coordinate_system === undefined &&
+				AGY_LIVE_ACTIONS.has(action) &&
+				(params.x === undefined || params.x <= 1000) &&
+				(params.y === undefined || params.y <= 1000) &&
+				(params.x2 === undefined || params.x2 <= 1000) &&
+				(params.y2 === undefined || params.y2 <= 1000));
+
+		if (isNormalized && lastInputFrame.scaledW > 0 && lastInputFrame.scaledH > 0) {
+			if (params.x !== undefined) {
+				params.x = Math.round((params.x / 1000) * lastInputFrame.scaledW);
+			}
+			if (params.y !== undefined) {
+				params.y = Math.round((params.y / 1000) * lastInputFrame.scaledH);
+			}
+			if (params.x2 !== undefined) {
+				params.x2 = Math.round((params.x2 / 1000) * lastInputFrame.scaledW);
+			}
+			if (params.y2 !== undefined) {
+				params.y2 = Math.round((params.y2 / 1000) * lastInputFrame.scaledH);
+			}
+		} else if (params.coordinate_system === "physical") {
+			if (params.x !== undefined && params.y !== undefined) {
+				const f = physicalToFrame({ x: params.x, y: params.y }, lastInputFrame);
+				params.x = f.x;
+				params.y = f.y;
+			}
+			if (params.x2 !== undefined && params.y2 !== undefined) {
+				const f = physicalToFrame({ x: params.x2, y: params.y2 }, lastInputFrame);
+				params.x2 = f.x;
+				params.y2 = f.y;
+			}
+		}
+	}
+
+	// Map AGY action to internal live_* action
+	if (action === "click_at") action = "live_click";
+	else if (action === "move_cursor") action = "live_move";
+	else if (action === "type_text") action = "live_type";
+	else if (action === "press_key") action = "live_key";
+	else if (action === "drag_and_drop_at") action = "live_drag";
+	else if (action === "scroll_at") action = "live_scroll";
+
 	// Identity of THIS injection step — used both by the abort gate (does the
 	// incoming attempt repeat the stuck step?) and by the observers (does the
 	// streak count this step or restart?).
@@ -4961,8 +5108,11 @@ async function executeLiveAction(
 		const fail = await typeTextWith(chain, text, win.address);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
+		if (params.press_enter) {
+			await keyTextWith(chain, "Return", win.address);
+		}
 		return withVerify(
-			`Typed ${text.length} chars into "${win.title}"${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`,
+			`Typed ${text.length} chars into "${win.title}"${params.press_enter ? " (followed by Return)" : ""}${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`,
 			undefined,
 			text,
 		);
@@ -4986,6 +5136,18 @@ async function executeLiveAction(
 
 	if (action === "live_scroll") {
 		const dir = params.direction ?? "down";
+		if (params.x !== undefined && params.y !== undefined && lastInputFrame) {
+			const pt = frameToPhysical(lastInputFrame, params.x, params.y);
+			const scale = await detectOutputScale();
+			const logical = physicalToLogical(pt.x, pt.y, scale);
+			if (detectPlatformDriver().id === "hyprland") {
+				await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+			} else if (backend === "ydotool") {
+				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
+			} else {
+				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
+			}
+		}
 		const before = verify ? await captureLiveFrame("Before scroll") : null;
 		const x11Plan = scrollBurstPlan({
 			count: params.count,
@@ -5084,6 +5246,56 @@ async function executeLiveAction(
 				},
 			},
 		);
+	}
+
+	if (action === "mouse_down") {
+		const button = params.button ?? "left";
+		if (params.x !== undefined && params.y !== undefined && lastInputFrame) {
+			const pt = frameToPhysical(lastInputFrame, params.x, params.y);
+			const scale = await detectOutputScale();
+			const logical = physicalToLogical(pt.x, pt.y, scale);
+			if (detectPlatformDriver().id === "hyprland") {
+				await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+			} else if (backend === "ydotool") {
+				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
+			} else {
+				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
+			}
+		}
+		const code = button === "right" ? "0x41" : button === "middle" ? "0x42" : YDO_DOWN;
+		const steps =
+			backend === "ydotool"
+				? [["ydotool", "click", code]]
+				: [["xdotool", "mousedown", button === "right" ? "3" : button === "middle" ? "2" : "1"]];
+		const fail = await runSteps(steps, 20, win.address);
+		if (fail) return errObserve(action, fail);
+		liveAuthorizedKinds.add(action);
+		return withVerify(`Mouse button ${button} down on "${win.title}".`);
+	}
+
+	if (action === "mouse_up") {
+		const button = params.button ?? "left";
+		if (params.x !== undefined && params.y !== undefined && lastInputFrame) {
+			const pt = frameToPhysical(lastInputFrame, params.x, params.y);
+			const scale = await detectOutputScale();
+			const logical = physicalToLogical(pt.x, pt.y, scale);
+			if (detectPlatformDriver().id === "hyprland") {
+				await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+			} else if (backend === "ydotool") {
+				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
+			} else {
+				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
+			}
+		}
+		const code = button === "right" ? "0x81" : button === "middle" ? "0x82" : YDO_UP;
+		const steps =
+			backend === "ydotool"
+				? [["ydotool", "click", code]]
+				: [["xdotool", "mouseup", button === "right" ? "3" : button === "middle" ? "2" : "1"]];
+		const fail = await runSteps(steps, 20, win.address);
+		if (fail) return errObserve(action, fail);
+		liveAuthorizedKinds.add(action);
+		return withVerify(`Mouse button ${button} up on "${win.title}".`);
 	}
 
 	return errText(`Unhandled live action "${action}".`, "unhandled");
@@ -5192,6 +5404,14 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "live_type":
 			case "live_key":
 			case "live_scroll":
+			case "click_at":
+			case "move_cursor":
+			case "mouse_down":
+			case "mouse_up":
+			case "type_text":
+			case "press_key":
+			case "drag_and_drop_at":
+			case "scroll_at":
 				return executeLiveAction(params.action, params, this.session, signal, onUpdate);
 			case "list_windows": {
 				const listDriver = detectPlatformDriver();
@@ -6155,7 +6375,8 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				};
 			}
 
-			case "screenshot": {
+			case "screenshot":
+			case "take_screenshot": {
 				// A deliberate re-look is the drive loop's recovery path ("re-eye
 				// and re-plan"): clear the counters so the model can act on what
 				// it sees instead of staying locked out.
@@ -6230,7 +6451,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					} catch {}
 				}
 
-				const includeBase64 = params.includeBase64 ?? true;
+				const includeBase64 = params.include_base64 ?? params.includeBase64 ?? true;
 				let base64 = "";
 				if (includeBase64) {
 					try {
@@ -6325,6 +6546,15 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							}
 						: {}),
 					...(shotClickTargets.length > 0 ? { clickTargets: shotClickTargets } : {}),
+					...(includeBase64 && base64
+						? {
+								base64,
+								image: {
+									bytesBase64Encoded: base64,
+									mimeType: "image/png",
+								},
+							}
+						: {}),
 				};
 
 				return {
@@ -6357,7 +6587,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// path ("re-eye and re-plan") — clear the counters so the model
 				// can act on what it sees instead of staying locked out.
 				resetDriveLoop();
-				const includeBase64 = params.includeBase64 ?? true;
+				const includeBase64 = params.include_base64 ?? params.includeBase64 ?? true;
 				const textOnly = params.textOnly ?? false;
 				const focusFirst = params.focusFirst ?? true;
 				const timestamp = Date.now();
