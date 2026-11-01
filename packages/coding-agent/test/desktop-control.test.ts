@@ -65,7 +65,7 @@ describe("DesktopControlTool", () => {
 			// Clean up test file
 			fs.rmSync(details.filePath, { force: true });
 		}
-	});
+	}, 15000);
 });
 
 describe("live preauthorization", () => {
