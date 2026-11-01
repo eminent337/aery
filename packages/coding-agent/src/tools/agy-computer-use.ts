@@ -458,3 +458,144 @@ export class ScrollAtTool implements AgentTool<typeof scrollAtSchema> {
 		);
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 8. clipboard_get
+// ---------------------------------------------------------------------------
+export const clipboardGetSchema = z.object({});
+
+export type ClipboardGetParams = z.infer<typeof clipboardGetSchema>;
+
+export class ClipboardGetTool implements AgentTool<typeof clipboardGetSchema> {
+	readonly name = "clipboard_get";
+	readonly approval = "read" as const;
+	readonly label = "Get Clipboard";
+	readonly summary = "Read current text content from the desktop system clipboard";
+	readonly description =
+		"Retrieve plain text currently stored in the system clipboard (Wayland/X11). Safe, read-tier utility.";
+	readonly parameters = clipboardGetSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable" as const;
+
+	private readonly delegate: DesktopControlTool;
+
+	constructor(session?: MinimalSession) {
+		this.delegate = new DesktopControlTool(session as any);
+	}
+
+	static createIf(session?: MinimalSession): ClipboardGetTool | null {
+		return new ClipboardGetTool(session);
+	}
+
+	async execute(
+		toolCallId: string,
+		_params: ClipboardGetParams,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback,
+		_context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		return this.delegate.execute(
+			toolCallId,
+			{
+				action: "clipboard_get",
+			},
+			signal,
+			onUpdate,
+		);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 9. clipboard_set
+// ---------------------------------------------------------------------------
+export const clipboardSetSchema = z.object({
+	text: z.string().describe("Text string to place onto the desktop system clipboard."),
+});
+
+export type ClipboardSetParams = z.infer<typeof clipboardSetSchema>;
+
+export class ClipboardSetTool implements AgentTool<typeof clipboardSetSchema> {
+	readonly name = "clipboard_set";
+	readonly approval: ToolApprovalDecision = "write";
+	readonly label = "Set Clipboard";
+	readonly summary = "Write text content to the desktop system clipboard";
+	readonly description =
+		"Copy text to the desktop clipboard for subsequent pasting with Ctrl+V into applications.";
+	readonly parameters = clipboardSetSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable" as const;
+
+	private readonly delegate: DesktopControlTool;
+
+	constructor(session?: MinimalSession) {
+		this.delegate = new DesktopControlTool(session as any);
+	}
+
+	static createIf(session?: MinimalSession): ClipboardSetTool | null {
+		return new ClipboardSetTool(session);
+	}
+
+	async execute(
+		toolCallId: string,
+		params: ClipboardSetParams,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback,
+		_context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		return this.delegate.execute(
+			toolCallId,
+			{
+				action: "clipboard_set",
+				text: params.text,
+			},
+			signal,
+			onUpdate,
+		);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 10. display_info
+// ---------------------------------------------------------------------------
+export const displayInfoSchema = z.object({});
+
+export type DisplayInfoParams = z.infer<typeof displayInfoSchema>;
+
+export class DisplayInfoTool implements AgentTool<typeof displayInfoSchema> {
+	readonly name = "display_info";
+	readonly approval = "read" as const;
+	readonly label = "Display Info";
+	readonly summary = "Inspect monitors, resolutions, display scaling, and active window geometry";
+	readonly description =
+		"Retrieve active display monitors, scale factors, resolution, cursor position, and focused window info.";
+	readonly parameters = displayInfoSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable" as const;
+
+	private readonly delegate: DesktopControlTool;
+
+	constructor(session?: MinimalSession) {
+		this.delegate = new DesktopControlTool(session as any);
+	}
+
+	static createIf(session?: MinimalSession): DisplayInfoTool | null {
+		return new DisplayInfoTool(session);
+	}
+
+	async execute(
+		toolCallId: string,
+		_params: DisplayInfoParams,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback,
+		_context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		return this.delegate.execute(
+			toolCallId,
+			{
+				action: "display_info",
+			},
+			signal,
+			onUpdate,
+		);
+	}
+}

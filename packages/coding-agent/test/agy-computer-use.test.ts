@@ -3,6 +3,12 @@ import {
 	BUILTIN_TOOLS,
 	ClickAtTool,
 	clickAtSchema,
+	ClipboardGetTool,
+	clipboardGetSchema,
+	ClipboardSetTool,
+	clipboardSetSchema,
+	DisplayInfoTool,
+	displayInfoSchema,
 	DragAndDropAtTool,
 	dragAndDropAtSchema,
 	MoveCursorTool,
@@ -27,6 +33,9 @@ describe("AGY Computer Use Tools", () => {
 		expect(BUILTIN_TOOLS.press_key).toBeDefined();
 		expect(BUILTIN_TOOLS.drag_and_drop_at).toBeDefined();
 		expect(BUILTIN_TOOLS.scroll_at).toBeDefined();
+		expect(BUILTIN_TOOLS.clipboard_get).toBeDefined();
+		expect(BUILTIN_TOOLS.clipboard_set).toBeDefined();
+		expect(BUILTIN_TOOLS.display_info).toBeDefined();
 	});
 
 	it("instantiates standalone tools with correct AGY metadata and approval tiers", () => {
@@ -68,6 +77,21 @@ describe("AGY Computer Use Tools", () => {
 		expect(scroll).not.toBeNull();
 		expect(scroll?.name).toBe("scroll_at");
 		expect(scroll?.approval).toBe("write");
+
+		const clipGet = ClipboardGetTool.createIf(dummySession);
+		expect(clipGet).not.toBeNull();
+		expect(clipGet?.name).toBe("clipboard_get");
+		expect(clipGet?.approval).toBe("read");
+
+		const clipSet = ClipboardSetTool.createIf(dummySession);
+		expect(clipSet).not.toBeNull();
+		expect(clipSet?.name).toBe("clipboard_set");
+		expect(clipSet?.approval).toBe("write");
+
+		const disp = DisplayInfoTool.createIf(dummySession);
+		expect(disp).not.toBeNull();
+		expect(disp?.name).toBe("display_info");
+		expect(disp?.approval).toBe("read");
 	});
 
 	it("validates schemas for all AGY Computer Use actions", () => {
@@ -126,6 +150,17 @@ describe("AGY Computer Use Tools", () => {
 		});
 		expect(scrollParsed.direction).toBe("down");
 		expect(scrollParsed.count).toBe(5);
+
+		const clipSetParsed = clipboardSetSchema.parse({
+			text: "text on clipboard",
+		});
+		expect(clipSetParsed.text).toBe("text on clipboard");
+
+		const clipGetParsed = clipboardGetSchema.parse({});
+		expect(clipGetParsed).toBeDefined();
+
+		const dispParsed = displayInfoSchema.parse({});
+		expect(dispParsed).toBeDefined();
 	});
 
 	it("validates injection coordinates and actions in validateInjection", () => {
@@ -155,6 +190,36 @@ describe("AGY Computer Use Tools", () => {
 			focusedAddress: "0x1234",
 		});
 		expect(outOfBounds.ok).toBe(false);
+
+		// Anthropic mouse_move alias in-bounds
+		const anthropicMove = validateInjection({
+			action: "mouse_move",
+			x: 200,
+			y: 300,
+			frame: fakeFrame,
+			focusedAddress: "0x1234",
+		});
+		expect(anthropicMove.ok).toBe(true);
+
+		// Anthropic left_click alias in-bounds
+		const anthropicClick = validateInjection({
+			action: "left_click",
+			x: 350,
+			y: 450,
+			frame: fakeFrame,
+			focusedAddress: "0x1234",
+		});
+		expect(anthropicClick.ok).toBe(true);
+
+		// Anthropic double_click alias in-bounds
+		const anthropicDblClick = validateInjection({
+			action: "double_click",
+			x: 500,
+			y: 600,
+			frame: fakeFrame,
+			focusedAddress: "0x1234",
+		});
+		expect(anthropicDblClick.ok).toBe(true);
 
 		// In-bounds move_cursor
 		const validMove = validateInjection({
@@ -198,5 +263,25 @@ describe("AGY Computer Use Tools", () => {
 		const cornerY = 1000;
 		expect(Math.round((cornerX / 1000) * frame.scaledW)).toBe(1920);
 		expect(Math.round((cornerY / 1000) * frame.scaledH)).toBe(1080);
+	});
+
+	it("executes clipboard and display_info actions successfully", async () => {
+		const dummySession = { cwd: "/tmp" } as any;
+		const clipSet = new ClipboardSetTool(dummySession);
+		const clipGet = new ClipboardGetTool(dummySession);
+		const disp = new DisplayInfoTool(dummySession);
+
+		const setRes = await clipSet.execute("tc-1", { text: "hello aery clipboard" });
+		expect(setRes.content[0]?.type).toBe("text");
+		expect(setRes.details?.success).toBe(true);
+
+		const getRes = await clipGet.execute("tc-2", {});
+		expect(getRes.content[0]?.type).toBe("text");
+		expect(getRes.details?.text).toBe("hello aery clipboard");
+
+		const dispRes = await disp.execute("tc-3", {});
+		expect(dispRes.content[0]?.type).toBe("text");
+		expect(dispRes.details?.scale).toBeDefined();
+		expect(dispRes.details?.driver).toBeDefined();
 	});
 });

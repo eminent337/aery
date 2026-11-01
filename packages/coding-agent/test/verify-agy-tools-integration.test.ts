@@ -10,6 +10,9 @@ import {
 	PressKeyTool,
 	DragAndDropAtTool,
 	ScrollAtTool,
+	ClipboardGetTool,
+	ClipboardSetTool,
+	DisplayInfoTool,
 } from "../src/tools";
 
 describe("AGY Tools Integration & Loading Verification", () => {
@@ -34,6 +37,9 @@ describe("AGY Tools Integration & Loading Verification", () => {
 		expect(toolNames).toContain("press_key");
 		expect(toolNames).toContain("drag_and_drop_at");
 		expect(toolNames).toContain("scroll_at");
+		expect(toolNames).toContain("clipboard_get");
+		expect(toolNames).toContain("clipboard_set");
+		expect(toolNames).toContain("display_info");
 		expect(toolNames).toContain("desktop_control");
 		expect(toolNames).toContain("call_external_agent");
 	});
@@ -73,9 +79,24 @@ describe("AGY Tools Integration & Loading Verification", () => {
 		expect(scroll.name).toBe("scroll_at");
 		expect(scroll.approval).toBe("write");
 		expect(scroll.parameters).toBeDefined();
+
+		const clipGet = new ClipboardGetTool(mockSession);
+		expect(clipGet.name).toBe("clipboard_get");
+		expect(clipGet.approval).toBe("read");
+		expect(clipGet.parameters).toBeDefined();
+
+		const clipSet = new ClipboardSetTool(mockSession);
+		expect(clipSet.name).toBe("clipboard_set");
+		expect(clipSet.approval).toBe("write");
+		expect(clipSet.parameters).toBeDefined();
+
+		const disp = new DisplayInfoTool(mockSession);
+		expect(disp.name).toBe("display_info");
+		expect(disp.approval).toBe("read");
+		expect(disp.parameters).toBeDefined();
 	});
 
-	it("verifies desktop_control accepts all AGY Computer Use actions in its schema", () => {
+	it("verifies desktop_control accepts all AGY and Anthropic Computer Use actions in its schema", () => {
 		const dc = new DesktopControlTool(mockSession);
 		const schema = dc.parameters;
 
@@ -89,6 +110,17 @@ describe("AGY Tools Integration & Loading Verification", () => {
 			{ action: "scroll_at", x: 500, y: 500, direction: "up", count: 2 },
 			{ action: "mouse_down", button: "left" },
 			{ action: "mouse_up", button: "left" },
+			// Anthropic format
+			{ action: "mouse_move", coordinate: [500, 500] },
+			{ action: "left_click", coordinate: [300, 400] },
+			{ action: "right_click", coordinate: [300, 400] },
+			{ action: "double_click", coordinate: [300, 400] },
+			{ action: "triple_click", coordinate: [300, 400] },
+			{ action: "left_click_drag", coordinate: [600, 700] },
+			{ action: "cursor_position" },
+			{ action: "clipboard_get" },
+			{ action: "clipboard_set", text: "copy this" },
+			{ action: "display_info" },
 		];
 
 		for (const item of testActions) {

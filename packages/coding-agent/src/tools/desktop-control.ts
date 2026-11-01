@@ -156,6 +156,21 @@ const desktopControlSchema = z
 				"press_key",
 				"drag_and_drop_at",
 				"scroll_at",
+				// Universal Anthropic Computer Use protocol aliases
+				"mouse_move",
+				"left_click",
+				"right_click",
+				"middle_click",
+				"double_click",
+				"triple_click",
+				"middle_click_at",
+				"right_click_at",
+				"left_click_drag",
+				"cursor_position",
+				// System clipboard & display metadata
+				"clipboard_get",
+				"clipboard_set",
+				"display_info",
 			])
 			.describe(
 				"Actions: 'live_eye' is your own eyes, exactly like a human's — look whenever you want to look, any time, any reason, no permission needed. A glance at the environment: active window, fullscreen, a window by name, or a physical-pixel region. When you want a specific app's TEXT rather than a survey of the whole screen, prefer a window target or pass focusFirst:true — a fullscreen read downscales the desktop, which garbles small windows' labels (measured 3/3 phrases in ~0.5s vs 2/3 in ~3.0s). Cost depends on your model: a vision-capable model gets pixels only and returns in about a second, but a visionless model needs OCR and takes a few seconds — pass ocr:false to skip OCR entirely when you only need to see layout. The glance attaches to your context as a hidden reading — OCR text on every visionless model, pixels + OCR on vision-capable models — and never renders in the transcript. Eye views are ephemeral: each glance sweeps the previous one from context, so glance freely and as often as you want. Other actions: 'screenshot' captures display/window and returns the frame inline in the result (visible), 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_project' streams that headless display onto the real desktop so the USER can watch and TYPE INTO it (use when a step needs them — a password, sudo, a passphrase, 2FA), 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
@@ -267,6 +282,12 @@ const desktopControlSchema = z
 		from_y: z.number().optional().describe("Starting Y for 'drag_and_drop_at' (AGY format)."),
 		to_x: z.number().optional().describe("Ending X for 'drag_and_drop_at' (AGY format)."),
 		to_y: z.number().optional().describe("Ending Y for 'drag_and_drop_at' (AGY format)."),
+		coordinate: z
+			.tuple([z.number(), z.number()])
+			.optional()
+			.describe("Anthropic-format [x, y] coordinate array (frame px or 0..1000 normalized grid)."),
+		delta_x: z.number().optional().describe("Anthropic-format horizontal scroll delta in pixels."),
+		delta_y: z.number().optional().describe("Anthropic-format vertical scroll delta in pixels."),
 		coordinate_system: z
 			.enum(["normalized_1000", "frame", "physical"])
 			.optional()
@@ -1505,6 +1526,14 @@ const LIVE_PRESS_ACTIONS = new Set<string>([
 	"scroll_at",
 	"mouse_down",
 	"mouse_up",
+	"left_click",
+	"right_click",
+	"middle_click",
+	"double_click",
+	"triple_click",
+	"middle_click_at",
+	"right_click_at",
+	"left_click_drag",
 ]);
 
 let injectionQueueDepth_ = 0;
@@ -1691,12 +1720,30 @@ const AGY_LIVE_ACTIONS = new Set([
 	"press_key",
 	"drag_and_drop_at",
 	"scroll_at",
+	"mouse_move",
+	"left_click",
+	"right_click",
+	"middle_click",
+	"double_click",
+	"triple_click",
+	"middle_click_at",
+	"right_click_at",
+	"left_click_drag",
 ]);
 
 function liveApprovalDecision(args: unknown): ToolApprovalDecision {
 	const action = (args as { action?: string } | undefined)?.action;
 	if (!action) return "read";
-	if (action === "screenshot" || action === "take_screenshot") return "read";
+	if (
+		action === "screenshot" ||
+		action === "take_screenshot" ||
+		action === "clipboard_get" ||
+		action === "display_info" ||
+		action === "cursor_pos" ||
+		action === "cursor_position"
+	)
+		return "read";
+	if (action === "clipboard_set") return "write";
 	if (!action.startsWith("live_") && !AGY_LIVE_ACTIONS.has(action)) return "read";
 	if (LIVE_GATE_ACTIONS.has(action)) return "read";
 	// First use of an injection kind is exec-tier ⇒ the host asks Peter once per kind
@@ -2913,7 +2960,20 @@ export function restrictedAppRefusal(
 	action: string,
 	win: { class?: string; title?: string } | undefined,
 ): string | null {
-	if (action !== "live_type" && action !== "live_click" && action !== "type_text" && action !== "click_at") return null;
+	if (
+		action !== "live_type" &&
+		action !== "live_click" &&
+		action !== "type_text" &&
+		action !== "click_at" &&
+		action !== "left_click" &&
+		action !== "right_click" &&
+		action !== "middle_click" &&
+		action !== "double_click" &&
+		action !== "triple_click" &&
+		action !== "middle_click_at" &&
+		action !== "right_click_at"
+	)
+		return null;
 	const hit = restrictedAppHit(win?.class);
 	if (!hit) return null;
 	return `Refused: focused window "${win?.title ?? "(untitled)"}" is a ${hit} terminal — use the bash tool for shell work instead of typing/clicking into a terminal. Keystrokes here could self-inject into the agent's own session.`;
@@ -3095,7 +3155,16 @@ export function validateInjection(params: {
 		params.action === "move_cursor" ||
 		params.action === "drag_and_drop_at" ||
 		params.action === "mouse_down" ||
-		params.action === "mouse_up";
+		params.action === "mouse_up" ||
+		params.action === "mouse_move" ||
+		params.action === "left_click" ||
+		params.action === "right_click" ||
+		params.action === "middle_click" ||
+		params.action === "double_click" ||
+		params.action === "triple_click" ||
+		params.action === "middle_click_at" ||
+		params.action === "right_click_at" ||
+		params.action === "left_click_drag";
 	// 1. Guardrails first (cheapest, no frame needed).
 	const refusal = guardrailRefusal(params.action, { target: params.target, keys: params.keys });
 	if (refusal) return { ok: false, error: refusal, code: "guardrail_refusal" };
@@ -4008,7 +4077,18 @@ async function executeLiveAction(
 	 */
 	queued = false,
 ): Promise<AgentToolResult> {
-	// Parameter aliasing for AGY (Google Antigravity) Computer Use actions
+	// Parameter aliasing for AGY (Google Antigravity) & Anthropic Computer Use actions
+	if (params.coordinate && params.coordinate.length >= 2) {
+		if (params.x === undefined) params.x = params.coordinate[0];
+		if (params.y === undefined) params.y = params.coordinate[1];
+	}
+	if (params.delta_y !== undefined && params.delta_y !== 0) {
+		params.direction = params.delta_y > 0 ? "down" : "up";
+		params.count = Math.max(1, Math.min(20, Math.round(Math.abs(params.delta_y) / 100)));
+	} else if (params.delta_x !== undefined && params.delta_x !== 0) {
+		params.direction = params.delta_x > 0 ? "right" : "left";
+		params.count = Math.max(1, Math.min(20, Math.round(Math.abs(params.delta_x) / 100)));
+	}
 	if (params.text !== undefined && params.keys === undefined) {
 		params.keys = params.text;
 	}
@@ -4031,7 +4111,7 @@ async function executeLiveAction(
 		params.y2 = params.to_y;
 	}
 
-	// Auto-enable live mode for AGY actions
+	// Auto-enable live mode for AGY & Anthropic actions
 	if (AGY_LIVE_ACTIONS.has(action)) {
 		liveModeEnabled = true;
 	}
@@ -4044,9 +4124,54 @@ async function executeLiveAction(
 			action === "drag_and_drop_at" ||
 			action === "scroll_at" ||
 			action === "mouse_down" ||
-			action === "mouse_up")
+			action === "mouse_up" ||
+			action === "mouse_move" ||
+			action === "left_click" ||
+			action === "right_click" ||
+			action === "middle_click" ||
+			action === "double_click" ||
+			action === "triple_click" ||
+			action === "middle_click_at" ||
+			action === "right_click_at" ||
+			action === "left_click_drag")
 	) {
 		await captureLiveFrame("Auto reference snapshot for computer use").catch(() => null);
+	}
+
+	// Fall back to current cursor position if click action has no coordinates or target
+	if (
+		(action === "left_click" ||
+			action === "right_click" ||
+			action === "middle_click" ||
+			action === "double_click" ||
+			action === "triple_click") &&
+		params.x === undefined &&
+		params.y === undefined &&
+		!params.target &&
+		!params.steps
+	) {
+		const cur = await detectPlatformDriver().capture.cursorPos().catch(() => null);
+		if (cur && lastInputFrame) {
+			const f = physicalToFrame(cur, lastInputFrame);
+			params.x = f.x;
+			params.y = f.y;
+		}
+	}
+	if (
+		action === "left_click_drag" &&
+		params.x2 === undefined &&
+		params.y2 === undefined &&
+		params.x !== undefined &&
+		params.y !== undefined
+	) {
+		const cur = await detectPlatformDriver().capture.cursorPos().catch(() => null);
+		if (cur && lastInputFrame) {
+			const f = physicalToFrame(cur, lastInputFrame);
+			params.x2 = params.x;
+			params.y2 = params.y;
+			params.x = f.x;
+			params.y = f.y;
+		}
 	}
 
 	// Translate AGY 0..1000 normalized coordinates or physical coordinates to frame coordinates
@@ -4087,9 +4212,27 @@ async function executeLiveAction(
 		}
 	}
 
-	// Map AGY action to internal live_* action
+	// Map AGY and Anthropic actions to internal live_* actions
 	if (action === "click_at") action = "live_click";
-	else if (action === "move_cursor") action = "live_move";
+	else if (action === "move_cursor" || action === "mouse_move") action = "live_move";
+	else if (action === "left_click") {
+		action = "live_click";
+		if (!params.button) params.button = "left";
+	} else if (action === "right_click" || action === "right_click_at") {
+		action = "live_click";
+		params.button = "right";
+	} else if (action === "middle_click" || action === "middle_click_at") {
+		action = "live_click";
+		params.button = "middle";
+	} else if (action === "double_click") {
+		action = "live_click";
+		if (!params.button) params.button = "left";
+		params.count = 2;
+	} else if (action === "triple_click") {
+		action = "live_click";
+		if (!params.button) params.button = "left";
+		params.count = 3;
+	} else if (action === "left_click_drag") action = "live_drag";
 	else if (action === "type_text") action = "live_type";
 	else if (action === "press_key") action = "live_key";
 	else if (action === "drag_and_drop_at") action = "live_drag";
@@ -5412,6 +5555,15 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "press_key":
 			case "drag_and_drop_at":
 			case "scroll_at":
+			case "mouse_move":
+			case "left_click":
+			case "right_click":
+			case "middle_click":
+			case "double_click":
+			case "triple_click":
+			case "middle_click_at":
+			case "right_click_at":
+			case "left_click_drag":
 				return executeLiveAction(params.action, params, this.session, signal, onUpdate);
 			case "list_windows": {
 				const listDriver = detectPlatformDriver();
@@ -6359,19 +6511,122 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				};
 			}
 
-			case "cursor_pos": {
+			case "cursor_pos":
+			case "cursor_position": {
 				const pos = await detectPlatformDriver()
 					.capture.cursorPos()
 					.catch(() => null);
 				if (pos) {
 					return {
 						content: [{ type: "text", text: `Cursor position: X=${pos.x}, Y=${pos.y}` }],
-						details: pos,
+						details: { ...pos, coordinate: [pos.x, pos.y] },
 					};
 				}
 				return {
 					content: [{ type: "text", text: "Could not retrieve cursor position." }],
 					details: { error: "unsupported" },
+				};
+			}
+
+			case "clipboard_get": {
+				const isWayland = detectPlatformDriver().id === "hyprland" || Boolean(process.env.WAYLAND_DISPLAY);
+				let res: { code: number; stdout: string; stderr: string };
+				if (isWayland) {
+					res = await runCmd("wl-paste", ["--no-newline"]).catch(async () => {
+						return await runCmd("xclip", ["-selection", "clipboard", "-o"]);
+					});
+				} else {
+					res = await runCmd("xclip", ["-selection", "clipboard", "-o"]).catch(async () => {
+						return await runCmd("wl-paste", ["--no-newline"]);
+					});
+				}
+				const text = res.code === 0 ? res.stdout : "";
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								res.code === 0
+									? text
+										? `Clipboard content:\n${text}`
+										: "(clipboard is empty)"
+									: `Failed to get clipboard: ${res.stderr}`,
+						},
+					],
+					details: { text, success: res.code === 0, error: res.code !== 0 ? res.stderr : undefined },
+				};
+			}
+
+			case "clipboard_set": {
+				const textToCopy = params.text ?? params.keys ?? "";
+				const isWayland = detectPlatformDriver().id === "hyprland" || Boolean(process.env.WAYLAND_DISPLAY);
+				try {
+					if (isWayland) {
+						const child = spawn("wl-copy", ["--", textToCopy], { stdio: "ignore", detached: true });
+						child.unref();
+					} else {
+						const child = spawn("xclip", ["-selection", "clipboard"], {
+							stdio: ["pipe", "ignore", "ignore"],
+							detached: true,
+						});
+						child.stdin?.write(textToCopy);
+						child.stdin?.end();
+						child.unref();
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Copied ${textToCopy.length} characters to clipboard.`,
+							},
+						],
+						details: { length: textToCopy.length, success: true },
+					};
+				} catch (err: unknown) {
+					const errorMsg = String((err as { message?: string }).message ?? err);
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Failed to set clipboard: ${errorMsg}`,
+							},
+						],
+						details: { length: textToCopy.length, success: false, error: errorMsg },
+					};
+				}
+			}
+
+			case "display_info": {
+				const driver = detectPlatformDriver();
+				const scale = await detectOutputScale().catch(() => 1);
+				const reserved = await detectReservedArea().catch(() => ({ top: 0, bottom: 0, left: 0, right: 0 }));
+				const curPos = await driver.capture.cursorPos().catch(() => null);
+				let monitors: unknown[] = [];
+				if (driver.id === "hyprland") {
+					const monRes = await runCmd("hyprctl", ["-j", "monitors"]);
+					if (monRes.code === 0) {
+						try {
+							monitors = JSON.parse(monRes.stdout);
+						} catch {}
+					}
+				}
+				const activeWin = await getDriverActiveWindow().catch(() => undefined);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Display Configuration (${driver.label}):\n- Scale: ${scale}\n- Monitors: ${monitors.length || 1}\n- Cursor: X=${curPos?.x ?? "?"}, Y=${curPos?.y ?? "?"}\n- Active Window: ${activeWin ? `"${activeWin.title}" (${activeWin.class}) at [${activeWin.at[0]},${activeWin.at[1]}] ${activeWin.size[0]}x${activeWin.size[1]}` : "none"}`,
+						},
+					],
+					details: {
+						driver: driver.id,
+						label: driver.label,
+						scale,
+						reserved,
+						cursor: curPos,
+						monitors,
+						activeWindow: activeWin,
+					},
 				};
 			}
 

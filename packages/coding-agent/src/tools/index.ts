@@ -55,6 +55,9 @@ import {
 	PressKeyTool,
 	DragAndDropAtTool,
 	ScrollAtTool,
+	ClipboardGetTool,
+	ClipboardSetTool,
+	DisplayInfoTool,
 } from "./agy-computer-use";
 import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
@@ -656,6 +659,9 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	press_key: PressKeyTool.createIf,
 	drag_and_drop_at: DragAndDropAtTool.createIf,
 	scroll_at: ScrollAtTool.createIf,
+	clipboard_get: ClipboardGetTool.createIf,
+	clipboard_set: ClipboardSetTool.createIf,
+	display_info: DisplayInfoTool.createIf,
 	voice_control: VoiceControlTool.createIf,
 	camera_control: CameraControlTool.createIf,
 	search_context: SearchContextTool.createIf,
