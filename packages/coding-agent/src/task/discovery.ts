@@ -27,6 +27,21 @@ export interface DiscoveryResult {
 	projectAgentsDir: string | null;
 }
 
+interface CacheEntry {
+	result: DiscoveryResult;
+	expiresAt: number;
+}
+
+const discoveryCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 30_000; // 30s cache TTL for snappy agent turnaround
+
+/**
+ * Clear the agent discovery cache (test-only or manual reload).
+ */
+export function clearAgentDiscoveryCache(): void {
+	discoveryCache.clear();
+}
+
 /**
  * Load agents from a directory.
  */
@@ -55,9 +70,24 @@ async function loadAgentsFromDir(dir: string, source: AgentSource): Promise<Agen
  * Precedence (highest wins): .aery > .aery > .claude (project before user), then bundled
  *
  * @param cwd - Current working directory for project agent discovery
+ * @param home - User home directory
+ * @param options - Cache control options
  */
-export async function discoverAgents(cwd: string, home: string = os.homedir()): Promise<DiscoveryResult> {
+export async function discoverAgents(
+	cwd: string,
+	home: string = os.homedir(),
+	options?: { force?: boolean },
+): Promise<DiscoveryResult> {
 	const resolvedCwd = path.resolve(cwd);
+	const cacheKey = `${resolvedCwd}::${home}`;
+	const now = Date.now();
+
+	if (!options?.force) {
+		const cached = discoveryCache.get(cacheKey);
+		if (cached && cached.expiresAt > now) {
+			return cached.result;
+		}
+	}
 	const agentSources = Array.from(new Set(getConfigDirs("", { project: false }).map(entry => entry.source)));
 
 	// Get user directories (priority order: .aery, .aery, .claude, ...)
@@ -117,8 +147,10 @@ export async function discoverAgents(cwd: string, home: string = os.homedir()): 
 	});
 
 	const projectAgentsDir = projectDirs.length > 0 ? projectDirs[0].path : null;
+	const result: DiscoveryResult = { agents: [...loadedAgents, ...bundledAgents], projectAgentsDir };
+	discoveryCache.set(cacheKey, { result, expiresAt: now + CACHE_TTL_MS });
 
-	return { agents: [...loadedAgents, ...bundledAgents], projectAgentsDir };
+	return result;
 }
 
 /**

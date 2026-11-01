@@ -116,7 +116,7 @@ function addUsageTotals(target: Usage, usage: Partial<Usage>): void {
 // Re-export types and utilities
 export { loadBundledAgents as BUNDLED_AGENTS } from "./agents";
 export { discoverCommands, expandCommand, getCommand } from "./commands";
-export { discoverAgents, getAgent } from "./discovery";
+export { clearAgentDiscoveryCache, discoverAgents, getAgent } from "./discovery";
 export { AgentOutputManager } from "./output-manager";
 export type {
 	AgentDefinition,
