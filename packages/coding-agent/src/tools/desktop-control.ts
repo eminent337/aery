@@ -171,6 +171,9 @@ const desktopControlSchema = z
 				"clipboard_get",
 				"clipboard_set",
 				"display_info",
+				// Application discovery and lifecycle
+				"list_apps",
+				"close_app",
 			])
 			.describe(
 				"Actions: 'live_eye' is your own eyes, exactly like a human's — look whenever you want to look, any time, any reason, no permission needed. A glance at the environment: active window, fullscreen, a window by name, or a physical-pixel region. When you want a specific app's TEXT rather than a survey of the whole screen, prefer a window target or pass focusFirst:true — a fullscreen read downscales the desktop, which garbles small windows' labels (measured 3/3 phrases in ~0.5s vs 2/3 in ~3.0s). Cost depends on your model: a vision-capable model gets pixels only and returns in about a second, but a visionless model needs OCR and takes a few seconds — pass ocr:false to skip OCR entirely when you only need to see layout. The glance attaches to your context as a hidden reading — OCR text on every visionless model, pixels + OCR on vision-capable models — and never renders in the transcript. Eye views are ephemeral: each glance sweeps the previous one from context, so glance freely and as often as you want. Other actions: 'screenshot' captures display/window and returns the frame inline in the result (visible), 'list_windows' lists open GUI apps, 'focus_window' brings app to front, 'close_window' closes a window, 'switch_workspace' changes workspace, 'launch_app' spawns a VISIBLE app on the desktop, 'cursor_pos' gets mouse coordinates, 'system_control' controls volume/media/brightness/lock/web search. Headless (invisible virtual display): 'xvfb_launch' runs a desktop app invisibly, 'xvfb_screenshot' captures its UI, 'xvfb_list_windows' lists windows on the virtual display, 'xvfb_click'/'xvfb_type'/'xvfb_key' drive the app, 'xvfb_project' streams that headless display onto the real desktop so the USER can watch and TYPE INTO it (use when a step needs them — a password, sudo, a passphrase, 2FA), 'xvfb_close' ends it all. LIVE app-control on the real desktop (opt-in via 'live_mode_on'): 'live_move'/'live_click'/'live_drag'/'live_type'/'live_key'/'live_scroll' inject input into the FOCUSED window. Use 'live_mode_off' to disable.",
@@ -385,6 +388,14 @@ const desktopControlSchema = z
 			.string()
 			.optional()
 			.describe("Window address, title, or class query for 'focus_window' or 'close_window'."),
+		app: z
+			.string()
+			.optional()
+			.describe("Application name, window title, or PID for 'close_app' or 'focus_window'."),
+		force: z
+			.boolean()
+			.optional()
+			.describe("Force close/terminate (SIGKILL) if graceful window close does not finish."),
 		mode: z
 			.enum(["start", "stop", "status"])
 			.optional()
@@ -1433,6 +1444,229 @@ export async function focusWindowFast(
 	return { error: `window ${address} did not become active after ${polls} polls — focus it yourself and retry.` };
 }
 
+export interface AppInfo {
+	name: string;
+	cleanName: string;
+	title: string;
+	pid?: number;
+	workspace: number | string;
+	memoryMB?: number;
+	activity: string;
+	focused: boolean;
+	address: string;
+	at: [number, number];
+	size: [number, number];
+}
+
+export function getFriendlyAppName(className: string): string {
+	const c = (className || "").toLowerCase();
+	if (c.includes("brave")) return "Brave Browser";
+	if (c.includes("chrome")) return "Google Chrome";
+	if (c.includes("firefox")) return "Mozilla Firefox";
+	if (c.includes("telegram")) return "Telegram";
+	if (c.includes("nautilus")) return "Files (Nautilus)";
+	if (c.includes("thunar")) return "Files (Thunar)";
+	if (c.includes("dolphin")) return "Files (Dolphin)";
+	if (c.includes("kitty")) return "Kitty Terminal";
+	if (c.includes("alacritty")) return "Alacritty Terminal";
+	if (c.includes("wezterm")) return "WezTerm";
+	if (c.includes("gnome-terminal")) return "GNOME Terminal";
+	if (c.includes("code") || c.includes("codium")) return "Visual Studio Code";
+	if (c.includes("cursor")) return "Cursor IDE";
+	if (c.includes("spotify")) return "Spotify";
+	if (c.includes("discord")) return "Discord";
+	if (c.includes("slack")) return "Slack";
+	if (c.includes("obsidian")) return "Obsidian";
+	if (c.includes("aerynel")) return "Aerynel Desktop";
+	const parts = (className || "").split(".");
+	const base = parts[parts.length - 1] || className;
+	return base ? base.charAt(0).toUpperCase() + base.slice(1) : "(unknown)";
+}
+
+/**
+ * Real-time application discovery: inspects open windows and their underlying
+ * processes to report what each app is actively doing (URL, document, folder, or shell command).
+ */
+export async function getOpenAppsInfo(): Promise<AppInfo[]> {
+	const windows = await getDriverWindows().catch(() => []);
+	return Promise.all(
+		windows.map(async w => {
+			let mem = 0;
+			let activity = "";
+			const pid = w.pid;
+			if (pid && pid > 0) {
+				try {
+					const status = await fs.promises.readFile(`/proc/${pid}/status`, "utf8");
+					const m = status.match(/VmRSS:\s+(\d+)\s+kB/);
+					if (m) mem = Math.round(Number(m[1]) / 1024);
+				} catch {}
+			}
+
+			const cls = (w.class || "").toLowerCase();
+			const title = w.title || "";
+			const cleanName = getFriendlyAppName(w.class);
+
+			if (
+				cls.includes("kitty") ||
+				cls.includes("terminal") ||
+				cls.includes("alacritty") ||
+				cls.includes("wezterm")
+			) {
+				let cmd = "";
+				if (pid && pid > 0) {
+					try {
+						const { stdout: p1 } = await execFileNiced("pgrep", ["-P", String(pid), "-a"], {
+							timeout: 1000,
+						});
+						for (const line of p1.trim().split("\n")) {
+							const [cpid, ...rest] = line.trim().split(" ");
+							const ccmd = rest.join(" ");
+							if (ccmd.endsWith("zsh") || ccmd.endsWith("bash") || ccmd.endsWith("fish")) {
+								try {
+									const { stdout: p2 } = await execFileNiced("pgrep", ["-P", String(cpid), "-a"], {
+										timeout: 1000,
+									});
+									if (p2.trim()) {
+										cmd = p2
+											.trim()
+											.split("\n")
+											.map(l => l.trim().split(" ").slice(1).join(" "))
+											.join(" | ");
+										break;
+									}
+								} catch {}
+							} else if (!ccmd.includes("kitten") && !ccmd.includes("watch_conf")) {
+								cmd = ccmd;
+								break;
+							}
+						}
+					} catch {}
+				}
+				activity = cmd ? `Running "${cmd}"` : title ? `Shell session: "${title}"` : "Idle shell";
+			} else if (cls.includes("brave") || cls.includes("chrome") || cls.includes("firefox")) {
+				const pageTitle = title.replace(/\s+-\s+(Brave|Google Chrome|Mozilla Firefox)$/i, "");
+				activity = pageTitle ? `Browsing "${pageTitle}"` : "Web browser";
+			} else if (cls.includes("telegram")) {
+				const chat = title.replace(/\s+–\s+\(\d+\)$/, "");
+				activity = chat ? `Chatting in "${chat}"` : "Telegram messenger";
+			} else if (cls.includes("nautilus") || cls.includes("thunar") || cls.includes("dolphin")) {
+				activity = title ? `Browsing folder "${title}"` : "File manager";
+			} else if (cls.includes("code") || cls.includes("cursor")) {
+				activity = title ? `Editing "${title}"` : "Code editor";
+			} else {
+				activity = title ? `Active window: "${title}"` : "Running";
+			}
+
+			return {
+				name: w.class,
+				cleanName,
+				title: w.title,
+				pid: w.pid,
+				workspace: w.workspace,
+				memoryMB: mem,
+				activity,
+				focused: w.focused,
+				address: w.address,
+				at: w.at,
+				size: w.size,
+			};
+		}),
+	);
+}
+
+/**
+ * Gracefully close an application by name, title, address, or PID.
+ * Closes the window via the desktop compositor, then verifies process exit (SIGTERM fallback).
+ */
+export async function closeApp(
+	query: string,
+	force = false,
+): Promise<{
+	success: boolean;
+	app?: string;
+	pid?: number;
+	windowsClosed: number;
+	processKilled: boolean;
+	error?: string;
+}> {
+	const driver = detectPlatformDriver();
+	const windows = await getDriverWindows().catch(() => []);
+	const q = query.trim().toLowerCase();
+
+	const matches = windows.filter(w => {
+		if (w.address.toLowerCase() === q) return true;
+		if (String(w.pid) === q) return true;
+		if (w.class.toLowerCase().includes(q)) return true;
+		if (w.title.toLowerCase().includes(q)) return true;
+		const friendly = getFriendlyAppName(w.class).toLowerCase();
+		if (friendly.includes(q)) return true;
+		return false;
+	});
+
+	if (matches.length === 0) {
+		const numPid = Number(q);
+		if (!Number.isNaN(numPid) && numPid > 0) {
+			try {
+				process.kill(numPid, force ? "SIGKILL" : "SIGTERM");
+				return {
+					success: true,
+					pid: numPid,
+					windowsClosed: 0,
+					processKilled: true,
+				};
+			} catch (e: unknown) {
+				return {
+					success: false,
+					windowsClosed: 0,
+					processKilled: false,
+					error: `Could not terminate PID ${numPid}: ${String((e as Error).message ?? e)}`,
+				};
+			}
+		}
+		return {
+			success: false,
+			windowsClosed: 0,
+			processKilled: false,
+			error: `No running application or window matching "${query}" found.`,
+		};
+	}
+
+	let windowsClosed = 0;
+	const pids = new Set<number>();
+	for (const m of matches) {
+		if (m.pid) pids.add(m.pid);
+		const err = await driver.windows.closeWindow(m.address);
+		if (!err) windowsClosed++;
+	}
+
+	await new Promise(r => setTimeout(r, 200));
+
+	let processKilled = false;
+	for (const pid of pids) {
+		try {
+			process.kill(pid, 0);
+			if (force) {
+				process.kill(pid, "SIGKILL");
+				processKilled = true;
+			} else {
+				process.kill(pid, "SIGTERM");
+				processKilled = true;
+			}
+		} catch {
+			processKilled = true;
+		}
+	}
+
+	const mainMatch = matches[0]!;
+	return {
+		success: true,
+		app: getFriendlyAppName(mainMatch.class),
+		pid: mainMatch.pid,
+		windowsClosed,
+		processKilled,
+	};
+}
+
 /* ================= Live desktop app-control (D002/D004) =================
  * Model-visible coordinate frame = the last screenshot this tool returned (a window
  * or the full display, downscaled to ≤ maxWidth×maxHeight). live_* actions inject
@@ -1740,10 +1974,12 @@ function liveApprovalDecision(args: unknown): ToolApprovalDecision {
 		action === "clipboard_get" ||
 		action === "display_info" ||
 		action === "cursor_pos" ||
-		action === "cursor_position"
+		action === "cursor_position" ||
+		action === "list_windows" ||
+		action === "list_apps"
 	)
 		return "read";
-	if (action === "clipboard_set") return "write";
+	if (action === "clipboard_set" || action === "close_window" || action === "close_app") return "write";
 	if (!action.startsWith("live_") && !AGY_LIVE_ACTIONS.has(action)) return "read";
 	if (LIVE_GATE_ACTIONS.has(action)) return "read";
 	// First use of an injection kind is exec-tier ⇒ the host asks Peter once per kind
@@ -5565,7 +5801,8 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "right_click_at":
 			case "left_click_drag":
 				return executeLiveAction(params.action, params, this.session, signal, onUpdate);
-			case "list_windows": {
+			case "list_windows":
+			case "list_apps": {
 				const listDriver = detectPlatformDriver();
 				if (listDriver.id !== "hyprland" && listDriver.id !== "x11") {
 					return {
@@ -5575,35 +5812,36 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								text: `Window listing is not supported on this platform yet (${listDriver.label}).`,
 							},
 						],
-						details: { windows: [], driver: listDriver.id },
+						details: { windows: [], apps: [], driver: listDriver.id },
 					};
 				}
-				const windows = await getDriverWindows();
-				if (windows.length === 0) {
+				const apps = await getOpenAppsInfo();
+				if (apps.length === 0) {
 					return {
-						content: [{ type: "text", text: "No open GUI windows found." }],
-						details: { windows: [] },
+						content: [{ type: "text", text: "No open GUI applications found." }],
+						details: { windows: [], apps: [] },
 					};
 				}
-				const formatted = windows
+				const formatted = apps
 					.map(
-						w =>
-							`- [${w.address}] "${w.title}" (class: ${w.class}) at [${w.at[0]}, ${w.at[1]}] size [${w.size[0]}x${w.size[1]}] ws:${w.workspace}${w.focused ? " (FOCUSED)" : ""}`,
+						(a, i) =>
+							`${i + 1}. ${a.cleanName} [Workspace ${a.workspace}, PID ${a.pid || "?"}]${a.focused ? " (FOCUSED)" : ""}\n   • Activity: ${a.activity}${a.memoryMB ? ` | Memory: ${a.memoryMB} MB` : ""}`,
 					)
 					.join("\n");
 				return {
-					content: [{ type: "text", text: `Open Windows (${windows.length}):\n${formatted}` }],
-					details: { windows },
+					content: [{ type: "text", text: `Open Applications (${apps.length}):\n\n${formatted}` }],
+					details: { windows: apps, apps },
 				};
 			}
 
 			case "focus_window": {
-				if (!params.query) {
+				const target = params.app ?? params.query;
+				if (!target) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: "Error: 'query' (window title, class, or address) is required for focus_window.",
+								text: "Error: 'query' or 'app' (window title, class, or address) is required for focus_window.",
 							},
 						],
 						details: { error: "missing_query" },
@@ -5619,16 +5857,17 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 				const windows = await getDriverWindows();
-				const queryLower = params.query.toLowerCase();
+				const queryLower = target.toLowerCase();
 				const match =
 					windows.find(w => w.address.toLowerCase() === queryLower) ||
 					windows.find(w => w.class.toLowerCase().includes(queryLower)) ||
-					windows.find(w => w.title.toLowerCase().includes(queryLower));
+					windows.find(w => w.title.toLowerCase().includes(queryLower)) ||
+					windows.find(w => getFriendlyAppName(w.class).toLowerCase().includes(queryLower));
 
 				if (!match) {
 					return {
-						content: [{ type: "text", text: `No window matching "${params.query}" found.` }],
-						details: { error: "not_found", query: params.query },
+						content: [{ type: "text", text: `No window matching "${target}" found.` }],
+						details: { error: "not_found", query: target },
 					};
 				}
 
@@ -5654,13 +5893,15 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				};
 			}
 
-			case "close_window": {
-				if (!params.query) {
+			case "close_window":
+			case "close_app": {
+				const target = params.app ?? params.query;
+				if (!target) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: "Error: 'query' (window title, class, or address) is required for close_window.",
+								text: "Error: 'query' or 'app' (application name, window title, or PID) is required for close_window.",
 							},
 						],
 						details: { error: "missing_query" },
@@ -5678,30 +5919,19 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						details: { error: "unsupported_platform", driver: closeDriver.id },
 					};
 				}
-				const windows = await getDriverWindows();
-				const queryLower = params.query.toLowerCase();
-				const match =
-					windows.find(w => w.address.toLowerCase() === queryLower) ||
-					windows.find(w => w.class.toLowerCase().includes(queryLower)) ||
-					windows.find(w => w.title.toLowerCase().includes(queryLower));
-
-				if (!match) {
+				const res = await closeApp(target, params.force ?? false);
+				if (!res.success) {
 					return {
-						content: [{ type: "text", text: `No window matching "${params.query}" found.` }],
-						details: { error: "not_found", query: params.query },
+						content: [{ type: "text", text: res.error || `No window matching "${target}" found.` }],
+						details: { error: res.error || "not_found", query: target },
 					};
 				}
-
-				const closeFail = await closeDriver.windows.closeWindow(match.address);
-				if (closeFail) {
-					return {
-						content: [{ type: "text", text: `Failed to close window [${match.title}]: ${closeFail}` }],
-						details: { error: closeFail },
-					};
-				}
+				const appLabel = res.app ? `"${res.app}"` : `"${target}"`;
+				const pidLabel = res.pid ? ` (PID ${res.pid})` : "";
+				const winLabel = res.windowsClosed ? `closed ${res.windowsClosed} window(s)` : "process terminated";
 				return {
-					content: [{ type: "text", text: `Closed window: "${match.title}" (class: ${match.class})` }],
-					details: { closed: match },
+					content: [{ type: "text", text: `Closed ${appLabel}${pidLabel}: ${winLabel}.` }],
+					details: { closed: res, query: target },
 				};
 			}
 

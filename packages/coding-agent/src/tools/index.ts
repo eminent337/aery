@@ -58,6 +58,8 @@ import {
 	ClipboardGetTool,
 	ClipboardSetTool,
 	DisplayInfoTool,
+	ListAppsTool,
+	CloseAppTool,
 } from "./agy-computer-use";
 import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
@@ -662,6 +664,8 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	clipboard_get: ClipboardGetTool.createIf,
 	clipboard_set: ClipboardSetTool.createIf,
 	display_info: DisplayInfoTool.createIf,
+	list_apps: ListAppsTool.createIf,
+	close_app: CloseAppTool.createIf,
 	voice_control: VoiceControlTool.createIf,
 	camera_control: CameraControlTool.createIf,
 	search_context: SearchContextTool.createIf,

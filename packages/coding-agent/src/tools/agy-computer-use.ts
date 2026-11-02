@@ -599,3 +599,105 @@ export class DisplayInfoTool implements AgentTool<typeof displayInfoSchema> {
 		);
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 11. list_apps
+// ---------------------------------------------------------------------------
+export const listAppsSchema = z.object({});
+
+export type ListAppsParams = z.infer<typeof listAppsSchema>;
+
+export class ListAppsTool implements AgentTool<typeof listAppsSchema> {
+	readonly name = "list_apps";
+	readonly approval = "read" as const;
+	readonly label = "List Applications";
+	readonly summary = "List running GUI applications, open windows, and what each is actively doing";
+	readonly description =
+		"Discovers all open applications and windows across workspaces, showing their active web pages, chats, open documents, or running terminal commands with memory usage.";
+	readonly parameters = listAppsSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable" as const;
+
+	private readonly delegate: DesktopControlTool;
+
+	constructor(session?: MinimalSession) {
+		this.delegate = new DesktopControlTool(session as any);
+	}
+
+	static createIf(session?: MinimalSession): ListAppsTool | null {
+		return new ListAppsTool(session);
+	}
+
+	async execute(
+		toolCallId: string,
+		_params: ListAppsParams,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback,
+		_context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		return this.delegate.execute(
+			toolCallId,
+			{
+				action: "list_apps",
+			},
+			signal,
+			onUpdate,
+		);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 12. close_app
+// ---------------------------------------------------------------------------
+export const closeAppSchema = z.object({
+	app: z
+		.string()
+		.describe("Application name, window title substring, or PID to close (e.g. 'brave', 'telegram', 'nautilus', '1251132')."),
+	force: z
+		.boolean()
+		.optional()
+		.describe("Whether to force terminate (SIGKILL) if the application does not close gracefully (default: false)."),
+});
+
+export type CloseAppParams = z.infer<typeof closeAppSchema>;
+
+export class CloseAppTool implements AgentTool<typeof closeAppSchema> {
+	readonly name = "close_app";
+	readonly approval: ToolApprovalDecision = "write";
+	readonly label = "Close Application";
+	readonly summary = "Gracefully close an application by name, window title, or PID";
+	readonly description =
+		"Closes an open application and its windows via the desktop compositor, terminating lingering background processes.";
+	readonly parameters = closeAppSchema;
+	readonly strict = true;
+	readonly loadMode = "discoverable" as const;
+
+	private readonly delegate: DesktopControlTool;
+
+	constructor(session?: MinimalSession) {
+		this.delegate = new DesktopControlTool(session as any);
+	}
+
+	static createIf(session?: MinimalSession): CloseAppTool | null {
+		return new CloseAppTool(session);
+	}
+
+	async execute(
+		toolCallId: string,
+		params: CloseAppParams,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback,
+		_context?: AgentToolContext,
+	): Promise<AgentToolResult> {
+		return this.delegate.execute(
+			toolCallId,
+			{
+				action: "close_app",
+				app: params.app,
+				force: params.force,
+			},
+			signal,
+			onUpdate,
+		);
+	}
+}

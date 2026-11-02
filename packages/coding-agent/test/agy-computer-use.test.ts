@@ -7,10 +7,14 @@ import {
 	clipboardGetSchema,
 	ClipboardSetTool,
 	clipboardSetSchema,
+	CloseAppTool,
+	closeAppSchema,
 	DisplayInfoTool,
 	displayInfoSchema,
 	DragAndDropAtTool,
 	dragAndDropAtSchema,
+	ListAppsTool,
+	listAppsSchema,
 	MoveCursorTool,
 	moveCursorSchema,
 	PressKeyTool,
@@ -36,6 +40,8 @@ describe("AGY Computer Use Tools", () => {
 		expect(BUILTIN_TOOLS.clipboard_get).toBeDefined();
 		expect(BUILTIN_TOOLS.clipboard_set).toBeDefined();
 		expect(BUILTIN_TOOLS.display_info).toBeDefined();
+		expect(BUILTIN_TOOLS.list_apps).toBeDefined();
+		expect(BUILTIN_TOOLS.close_app).toBeDefined();
 	});
 
 	it("instantiates standalone tools with correct AGY metadata and approval tiers", () => {
@@ -92,6 +98,16 @@ describe("AGY Computer Use Tools", () => {
 		expect(disp).not.toBeNull();
 		expect(disp?.name).toBe("display_info");
 		expect(disp?.approval).toBe("read");
+
+		const listApps = ListAppsTool.createIf(dummySession);
+		expect(listApps).not.toBeNull();
+		expect(listApps?.name).toBe("list_apps");
+		expect(listApps?.approval).toBe("read");
+
+		const closeApp = CloseAppTool.createIf(dummySession);
+		expect(closeApp).not.toBeNull();
+		expect(closeApp?.name).toBe("close_app");
+		expect(closeApp?.approval).toBe("write");
 	});
 
 	it("validates schemas for all AGY Computer Use actions", () => {
@@ -161,6 +177,16 @@ describe("AGY Computer Use Tools", () => {
 
 		const dispParsed = displayInfoSchema.parse({});
 		expect(dispParsed).toBeDefined();
+
+		const listAppsParsed = listAppsSchema.parse({});
+		expect(listAppsParsed).toBeDefined();
+
+		const closeAppParsed = closeAppSchema.parse({
+			app: "brave",
+			force: true,
+		});
+		expect(closeAppParsed.app).toBe("brave");
+		expect(closeAppParsed.force).toBe(true);
 	});
 
 	it("validates injection coordinates and actions in validateInjection", () => {
@@ -283,5 +309,16 @@ describe("AGY Computer Use Tools", () => {
 		expect(dispRes.content[0]?.type).toBe("text");
 		expect(dispRes.details?.scale).toBeDefined();
 		expect(dispRes.details?.driver).toBeDefined();
+
+		const listAppsTool = new ListAppsTool(dummySession);
+		const listRes = await listAppsTool.execute("tc-4", {});
+		expect(listRes.content[0]?.type).toBe("text");
+		expect(listRes.details?.apps).toBeDefined();
+		expect(Array.isArray(listRes.details?.apps)).toBe(true);
+
+		const closeAppTool = new CloseAppTool(dummySession);
+		const closeRes = await closeAppTool.execute("tc-5", { app: "nonexistent-fake-app-xyz" });
+		expect(closeRes.content[0]?.type).toBe("text");
+		expect(closeRes.details?.error).toBeDefined();
 	});
 });

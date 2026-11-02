@@ -13,6 +13,8 @@ import {
 	ClipboardGetTool,
 	ClipboardSetTool,
 	DisplayInfoTool,
+	ListAppsTool,
+	CloseAppTool,
 } from "../src/tools";
 
 describe("AGY Tools Integration & Loading Verification", () => {
@@ -40,6 +42,8 @@ describe("AGY Tools Integration & Loading Verification", () => {
 		expect(toolNames).toContain("clipboard_get");
 		expect(toolNames).toContain("clipboard_set");
 		expect(toolNames).toContain("display_info");
+		expect(toolNames).toContain("list_apps");
+		expect(toolNames).toContain("close_app");
 		expect(toolNames).toContain("desktop_control");
 		expect(toolNames).toContain("call_external_agent");
 	});
@@ -94,6 +98,16 @@ describe("AGY Tools Integration & Loading Verification", () => {
 		expect(disp.name).toBe("display_info");
 		expect(disp.approval).toBe("read");
 		expect(disp.parameters).toBeDefined();
+
+		const listApps = new ListAppsTool(mockSession);
+		expect(listApps.name).toBe("list_apps");
+		expect(listApps.approval).toBe("read");
+		expect(listApps.parameters).toBeDefined();
+
+		const closeApp = new CloseAppTool(mockSession);
+		expect(closeApp.name).toBe("close_app");
+		expect(closeApp.approval).toBe("write");
+		expect(closeApp.parameters).toBeDefined();
 	});
 
 	it("verifies desktop_control accepts all AGY and Anthropic Computer Use actions in its schema", () => {
@@ -121,6 +135,8 @@ describe("AGY Tools Integration & Loading Verification", () => {
 			{ action: "clipboard_get" },
 			{ action: "clipboard_set", text: "copy this" },
 			{ action: "display_info" },
+			{ action: "list_apps" },
+			{ action: "close_app", app: "brave" },
 		];
 
 		for (const item of testActions) {
