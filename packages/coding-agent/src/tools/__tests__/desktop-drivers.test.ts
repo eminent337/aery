@@ -11,7 +11,7 @@ describe("platform driver detection (D001 cross-platform)", () => {
 	test("pure x11 session resolves to x11", () => {
 		expect(detectPlatformId({ XDG_SESSION_TYPE: "x11", DISPLAY: ":0" } as NodeJS.ProcessEnv, "linux")).toBe("x11");
 	});
-	test("darwin and win32 resolve to their stubs", () => {
+	test("darwin and win32 resolve to their drivers", () => {
 		expect(detectPlatformId({}, "darwin")).toBe("macos");
 		expect(detectPlatformId({}, "win32")).toBe("windows");
 	});
@@ -21,9 +21,26 @@ describe("platform driver detection (D001 cross-platform)", () => {
 		expect(typeof d.capture.capture).toBe("function");
 		expect(typeof d.capture.cursorPos).toBe("function");
 	});
-	test("macos/windows stubs report honest gaps", () => {
-		expect(detectPlatformDriver({}, "darwin").label).toMatch(/macOS/);
-		expect(detectPlatformDriver({}, "win32").label).toMatch(/Windows/);
+	test("macos and windows drivers expose functional window + capture surfaces", () => {
+		const macos = detectPlatformDriver({}, "darwin");
+		expect(macos.id).toBe("macos");
+		expect(macos.label).toMatch(/macOS/);
+		expect(typeof macos.windows.listWindows).toBe("function");
+		expect(typeof macos.windows.activeWindow).toBe("function");
+		expect(typeof macos.windows.focusWindow).toBe("function");
+		expect(typeof macos.windows.closeWindow).toBe("function");
+		expect(typeof macos.capture.capture).toBe("function");
+		expect(typeof macos.capture.cursorPos).toBe("function");
+
+		const win = detectPlatformDriver({}, "win32");
+		expect(win.id).toBe("windows");
+		expect(win.label).toMatch(/Windows/);
+		expect(typeof win.windows.listWindows).toBe("function");
+		expect(typeof win.windows.activeWindow).toBe("function");
+		expect(typeof win.windows.focusWindow).toBe("function");
+		expect(typeof win.windows.closeWindow).toBe("function");
+		expect(typeof win.capture.capture).toBe("function");
+		expect(typeof win.capture.cursorPos).toBe("function");
 	});
 });
 

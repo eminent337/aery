@@ -39,6 +39,11 @@ import desktopControlDescription from "../prompts/tools/desktop-control.md" with
 import { execFileNiced, setGlideCaptureNice } from "./capture-priority";
 import type { ToolSession } from "./index";
 import {
+	cliclickClick,
+	cliclickDrag,
+	cliclickKey,
+	cliclickMove,
+	cliclickType,
 	ensureYdotoold,
 	frameAlignedGap,
 	frameMs,
@@ -49,6 +54,17 @@ import {
 	type InputKind,
 	isDirectTypeable,
 	type LiveBackend,
+	osascriptClick,
+	osascriptDrag,
+	osascriptKey,
+	osascriptMove,
+	osascriptType,
+	powershellClick,
+	powershellDrag,
+	powershellKey,
+	powershellMove,
+	powershellType,
+	powershellWheelScroll,
 	probeBackends,
 	resolveBackend,
 	resolveBackendChain,
@@ -632,10 +648,10 @@ async function runCmd(
 	}
 }
 
-/** True on the actively-supported desktop drivers (hyprland native, x11). */
+/** True on the actively-supported desktop drivers (hyprland native, x11, macos, windows). */
 function isSupportedDriver(): boolean {
 	const id = detectPlatformDriver().id;
-	return id === "hyprland" || id === "x11";
+	return id === "hyprland" || id === "x11" || id === "macos" || id === "windows";
 }
 
 /**
@@ -4047,6 +4063,24 @@ export async function runDragWithCleanup(
 async function typeTextWith(chain: LiveBackend[], text: string, expectedWindowAddress: string): Promise<string | null> {
 	let lastErr: string | null = null;
 	for (const backend of chain) {
+		if (backend === "cliclick") {
+			const fail = await runSteps([cliclickType(text)], 0, expectedWindowAddress);
+			if (!fail) return null;
+			lastErr = fail;
+			continue;
+		}
+		if (backend === "osascript") {
+			const fail = await runSteps([osascriptType(text)], 0, expectedWindowAddress);
+			if (!fail) return null;
+			lastErr = fail;
+			continue;
+		}
+		if (backend === "powershell") {
+			const fail = await runSteps([powershellType(text)], 0, expectedWindowAddress);
+			if (!fail) return null;
+			lastErr = fail;
+			continue;
+		}
 		if (backend === "ydotool") {
 			if (isDirectTypeable(text)) {
 				const fail = await runSteps([["ydotool", "type", text]], 0, expectedWindowAddress);
@@ -4099,6 +4133,27 @@ async function typeTextWith(chain: LiveBackend[], text: string, expectedWindowAd
 async function keyTextWith(chain: LiveBackend[], spec: string, expectedWindowAddress: string): Promise<string | null> {
 	let lastErr: string | null = null;
 	for (const backend of chain) {
+		if (backend === "cliclick") {
+			const argv = cliclickKey(spec);
+			const fail = await runSteps([argv], 30, expectedWindowAddress);
+			if (!fail) return null;
+			lastErr = fail;
+			continue;
+		}
+		if (backend === "osascript") {
+			const argv = osascriptKey(spec);
+			const fail = await runSteps([argv], 30, expectedWindowAddress);
+			if (!fail) return null;
+			lastErr = fail;
+			continue;
+		}
+		if (backend === "powershell") {
+			const argv = powershellKey(spec);
+			const fail = await runSteps([argv], 30, expectedWindowAddress);
+			if (!fail) return null;
+			lastErr = fail;
+			continue;
+		}
 		if (backend === "ydotool") {
 			const events = specToYdotoolEvents(spec);
 			if ("error" in events) {
@@ -4602,7 +4657,7 @@ async function executeLiveAction(
 		const lines = [
 			`App-control mode: ${liveModeEnabled ? "ON" : "OFF"}${obsRefresherRunning ? " (observation refresher running)" : ""}`,
 			`Platform: ${driver.label} (driver: ${driver.id})`,
-			`Backends: ydotool=${probe.ydotool} (daemon: ${probe.ydotoold ? "up" : "DOWN"}) | xdotool=${probe.xdotool} | wtype=${probe.wtype}`,
+			`Backends: ydotool=${probe.ydotool} (daemon: ${probe.ydotoold ? "up" : "DOWN"}) | xdotool=${probe.xdotool} | wtype=${probe.wtype} | cliclick=${!!probe.cliclick} | osascript=${!!probe.osascript} | powershell=${!!probe.powershell}`,
 			`Focused window: ${win ? `"${win.title}" (${win.class}) — ${win.xwayland ? "XWayland" : "native Wayland"}` : "none (focus one first)"}`,
 			`Resolved backend → pointer: ${pointer}${pointer === "no-daemon" ? " — start ydotoold / add the uinput udev rule" : ""}; keyboard/type: ${keyboard}`,
 			`Authorized kinds: ${liveAuthorizedKinds.size ? [...liveAuthorizedKinds].join(", ") : "(none — first use of each kind prompts Peter)"}`,
@@ -4688,7 +4743,7 @@ async function executeLiveAction(
 	}
 	if (backend === "none") {
 		return errText(
-			`No input backend for a ${win.xwayland ? "XWayland" : "native-Wayland"} window: install ydotool + ydotoold (A1) or wtype (keyboard-only). Run live_backend_probe for the full picture.`,
+			`No input backend for ${driver.id} (${win.xwayland ? "XWayland" : "native"} window): install ydotool + ydotoold (Linux), cliclick/osascript (macOS), or PowerShell (Windows). Run live_backend_probe for the full picture.`,
 			"no_backend",
 		);
 	}
@@ -5321,11 +5376,21 @@ async function executeLiveAction(
 					moveError = await runSteps([hyprMoveCursor(logical.x, logical.y)], 0, win.address);
 				}
 			} else {
-				moveError = await runSteps(
-					aimSteps.length > 0 ? aimSteps : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
-					aimSteps.length > 1 ? 15 : 0,
-					win.address,
-				);
+				let steps: string[][];
+				if (aimSteps.length > 0) {
+					steps = aimSteps;
+				} else if (backend === "ydotool") {
+					steps = [ydoMove(pt.x, pt.y)];
+				} else if (backend === "cliclick") {
+					steps = [cliclickMove(pt.x, pt.y)];
+				} else if (backend === "osascript") {
+					steps = [osascriptMove(pt.x, pt.y)];
+				} else if (backend === "powershell") {
+					steps = [powershellMove(pt.x, pt.y)];
+				} else {
+					steps = [xdoMove(pt.x, pt.y)];
+				}
+				moveError = await runSteps(steps, aimSteps.length > 1 ? 15 : 0, win.address);
 			}
 			if (moveError) return errObserve(action, moveError);
 			liveAuthorizedKinds.add(action);
@@ -5338,11 +5403,20 @@ async function executeLiveAction(
 					const ok = await hyprFastMoveCursor(p.x, p.y);
 					if (ok) return;
 				}
-				const cmd = hyprAim
-					? hyprMoveCursor(p.x, p.y)
-					: backend === "ydotool"
-						? ydoMove(p.x, p.y)
-						: xdoMove(p.x, p.y);
+				let cmd: string[];
+				if (hyprAim) {
+					cmd = hyprMoveCursor(p.x, p.y);
+				} else if (backend === "ydotool") {
+					cmd = ydoMove(p.x, p.y);
+				} else if (backend === "cliclick") {
+					cmd = cliclickMove(p.x, p.y);
+				} else if (backend === "osascript") {
+					cmd = osascriptMove(p.x, p.y);
+				} else if (backend === "powershell") {
+					cmd = powershellMove(p.x, p.y);
+				} else {
+					cmd = xdoMove(p.x, p.y);
+				}
 				await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
 			};
 			let posNote = "";
@@ -5404,12 +5478,20 @@ async function executeLiveAction(
 							const ok = await hyprFastMoveCursor(p.x, p.y);
 							if (ok) return;
 						}
-						const cmd =
-							hyprAim
-								? hyprMoveCursor(p.x, p.y)
-								: backend === "ydotool"
-									? ydoMove(p.x, p.y)
-									: xdoMove(p.x, p.y);
+						let cmd: string[];
+						if (hyprAim) {
+							cmd = hyprMoveCursor(p.x, p.y);
+						} else if (backend === "ydotool") {
+							cmd = ydoMove(p.x, p.y);
+						} else if (backend === "cliclick") {
+							cmd = cliclickMove(p.x, p.y);
+						} else if (backend === "osascript") {
+							cmd = osascriptMove(p.x, p.y);
+						} else if (backend === "powershell") {
+							cmd = powershellMove(p.x, p.y);
+						} else {
+							cmd = xdoMove(p.x, p.y);
+						}
 						await runCmd(cmd[0]!, cmd.slice(1), { timeout: 8000 });
 					},
 				});
@@ -5418,14 +5500,22 @@ async function executeLiveAction(
 			}
 			// When cursor landing already converged onto target, execute the click button press directly!
 			// Avoids re-executing historical aimSteps which rewinds cursor back to the start!
-			const steps =
-				backend === "ydotool"
-					? pre?.read
-						? [ydoClickButton(code, count, 15)]
-						: aim
-							? [...aimSteps, ydoClickButton(code, count, 15)]
-							: [ydoMove(pt.x, pt.y), ydoClickButton(code, count, 15)]
-					: [xdoClick(pt.x, pt.y, button, count)];
+			let steps: string[][];
+			if (backend === "ydotool") {
+				steps = pre?.read
+					? [ydoClickButton(code, count, 15)]
+					: aim
+						? [...aimSteps, ydoClickButton(code, count, 15)]
+						: [ydoMove(pt.x, pt.y), ydoClickButton(code, count, 15)];
+			} else if (backend === "cliclick") {
+				steps = [cliclickClick(pt.x, pt.y, button, count)];
+			} else if (backend === "osascript") {
+				steps = [osascriptClick(pt.x, pt.y, button, count)];
+			} else if (backend === "powershell") {
+				steps = [powershellClick(pt.x, pt.y, button, count)];
+			} else {
+				steps = [xdoClick(pt.x, pt.y, button, count)];
+			}
 			const fail = await runSteps(steps, 0, win.address);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
@@ -5457,51 +5547,62 @@ async function executeLiveAction(
 			const before = verify ? await captureLiveFrame("Before drag") : null;
 			const end = frameToPhysical(frame, params.x2!, params.y2!);
 			const endLogical = physicalToLogical(end.x, end.y, scale);
-			const moves: string[][] = [];
-			if (backend === "ydotool") {
-				// Warp to the start with the compositor (button still up), then
-				// read the pointer back — the sweep must be RELATIVE from the
-				// real anchor because compositor warps deliver no held-button
-				// motion events, and ydotool absolute is delta+accel skewed.
-				const anchor = aim
-					? (await runSteps(aimSteps, 0, win.address)) === null
-						? await detectPlatformDriver().capture.cursorPos()
-						: null
-					: null;
-				if (!anchor) {
-					return errText(
-						"Could not anchor the drag start (aim or cursor read failed) — refusing to inject a blind sweep.",
-						"drag_anchor_failed",
-					);
-				}
-				const dx = endLogical.x - anchor.x;
-				const dy = endLogical.y - anchor.y;
-				const stepCount = 8;
-				for (let i = 1; i <= stepCount; i++) {
-					// Interpolate in logical px; emit per-step REL deltas. Steps
-					// stay ≤600 because the whole drag is clamped to the screen.
-					const stepDx = (dx * i) / stepCount - (dx * (i - 1)) / stepCount;
-					const stepDy = (dy * i) / stepCount - (dy * (i - 1)) / stepCount;
-					moves.push(ydoMoveRelative(stepDx, stepDy));
-				}
+			if (backend === "cliclick") {
+				const fail = await runSteps([cliclickDrag(pt.x, pt.y, end.x, end.y)], 0, win.address);
+				if (fail) return errObserve(action, fail);
+			} else if (backend === "osascript") {
+				const fail = await runSteps([osascriptDrag(pt.x, pt.y, end.x, end.y)], 0, win.address);
+				if (fail) return errObserve(action, fail);
+			} else if (backend === "powershell") {
+				const fail = await runSteps([powershellDrag(pt.x, pt.y, end.x, end.y)], 0, win.address);
+				if (fail) return errObserve(action, fail);
 			} else {
-				const start = xdoMove(pt.x, pt.y);
-				moves.push(xdoMove(end.x, end.y));
-				const fail = await runSteps([start], 0, win.address);
+				const moves: string[][] = [];
+				if (backend === "ydotool") {
+					// Warp to the start with the compositor (button still up), then
+					// read the pointer back — the sweep must be RELATIVE from the
+					// real anchor because compositor warps deliver no held-button
+					// motion events, and ydotool absolute is delta+accel skewed.
+					const anchor = aim
+						? (await runSteps(aimSteps, 0, win.address)) === null
+							? await detectPlatformDriver().capture.cursorPos()
+							: null
+						: null;
+					if (!anchor) {
+						return errText(
+							"Could not anchor the drag start (aim or cursor read failed) — refusing to inject a blind sweep.",
+							"drag_anchor_failed",
+						);
+					}
+					const dx = endLogical.x - anchor.x;
+					const dy = endLogical.y - anchor.y;
+					const stepCount = 8;
+					for (let i = 1; i <= stepCount; i++) {
+						// Interpolate in logical px; emit per-step REL deltas. Steps
+						// stay ≤600 because the whole drag is clamped to the screen.
+						const stepDx = (dx * i) / stepCount - (dx * (i - 1)) / stepCount;
+						const stepDy = (dy * i) / stepCount - (dy * (i - 1)) / stepCount;
+						moves.push(ydoMoveRelative(stepDx, stepDy));
+					}
+				} else {
+					const start = xdoMove(pt.x, pt.y);
+					moves.push(xdoMove(end.x, end.y));
+					const fail = await runSteps([start], 0, win.address);
+					if (fail) return errObserve(action, fail);
+				}
+				const fail = await runDragWithCleanup(
+					{
+						backend: backend === "ydotool" ? "ydotool" : "xdotool",
+						shift: params.modifiers?.includes("shift") ?? false,
+						start: [],
+						moves,
+					},
+					argv => runSteps([argv], 24, win.address),
+					signal,
+					runInputRelease,
+				);
 				if (fail) return errObserve(action, fail);
 			}
-			const fail = await runDragWithCleanup(
-				{
-					backend: backend === "ydotool" ? "ydotool" : "xdotool",
-					shift: params.modifiers?.includes("shift") ?? false,
-					start: [],
-					moves,
-				},
-				argv => runSteps([argv], 24, win.address),
-				signal,
-				runInputRelease,
-			);
-			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
 			let endNote = "";
 			let readEnd: { x: number; y: number } | null = null;
@@ -5569,6 +5670,14 @@ async function executeLiveAction(
 				await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
 			} else if (backend === "ydotool") {
 				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
+			} else if (backend === "cliclick") {
+				await runCmd("cliclick", [`m:${Math.round(pt.x)},${Math.round(pt.y)}`]);
+			} else if (backend === "osascript") {
+				const cmd = osascriptMove(pt.x, pt.y);
+				await runCmd(cmd[0]!, cmd.slice(1));
+			} else if (backend === "powershell") {
+				const cmd = powershellMove(pt.x, pt.y);
+				await runCmd(cmd[0]!, cmd.slice(1));
 			} else {
 				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
 			}
@@ -5579,6 +5688,44 @@ async function executeLiveAction(
 			scrollSpeed: params.scrollSpeed,
 			observeDuringScroll: params.observeDuringScroll,
 		});
+		if (backend === "powershell") {
+			const fail = await runSteps([powershellWheelScroll(dir, x11Plan.steps)], x11Plan.intervalMs, win.address);
+			if (fail) return errObserve(action, fail);
+			liveAuthorizedKinds.add(action);
+			return withVerify(
+				`Wheel-scrolled ${dir} ${x11Plan.steps} notch${x11Plan.steps === 1 ? "" : "es"} on Windows "${win.title}".`,
+				{
+					scroll: {
+						direction: dir,
+						requestedSteps: x11Plan.steps,
+						completedSteps: x11Plan.steps,
+						speed: x11Plan.speed,
+						intervalMs: x11Plan.intervalMs,
+					},
+				},
+			);
+		}
+		if (backend === "cliclick" || backend === "osascript") {
+			const delta = dir === "up" ? x11Plan.steps * 3 : -x11Plan.steps * 3;
+			const script = `ObjC.import("CoreGraphics");
+var event = $.CGEventCreateScrollWheelEvent2(null, 1, 1, ${delta}, 0);
+$.CGEventPost($.kCGHIDEventTap, event);`;
+			const fail = await runSteps([["osascript", "-l", "JavaScript", "-e", script]], x11Plan.intervalMs, win.address);
+			if (fail) return errObserve(action, fail);
+			liveAuthorizedKinds.add(action);
+			return withVerify(
+				`Wheel-scrolled ${dir} ${x11Plan.steps} notch${x11Plan.steps === 1 ? "" : "es"} on macOS "${win.title}".`,
+				{
+					scroll: {
+						direction: dir,
+						requestedSteps: x11Plan.steps,
+						completedSteps: x11Plan.steps,
+						speed: x11Plan.speed,
+						intervalMs: x11Plan.intervalMs,
+					},
+				},
+			);
+		}
 		if (backend === "xdotool") {
 			const fail = await runSteps(xdoWheelScroll(dir, x11Plan.steps), x11Plan.intervalMs, win.address);
 			if (fail) return errObserve(action, fail);
@@ -5683,15 +5830,41 @@ async function executeLiveAction(
 				await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
 			} else if (backend === "ydotool") {
 				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
+			} else if (backend === "cliclick") {
+				await runCmd("cliclick", [`m:${Math.round(pt.x)},${Math.round(pt.y)}`]);
+			} else if (backend === "osascript") {
+				const cmd = osascriptMove(pt.x, pt.y);
+				await runCmd(cmd[0]!, cmd.slice(1));
+			} else if (backend === "powershell") {
+				const cmd = powershellMove(pt.x, pt.y);
+				await runCmd(cmd[0]!, cmd.slice(1));
 			} else {
 				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
 			}
 		}
-		const code = button === "right" ? "0x41" : button === "middle" ? "0x42" : YDO_DOWN;
-		const steps =
-			backend === "ydotool"
-				? [["ydotool", "click", code]]
-				: [["xdotool", "mousedown", button === "right" ? "3" : button === "middle" ? "2" : "1"]];
+		let steps: string[][];
+		if (backend === "ydotool") {
+			const code = button === "right" ? "0x41" : button === "middle" ? "0x42" : YDO_DOWN;
+			steps = [["ydotool", "click", code]];
+		} else if (backend === "cliclick") {
+			steps = [["cliclick", button === "right" ? "rc:." : "c:."]];
+		} else if (backend === "osascript") {
+			const script = `ObjC.import("CoreGraphics");
+var loc = $.CGEventGetLocation($.CGEventCreate(null));
+var down = $.CGEventCreateMouseEvent(null, ${button === "right" ? "$.kCGEventRightMouseDown" : "$.kCGEventLeftMouseDown"}, loc, ${button === "right" ? "$.kCGMouseButtonRight" : "$.kCGMouseButtonLeft"});
+$.CGEventPost($.kCGHIDEventTap, down);`;
+			steps = [["osascript", "-l", "JavaScript", "-e", script]];
+		} else if (backend === "powershell") {
+			const flag = button === "right" ? "0x08" : button === "middle" ? "0x20" : "0x02";
+			const cmd = `$sig = @'
+[DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
+'@
+Add-Type -MemberDefinition $sig -Name MouseDown -Namespace Win32API
+[Win32API.MouseDown]::mouse_event(${flag}, 0, 0, 0, 0)`;
+			steps = [["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd]];
+		} else {
+			steps = [["xdotool", "mousedown", button === "right" ? "3" : button === "middle" ? "2" : "1"]];
+		}
 		const fail = await runSteps(steps, 20, win.address);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
@@ -5708,15 +5881,41 @@ async function executeLiveAction(
 				await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
 			} else if (backend === "ydotool") {
 				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
+			} else if (backend === "cliclick") {
+				await runCmd("cliclick", [`m:${Math.round(pt.x)},${Math.round(pt.y)}`]);
+			} else if (backend === "osascript") {
+				const cmd = osascriptMove(pt.x, pt.y);
+				await runCmd(cmd[0]!, cmd.slice(1));
+			} else if (backend === "powershell") {
+				const cmd = powershellMove(pt.x, pt.y);
+				await runCmd(cmd[0]!, cmd.slice(1));
 			} else {
 				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
 			}
 		}
-		const code = button === "right" ? "0x81" : button === "middle" ? "0x82" : YDO_UP;
-		const steps =
-			backend === "ydotool"
-				? [["ydotool", "click", code]]
-				: [["xdotool", "mouseup", button === "right" ? "3" : button === "middle" ? "2" : "1"]];
+		let steps: string[][];
+		if (backend === "ydotool") {
+			const code = button === "right" ? "0x81" : button === "middle" ? "0x82" : YDO_UP;
+			steps = [["ydotool", "click", code]];
+		} else if (backend === "cliclick") {
+			steps = [["cliclick", button === "right" ? "rc:." : "c:."]];
+		} else if (backend === "osascript") {
+			const script = `ObjC.import("CoreGraphics");
+var loc = $.CGEventGetLocation($.CGEventCreate(null));
+var up = $.CGEventCreateMouseEvent(null, ${button === "right" ? "$.kCGEventRightMouseUp" : "$.kCGEventLeftMouseUp"}, loc, ${button === "right" ? "$.kCGMouseButtonRight" : "$.kCGMouseButtonLeft"});
+$.CGEventPost($.kCGHIDEventTap, up);`;
+			steps = [["osascript", "-l", "JavaScript", "-e", script]];
+		} else if (backend === "powershell") {
+			const flag = button === "right" ? "0x10" : button === "middle" ? "0x40" : "0x04";
+			const cmd = `$sig = @'
+[DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
+'@
+Add-Type -MemberDefinition $sig -Name MouseUp -Namespace Win32API
+[Win32API.MouseUp]::mouse_event(${flag}, 0, 0, 0, 0)`;
+			steps = [["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd]];
+		} else {
+			steps = [["xdotool", "mouseup", button === "right" ? "3" : button === "middle" ? "2" : "1"]];
+		}
 		const fail = await runSteps(steps, 20, win.address);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);

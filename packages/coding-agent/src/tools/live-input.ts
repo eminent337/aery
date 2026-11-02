@@ -31,10 +31,17 @@ export interface BackendProbe {
 	ydotoold: boolean;
 	xdotool: boolean;
 	wtype: boolean;
+	cliclick?: boolean;
+	osascript?: boolean;
+	powershell?: boolean;
 }
 
 async function hasBin(name: string): Promise<boolean> {
 	try {
+		if (process.platform === "win32") {
+			const res = await execFileAsync("where", [name], { timeout: 3000 });
+			return res.stdout.trim().length > 0;
+		}
 		const res = await execFileAsync("sh", ["-c", `command -v ${name}`], { timeout: 3000 });
 		return res.stdout.trim().length > 0;
 	} catch {
@@ -57,8 +64,24 @@ export async function probeBackends(): Promise<BackendProbe> {
 		}
 		return probeCache;
 	}
-	const [ydotool, xdotool, wtype] = await Promise.all([hasBin("ydotool"), hasBin("xdotool"), hasBin("wtype")]);
-	probeCache = { ydotool, ydotoold: await hasYdotooldSocket(), xdotool, wtype };
+	const [ydotool, xdotool, wtype, cliclick, osascript, powershell, pwsh] = await Promise.all([
+		hasBin("ydotool"),
+		hasBin("xdotool"),
+		hasBin("wtype"),
+		hasBin("cliclick"),
+		hasBin("osascript"),
+		hasBin("powershell"),
+		hasBin("pwsh"),
+	]);
+	probeCache = {
+		ydotool,
+		ydotoold: await hasYdotooldSocket(),
+		xdotool,
+		wtype,
+		cliclick,
+		osascript,
+		powershell: powershell || pwsh,
+	};
 	return probeCache;
 }
 
@@ -107,14 +130,24 @@ export async function ensureYdotoold(signal?: AbortSignal): Promise<boolean> {
 /** What kind of device an input action needs. */
 export type InputKind = "pointer" | "keyboard" | "type";
 
-export type LiveBackend = "ydotool" | "wtype" | "xdotool";
+export type LiveBackend = "ydotool" | "wtype" | "xdotool" | "cliclick" | "osascript" | "powershell";
 
 /** Backend resolver — pure decision given probe + target window compositor. */
 export function resolveBackend(
 	probe: BackendProbe,
 	windowXwayland: boolean | undefined,
 	kind: InputKind,
+	platform: NodeJS.Platform = process.platform,
 ): LiveBackend | "none" | "no-daemon" {
+	if (platform === "darwin") {
+		if (probe.cliclick) return "cliclick";
+		if (probe.osascript) return "osascript";
+		return "none";
+	}
+	if (platform === "win32") {
+		if (probe.powershell) return "powershell";
+		return "none";
+	}
 	if (probe.ydotool && probe.ydotoold) return "ydotool";
 	if (probe.ydotool && !probe.ydotoold) return "no-daemon";
 	// XWayland windows can be reached by xdotool (native Wayland windows cannot).
@@ -135,8 +168,18 @@ export function resolveBackendChain(
 	probe: BackendProbe,
 	windowXwayland: boolean | undefined,
 	kind: InputKind,
+	platform: NodeJS.Platform = process.platform,
 ): LiveBackend[] {
 	const chain: LiveBackend[] = [];
+	if (platform === "darwin") {
+		if (probe.cliclick) chain.push("cliclick");
+		if (probe.osascript) chain.push("osascript");
+		return chain;
+	}
+	if (platform === "win32") {
+		if (probe.powershell) chain.push("powershell");
+		return chain;
+	}
 	if (probe.ydotool && probe.ydotoold) chain.push("ydotool");
 	if (kind !== "pointer") {
 		if (windowXwayland && probe.xdotool) chain.push("xdotool");
@@ -827,4 +870,256 @@ export function wtypeChord(token: string): { argv: string[]; ok: true } | { erro
 
 export function wtypeText(text: string): string[] {
 	return ["wtype", text];
+}
+
+/** --- macOS input builders (cliclick + native osascript/JXA) ---------- */
+
+export function cliclickMove(x: number, y: number): string[] {
+	return ["cliclick", `m:${Math.round(x)},${Math.round(y)}`];
+}
+
+export function cliclickClick(
+	x: number,
+	y: number,
+	button: "left" | "right" | "middle" = "left",
+	count = 1,
+): string[] {
+	const rx = Math.round(x);
+	const ry = Math.round(y);
+	if (button === "right") return ["cliclick", `rc:${rx},${ry}`];
+	if (button === "middle") return ["cliclick", `mc:${rx},${ry}`];
+	if (count === 2) return ["cliclick", `dc:${rx},${ry}`];
+	if (count === 3) return ["cliclick", `tc:${rx},${ry}`];
+	if (count > 1) {
+		const actions: string[] = [];
+		for (let i = 0; i < count; i++) actions.push(`c:${rx},${ry}`);
+		return ["cliclick", ...actions];
+	}
+	return ["cliclick", `c:${rx},${ry}`];
+}
+
+export function cliclickDrag(x1: number, y1: number, x2: number, y2: number): string[] {
+	return [
+		"cliclick",
+		`dd:${Math.round(x1)},${Math.round(y1)}`,
+		`du:${Math.round(x2)},${Math.round(y2)}`,
+	];
+}
+
+export function cliclickType(text: string): string[] {
+	return ["cliclick", `t:${text}`];
+}
+
+export function cliclickKey(spec: string): string[] {
+	const key = spec.toLowerCase().trim();
+	const keyMap: Record<string, string> = {
+		return: "return",
+		enter: "return",
+		tab: "tab",
+		space: "space",
+		backspace: "delete",
+		delete: "delete",
+		escape: "esc",
+		esc: "esc",
+		up: "arrow-up",
+		down: "arrow-down",
+		left: "arrow-left",
+		right: "arrow-right",
+	};
+	if (keyMap[key]) {
+		return ["cliclick", `kp:${keyMap[key]}`];
+	}
+	return ["cliclick", `kp:${key}`];
+}
+
+export function osascriptMove(x: number, y: number): string[] {
+	const script = `ObjC.import("CoreGraphics"); $.CGWarpMouseCursorPosition({x: ${Math.round(x)}, y: ${Math.round(y)}});`;
+	return ["osascript", "-l", "JavaScript", "-e", script];
+}
+
+export function osascriptClick(
+	x: number,
+	y: number,
+	button: "left" | "right" | "middle" = "left",
+	count = 1,
+): string[] {
+	const rx = Math.round(x);
+	const ry = Math.round(y);
+	const isRight = button === "right";
+	const downConst = isRight ? "$.kCGEventRightMouseDown" : "$.kCGEventLeftMouseDown";
+	const upConst = isRight ? "$.kCGEventRightMouseUp" : "$.kCGEventLeftMouseUp";
+	const btnConst = isRight ? "$.kCGMouseButtonRight" : "$.kCGMouseButtonLeft";
+	const script = `ObjC.import("CoreGraphics");
+var pt = {x: ${rx}, y: ${ry}};
+$.CGWarpMouseCursorPosition(pt);
+for (var i = 0; i < ${count}; i++) {
+	var down = $.CGEventCreateMouseEvent(null, ${downConst}, pt, ${btnConst});
+	var up = $.CGEventCreateMouseEvent(null, ${upConst}, pt, ${btnConst});
+	$.CGEventPost($.kCGHIDEventTap, down);
+	$.CGEventPost($.kCGHIDEventTap, up);
+}`;
+	return ["osascript", "-l", "JavaScript", "-e", script];
+}
+
+export function osascriptDrag(x1: number, y1: number, x2: number, y2: number): string[] {
+	const script = `ObjC.import("CoreGraphics");
+var p1 = {x: ${Math.round(x1)}, y: ${Math.round(y1)}};
+var p2 = {x: ${Math.round(x2)}, y: ${Math.round(y2)}};
+$.CGWarpMouseCursorPosition(p1);
+var down = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDown, p1, $.kCGMouseButtonLeft);
+$.CGEventPost($.kCGHIDEventTap, down);
+var drag = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDragged, p2, $.kCGMouseButtonLeft);
+$.CGEventPost($.kCGHIDEventTap, drag);
+var up = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseUp, p2, $.kCGMouseButtonLeft);
+$.CGEventPost($.kCGHIDEventTap, up);`;
+	return ["osascript", "-l", "JavaScript", "-e", script];
+}
+
+export function osascriptType(text: string): string[] {
+	const escaped = JSON.stringify(text);
+	const script = `tell application "System Events" to keystroke ${escaped}`;
+	return ["osascript", "-e", script];
+}
+
+export function osascriptKey(spec: string): string[] {
+	const lower = spec.toLowerCase().trim();
+	const keyCodes: Record<string, number> = {
+		return: 36,
+		enter: 36,
+		tab: 48,
+		space: 49,
+		backspace: 51,
+		delete: 51,
+		escape: 53,
+		esc: 53,
+		up: 126,
+		down: 125,
+		left: 123,
+		right: 124,
+	};
+	if (keyCodes[lower]) {
+		return ["osascript", "-e", `tell application "System Events" to key code ${keyCodes[lower]}`];
+	}
+	if (lower.includes("+")) {
+		const parts = lower.split("+").map(p => p.trim());
+		const key = parts[parts.length - 1];
+		const mods = parts.slice(0, -1);
+		const appleMods = mods
+			.map(m => {
+				if (m === "ctrl" || m === "control") return "control down";
+				if (m === "cmd" || m === "command" || m === "super") return "command down";
+				if (m === "alt" || m === "opt" || m === "option") return "option down";
+				if (m === "shift") return "shift down";
+				return "";
+			})
+			.filter(Boolean);
+		const modStr = appleMods.length > 0 ? ` using {${appleMods.join(", ")}}` : "";
+		if (keyCodes[key]) {
+			return ["osascript", "-e", `tell application "System Events" to key code ${keyCodes[key]}${modStr}`];
+		}
+		return ["osascript", "-e", `tell application "System Events" to keystroke "${key}"${modStr}`];
+	}
+	return ["osascript", "-e", `tell application "System Events" to keystroke "${spec}"`];
+}
+
+/** --- Windows input builders (PowerShell + Win32/SendKeys) ------------ */
+
+export function powershellMove(x: number, y: number): string[] {
+	const cmd = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${Math.round(x)}, ${Math.round(y)})`;
+	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd];
+}
+
+export function powershellClick(
+	x: number,
+	y: number,
+	button: "left" | "right" | "middle" = "left",
+	count = 1,
+): string[] {
+	const rx = Math.round(x);
+	const ry = Math.round(y);
+	const downFlag = button === "right" ? "0x08" : button === "middle" ? "0x20" : "0x02";
+	const upFlag = button === "right" ? "0x10" : button === "middle" ? "0x40" : "0x04";
+	const cmd = `
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${rx}, ${ry})
+$sig = @'
+[DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
+'@
+Add-Type -MemberDefinition $sig -Name MouseClick -Namespace Win32API
+for ($i = 0; $i -lt ${count}; $i++) {
+	[Win32API.MouseClick]::mouse_event(${downFlag}, 0, 0, 0, 0)
+	[Win32API.MouseClick]::mouse_event(${upFlag}, 0, 0, 0, 0)
+}`;
+	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd];
+}
+
+export function powershellDrag(x1: number, y1: number, x2: number, y2: number): string[] {
+	const cmd = `
+Add-Type -AssemblyName System.Windows.Forms
+$sig = @'
+[DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
+'@
+Add-Type -MemberDefinition $sig -Name MouseDrag -Namespace Win32API
+[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${Math.round(x1)}, ${Math.round(y1)})
+[Win32API.MouseDrag]::mouse_event(0x02, 0, 0, 0, 0)
+Start-Sleep -Milliseconds 50
+[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${Math.round(x2)}, ${Math.round(y2)})
+Start-Sleep -Milliseconds 50
+[Win32API.MouseDrag]::mouse_event(0x04, 0, 0, 0, 0)`;
+	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd];
+}
+
+export function powershellType(text: string): string[] {
+	const escaped = text.replace(/[{}[\]()+^%~]/g, "{$&}");
+	const cmd = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${escaped.replace(/'/g, "''")}')`;
+	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd];
+}
+
+export function powershellKey(spec: string): string[] {
+	const lower = spec.toLowerCase().trim();
+	const keyMap: Record<string, string> = {
+		return: "{ENTER}",
+		enter: "{ENTER}",
+		tab: "{TAB}",
+		space: " ",
+		backspace: "{BACKSPACE}",
+		delete: "{DELETE}",
+		escape: "{ESC}",
+		esc: "{ESC}",
+		up: "{UP}",
+		down: "{DOWN}",
+		left: "{LEFT}",
+		right: "{RIGHT}",
+	};
+	let send = keyMap[lower];
+	if (!send) {
+		if (lower.includes("+")) {
+			const parts = lower.split("+").map(p => p.trim());
+			const key = parts[parts.length - 1];
+			let prefix = "";
+			for (let i = 0; i < parts.length - 1; i++) {
+				const m = parts[i];
+				if (m === "ctrl" || m === "control") prefix += "^";
+				else if (m === "alt") prefix += "%";
+				else if (m === "shift") prefix += "+";
+			}
+			const base = keyMap[key] || key;
+			send = `${prefix}${base}`;
+		} else {
+			send = spec.replace(/[{}[\]()+^%~]/g, "{$&}");
+		}
+	}
+	const cmd = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${send.replace(/'/g, "''")}')`;
+	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd];
+}
+
+export function powershellWheelScroll(direction: "up" | "down", count = 1): string[] {
+	const delta = direction === "up" ? 120 * count : -120 * count;
+	const cmd = `
+$sig = @'
+[DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
+'@
+Add-Type -MemberDefinition $sig -Name MouseWheel -Namespace Win32API
+[Win32API.MouseWheel]::mouse_event(0x0800, 0, 0, ${delta}, 0)`;
+	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd];
 }

@@ -459,32 +459,268 @@ const x11Driver: DesktopDriver = {
 	run: runCmd,
 };
 
-/** Capability-gap stub: honest errors until a real driver lands. */
-function unimplementedDriver(id: PlatformId, label: string, hint: string): DesktopDriver {
-	const err = async (): Promise<never> => {
-		throw new Error(`${label} driver not implemented yet — ${hint}`);
-	};
-	return {
-		id,
-		label,
-		windows: {
-			listWindows: () => err(),
-			activeWindow: () => err(),
-			focusWindow: () => err(),
-			closeWindow: () => err(),
-			switchWorkspace: () => err(),
+const macosDriver: DesktopDriver = {
+	id: "macos",
+	label: "macOS (screencapture / osascript / cliclick)",
+	windows: {
+		async listWindows() {
+			const script = `
+tell application "System Events"
+	set appList to every application process whose background only is false
+	set out to ""
+	repeat with a in appList
+		set aName to name of a
+		set aId to unix id of a
+		set wList to windows of a
+		repeat with w in wList
+			set wName to name of w
+			set wPos to position of w
+			set wSize to size of w
+			set out to out & aName & "|" & aId & "|" & wName & "|" & (item 1 of wPos) & "|" & (item 2 of wPos) & "|" & (item 1 of wSize) & "|" & (item 2 of wSize) & "\n"
+		end repeat
+	end repeat
+	return out
+end tell`;
+			const res = await runCmd("osascript", ["-e", script], { timeout: 5000 });
+			if (res.code !== 0) return [];
+			const lines = res.stdout.trim().split("\n").filter(Boolean);
+			const wins: DesktopWindowQuery[] = [];
+			for (const line of lines) {
+				const parts = line.split("|");
+				if (parts.length >= 7) {
+					wins.push({
+						address: `macos:${parts[1] || parts[0]}`,
+						class: parts[0] || "(unknown)",
+						pid: Number(parts[1]) || undefined,
+						title: parts[2] || "(untitled)",
+						at: [Number(parts[3]) || 0, Number(parts[4]) || 0],
+						size: [Number(parts[5]) || 0, Number(parts[6]) || 0],
+						workspace: 1,
+						focused: false,
+						xwayland: false,
+					});
+				}
+			}
+			return wins;
 		},
-		capture: {
-			capture: () => err(),
-			cursorPos: () => err(),
+		async activeWindow() {
+			const script = `
+tell application "System Events"
+	set p to first application process whose frontmost is true
+	set pName to name of p
+	set pId to unix id of p
+	set wTitle to ""
+	set wPos to {0, 0}
+	set wSize to {0, 0}
+	try
+		set w to window 1 of p
+		set wTitle to name of w
+		set wPos to position of w
+		set wSize to size of w
+	end try
+	return "{\\"title\\":\\"" & wTitle & "\\",\\"class\\":\\"" & pName & "\\",\\"pid\\":" & pId & ",\\"at\\":[" & (item 1 of wPos) & "," & (item 2 of wPos) & "],\\"size\\":[" & (item 1 of wSize) & "," & (item 2 of wSize) & "]}"
+end tell`;
+			const res = await runCmd("osascript", ["-e", script], { timeout: 5000 });
+			if (res.code !== 0) return undefined;
+			try {
+				const data = JSON.parse(res.stdout);
+				return {
+					address: `macos:${data.pid || data.class}`,
+					title: data.title || "(untitled)",
+					class: data.class || "(unknown)",
+					workspace: 1,
+					at: Array.isArray(data.at) && data.at.length === 2 ? [data.at[0], data.at[1]] : [0, 0],
+					size: Array.isArray(data.size) && data.size.length === 2 ? [data.size[0], data.size[1]] : [0, 0],
+					focused: true,
+					pid: data.pid,
+					xwayland: false,
+				};
+			} catch {
+				return undefined;
+			}
 		},
-		run: () => err(),
-	};
-}
+		async focusWindow(address: string) {
+			const target = address.startsWith("macos:") ? address.slice(6) : address;
+			const isPid = /^\d+$/.test(target);
+			const script = isPid
+				? `tell application "System Events" to set frontmost of (first application process whose unix id is ${target}) to true`
+				: `tell application "${target}" to activate`;
+			const res = await runCmd("osascript", ["-e", script], { timeout: 5000 });
+			return res.code === 0 ? null : `macOS focus failed: ${res.stderr}`;
+		},
+		async closeWindow(address: string) {
+			const target = address.startsWith("macos:") ? address.slice(6) : address;
+			const isPid = /^\d+$/.test(target);
+			const script = isPid
+				? `tell application "System Events" to tell (first application process whose unix id is ${target}) to click (first button whose subrole is "AXCloseButton") of window 1`
+				: `tell application "${target}" to close front window`;
+			const res = await runCmd("osascript", ["-e", script], { timeout: 5000 });
+			return res.code === 0 ? null : `macOS close failed: ${res.stderr}`;
+		},
+		async switchWorkspace(_workspace: string) {
+			return null;
+		},
+	},
+	capture: {
+		async capture(tmpPath: string, geometry?: string) {
+			const args = ["-x", "-C"];
+			if (geometry) {
+				const m = /^(-?\d+),(-?\d+)\s+(\d+)x(\d+)$/.exec(geometry.trim());
+				if (m) {
+					args.push("-R", `${m[1]},${m[2]},${m[3]},${m[4]}`);
+				}
+			}
+			args.push(tmpPath);
+			const res = await runCmd("screencapture", args, { timeout: 8000 });
+			return { code: res.code, stderr: res.stderr };
+		},
+		async cursorPos() {
+			const cliRes = await runCmd("cliclick", ["p"], { timeout: 1000 }).catch(() => null);
+			if (cliRes && cliRes.code === 0) {
+				const m = /^(\d+),(\d+)$/.exec(cliRes.stdout.trim());
+				if (m) return { x: Number(m[1]), y: Number(m[2]) };
+			}
+			const jxaScript = `ObjC.import("CoreGraphics"); var loc = $.CGEventGetLocation($.CGEventCreate(null)); JSON.stringify({ x: Math.round(loc.x), y: Math.round(loc.y) });`;
+			const res = await runCmd("osascript", ["-l", "JavaScript", "-e", jxaScript], { timeout: 2000 });
+			if (res.code !== 0) return null;
+			try {
+				const pos = JSON.parse(res.stdout);
+				return Number.isFinite(pos.x) && Number.isFinite(pos.y) ? pos : null;
+			} catch {
+				return null;
+			}
+		},
+	},
+	run: runCmd,
+};
+
+const windowsDriver: DesktopDriver = {
+	id: "windows",
+	label: "Windows (Win32 / PowerShell)",
+	windows: {
+		async listWindows() {
+			const cmd = `Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object Id, ProcessName, MainWindowTitle | ConvertTo-Json -Compress`;
+			const res = await runCmd("powershell", ["-NoProfile", "-NonInteractive", "-Command", cmd], { timeout: 5000 });
+			if (res.code !== 0) return [];
+			try {
+				const raw = JSON.parse(res.stdout);
+				const list = Array.isArray(raw) ? raw : [raw];
+				return list.map((p: any) => ({
+					address: `win32:${p.Id}`,
+					title: p.MainWindowTitle || "(untitled)",
+					class: p.ProcessName || "(unknown)",
+					workspace: 1,
+					at: [0, 0] as [number, number],
+					size: [0, 0] as [number, number],
+					focused: false,
+					pid: p.Id,
+					xwayland: false,
+				}));
+			} catch {
+				return [];
+			}
+		},
+		async activeWindow() {
+			const cmd = `
+$sig = @'
+[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+[DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+'@
+Add-Type -MemberDefinition $sig -Name Win32Utils -Namespace Win32API
+$h = [Win32API.Win32Utils]::GetForegroundWindow()
+if ($h -ne [IntPtr]::Zero) {
+	$sb = New-Object System.Text.StringBuilder 256
+	[void][Win32API.Win32Utils]::GetWindowText($h, $sb, 256)
+	$pid = 0
+	[void][Win32API.Win32Utils]::GetWindowThreadProcessId($h, [ref]$pid)
+	$rc = New-Object Win32API.RECT
+	[void][Win32API.Win32Utils]::GetWindowRect($h, [ref]$rc)
+	$pName = (Get-Process -Id $pid -ErrorAction SilentlyContinue).ProcessName
+	@{ title = $sb.ToString(); class = $pName; pid = $pid; at = @($rc.Left, $rc.Top); size = @($rc.Right - $rc.Left, $rc.Bottom - $rc.Top) } | ConvertTo-Json -Compress
+}`;
+			const res = await runCmd("powershell", ["-NoProfile", "-NonInteractive", "-Command", cmd], { timeout: 5000 });
+			if (res.code !== 0) return undefined;
+			try {
+				const data = JSON.parse(res.stdout);
+				return {
+					address: `win32:${data.pid || data.class}`,
+					title: data.title || "(untitled)",
+					class: data.class || "(unknown)",
+					workspace: 1,
+					at: Array.isArray(data.at) && data.at.length === 2 ? [data.at[0], data.at[1]] : [0, 0],
+					size: Array.isArray(data.size) && data.size.length === 2 ? [data.size[0], data.size[1]] : [0, 0],
+					focused: true,
+					pid: data.pid,
+					xwayland: false,
+				};
+			} catch {
+				return undefined;
+			}
+		},
+		async focusWindow(address: string) {
+			const target = address.startsWith("win32:") ? address.slice(6) : address;
+			const cmd = `
+$sig = @'
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+'@
+Add-Type -MemberDefinition $sig -Name Win32Focus -Namespace Win32API
+$p = Get-Process -Id ${target} -ErrorAction SilentlyContinue
+if ($p -and $p.MainWindowHandle -ne [IntPtr]::Zero) {
+	[void][Win32API.Win32Focus]::SetForegroundWindow($p.MainWindowHandle)
+}`;
+			const res = await runCmd("powershell", ["-NoProfile", "-NonInteractive", "-Command", cmd], { timeout: 5000 });
+			return res.code === 0 ? null : `Windows focus failed: ${res.stderr}`;
+		},
+		async closeWindow(address: string) {
+			const target = address.startsWith("win32:") ? address.slice(6) : address;
+			const cmd = `Stop-Process -Id ${target} -ErrorAction SilentlyContinue`;
+			const res = await runCmd("powershell", ["-NoProfile", "-NonInteractive", "-Command", cmd], { timeout: 5000 });
+			return res.code === 0 ? null : `Windows close failed: ${res.stderr}`;
+		},
+		async switchWorkspace(_workspace: string) {
+			return null;
+		},
+	},
+	capture: {
+		async capture(tmpPath: string, _geometry?: string) {
+			const escaped = tmpPath.replace(/'/g, "''");
+			const cmd = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp = New-Object System.Drawing.Bitmap($b.Width, $b.Height)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+$bmp.Save('${escaped}', [System.Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose()
+$bmp.Dispose()`;
+			const res = await runCmd("powershell", ["-NoProfile", "-NonInteractive", "-Command", cmd], { timeout: 8000 });
+			return { code: res.code, stderr: res.stderr };
+		},
+		async cursorPos() {
+			const cmd = `
+Add-Type -AssemblyName System.Windows.Forms
+$p = [System.Windows.Forms.Cursor]::Position
+Write-Output ('{"x":' + $p.X + ',"y":' + $p.Y + '}')`;
+			const res = await runCmd("powershell", ["-NoProfile", "-NonInteractive", "-Command", cmd], { timeout: 3000 });
+			if (res.code !== 0) return null;
+			try {
+				const pos = JSON.parse(res.stdout.trim());
+				return Number.isFinite(pos.x) && Number.isFinite(pos.y) ? pos : null;
+			} catch {
+				return null;
+			}
+		},
+	},
+	run: runCmd,
+};
 
 /** Resolve the driver for this box. Hyprland wins when present; X11 covers
- * pure-X11 sessions and the XWayland subset elsewhere; macOS/Windows report
- * their gap honestly. */
+ * pure-X11 sessions and the XWayland subset elsewhere; macOS covers Darwin;
+ * Windows covers Win32. */
 export function detectPlatformDriver(
 	env: NodeJS.ProcessEnv = process.env,
 	platform: NodeJS.Platform = process.platform,
@@ -495,13 +731,9 @@ export function detectPlatformDriver(
 		case "x11":
 			return x11Driver;
 		case "macos":
-			return unimplementedDriver(
-				"macos",
-				"macOS (screencapture/CGEvent)",
-				"needs screencapture + CGEvent injection driver",
-			);
+			return macosDriver;
 		case "windows":
-			return unimplementedDriver("windows", "Windows (Win32)", "needs Win32 capture + SendInput driver");
+			return windowsDriver;
 		default:
 			return x11Driver;
 	}

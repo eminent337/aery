@@ -145,11 +145,14 @@ describe("hyprGlidePaced", () => {
 	test("an unreachable socket fails closed instead of hanging", async () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hgnone-"));
 		const previous = process.env.XDG_RUNTIME_DIR;
+		const prevSig = process.env.HYPRLAND_INSTANCE_SIGNATURE;
 		process.env.HYPRLAND_INSTANCE_SIGNATURE = "absent";
 		process.env.XDG_RUNTIME_DIR = dir;
 		cleanups.push(async () => {
 			if (previous === undefined) delete process.env.XDG_RUNTIME_DIR;
 			else process.env.XDG_RUNTIME_DIR = previous;
+			if (prevSig === undefined) delete process.env.HYPRLAND_INSTANCE_SIGNATURE;
+			else process.env.HYPRLAND_INSTANCE_SIGNATURE = prevSig;
 			fs.rmSync(dir, { recursive: true, force: true });
 		});
 

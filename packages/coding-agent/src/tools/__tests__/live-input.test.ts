@@ -1,11 +1,27 @@
 import { describe, expect, test } from "bun:test";
 import {
+	cliclickClick,
+	cliclickDrag,
+	cliclickKey,
+	cliclickMove,
+	cliclickType,
 	frameScaleX,
 	frameScaleY,
 	frameToPhysical,
 	hyprMoveCursor,
 	isDirectTypeable,
+	osascriptClick,
+	osascriptDrag,
+	osascriptKey,
+	osascriptMove,
+	osascriptType,
 	parseChord,
+	powershellClick,
+	powershellDrag,
+	powershellKey,
+	powershellMove,
+	powershellType,
+	powershellWheelScroll,
 	resolveBackend,
 	resolveBackendChain,
 	specToXdotoolArgs,
@@ -203,5 +219,89 @@ describe("backend fallback chain", () => {
 	test("pointer chain is ydotool / xdotool(XWayland) only — wtype can't point", () => {
 		expect(resolveBackendChain(full, true, "pointer")).toEqual(["ydotool", "xdotool"]);
 		expect(resolveBackendChain(minimal, false, "pointer")).toEqual([]);
+	});
+});
+
+describe("cross-platform backend resolution (macOS & Windows)", () => {
+	test("darwin resolves cliclick or osascript fallback", () => {
+		const macCliclick = { ydotool: false, ydotoold: false, xdotool: false, wtype: false, cliclick: true, osascript: true };
+		expect(resolveBackend(macCliclick, false, "pointer", "darwin")).toBe("cliclick");
+		expect(resolveBackend(macCliclick, false, "keyboard", "darwin")).toBe("cliclick");
+		expect(resolveBackendChain(macCliclick, false, "pointer", "darwin")).toEqual(["cliclick", "osascript"]);
+
+		const macOsascriptOnly = { ydotool: false, ydotoold: false, xdotool: false, wtype: false, cliclick: false, osascript: true };
+		expect(resolveBackend(macOsascriptOnly, false, "pointer", "darwin")).toBe("osascript");
+		expect(resolveBackend(macOsascriptOnly, false, "type", "darwin")).toBe("osascript");
+		expect(resolveBackendChain(macOsascriptOnly, false, "pointer", "darwin")).toEqual(["osascript"]);
+	});
+
+	test("win32 resolves powershell", () => {
+		const win = { ydotool: false, ydotoold: false, xdotool: false, wtype: false, powershell: true };
+		expect(resolveBackend(win, false, "pointer", "win32")).toBe("powershell");
+		expect(resolveBackend(win, false, "keyboard", "win32")).toBe("powershell");
+		expect(resolveBackend(win, false, "type", "win32")).toBe("powershell");
+		expect(resolveBackendChain(win, false, "pointer", "win32")).toEqual(["powershell"]);
+	});
+});
+
+describe("macOS input builders", () => {
+	test("cliclick builders emit correct command arrays", () => {
+		expect(cliclickMove(100.4, 200.6)).toEqual(["cliclick", "m:100,201"]);
+		expect(cliclickClick(150, 250, "left", 1)).toEqual(["cliclick", "c:150,250"]);
+		expect(cliclickClick(150, 250, "right", 1)).toEqual(["cliclick", "rc:150,250"]);
+		expect(cliclickClick(150, 250, "left", 2)).toEqual(["cliclick", "dc:150,250"]);
+		expect(cliclickDrag(10, 20, 100, 200)).toEqual(["cliclick", "dd:10,20", "du:100,200"]);
+		expect(cliclickType("hello")).toEqual(["cliclick", "t:hello"]);
+		expect(cliclickKey("return")).toEqual(["cliclick", "kp:return"]);
+	});
+
+	test("osascript builders emit valid JXA / AppleScript commands", () => {
+		const move = osascriptMove(120, 240);
+		expect(move[0]).toBe("osascript");
+		expect(move.some(s => s.includes("CGWarpMouseCursorPosition"))).toBe(true);
+
+		const click = osascriptClick(120, 240, "left", 1);
+		expect(click[0]).toBe("osascript");
+		expect(click.some(c => c.includes("CGEventCreateMouseEvent"))).toBe(true);
+
+		const drag = osascriptDrag(10, 20, 50, 60);
+		expect(drag[0]).toBe("osascript");
+		expect(drag.some(c => c.includes("kCGEventLeftMouseDragged"))).toBe(true);
+
+		const type = osascriptType("antigravity");
+		expect(type[0]).toBe("osascript");
+		expect(type[2]).toContain('keystroke "antigravity"');
+
+		const key = osascriptKey("Return");
+		expect(key[0]).toBe("osascript");
+		expect(key[2]).toContain("key code 36");
+	});
+});
+
+describe("Windows input builders", () => {
+	test("powershell builders emit valid PowerShell commands", () => {
+		const move = powershellMove(300, 400);
+		expect(move[0]).toBe("powershell");
+		expect(move.some(a => a.includes("[System.Windows.Forms.Cursor]::Position"))).toBe(true);
+
+		const click = powershellClick(300, 400, "left", 1);
+		expect(click[0]).toBe("powershell");
+		expect(click.some(a => a.includes("mouse_event"))).toBe(true);
+
+		const drag = powershellDrag(10, 20, 80, 90);
+		expect(drag[0]).toBe("powershell");
+		expect(drag.some(a => a.includes("MouseDrag"))).toBe(true);
+
+		const type = powershellType("test");
+		expect(type[0]).toBe("powershell");
+		expect(type.some(a => a.includes("[System.Windows.Forms.SendKeys]::SendWait('test')"))).toBe(true);
+
+		const key = powershellKey("Return");
+		expect(key[0]).toBe("powershell");
+		expect(key.some(a => a.includes("{ENTER}"))).toBe(true);
+
+		const scroll = powershellWheelScroll("down", 3);
+		expect(scroll[0]).toBe("powershell");
+		expect(scroll.some(a => a.includes("-360"))).toBe(true);
 	});
 });
