@@ -34,6 +34,7 @@ export interface NormalizeSchemaOptions {
 	stripNullableKeyword: boolean;
 	autoPropertyOrdering: boolean;
 	ensureObjectProperties: boolean;
+	ensureArrayItems?: boolean;
 	liftStrippedToDescription:
 		| false
 		| {
@@ -229,6 +230,24 @@ function normalizeSchemaNode(value: unknown, options: NormalizeSchemaWalkOptions
 	if (options.collapseNullFields && !options.insideProperties) {
 		obj = preHandleNullFields(obj);
 	}
+	if (
+		!options.insideProperties &&
+		options.unsupportedFields("prefixItems") &&
+		obj.prefixItems !== undefined &&
+		obj.items === undefined
+	) {
+		const prefix = obj.prefixItems;
+		let synthesizedItem: unknown;
+		if (Array.isArray(prefix) && prefix.length > 0) {
+			const allSame = prefix.every(p => areJsonValuesEqual(p, prefix[0]));
+			synthesizedItem = allSame || prefix.length === 1 ? prefix[0] : { anyOf: prefix };
+		} else if (isJsonObject(prefix)) {
+			synthesizedItem = prefix;
+		}
+		if (synthesizedItem !== undefined) {
+			obj = { ...obj, items: synthesizedItem };
+		}
+	}
 	const result: JsonObject = {};
 	let spill: Array<[string, unknown]> | undefined;
 	for (const combiner of JSON_SCHEMA_COMBINERS) {
@@ -282,6 +301,15 @@ function normalizeSchemaNode(value: unknown, options: NormalizeSchemaWalkOptions
 				...options,
 				insideProperties: key === "properties",
 			});
+		}
+		if (options.ensureObjectProperties && result.type === "object" && !outHasOwn(result, "properties")) {
+			result.properties = {};
+		}
+		if (options.ensureArrayItems && result.type === "array" && !outHasOwn(result, "items")) {
+			result.items = {};
+		}
+		if (options.ensureArrayItems && Array.isArray(result.items)) {
+			result.items = result.items[0] && isJsonObject(result.items[0]) ? result.items[0] : {};
 		}
 		applyDescriptionSpill(result, spill, options);
 		return applyNodePostProcessing(result, options);
@@ -344,6 +372,12 @@ function normalizeSchemaNode(value: unknown, options: NormalizeSchemaWalkOptions
 
 	if (options.ensureObjectProperties && result.type === "object" && !outHasOwn(result, "properties")) {
 		result.properties = {};
+	}
+	if (options.ensureArrayItems && result.type === "array" && !outHasOwn(result, "items")) {
+		result.items = {};
+	}
+	if (options.ensureArrayItems && Array.isArray(result.items)) {
+		result.items = result.items[0] && isJsonObject(result.items[0]) ? result.items[0] : {};
 	}
 
 	applyDescriptionSpill(result, spill, options);
@@ -803,6 +837,7 @@ export function normalizeSchemaForGemini(value: unknown): unknown {
 		stripNullableKeyword: false,
 		autoPropertyOrdering: true,
 		ensureObjectProperties: true,
+		ensureArrayItems: true,
 		liftStrippedToDescription: { format: "spill" },
 		mergeObjectCombiners: false,
 		collapseSameTypeCombiners: false,
@@ -821,6 +856,7 @@ export function normalizeSchemaForAeryClaude(value: unknown): unknown {
 		stripNullableKeyword: true,
 		autoPropertyOrdering: false,
 		ensureObjectProperties: true,
+		ensureArrayItems: true,
 		liftStrippedToDescription: { format: "spill" },
 		mergeObjectCombiners: true,
 		collapseSameTypeCombiners: true,
@@ -841,6 +877,7 @@ export function normalizeSchemaForAeryBridge(value: unknown): unknown {
 		stripNullableKeyword: true,
 		autoPropertyOrdering: false,
 		ensureObjectProperties: false,
+		ensureArrayItems: false,
 		liftStrippedToDescription: false,
 		mergeObjectCombiners: false,
 		collapseSameTypeCombiners: false,

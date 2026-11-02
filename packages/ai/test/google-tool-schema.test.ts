@@ -672,4 +672,42 @@ describe("normalizeSchemaForGemini parity with python-genai process_schema", () 
 			}),
 		).toEqual({ type: "string", title: "Name", nullable: true });
 	});
+
+	it("synthesizes items from prefixItems when prefixItems is stripped for tuple schemas", () => {
+		const tupleSchema = {
+			type: "object",
+			properties: {
+				coordinate: {
+					type: "array",
+					prefixItems: [{ type: "number" }, { type: "number" }],
+					description: "Coordinate [x, y]",
+				},
+			},
+		};
+
+		const geminiNormalized = normalizeSchemaForGemini(tupleSchema) as any;
+		expect(geminiNormalized.properties.coordinate.items).toEqual({ type: "number" });
+		expect(geminiNormalized.properties.coordinate.prefixItems).toBeUndefined();
+
+		const ccaNormalized = normalizeSchemaForAeryClaude(tupleSchema) as any;
+		expect(ccaNormalized.properties.coordinate.items).toEqual({ type: "number" });
+		expect(ccaNormalized.properties.coordinate.prefixItems).toBeUndefined();
+	});
+
+	it("ensures bare array schemas have items: {} populated for Google/CCA compatibility", () => {
+		const bareArraySchema = {
+			type: "object",
+			properties: {
+				tags: {
+					type: "array",
+				},
+			},
+		};
+
+		const geminiNormalized = normalizeSchemaForGemini(bareArraySchema) as any;
+		expect(geminiNormalized.properties.tags.items).toEqual({});
+
+		const ccaNormalized = normalizeSchemaForAeryClaude(bareArraySchema) as any;
+		expect(ccaNormalized.properties.tags.items).toEqual({});
+	});
 });

@@ -308,7 +308,9 @@ const desktopControlSchema = z
 		to_x: z.number().optional().describe("Ending X for 'drag_and_drop_at' (AGY format)."),
 		to_y: z.number().optional().describe("Ending Y for 'drag_and_drop_at' (AGY format)."),
 		coordinate: z
-			.tuple([z.number(), z.number()])
+			.array(z.number())
+			.min(2)
+			.max(2)
 			.optional()
 			.describe("Anthropic-format [x, y] coordinate array (frame px or 0..1000 normalized grid)."),
 		delta_x: z.number().optional().describe("Anthropic-format horizontal scroll delta in pixels."),
