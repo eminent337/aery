@@ -1539,29 +1539,65 @@ export async function getOpenAppsInfo(): Promise<AppInfo[]> {
 				let cmd = "";
 				if (pid && pid > 0) {
 					try {
-						const { stdout: p1 } = await execFileNiced("pgrep", ["-P", String(pid), "-a"], {
-							timeout: 1000,
-						});
-						for (const line of p1.trim().split("\n")) {
-							const [cpid, ...rest] = line.trim().split(" ");
-							const ccmd = rest.join(" ");
-							if (ccmd.endsWith("zsh") || ccmd.endsWith("bash") || ccmd.endsWith("fish")) {
+						// Fast path: direct /proc inspection (Linux) takes <1ms without spawning pgrep subprocesses
+						const childrenPath = `/proc/${pid}/task/${pid}/children`;
+						let childPids: string[] = [];
+						try {
+							const cData = await fs.promises.readFile(childrenPath, "utf8");
+							childPids = cData.trim().split(/\s+/).filter(Boolean);
+						} catch {}
+
+						if (childPids.length > 0) {
+							for (const cpid of childPids) {
 								try {
-									const { stdout: p2 } = await execFileNiced("pgrep", ["-P", String(cpid), "-a"], {
-										timeout: 1000,
-									});
-									if (p2.trim()) {
-										cmd = p2
-											.trim()
-											.split("\n")
-											.map(l => l.trim().split(" ").slice(1).join(" "))
-											.join(" | ");
+									const cmdline = await fs.promises.readFile(`/proc/${cpid}/cmdline`, "utf8");
+									const parts = cmdline.split("\0").filter(Boolean);
+									const ccmd = parts.join(" ");
+									if (ccmd.endsWith("zsh") || ccmd.endsWith("bash") || ccmd.endsWith("fish")) {
+										try {
+											const gcData = await fs.promises.readFile(`/proc/${cpid}/task/${cpid}/children`, "utf8");
+											const gcPids = gcData.trim().split(/\s+/).filter(Boolean);
+											for (const gcpid of gcPids) {
+												const gcCmdline = await fs.promises.readFile(`/proc/${gcpid}/cmdline`, "utf8");
+												const gcParts = gcCmdline.split("\0").filter(Boolean);
+												if (gcParts.length > 0) {
+													cmd = gcParts.join(" ");
+													break;
+												}
+											}
+										} catch {}
+									} else if (!ccmd.includes("kitten") && !ccmd.includes("watch_conf")) {
+										cmd = ccmd;
 										break;
 									}
 								} catch {}
-							} else if (!ccmd.includes("kitten") && !ccmd.includes("watch_conf")) {
-								cmd = ccmd;
-								break;
+							}
+						} else {
+							// Fallback to pgrep if /proc/task/.../children is not supported
+							const { stdout: p1 } = await execFileNiced("pgrep", ["-P", String(pid), "-a"], {
+								timeout: 1000,
+							});
+							for (const line of p1.trim().split("\n")) {
+								const [cpid, ...rest] = line.trim().split(" ");
+								const ccmd = rest.join(" ");
+								if (ccmd.endsWith("zsh") || ccmd.endsWith("bash") || ccmd.endsWith("fish")) {
+									try {
+										const { stdout: p2 } = await execFileNiced("pgrep", ["-P", String(cpid), "-a"], {
+											timeout: 1000,
+										});
+										if (p2.trim()) {
+											cmd = p2
+												.trim()
+												.split("\n")
+												.map(l => l.trim().split(" ").slice(1).join(" "))
+												.join(" | ");
+											break;
+										}
+									} catch {}
+								} else if (!ccmd.includes("kitten") && !ccmd.includes("watch_conf")) {
+									cmd = ccmd;
+									break;
+								}
 							}
 						}
 					} catch {}
@@ -2077,6 +2113,11 @@ export async function rememberFrame(
 	}
 	lastInputFrame = frame;
 	lastFramePath = finalPath;
+	const addr = frame.address ?? win?.address;
+	if (addr) {
+		const windowRect = win ? { at: win.at, size: win.size } : undefined;
+		liveObservation.replace(addr, frame, Date.now(), windowRect);
+	}
 	return frame;
 }
 
@@ -3323,8 +3364,11 @@ export function observationInputStatus(input: {
 	const now = input.now ?? Date.now();
 	const maxAgeMs = input.maxAgeMs ?? 1500;
 	const snap = input.snapshot;
-	if (!snap)
+	const freshFrameMatches = !!input.freshFrame?.address && input.freshFrame.address === input.activeAddress;
+	if (!snap) {
+		if (freshFrameMatches) return { state: "fresh", ageMs: 0, address: input.freshFrame!.address! };
 		return { state: "missing", detail: "No continuous observation yet — take a live_eye glance first.", ageMs: null };
+	}
 	if (snap.superseded)
 		return {
 			state: "superseded",
@@ -3332,7 +3376,6 @@ export function observationInputStatus(input: {
 			ageMs: Math.max(0, now - snap.capturedAt),
 		};
 	const ageMs = Math.max(0, now - snap.capturedAt);
-	const freshFrameMatches = !!input.freshFrame?.address && input.freshFrame.address === input.activeAddress;
 	if (snap.address !== input.activeAddress) {
 		// Focus moved off the anchored window. A fresh pre-action frame for the
 		// NEW address re-anchors cleanly; otherwise refuse (never redirect).
@@ -4397,6 +4440,7 @@ async function executeLiveAction(
 	 */
 	queued = false,
 ): Promise<AgentToolResult> {
+	const originalAction = params.action ?? action;
 	// Parameter aliasing for AGY (Google Antigravity) & Anthropic Computer Use actions
 	if (params.coordinate && params.coordinate.length >= 2) {
 		if (params.x === undefined) params.x = params.coordinate[0];
@@ -4706,7 +4750,20 @@ async function executeLiveAction(
 		return withInjectionQueue(() => executeLiveAction(action, params, session, signal, onUpdate, true));
 	}
 	const probe = await probeBackends();
-	const win = await getDriverActiveWindow();
+	let win = await getDriverActiveWindow();
+	// If the focused window is a terminal/CLI where input is restricted, but the action
+	// targets an application window previously captured in lastInputFrame, auto-focus that app.
+	if (
+		lastInputFrame?.address &&
+		win?.address &&
+		lastInputFrame.address !== win.address &&
+		restrictedAppHit(win.class)
+	) {
+		const driver = detectPlatformDriver();
+		await driver.windows.focusWindow(lastInputFrame.address).catch(() => null);
+		const refocused = await getDriverActiveWindow().catch(() => null);
+		if (refocused) win = refocused;
+	}
 	if (!win || !win.address) {
 		return errText(
 			"No focused window to drive. Focus the target app first (focus_window / hyprctl) or click it yourself.",
@@ -4750,7 +4807,11 @@ async function executeLiveAction(
 		);
 	}
 
-	const isComputerUseAction = AGY_LIVE_ACTIONS.has(action);
+	const isComputerUseAction =
+		AGY_LIVE_ACTIONS.has(originalAction) ||
+		AGY_LIVE_ACTIONS.has(action) ||
+		action === "live_move" ||
+		action === "move_cursor";
 	const verify = params.verify !== undefined ? params.verify : !isComputerUseAction;
 	const verifyStartedAt = Date.now();
 	const withVerify = async (
@@ -5370,7 +5431,7 @@ async function executeLiveAction(
 			const hyprAim = detectPlatformDriver().id === "hyprland";
 			let moveError: string | null = null;
 			// Fast direct compositor warp for Hyprland when not using multi-waypoint path/pace
-			if (hyprAim && (!params.pace || params.pace === "brisk") && aimSteps.length <= 1) {
+			if (hyprAim && (!params.pace || params.pace === "brisk")) {
 				const focusError = await assertInputFocus(win.address);
 				if (focusError) return errObserve(action, focusError);
 				const moved = await hyprFastMoveCursor(logical.x, logical.y);
@@ -5669,7 +5730,10 @@ async function executeLiveAction(
 			const scale = await detectOutputScale();
 			const logical = physicalToLogical(pt.x, pt.y, scale);
 			if (detectPlatformDriver().id === "hyprland") {
-				await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+				const fastMoved = await hyprFastMoveCursor(logical.x, logical.y);
+				if (!fastMoved) {
+					await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+				}
 			} else if (backend === "ydotool") {
 				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
 			} else if (backend === "cliclick") {
@@ -5829,7 +5893,10 @@ $.CGEventPost($.kCGHIDEventTap, event);`;
 			const scale = await detectOutputScale();
 			const logical = physicalToLogical(pt.x, pt.y, scale);
 			if (detectPlatformDriver().id === "hyprland") {
-				await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+				const fastMoved = await hyprFastMoveCursor(logical.x, logical.y);
+				if (!fastMoved) {
+					await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+				}
 			} else if (backend === "ydotool") {
 				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
 			} else if (backend === "cliclick") {
@@ -5880,7 +5947,10 @@ Add-Type -MemberDefinition $sig -Name MouseDown -Namespace Win32API
 			const scale = await detectOutputScale();
 			const logical = physicalToLogical(pt.x, pt.y, scale);
 			if (detectPlatformDriver().id === "hyprland") {
-				await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+				const fastMoved = await hyprFastMoveCursor(logical.x, logical.y);
+				if (!fastMoved) {
+					await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+				}
 			} else if (backend === "ydotool") {
 				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
 			} else if (backend === "cliclick") {
@@ -6051,7 +6121,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "list_windows":
 			case "list_apps": {
 				const listDriver = detectPlatformDriver();
-				if (listDriver.id !== "hyprland" && listDriver.id !== "x11") {
+				if (!isSupportedDriver()) {
 					return {
 						content: [
 							{
@@ -6095,7 +6165,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 				const driver = detectPlatformDriver();
-				if (driver.id !== "hyprland" && driver.id !== "x11") {
+				if (!isSupportedDriver()) {
 					return {
 						content: [
 							{ type: "text", text: `Window focus is not supported on this platform yet (${driver.label}).` },
@@ -6155,7 +6225,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 				const closeDriver = detectPlatformDriver();
-				if (closeDriver.id !== "hyprland" && closeDriver.id !== "x11") {
+				if (!isSupportedDriver()) {
 					return {
 						content: [
 							{
