@@ -4471,6 +4471,20 @@ async function executeLiveAction(
 	if (params.coordinate && params.coordinate.length >= 2) {
 		if (params.x === undefined) params.x = params.coordinate[0];
 		if (params.y === undefined) params.y = params.coordinate[1];
+		if (!params.coordinate_system) params.coordinate_system = "frame";
+	}
+	const ANTHROPIC_PIXEL_ACTIONS = new Set([
+		"mouse_move",
+		"left_click",
+		"right_click",
+		"double_click",
+		"triple_click",
+		"middle_click",
+		"left_click_drag",
+		"drag",
+	]);
+	if (ANTHROPIC_PIXEL_ACTIONS.has(action) && !params.coordinate_system) {
+		params.coordinate_system = "frame";
 	}
 	if (params.delta_y !== undefined && params.delta_y !== 0) {
 		params.direction = params.delta_y > 0 ? "down" : "up";
@@ -4567,13 +4581,11 @@ async function executeLiveAction(
 	// Translate AGY 0..1000 normalized coordinates or physical coordinates to frame coordinates
 	if (lastInputFrame) {
 		const isNormalized =
-			params.coordinate_system === "normalized_1000" ||
-			(params.coordinate_system === undefined &&
-				AGY_LIVE_ACTIONS.has(action) &&
-				(params.x === undefined || params.x <= 1000) &&
-				(params.y === undefined || params.y <= 1000) &&
-				(params.x2 === undefined || params.x2 <= 1000) &&
-				(params.y2 === undefined || params.y2 <= 1000));
+			params.coordinate_system === "normalized_1000" &&
+			(params.x === undefined || params.x <= 1000) &&
+			(params.y === undefined || params.y <= 1000) &&
+			(params.x2 === undefined || params.x2 <= 1000) &&
+			(params.y2 === undefined || params.y2 <= 1000);
 
 		if (isNormalized && lastInputFrame.scaledW > 0 && lastInputFrame.scaledH > 0) {
 			if (params.x !== undefined) {
