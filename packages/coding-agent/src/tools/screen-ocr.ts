@@ -91,14 +91,15 @@ function ocrThreadEnv(): NodeJS.ProcessEnv {
 }
 
 /** Run tesseract TSV on one image file. Engine (--oem 1) and layout (--psm
- *  6) stay fixed. TSV yields word-level bounding boxes (the clickable-OCR
- *  primitive); this pass's stdout text is NOT used for the reading — the
- *  plain runTess pass owns the text layer. */
+ *  3: fully automatic page segmentation without OSD, proven across multi-column
+ *  windows, dialogs, web forms, and UI buttons). TSV yields word-level bounding
+ *  boxes (the clickable-OCR primitive); this pass's stdout text is NOT used for
+ *  the reading — the plain runTess pass owns the text layer. */
 async function runTessTsv(
 	imgPath: string,
-	opts: { lang?: string; timeoutMs?: number },
+	opts: { lang?: string; timeoutMs?: number; psm?: string },
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-	return runCmd("tesseract", [imgPath, "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", "6", "tsv"], {
+	return runCmd("tesseract", [imgPath, "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", opts.psm ?? "3", "tsv"], {
 		timeout: opts.timeoutMs ?? 30_000,
 		env: ocrThreadEnv(),
 	});
@@ -191,9 +192,9 @@ export function textFromTsvWords(boxes: OcrWordBox[]): string {
 
 async function runTess(
 	imgPath: string,
-	opts: { lang?: string; timeoutMs?: number },
+	opts: { lang?: string; timeoutMs?: number; psm?: string },
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-	return runCmd("tesseract", [imgPath, "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", "6"], {
+	return runCmd("tesseract", [imgPath, "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", opts.psm ?? "3"], {
 		timeout: opts.timeoutMs ?? 30_000,
 		env: ocrThreadEnv(),
 	});
@@ -216,7 +217,7 @@ async function runTess(
  */
 export async function ocrFrame(
 	imgPath: string,
-	opts: { lang?: string; timeoutMs?: number } = {},
+	opts: { lang?: string; timeoutMs?: number; psm?: string } = {},
 ): Promise<OcrFrameResult> {
 	const t0 = Date.now();
 	let text = "";

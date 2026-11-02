@@ -379,7 +379,7 @@ const desktopControlSchema = z
 				"For 'live_click' only: perform SEVERAL distinct clicks in ONE call, in order, instead of one click per call. Each entry clicks one place (a 'target' word OR an 'x'/'y' pair — never neither, never both) and may set its own button/count/settleMs. Mutually exclusive with the scalar 'target'/'x'/'y'. The whole plan is validated BEFORE any click is injected, then steps run in order and the FIRST failure stops the rest. The result names the failing step index and whether the cause is transient (retry) or permanent (re-aim). IMPORTANT: all steps must belong to the SAME screen. Word targets are resolved against the reading you last took, and a batch does NOT re-observe between steps — so a step that depends on an earlier step's effect (clicking a menu item that only exists after opening the menu) will not resolve. For those, take a fresh eye first. Use batches for several independent controls on one screen, then re-eye to confirm the result.",
 			),
 		direction: z
-			.enum(["up", "down"])
+			.enum(["up", "down", "left", "right"])
 			.optional()
 			.describe(
 				"Scroll direction for 'live_scroll' (default: down). Native Wayland wheel needs uinput REL_WHEEL which ydotool does not expose — 'live_scroll' on a native window emulates Page_Up/Page_Down.",
@@ -451,8 +451,8 @@ const desktopControlSchema = z
 			.enum(["google", "youtube", "github", "reddit", "stackoverflow", "wikipedia"])
 			.optional()
 			.describe("Search platform for 'web_search' sub-action (default: google)."),
-		maxWidth: z.number().int().optional().describe("Max pixel width for vision downscaling (default: 1280)."),
-		maxHeight: z.number().int().optional().describe("Max pixel height for vision downscaling (default: 800)."),
+		maxWidth: z.number().int().optional().describe("Max pixel width for vision downscaling (default: 1920)."),
+		maxHeight: z.number().int().optional().describe("Max pixel height for vision downscaling (default: 1080)."),
 		includeBase64: z
 			.boolean()
 			.optional()
@@ -2064,6 +2064,9 @@ async function identifyDims(filePath: string): Promise<[number, number] | null> 
 /** Scaled frame file of the most recent capture — the lazy target hydration
  *  reads it (once) when a `target:` click arrives without remembered words. */
 let lastFramePath: string | null = null;
+/** Raw, un-downscaled frame file of the most recent capture — used by OCR for
+ *  maximum native pixel clarity and accurate character recognition. */
+let lastRawPath: string | null = null;
 /** The last capture explicitly opted out of OCR (ocr:false) — its words are
  *  deliberately unread, so lazy target hydration must not re-OCR it. */
 let lastCaptureOcrOptOut = false;
@@ -2113,6 +2116,7 @@ export async function rememberFrame(
 	}
 	lastInputFrame = frame;
 	lastFramePath = finalPath;
+	lastRawPath = rawPath;
 	const addr = frame.address ?? win?.address;
 	if (addr) {
 		const windowRect = win ? { at: win.at, size: win.size } : undefined;
@@ -2851,17 +2855,25 @@ let lastClickTargets: ClickTarget[] = [];
  *  same coordinate contract live_* understands), so this only filters
  *  junk and clamps edges. Prefers bigger boxes (buttons/labels) over
  *  specks; keeps reading order. Returns [] when there is no frame. */
-export function clickTargetsFromOcr(words: OcrWordBox[] | undefined, frame: InputFrame | null): ClickTarget[] {
+export function clickTargetsFromOcr(
+	words: OcrWordBox[] | undefined,
+	frame: InputFrame | null,
+	sourceSpace: "scaled" | "physical" = "scaled",
+): ClickTarget[] {
 	if (!words || words.length === 0 || !frame) return [];
 	const targets: ClickTarget[] = [];
+	const scaleX =
+		sourceSpace === "physical" && frame.physW > 0 && frame.scaledW > 0 ? frame.scaledW / frame.physW : 1;
+	const scaleY =
+		sourceSpace === "physical" && frame.physH > 0 && frame.scaledH > 0 ? frame.scaledH / frame.physH : 1;
 	for (const b of words) {
 		// Junk filter first: symbol-only specks and low-confidence fragments
 		// crowd the cap on dense windows and push real labels out.
 		if (isJunkTargetWord(b.text, b.confidence)) continue;
-		const x = Math.max(0, Math.round(b.x));
-		const y = Math.max(0, Math.round(b.y));
-		const w = Math.round(b.w);
-		const h = Math.round(b.h);
+		const x = Math.max(0, Math.round(b.x * scaleX));
+		const y = Math.max(0, Math.round(b.y * scaleY));
+		const w = Math.round(b.w * scaleX);
+		const h = Math.round(b.h * scaleY);
 		// Drop boxes fully outside the frame (stale OCR from a resized window).
 		if (x >= frame.scaledW || y >= frame.scaledH) continue;
 		const clampedW = Math.min(w, frame.scaledW - x);
@@ -3883,8 +3895,22 @@ async function captureLiveFrame(lead: string): Promise<LiveCapture | { error: st
 	const scaledPath = path.join(os.tmpdir(), `aerys-live-${stamp}.png`);
 	const cap = await driver.capture.capture(rawPath, geometry);
 	if (cap.code !== 0) return { error: `capture failed (${driver.id}): ${cap.stderr}` };
-	const conv = await runCmd("convert", [rawPath, "-resize", "1280x800>", ...downscaleArgs(), scaledPath]);
-	const finalPath = conv.code === 0 && fs.existsSync(scaledPath) ? scaledPath : rawPath;
+	const rawDims = await identifyDims(rawPath);
+	let finalPath = rawPath;
+	if (rawDims && (rawDims[0] > 1920 || rawDims[1] > 1080)) {
+		const conv = await runCmd("convert", [
+			rawPath,
+			"-resize",
+			"1920x1080>",
+			"-filter",
+			"LanczosSharp",
+			...downscaleArgs(),
+			scaledPath,
+		]);
+		if (conv.code === 0 && fs.existsSync(scaledPath)) {
+			finalPath = scaledPath;
+		}
+	}
 	const frame = await rememberFrame(win, geometry, rawPath, finalPath);
 	let base64 = "";
 	try {
@@ -4801,8 +4827,9 @@ async function executeLiveAction(
 		}
 	}
 	if (backend === "none") {
+		const liveDriver = detectPlatformDriver();
 		return errText(
-			`No input backend for ${driver.id} (${win.xwayland ? "XWayland" : "native"} window): install ydotool + ydotoold (Linux), cliclick/osascript (macOS), or PowerShell (Windows). Run live_backend_probe for the full picture.`,
+			`No input backend for ${liveDriver.id} (${win.xwayland ? "XWayland" : "native"} window): install ydotool + ydotoold (Linux), cliclick/osascript (macOS), or PowerShell (Windows). Run live_backend_probe for the full picture.`,
 			"no_backend",
 		);
 	}
@@ -5060,8 +5087,13 @@ async function executeLiveAction(
 			// capture may swap lastInputFrame while OCR runs, and boxes must
 			// stay paired to the file they were read from.
 			const readingFrame = lastInputFrame;
-			const ocr = await ocrFrame(lastFramePath, {});
-			const targets = clickTargetsFromOcr(ocr.words, readingFrame);
+			const targetOcrPath = lastRawPath && fs.existsSync(lastRawPath) ? lastRawPath : lastFramePath;
+			const ocr = await ocrFrame(targetOcrPath, {});
+			const targets = clickTargetsFromOcr(
+				ocr.words,
+				readingFrame,
+				targetOcrPath === lastRawPath ? "physical" : "scaled",
+			);
 			if (targets.length > 0) rememberClickTargets(targets, readingFrame);
 		} catch {
 			// hydration is best-effort — the refusal below still lands
@@ -7224,19 +7256,24 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				}
 
 				// Downscale for vision model using ImageMagick convert if available
-				const maxWidth = params.maxWidth ?? 1280;
-				const maxHeight = params.maxHeight ?? 800;
+				const maxWidth = params.maxWidth ?? 1920;
+				const maxHeight = params.maxHeight ?? 1080;
 
 				let finalPath = tmpRaw;
-				const resizeRes = await runCmd("convert", [
-					tmpRaw,
-					"-resize",
-					`${maxWidth}x${maxHeight}>`,
-					...downscaleArgs(),
-					tmpScaled,
-				]);
-				if (resizeRes.code === 0 && fs.existsSync(tmpScaled)) {
-					finalPath = tmpScaled;
+				const rawDims = await identifyDims(tmpRaw);
+				if (rawDims && (rawDims[0] > maxWidth || rawDims[1] > maxHeight)) {
+					const resizeRes = await runCmd("convert", [
+						tmpRaw,
+						"-resize",
+						`${maxWidth}x${maxHeight}>`,
+						"-filter",
+						"LanczosSharp",
+						...downscaleArgs(),
+						tmpScaled,
+					]);
+					if (resizeRes.code === 0 && fs.existsSync(tmpScaled)) {
+						finalPath = tmpScaled;
+					}
 				}
 
 				// Record the model-visible coordinate frame for live_* mapping (D002/D004).
@@ -7281,7 +7318,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				let shotClickTargets: ClickTarget[] = [];
 				if (shotWantOcr) {
 					shotOcrMs0 = Date.now();
-					const shotOcr = await ocrFrame(finalPath, { lang: params.ocrLang });
+					const shotOcr = await ocrFrame(tmpRaw, { lang: params.ocrLang });
 					shotOcrText = shotOcr.text;
 					shotOcrError = shotOcr.error;
 					shotOcrMode = shotOcr.mode;
@@ -7291,7 +7328,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					if (shotOcrText) rememberOcrText(shotOcrText);
 					// Clickable-OCR: word boxes → frame-px click targets the model
 					// can pass to live_move/live_click (or target: "Compose").
-					shotClickTargets = clickTargetsFromOcr(shotOcr.words, remembered);
+					shotClickTargets = clickTargetsFromOcr(shotOcr.words, remembered, "physical");
 					if (shotClickTargets.length > 0) rememberClickTargets(shotClickTargets, remembered);
 				}
 				const shotTargetDesc = targetWindow
@@ -7393,8 +7430,8 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				const textOnly = params.textOnly ?? false;
 				const focusFirst = params.focusFirst ?? true;
 				const timestamp = Date.now();
-				const maxWidth = params.maxWidth ?? 1280;
-				const maxHeight = params.maxHeight ?? 800;
+				const maxWidth = params.maxWidth ?? 1920;
+				const maxHeight = params.maxHeight ?? 1080;
 
 				// ---- Resolve the view list (multi-focus vs single-glance) ----
 				// views[] is the human-eye path: 1-4 focus points in one glance
@@ -7491,14 +7528,22 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								finalPath,
 								error: `capture failed (${eyeDriver.id}): ${capRes.stderr}`,
 							};
-						const resizeRes = await runCmd("convert", [
-							rawPath,
-							"-resize",
-							`${maxWidth}x${maxHeight}>`,
-							...downscaleArgs(),
-							finalPath,
-						]);
-						const out = resizeRes.code === 0 && fs.existsSync(finalPath) ? finalPath : rawPath;
+						let out = rawPath;
+						const rawDims = await identifyDims(rawPath);
+						if (rawDims && (rawDims[0] > maxWidth || rawDims[1] > maxHeight)) {
+							const resizeRes = await runCmd("convert", [
+								rawPath,
+								"-resize",
+								`${maxWidth}x${maxHeight}>`,
+								"-filter",
+								"LanczosSharp",
+								...downscaleArgs(),
+								finalPath,
+							]);
+							if (resizeRes.code === 0 && fs.existsSync(finalPath)) {
+								out = finalPath;
+							}
+						}
 						let frame: InputFrame | null = null;
 						try {
 							// Per-view frame anchor: each view's clickTargets map to ITS
@@ -7577,7 +7622,8 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							let ocrMode: "native" | "upscaled" | undefined;
 							let targets: ClickTarget[] = [];
 							if (wantOcr && c.finalPath) {
-								const ocr = await ocrFrame(c.finalPath, { lang: params.ocrLang });
+								const ocrTarget = c.rawPath && fs.existsSync(c.rawPath) ? c.rawPath : c.finalPath;
+								const ocr = await ocrFrame(ocrTarget, { lang: params.ocrLang });
 								ocrText = ocr.text;
 								ocrError = ocr.error;
 								ocrMode = ocr.mode;
@@ -7589,7 +7635,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 									CameraWatchLoop.recordExternalOcr(ocrText, "eye");
 									rememberOcrText(ocrText);
 								}
-								targets = clickTargetsFromOcr(ocr.words, c.frame ?? null);
+								targets = clickTargetsFromOcr(
+									ocr.words,
+									c.frame ?? null,
+									ocrTarget === c.rawPath ? "physical" : "scaled",
+								);
 							}
 							let base64 = "";
 							if (includeBase64 && !textOnly && c.finalPath) {

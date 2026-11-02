@@ -68,6 +68,7 @@ describe("UiHelpers paste handling & ghost prevention", () => {
 		const msg: Message = {
 			role: "user",
 			content: [{ type: "text", text: "[paste #1 +55 lines]" }],
+			timestamp: Date.now(),
 		};
 
 		const text = uiHelpers.getUserMessageText(msg);
@@ -82,6 +83,7 @@ describe("UiHelpers paste handling & ghost prevention", () => {
 			content: [
 				{ type: "text", text: fullPayload, hidden: true } as any,
 			],
+			timestamp: Date.now(),
 		};
 
 		const text = uiHelpers.getUserMessageText(msg);
@@ -96,6 +98,7 @@ describe("UiHelpers paste handling & ghost prevention", () => {
 				{ type: "text", text: "[paste #1 +100 lines]" },
 				{ type: "text", text: "const x = 1;\n".repeat(100), hidden: true } as any,
 			],
+			timestamp: Date.now(),
 		};
 
 		uiHelpers.addMessageToChat(msg as any, { populateHistory: true });
@@ -116,6 +119,7 @@ describe("UiHelpers paste handling & ghost prevention", () => {
 			content: [
 				{ type: "text", text: "err 1\nerr 2\nerr 3\nerr 4\nerr 5", hidden: true } as any,
 			],
+			timestamp: Date.now(),
 		};
 
 		uiHelpers.addMessageToChat(msg as any);

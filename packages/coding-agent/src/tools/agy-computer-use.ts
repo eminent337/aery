@@ -11,8 +11,8 @@ import * as z from "zod/v4";
 import { DesktopControlTool } from "./desktop-control";
 
 interface MinimalSession {
-	supportsVision?: () => boolean;
-	sendCustomMessage?: (msg: unknown, opts: unknown) => Promise<void>;
+	supportsVision?: () => boolean | undefined;
+	sendCustomMessage?: (msg: any, opts?: any) => Promise<void>;
 	dropLiveVerifyImages?: () => Promise<number>;
 }
 

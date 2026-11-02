@@ -478,7 +478,7 @@ export function ydoKeyEvents(events: string[]): string[] {
 	return ["ydotool", "key", "-d", "24", ...events];
 }
 
-export type ScrollDirection = "up" | "down";
+export type ScrollDirection = "up" | "down" | "left" | "right";
 
 /**
  * Clear a focused field: select all, then delete. Two separate guarded argv
@@ -496,14 +496,14 @@ export function ydoClearField(): string[][] {
  * revalidate focus between steps rather than coalescing a stale batch.
  */
 export function ydoPageScroll(direction: ScrollDirection, count = 1): string[][] {
-	const key = direction === "up" ? 104 : 109;
+	const key = direction === "up" ? 104 : direction === "down" ? 109 : direction === "left" ? 105 : 106;
 	const steps = Math.max(0, Math.min(20, Math.trunc(count)));
 	return Array.from({ length: steps }, () => ydoKeyEvents([`${key}:1`, `${key}:0`]));
 }
 
 /** XWayland path: one argv per real wheel notch for the same guard granularity. */
 export function xdoWheelScroll(direction: ScrollDirection, count = 1): string[][] {
-	const button = direction === "up" ? "4" : "5";
+	const button = direction === "up" ? "4" : direction === "down" ? "5" : direction === "left" ? "6" : "7";
 	const steps = Math.max(0, Math.min(20, Math.trunc(count)));
 	return Array.from({ length: steps }, () => ["xdotool", "click", button]);
 }
@@ -1113,13 +1113,15 @@ export function powershellKey(spec: string): string[] {
 	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd];
 }
 
-export function powershellWheelScroll(direction: "up" | "down", count = 1): string[] {
-	const delta = direction === "up" ? 120 * count : -120 * count;
+export function powershellWheelScroll(direction: ScrollDirection, count = 1): string[] {
+	const isHorizontal = direction === "left" || direction === "right";
+	const flag = isHorizontal ? "0x01000" : "0x0800";
+	const delta = direction === "up" || direction === "right" ? 120 * count : -120 * count;
 	const cmd = `
 $sig = @'
 [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
 '@
 Add-Type -MemberDefinition $sig -Name MouseWheel -Namespace Win32API
-[Win32API.MouseWheel]::mouse_event(0x0800, 0, 0, ${delta}, 0)`;
+[Win32API.MouseWheel]::mouse_event(${flag}, 0, 0, ${delta}, 0)`;
 	return ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd];
 }
