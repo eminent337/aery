@@ -1,5 +1,5 @@
 import { CameraWatchLoop } from "./camera-control";
-import { detectOutputScale, detectPlatformDriver, detectReservedArea, physicalToLogical } from "./desktop-drivers";
+import { detectOutputScale, detectPlatformDriver, detectReservedArea, hyprFastMoveCursor, physicalToLogical } from "./desktop-drivers";
 import {
 	boundingBox,
 	type FrameRect,
@@ -269,9 +269,15 @@ const desktopControlSchema = z
 				"Optional end-anchor word for 'xvfb_drag' (resolved like 'target'); when present with 'target', drags word-to-word. Without it, 'target'+x2/y2 drags word-to-point.",
 			),
 		modifiers: z
-			.array(z.string())
+			.array(z.enum(["shift"]))
+			.max(1)
 			.optional()
-			.describe("Modifier keys (e.g. ['shift'], ['ctrl'], ['alt'])."),
+			.refine(modifiers => modifiers === undefined || modifiers.length > 0, {
+				message: "modifiers must contain 'shift' when present; use undefined for no modifiers.",
+			})
+			.describe(
+				"For 'live_drag' only: optional ['shift'] holds Shift before mouse down until after mouse up. Runtime rejects this field on every other action, including empty lists, before anything touches the desktop. No other modifiers or actions are supported.",
+			),
 		keys: z
 			.string()
 			.optional()
@@ -3217,8 +3223,7 @@ export function restrictedAppRefusal(
 
 function modifierRefusal(action: string, modifiers: unknown): string | null {
 	if (modifiers === undefined) return null;
-	if (Array.isArray(modifiers) && modifiers.length === 0) return null;
-	if (action !== "live_drag" && action !== "drag_and_drop_at") return "modifiers is supported only for live_drag.";
+	if (action !== "live_drag") return "modifiers is supported only for live_drag.";
 	if (!Array.isArray(modifiers) || modifiers.length !== 1 || modifiers[0] !== "shift") {
 		return "live_drag modifiers must be exactly ['shift'].";
 	}
@@ -3889,7 +3894,7 @@ export function hashBytes(buf: Uint8Array): string {
  * steps so the next eye/verify read sees the settled UI — clippy's
  * settle(within:) pattern.
  */
-export async function settle(withinMs = 2000, intervalMs = 250): Promise<number> {
+export async function settle(withinMs = 800, intervalMs = 120): Promise<number> {
 	const t0 = Date.now();
 	let prev = await uiFingerprint();
 	let changes = 0;
@@ -3899,8 +3904,8 @@ export async function settle(withinMs = 2000, intervalMs = 250): Promise<number>
 		if (cur !== prev) {
 			changes++;
 			prev = cur;
-		} else if (changes > 0) {
-			// One stable sample after the last change = quiet.
+		} else {
+			// One stable sample = quiet.
 			break;
 		}
 	}
@@ -3937,12 +3942,34 @@ export async function runSteps(
 	expectedWindowAddress?: string,
 	assertFocus: (expectedWindowAddress: string | undefined) => Promise<string | null> = assertInputFocus,
 ): Promise<string | null> {
-	for (const argv of steps) {
+	for (let i = 0; i < steps.length; i++) {
+		const argv = steps[i];
+		// Fast IPC socket path for Hyprland movecursor
+		if (
+			argv[0] === "hyprctl" &&
+			argv[1] === "dispatch" &&
+			argv[2] === "movecursor" &&
+			argv.length >= 5
+		) {
+			const x = Number(argv[3]);
+			const y = Number(argv[4]);
+			if (Number.isFinite(x) && Number.isFinite(y)) {
+				const focusError = await assertFocus(expectedWindowAddress);
+				if (focusError) return focusError;
+				const ok = await hyprFastMoveCursor(x, y);
+				if (ok) {
+					if (i < steps.length - 1 && interStepMs > 0) {
+						await new Promise(r => setTimeout(r, interStepMs));
+					}
+					continue;
+				}
+			}
+		}
 		const focusError = await assertFocus(expectedWindowAddress);
 		if (focusError) return focusError;
 		const res = await runCmd(argv[0], argv.slice(1), { timeout: 8000 });
 		if (res.code !== 0) return `"${argv[0]} ${argv.slice(1).join(" ")}" failed: ${res.stderr || res.stdout}`;
-		if (interStepMs > 0) await new Promise(r => setTimeout(r, interStepMs));
+		if (i < steps.length - 1 && interStepMs > 0) await new Promise(r => setTimeout(r, interStepMs));
 	}
 	return null;
 }
@@ -4666,7 +4693,8 @@ async function executeLiveAction(
 		);
 	}
 
-	const verify = params.verify !== false;
+	const isComputerUseAction = AGY_LIVE_ACTIONS.has(action);
+	const verify = params.verify !== undefined ? params.verify : !isComputerUseAction;
 	const verifyStartedAt = Date.now();
 	const withVerify = async (
 		lead: string,
@@ -4682,9 +4710,9 @@ async function executeLiveAction(
 		// settle-within pattern) rather than a half-repainted frame. Fast
 		// path first (one fingerprint + one change-budgeted re-sample):
 		// cheap reads like key/type land here; slower changes still settle
-		// via the capped loop. LIVE_SETTLE_MS overrides the default 800ms.
-		const settleMs = Number(process.env.LIVE_SETTLE_MS ?? 800);
-		const settleChanges = await settle(settleMs, 250);
+		// via the capped loop. LIVE_SETTLE_MS overrides the default 500ms.
+		const settleMs = Number(process.env.LIVE_SETTLE_MS ?? 500);
+		const settleChanges = await settle(settleMs, 100);
 		// Sweep the previous verify frame first (same ephemerality contract as
 		// the eye glance — context keeps ~1 verify frame across a flow).
 		const swept = (await session?.dropLiveVerifyImages?.()) ?? 0;
@@ -5221,24 +5249,18 @@ async function executeLiveAction(
 			const phys = frameToPhysical(frame, fx, fy);
 			const outScale = await detectOutputScale();
 			const point = physicalToLogical(phys.x, phys.y, outScale);
-			const glide: string[][] = [];
 			if (detectPlatformDriver().id === "hyprland") {
-				try {
-					const from = await detectPlatformDriver().capture.cursorPos();
-					if (from) for (const s of liveAimGlide(from, point)) glide.push(hyprMoveCursor(s.x, s.y));
-				} catch {
-					// cursor read failed — fall back to a single warp below
+				const ok = await hyprFastMoveCursor(point.x, point.y);
+				if (!ok) {
+					await runSteps([hyprMoveCursor(point.x, point.y)], 0, win.address);
 				}
-				if (glide.length === 0) glide.push(hyprMoveCursor(point.x, point.y));
 			}
 			const code = button === "right" ? YDO_RIGHT : button === "middle" ? YDO_MIDDLE : YDO_LEFT;
 			const seq =
 				backend === "ydotool"
-					? glide.length > 0
-						? [...glide, ydoClickButton(code, count)]
-						: [ydoMove(phys.x, phys.y), ydoClickButton(code, count)]
+					? [ydoClickButton(code, count, 15)]
 					: [xdoClick(phys.x, phys.y, button, count)];
-			return runSteps(seq, 30, win.address);
+			return runSteps(seq, 0, win.address);
 		};
 		// ---- Multi-click batch (live_click with `steps`) ------------------
 		// The whole plan was already validated and refused-if-bad BEFORE this
@@ -5288,19 +5310,34 @@ async function executeLiveAction(
 			);
 		}
 		if (action === "live_move") {
-			const fail = await runSteps(
-				aimSteps.length > 0 ? aimSteps : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
-				30,
-				win.address,
-			);
-			if (fail) return errObserve(action, fail);
+			const hyprAim = detectPlatformDriver().id === "hyprland";
+			let moveError: string | null = null;
+			// Fast direct compositor warp for Hyprland when not using multi-waypoint path/pace
+			if (hyprAim && (!params.pace || params.pace === "brisk") && aimSteps.length <= 1) {
+				const focusError = await assertInputFocus(win.address);
+				if (focusError) return errObserve(action, focusError);
+				const moved = await hyprFastMoveCursor(logical.x, logical.y);
+				if (!moved) {
+					moveError = await runSteps([hyprMoveCursor(logical.x, logical.y)], 0, win.address);
+				}
+			} else {
+				moveError = await runSteps(
+					aimSteps.length > 0 ? aimSteps : backend === "ydotool" ? [ydoMove(pt.x, pt.y)] : [xdoMove(pt.x, pt.y)],
+					aimSteps.length > 1 ? 15 : 0,
+					win.address,
+				);
+			}
+			if (moveError) return errObserve(action, moveError);
 			liveAuthorizedKinds.add(action);
 			// Cursor-position verify (nuphus mouse_verify pattern): read the
 			// cursor back and demand ≤2px error vs the aim point (same space:
 			// hyprland logical, x11 pixels). Null/throw → reads unsupported,
 			// skip silently — the verify frame still covers us.
-			const hyprAim = detectPlatformDriver().id === "hyprland";
 			const warpTo = async (p: { x: number; y: number }): Promise<void> => {
+				if (hyprAim) {
+					const ok = await hyprFastMoveCursor(p.x, p.y);
+					if (ok) return;
+				}
 				const cmd = hyprAim
 					? hyprMoveCursor(p.x, p.y)
 					: backend === "ydotool"
@@ -5342,6 +5379,7 @@ async function executeLiveAction(
 			const button = params.button ?? "left";
 			const count = params.count ?? 1;
 			const code = button === "right" ? YDO_RIGHT : button === "middle" ? YDO_MIDDLE : YDO_LEFT;
+			const hyprAim = detectPlatformDriver().id === "hyprland";
 			// Close the loop BEFORE the click. The click steps already glide the
 			// pointer onto the aim point, but a glide is a request, not a fact:
 			// the compositor may clamp at a screen edge, a window may have moved
@@ -5362,8 +5400,12 @@ async function executeLiveAction(
 				pre = await convergeCursorLanding(logical, {
 					read: readCursor,
 					move: async p => {
+						if (hyprAim) {
+							const ok = await hyprFastMoveCursor(p.x, p.y);
+							if (ok) return;
+						}
 						const cmd =
-							detectPlatformDriver().id === "hyprland"
+							hyprAim
 								? hyprMoveCursor(p.x, p.y)
 								: backend === "ydotool"
 									? ydoMove(p.x, p.y)
@@ -5374,13 +5416,17 @@ async function executeLiveAction(
 			} catch {
 				// reads unsupported — verify frame still covers us
 			}
+			// When cursor landing already converged onto target, execute the click button press directly!
+			// Avoids re-executing historical aimSteps which rewinds cursor back to the start!
 			const steps =
 				backend === "ydotool"
-					? aim
-						? [...aimSteps, ydoClickButton(code, count)]
-						: [ydoMove(pt.x, pt.y), ydoClickButton(code, count)]
+					? pre?.read
+						? [ydoClickButton(code, count, 15)]
+						: aim
+							? [...aimSteps, ydoClickButton(code, count, 15)]
+							: [ydoMove(pt.x, pt.y), ydoClickButton(code, count, 15)]
 					: [xdoClick(pt.x, pt.y, button, count)];
-			const fail = await runSteps(steps, 30, win.address);
+			const fail = await runSteps(steps, 0, win.address);
 			if (fail) return errObserve(action, fail);
 			liveAuthorizedKinds.add(action);
 			// One read-back after the press: sample the pointer where it now

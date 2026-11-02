@@ -12,6 +12,9 @@
  * stubs report honest capability gaps until implemented.
  */
 import { execFileNiced } from "./capture-priority";
+import { hyprCommandSocketPath, hyprFastMoveCursor, hyprIpcDispatch as hyprIpcQuery } from "./live-input";
+
+export { hyprCommandSocketPath, hyprFastMoveCursor, hyprIpcQuery };
 
 export type PlatformId = "hyprland" | "x11" | "macos" | "windows" | "unknown";
 
@@ -72,7 +75,20 @@ const SCALE_CACHE_MS = 30_000;
 
 export async function detectOutputScale(): Promise<number> {
 	if (scaleCache && Date.now() - scaleCache.at < SCALE_CACHE_MS) return scaleCache.value;
-	// 1. Hyprland: monitors -j → [ {scale: 1.5, ...} ]
+	// 1. Hyprland fast socket query or hyprctl: monitors -j → [ {scale: 1.5, ...} ]
+	try {
+		if (hyprCommandSocketPath()) {
+			const out = await hyprIpcQuery("j/monitors");
+			const monitors = JSON.parse(out) as Array<{ scale?: number }>;
+			const scale = monitors.find(m => typeof m.scale === "number" && m.scale > 0)?.scale;
+			if (scale) {
+				scaleCache = { value: scale, at: Date.now() };
+				return scale;
+			}
+		}
+	} catch {
+		// fall through
+	}
 	try {
 		const res = await runCmd("hyprctl", ["monitors", "-j"], { timeout: 4000 });
 		if (res.code === 0) {
@@ -134,6 +150,21 @@ const RESERVED_CACHE_MS = 30_000;
 export async function detectReservedArea(): Promise<{ left: number; top: number; right: number; bottom: number }> {
 	const zero = { left: 0, top: 0, right: 0, bottom: 0 };
 	if (reservedCache && Date.now() - reservedCache.at < RESERVED_CACHE_MS) return reservedCache.value;
+	try {
+		if (hyprCommandSocketPath()) {
+			const out = await hyprIpcQuery("j/monitors");
+			const monitors = JSON.parse(out) as Array<{ reserved?: number[]; focused?: boolean }>;
+			const mon = monitors.find(m => m.focused) ?? monitors[0];
+			const r = mon?.reserved;
+			if (Array.isArray(r) && r.length === 4) {
+				const value = { left: r[0], top: r[1], right: r[2], bottom: r[3] };
+				reservedCache = { value, at: Date.now() };
+				return value;
+			}
+		}
+	} catch {
+		// fall through
+	}
 	try {
 		const res = await runCmd("hyprctl", ["monitors", "-j"], { timeout: 4000 });
 		if (res.code === 0) {
@@ -277,22 +308,64 @@ const hyprlandDriver: DesktopDriver = {
 	label: "Hyprland (Wayland native)",
 	windows: {
 		async listWindows() {
+			try {
+				if (hyprCommandSocketPath()) {
+					const out = await hyprIpcQuery("j/clients");
+					const clients = parseHyprClients(out);
+					if (clients.length > 0) return clients;
+				}
+			} catch {
+				// fallback to hyprctl spawn
+			}
 			const res = await runCmd("hyprctl", ["clients", "-j"]);
 			return res.code === 0 ? parseHyprClients(res.stdout) : [];
 		},
 		async activeWindow() {
+			try {
+				if (hyprCommandSocketPath()) {
+					const out = await hyprIpcQuery("j/activewindow");
+					const parsed = parseHyprActive(out);
+					if (parsed) return parsed;
+				}
+			} catch {
+				// fallback
+			}
 			const res = await runCmd("hyprctl", ["activewindow", "-j"]);
 			return res.code === 0 ? parseHyprActive(res.stdout) : undefined;
 		},
 		async focusWindow(address: string) {
+			try {
+				if (hyprCommandSocketPath()) {
+					const reply = await hyprIpcQuery(`dispatch focuswindow address:${address}`);
+					return reply.trim() === "ok" ? null : `hyprctl focuswindow failed: ${reply}`;
+				}
+			} catch {
+				// fallback
+			}
 			const res = await runCmd("hyprctl", ["dispatch", "focuswindow", `address:${address}`]);
 			return res.code === 0 ? null : `hyprctl focuswindow failed: ${res.stderr}`;
 		},
 		async closeWindow(address: string) {
+			try {
+				if (hyprCommandSocketPath()) {
+					const reply = await hyprIpcQuery(`dispatch closewindow address:${address}`);
+					return reply.trim() === "ok" ? null : `hyprctl closewindow failed: ${reply}`;
+				}
+			} catch {
+				// fallback
+			}
 			const res = await runCmd("hyprctl", ["dispatch", "closewindow", `address:${address}`]);
 			return res.code === 0 ? null : `hyprctl closewindow failed: ${res.stderr}`;
 		},
 		async switchWorkspace(workspace: string) {
+			try {
+				if (hyprCommandSocketPath()) {
+					const reply = await hyprIpcQuery(`dispatch workspace ${workspace}`);
+					return reply.trim() === "ok" ? null : `hyprctl workspace failed: ${reply}`;
+				}
+			} catch {
+				// fallback
+			}
 			const res = await runCmd("hyprctl", ["dispatch", "workspace", workspace]);
 			return res.code === 0 ? null : `hyprctl workspace failed: ${res.stderr}`;
 		},
@@ -309,6 +382,15 @@ const hyprlandDriver: DesktopDriver = {
 			return { code: res.code, stderr: res.stderr };
 		},
 		async cursorPos() {
+			try {
+				if (hyprCommandSocketPath()) {
+					const out = await hyprIpcQuery("j/cursorpos");
+					const pos = JSON.parse(out) as { x: number; y: number };
+					if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) return pos;
+				}
+			} catch {
+				// fallback
+			}
 			const res = await runCmd("hyprctl", ["cursorpos", "-j"]);
 			if (res.code !== 0) return null;
 			try {

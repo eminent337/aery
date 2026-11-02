@@ -420,9 +420,13 @@ export function ydoMoveRelative(dx: number, dy: number): string[] {
 	return ["ydotool", "mousemove", "-x", String(clamp(dx)), "-y", String(clamp(dy))];
 }
 
-export function ydoClickButton(code: string, count = 1): string[] {
+export function ydoClickButton(code: string, count = 1, nextDelayMs?: number): string[] {
 	const argv = ["ydotool", "click"];
-	if (count > 1) argv.push("--repeat", String(Math.min(count, 20)), "--next-delay", "80");
+	if (count > 1) {
+		argv.push("--repeat", String(Math.min(count, 20)), "--next-delay", String(nextDelayMs ?? 40));
+	} else if (nextDelayMs !== undefined) {
+		argv.push("-D", String(nextDelayMs));
+	}
 	argv.push(code);
 	return argv;
 }
@@ -586,7 +590,7 @@ export function hyprCommandSocketPath(env: NodeJS.ProcessEnv = process.env): str
  * ~0.82 ms measured against ~12-15 ms for a `hyprctl` spawn, because it skips
  * fork/exec entirely.
  */
-function hyprIpcDispatch(cmd: string, timeoutMs = 3000): Promise<string> {
+export function hyprIpcDispatch(cmd: string, timeoutMs = 3000): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const sockPath = hyprCommandSocketPath();
 		if (!sockPath) {
@@ -613,6 +617,17 @@ function hyprIpcDispatch(cmd: string, timeoutMs = 3000): Promise<string> {
 		socket.on("close", () => finish(null, out));
 		socket.on("connect", () => socket.write(cmd));
 	});
+}
+
+/** Warp mouse cursor instantly over Hyprland IPC socket (<1ms). */
+export async function hyprFastMoveCursor(x: number, y: number): Promise<boolean> {
+	if (!hyprCommandSocketPath()) return false;
+	try {
+		const reply = await hyprIpcDispatch(`dispatch movecursor ${Math.round(x)} ${Math.round(y)}`);
+		return reply.trim() === "ok";
+	} catch {
+		return false;
+	}
 }
 
 /** Errors from a paced socket glide, with the hop index that failed (or how
