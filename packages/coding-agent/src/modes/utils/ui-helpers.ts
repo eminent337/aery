@@ -40,22 +40,6 @@ interface RenderInitialMessagesOptions {
 	clearTerminalHistory?: boolean;
 }
 
-/** Matches editor paste markers: "[paste #1 +26 lines]" / "[paste #1 1234 chars]". */
-const PASTE_MARKER_RE = /\[paste #\d+( (\+\d+ lines|\d+ chars))?\]\s*/g;
-
-/** Remove paste markers from UI-visible user text. The payload itself rides
- * as a hidden block; the marker is editor-side bookkeeping, not transcript
- * content. Whitespace around a removed marker is collapsed so "fix this
- * [paste #1 +26 lines] please" reads "fix this please". */
-function stripPasteMarkers(text: string): string {
-	if (!text.includes("[paste #")) return text;
-	return text
-		.replace(PASTE_MARKER_RE, "")
-		.replace(/[ \t]+\n/g, "\n")
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
-}
-
 type QueuedMessages = {
 	steering: string[];
 	followUp: string[];
@@ -66,22 +50,42 @@ export class UiHelpers {
 
 	/** Extract the text content shown in the UI for a user message.
 	 *
-	 * Two things are deliberately excluded:
-	 * - Hidden model-only blocks (hidden: true — collapsed paste payloads, OCR
-	 *   companions). The model sees them; the transcript never does.
-	 * - Paste markers ("[paste #N +X lines]"): the editor collapses big pastes
-	 *   to these before submit and the payload rides as a hidden block, so the
-	 *   marker itself is noise in the transcript — exactly like an attached
-	 *   image, which is never rendered as text but is always available.
+	 * Preserves paste markers (e.g., "[paste #1 +26 lines]" or "[Pasted text #1 +26 lines]")
+	 * as summarized text so pasted content is never rendered as an invisible "ghost".
+	 * Hidden model-only blocks (hidden: true) carry the full payload for the model,
+	 * while the visible transcript displays the summarized paste placeholder.
+	 *
+	 * If visible text is empty but hidden payload blocks exist, synthesizes a
+	 * summarized text representation so the submission always renders cleanly.
 	 */
 	getUserMessageText(message: Message): string {
-		if (message.role !== "user") return "";
+		if (message.role !== "user" && message.role !== "developer") return "";
 		const textBlocks =
 			typeof message.content === "string"
 				? [{ type: "text" as const, text: message.content, hidden: false }]
 				: message.content.filter((content): content is TextBlock => content.type === "text");
 		const visible = textBlocks.filter(block => !(block as TextBlock & { hidden?: boolean }).hidden);
-		return stripPasteMarkers(visible.map(block => block.text).join(""));
+		let text = visible.map(block => block.text).join("");
+
+		// If visible text is empty, check for hidden paste/text blocks or images
+		if (!text.trim()) {
+			const hiddenBlocks = textBlocks.filter(block => (block as TextBlock & { hidden?: boolean }).hidden);
+			if (hiddenBlocks.length > 0) {
+				const summaries = hiddenBlocks.map(block => {
+					const lines = block.text.split("\n").length;
+					const chars = block.text.length;
+					return lines > 1 ? `[Pasted text: +${lines} lines]` : `[Pasted text: ${chars} chars]`;
+				});
+				text = summaries.join(" ");
+			} else {
+				const hasImages = Array.isArray(message.content) && message.content.some(c => c.type === "image");
+				if (hasImages) {
+					text = "[Image]";
+				}
+			}
+		}
+
+		return text;
 	}
 
 	/**

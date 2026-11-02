@@ -329,9 +329,10 @@ export class InputController {
 
 			if (!text) return;
 
-			// Handle built-in slash commands
+			// Handle built-in slash commands (use expanded paste content if command was pasted)
+			const commandExpandedText = hiddenPaste ?? text;
 			this.#recordSlashCommandUsage(text);
-			const slashResult = await executeBuiltinSlashCommand(text, {
+			const slashResult = await executeBuiltinSlashCommand(commandExpandedText, {
 				ctx: this.ctx,
 				handleBackgroundCommand: () => this.handleBackgroundCommand(),
 			});
@@ -347,14 +348,15 @@ export class InputController {
 			// free-text Enter semantics applied a few lines below at the streaming
 			// branch). Ctrl+Enter routes through `handleFollowUp` and dispatches the
 			// same helper with `"followUp"`.
-			if (await this.#invokeSkillCommand(text, "steer")) {
+			if (await this.#invokeSkillCommand(commandExpandedText, "steer")) {
 				return;
 			}
 
 			// Handle bash command (! for normal, !! for excluded from context)
 			if (text.startsWith("!")) {
 				const isExcluded = text.startsWith("!!");
-				const command = isExcluded ? text.slice(2).trim() : text.slice(1).trim();
+				const commandSource = hiddenPaste ?? text;
+				const command = isExcluded ? commandSource.slice(2).trim() : commandSource.slice(1).trim();
 				if (command) {
 					if (this.ctx.session.isBashRunning) {
 						this.ctx.showWarning("A bash command is already running. Press Esc to cancel it first.");
@@ -372,7 +374,8 @@ export class InputController {
 			// Handle python command ($ for normal, $$ for excluded from context)
 			if (text.startsWith("$")) {
 				const isExcluded = text.startsWith("$$");
-				const code = isExcluded ? text.slice(2).trim() : text.slice(1).trim();
+				const codeSource = hiddenPaste ?? text;
+				const code = isExcluded ? codeSource.slice(2).trim() : codeSource.slice(1).trim();
 				if (code) {
 					if (this.ctx.session.isEvalRunning) {
 						this.ctx.showWarning("A Python execution is already running. Press Esc to cancel it first.");

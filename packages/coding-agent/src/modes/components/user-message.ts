@@ -7,6 +7,21 @@ const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
+/**
+ * Format paste placeholders (e.g. "[paste #1 +50 lines]" or "[Pasted text: +50 lines]")
+ * into a human-friendly summarized text preview in the rendered message bubble.
+ */
+export function formatPasteSummary(text: string): string {
+	return text.replace(
+		/\[(?:paste|Pasted text)(?: #(\d+))?(?:[: ]+(\+\d+ lines|\d+ lines|\d+ chars))?\]/gi,
+		(_match, id, count) => {
+			const idPart = id ? ` #${id}` : "";
+			const countPart = count ? ` ${count}` : "";
+			return `📋 [Pasted text${idPart}${countPart}]`;
+		},
+	);
+}
+
 export class UserMessageComponent extends Container {
 	#text: string;
 	#synthetic: boolean;
@@ -27,7 +42,7 @@ export class UserMessageComponent extends Container {
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(`${theme.fg("warning", "▎")} ${theme.bold(theme.fg("warning", "You"))}`, 0, 0));
 		this.addChild(
-			new Markdown(this.#text, 1, 1, getMarkdownTheme(), {
+			new Markdown(formatPasteSummary(this.#text), 1, 1, getMarkdownTheme(), {
 				color,
 			}),
 		);
