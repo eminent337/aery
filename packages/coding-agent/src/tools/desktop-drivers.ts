@@ -11,6 +11,10 @@
  * sandbox path already proves xdotool works here); (3) macOS / Windows
  * stubs report honest capability gaps until implemented.
  */
+import { spawn } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { execFileNiced } from "./capture-priority";
 import { hyprCommandSocketPath, hyprFastMoveCursor, hyprIpcDispatch as hyprIpcQuery } from "./live-input";
 
@@ -43,6 +47,7 @@ export interface WindowControl {
  * "X,Y WxH" crop string the tool already builds (undefined = fullscreen). */
 export interface CaptureControl {
 	capture(tmpPath: string, geometry?: string): Promise<{ code: number; stderr: string }>;
+	captureBuffer(geometry?: string): Promise<{ code: number; buffer?: Buffer; stderr: string }>;
 	cursorPos(): Promise<{ x: number; y: number } | null>;
 }
 export interface DesktopDriver {
@@ -381,6 +386,24 @@ const hyprlandDriver: DesktopDriver = {
 			const res = await runCmd("grim", args, { timeout: 4000 });
 			return { code: res.code, stderr: res.stderr };
 		},
+		async captureBuffer(geometry?: string) {
+			const args = geometry ? ["-t", "png", "-c", "-g", geometry, "-"] : ["-t", "png", "-c", "-"];
+			return new Promise<{ code: number; buffer?: Buffer; stderr: string }>((resolve) => {
+				const proc = spawn("grim", args, { stdio: ["ignore", "pipe", "pipe"] });
+				const chunks: Buffer[] = [];
+				let stderr = "";
+				proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+				proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+				proc.on("close", (code) => {
+					if (code === 0) {
+						resolve({ code: 0, buffer: Buffer.concat(chunks), stderr: "" });
+					} else {
+						resolve({ code: code ?? 1, stderr });
+					}
+				});
+				proc.on("error", (err) => resolve({ code: 1, stderr: err.message }));
+			});
+		},
 		async cursorPos() {
 			try {
 				if (hyprCommandSocketPath()) {
@@ -447,6 +470,26 @@ const x11Driver: DesktopDriver = {
 			if (res.code === 0) return { code: 0, stderr: "" };
 			const fb = await runCmd("scrot", ["-z", tmpPath]);
 			return { code: fb.code, stderr: fb.stderr };
+		},
+		async captureBuffer(geometry?: string) {
+			const args = geometry
+				? ["-window", "root", "-crop", geometry, "png:-"]
+				: ["-window", "root", "png:-"];
+			return new Promise<{ code: number; buffer?: Buffer; stderr: string }>((resolve) => {
+				const proc = spawn("import", args, { stdio: ["ignore", "pipe", "pipe"] });
+				const chunks: Buffer[] = [];
+				let stderr = "";
+				proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+				proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+				proc.on("close", (code) => {
+					if (code === 0) {
+						resolve({ code: 0, buffer: Buffer.concat(chunks), stderr: "" });
+					} else {
+						resolve({ code: code ?? 1, stderr });
+					}
+				});
+				proc.on("error", (err) => resolve({ code: 1, stderr: err.message }));
+			});
 		},
 		async cursorPos() {
 			const res = await runCmd("xdotool", ["getmouselocation", "--shell"]);
@@ -574,6 +617,18 @@ end tell`;
 			const res = await runCmd("screencapture", args, { timeout: 8000 });
 			return { code: res.code, stderr: res.stderr };
 		},
+		async captureBuffer(geometry?: string) {
+			const tmp = path.join(os.tmpdir(), `aery-cap-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+			const res = await this.capture(tmp, geometry);
+			if (res.code !== 0) return { code: res.code, stderr: res.stderr };
+			try {
+				const buf = await fs.promises.readFile(tmp);
+				await fs.promises.unlink(tmp).catch(() => {});
+				return { code: 0, buffer: buf, stderr: "" };
+			} catch (e: any) {
+				return { code: 1, stderr: e.message };
+			}
+		},
 		async cursorPos() {
 			const cliRes = await runCmd("cliclick", ["p"], { timeout: 1000 }).catch(() => null);
 			if (cliRes && cliRes.code === 0) {
@@ -699,6 +754,18 @@ $g.Dispose()
 $bmp.Dispose()`;
 			const res = await runCmd("powershell", ["-NoProfile", "-NonInteractive", "-Command", cmd], { timeout: 8000 });
 			return { code: res.code, stderr: res.stderr };
+		},
+		async captureBuffer(geometry?: string) {
+			const tmp = path.join(os.tmpdir(), `aery-cap-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+			const res = await this.capture(tmp, geometry);
+			if (res.code !== 0) return { code: res.code, stderr: res.stderr };
+			try {
+				const buf = await fs.promises.readFile(tmp);
+				await fs.promises.unlink(tmp).catch(() => {});
+				return { code: 0, buffer: buf, stderr: "" };
+			} catch (e: any) {
+				return { code: 1, stderr: e.message };
+			}
 		},
 		async cursorPos() {
 			const cmd = `
