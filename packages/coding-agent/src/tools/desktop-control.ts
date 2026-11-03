@@ -1,5 +1,6 @@
 import { CameraWatchLoop } from "./camera-control";
 import { detectOutputScale, detectPlatformDriver, detectReservedArea, hyprFastMoveCursor, physicalToLogical } from "./desktop-drivers";
+import { probePngDimensions, resizePngBuffer } from "./screen-buffer";
 import {
 	boundingBox,
 	type FrameRect,
@@ -2082,9 +2083,10 @@ export async function rememberFrame(
 	geometry: string | undefined,
 	rawPath: string,
 	finalPath: string,
+	explicitDims?: { raw: [number, number]; scaled: [number, number] },
 ): Promise<InputFrame | null> {
-	const raw = await identifyDims(rawPath);
-	const scaled = await identifyDims(finalPath);
+	const raw = explicitDims?.raw ?? (rawPath ? await identifyDims(rawPath) : null);
+	const scaled = explicitDims?.scaled ?? (finalPath ? await identifyDims(finalPath) : null);
 	if (!raw || !scaled) return null;
 	let frame: InputFrame;
 	if (geometry && win) {
@@ -7528,6 +7530,47 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// ---- Capture all views concurrently (the eye saccades in parallel) ----
 				const captures = await Promise.all(
 					resolved.map(async (v, i) => {
+						// Fast zero-disk in-memory capture
+						if (eyeDriver.capture.captureBuffer) {
+							const capRes = await eyeDriver.capture
+								.captureBuffer(v.geometry)
+								.catch((e: unknown) => ({ code: 1, stderr: String(e) }));
+							if (capRes.code === 0 && capRes.buffer) {
+								const rawBuffer = capRes.buffer;
+								const rawDims = probePngDimensions(rawBuffer);
+								let finalBuffer = rawBuffer;
+								let finalDims = rawDims;
+								if (rawDims && (rawDims[0] > maxWidth || rawDims[1] > maxHeight)) {
+									try {
+										const resized = await resizePngBuffer(rawBuffer, maxWidth, maxHeight);
+										finalBuffer = resized.buffer;
+										finalDims = [resized.width, resized.height];
+									} catch {}
+								}
+								let frame: InputFrame | null = null;
+								try {
+									if (rawDims && finalDims) {
+										frame = await rememberFrame(
+											v.window,
+											v.geometry,
+											"",
+											"",
+											{ raw: rawDims, scaled: finalDims },
+										);
+									}
+								} catch {}
+								return {
+									spec: v,
+									buffer: finalBuffer,
+									rawBuffer,
+									rawDims,
+									finalDims,
+									finalPath: "",
+									rawPath: "",
+									frame,
+								};
+							}
+						}
 						const rawPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}-raw.png`);
 						const finalPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}.png`);
 						const capRes = await eyeDriver.capture
@@ -7633,8 +7676,11 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							let ocrError: string | undefined;
 							let ocrMode: "native" | "upscaled" | undefined;
 							let targets: ClickTarget[] = [];
-							if (wantOcr && c.finalPath) {
-								const ocrTarget = c.rawPath && fs.existsSync(c.rawPath) ? c.rawPath : c.finalPath;
+							const hasBuf = "buffer" in c && Buffer.isBuffer(c.buffer);
+							if (wantOcr && (hasBuf || c.finalPath)) {
+								const ocrTarget = hasBuf
+									? (c.rawBuffer || c.buffer)
+									: (c.rawPath && fs.existsSync(c.rawPath) ? c.rawPath : c.finalPath);
 								const ocr = await ocrFrame(ocrTarget, { lang: params.ocrLang });
 								ocrText = ocr.text;
 								ocrError = ocr.error;
@@ -7650,14 +7696,18 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								targets = clickTargetsFromOcr(
 									ocr.words,
 									c.frame ?? null,
-									ocrTarget === c.rawPath ? "physical" : "scaled",
+									hasBuf ? "physical" : (ocrTarget === c.rawPath ? "physical" : "scaled"),
 								);
 							}
 							let base64 = "";
-							if (includeBase64 && !textOnly && c.finalPath) {
-								try {
-									base64 = (await fs.promises.readFile(c.finalPath)).toString("base64");
-								} catch {}
+							if (includeBase64 && !textOnly) {
+								if (hasBuf && c.buffer) {
+									base64 = c.buffer.toString("base64");
+								} else if (c.finalPath) {
+									try {
+										base64 = (await fs.promises.readFile(c.finalPath)).toString("base64");
+									} catch {}
+								}
 							}
 							const wOk = c.spec.window;
 							const windowRectOk =
@@ -7672,7 +7722,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								frame: c.frame ?? null,
 								windowRect: windowRectOk,
 								base64,
-								filePath: c.finalPath,
+								filePath: hasBuf ? undefined : c.finalPath,
 							};
 						},
 					),
