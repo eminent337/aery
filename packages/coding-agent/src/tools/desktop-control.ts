@@ -7534,7 +7534,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						if (eyeDriver.capture.captureBuffer) {
 							const capRes = await eyeDriver.capture
 								.captureBuffer(v.geometry)
-								.catch((e: unknown) => ({ code: 1, stderr: String(e) }));
+								.catch((e: unknown) => ({ code: 1, buffer: undefined as Buffer | undefined, stderr: String(e) }));
 							if (capRes.code === 0 && capRes.buffer) {
 								const rawBuffer = capRes.buffer;
 								const rawDims = probePngDimensions(rawBuffer);
@@ -7575,7 +7575,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						const finalPath = path.join(os.tmpdir(), `aerys-eye-${timestamp}-${i}.png`);
 						const capRes = await eyeDriver.capture
 							.capture(rawPath, v.geometry)
-							.catch((e: unknown) => ({ code: 1, stderr: String(e) }));
+							.catch((e: unknown) => ({ code: 1, buffer: undefined as Buffer | undefined, stderr: String(e) }));
 						if (capRes.code !== 0)
 							return {
 								spec: v,
@@ -7681,7 +7681,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								const ocrTarget = hasBuf
 									? (c.rawBuffer || c.buffer)
 									: (c.rawPath && fs.existsSync(c.rawPath) ? c.rawPath : c.finalPath);
-								const ocr = await ocrFrame(ocrTarget, { lang: params.ocrLang });
+								const ocr = await ocrFrame(ocrTarget!, { lang: params.ocrLang });
 								ocrText = ocr.text;
 								ocrError = ocr.error;
 								ocrMode = ocr.mode;

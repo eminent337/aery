@@ -160,7 +160,7 @@ export class GeminiComputerUseTool implements AgentTool<typeof geminiComputerUse
 						x: params.x ?? 500,
 						y: params.y ?? 500,
 						direction: params.direction || "down",
-						amount: params.amount ?? 3,
+						count: params.amount ?? 3,
 						coordinate_system: "normalized_1000",
 					},
 					signal,
