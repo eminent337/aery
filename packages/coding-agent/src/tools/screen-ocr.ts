@@ -12,10 +12,12 @@
 //     sparse (<20 non-whitespace chars) and the frame is <1200px wide, upscale
 //     2x and retry, keeping whichever pass reads more.
 
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileNiced } from "./capture-priority";
+import { probePngDimensions } from "./screen-buffer";
 
 /** One OCR word and its bounding box in the frame's native pixel space.
  *  Click-target primitive: the model matches `text` to a UI label, then
@@ -102,6 +104,41 @@ async function runTessTsv(
 	return runCmd("tesseract", [imgPath, "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", opts.psm ?? "3", "tsv"], {
 		timeout: opts.timeoutMs ?? 30_000,
 		env: ocrThreadEnv(),
+	});
+}
+
+/** Run tesseract TSV directly on an in-memory image buffer via stdin (zero-disk OCR). */
+export async function runTessTsvBuffer(
+	buffer: Buffer,
+	opts: { lang?: string; timeoutMs?: number; psm?: string } = {},
+): Promise<{ stdout: string; stderr: string; code: number }> {
+	return new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+		const proc = spawn(
+			"tesseract",
+			["stdin", "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", opts.psm ?? "3", "tsv"],
+			{
+				timeout: opts.timeoutMs ?? 30_000,
+				env: { ...process.env, ...ocrThreadEnv() },
+				stdio: ["pipe", "pipe", "pipe"],
+			},
+		);
+		const chunks: Buffer[] = [];
+		let stderr = "";
+		proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+		proc.stderr.on("data", (chunk: Buffer) => {
+			stderr += chunk.toString();
+		});
+		proc.on("close", (code) => {
+			resolve({
+				stdout: Buffer.concat(chunks).toString("utf-8"),
+				stderr: stderr.trim(),
+				code: code ?? 0,
+			});
+		});
+		proc.on("error", (err) => {
+			resolve({ stdout: "", stderr: err.message, code: 1 });
+		});
+		proc.stdin.end(buffer);
 	});
 }
 /**
@@ -216,7 +253,7 @@ async function runTess(
  * The reading is never silently lost to a speed optimization.
  */
 export async function ocrFrame(
-	imgPath: string,
+	input: string | Buffer,
 	opts: { lang?: string; timeoutMs?: number; psm?: string } = {},
 ): Promise<OcrFrameResult> {
 	const t0 = Date.now();
@@ -225,8 +262,10 @@ export async function ocrFrame(
 	let mode: "native" | "upscaled" = "native";
 	let words: OcrWordBox[] | undefined;
 
+	const isBuf = Buffer.isBuffer(input);
+
 	// Single pass: TSV yields the words AND the text layer.
-	const tsv = await runTessTsv(imgPath, opts);
+	const tsv = isBuf ? await runTessTsvBuffer(input, opts) : await runTessTsv(input, opts);
 	if (tsv.code === 0) {
 		words = parseTsvWordBoxes(tsv.stdout);
 		text = textFromTsvWords(words);
@@ -234,18 +273,20 @@ export async function ocrFrame(
 		error = tsv.stderr || `tesseract exit ${tsv.code}`;
 		// Fail-safe: the boxes are unavailable, but a reading is still worth
 		// one extra pass. Degraded (no click targets), never empty.
-		const fallback = await runTess(imgPath, opts);
-		if (fallback.code === 0) {
-			text = fallback.stdout.trim();
-			error = undefined;
+		if (!isBuf) {
+			const fallback = await runTess(input, opts);
+			if (fallback.code === 0) {
+				text = fallback.stdout.trim();
+				error = undefined;
+			}
 		}
 	}
 
 	const sparse = nonWs(text) < 20;
-	const dims = await identifyDims(imgPath);
-	if (sparse && dims && dims[0] > 0 && dims[0] < 1200 && fs.existsSync(imgPath)) {
+	const dims = isBuf ? probePngDimensions(input) : await identifyDims(input);
+	if (!isBuf && sparse && dims && dims[0] > 0 && dims[0] < 1200 && fs.existsSync(input)) {
 		const upscale = path.join(os.tmpdir(), `aerys-screen-ocr-${Date.now()}-2x.png`);
-		const up = await runCmd("convert", [imgPath, "-resize", "200%", upscale]);
+		const up = await runCmd("convert", [input, "-resize", "200%", upscale]);
 		if (up.code === 0 && fs.existsSync(upscale)) {
 			// One pass on the upscaled image: it must re-derive BOTH layers,
 			// because the native pass came back sparse.
