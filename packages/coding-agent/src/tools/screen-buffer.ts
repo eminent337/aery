@@ -48,7 +48,16 @@ export async function resizePngBuffer(
 	return new Promise((resolve, reject) => {
 		const proc = spawn(
 			"convert",
-			["-", "-resize", `${maxWidth}x${maxHeight}>`, "-filter", "LanczosSharp", "png:-"],
+			[
+				"-",
+				"-resize",
+				`${maxWidth}x${maxHeight}>`,
+				"-filter",
+				"LanczosSharp",
+				"-define",
+				"png:compression-level=1",
+				"png:-",
+			],
 			{ stdio: ["pipe", "pipe", "pipe"] },
 		);
 
