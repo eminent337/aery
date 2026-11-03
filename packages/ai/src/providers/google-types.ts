@@ -91,9 +91,26 @@ export interface FunctionDeclaration {
 	parametersJsonSchema?: Record<string, unknown>;
 }
 
+/** Google Gemini native computer_use environment enum values. */
+export type ComputerUseEnvironment =
+	| "ENVIRONMENT_UNSPECIFIED"
+	| "ENVIRONMENT_BROWSER"
+	| "ENVIRONMENT_MOBILE"
+	| "ENVIRONMENT_DESKTOP";
+
+/** Google Gemini native computer_use tool configuration. */
+export interface ComputerUseConfig {
+	/** The environment type in which computer_use is operating. */
+	environment?: ComputerUseEnvironment;
+	/** When true, the model checks for prompt-injection attempts in screenshots. */
+	enablePromptInjectionDetection?: boolean;
+}
+
 /** Tool group as accepted at the request top level. */
 export interface ToolDeclaration {
-	functionDeclarations: Record<string, unknown>[];
+	functionDeclarations?: Record<string, unknown>[];
+	/** Presence of this field activates the native Gemini computer_use capability. */
+	computerUse?: ComputerUseConfig;
 }
 
 /** Tool selection mode container. */

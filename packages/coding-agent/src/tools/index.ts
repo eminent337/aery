@@ -61,6 +61,7 @@ import {
 	ListAppsTool,
 	CloseAppTool,
 } from "./agy-computer-use";
+import { GeminiComputerUseTool } from "./gemini-computer-use";
 import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
@@ -192,6 +193,8 @@ export * from "./conversation-search";
 export * from "./debug";
 export * from "./desktop-control";
 export * from "./agy-computer-use";
+export * from "./gemini-computer-use";
+export * from "./screen-buffer";
 export * from "./eval";
 export * from "./eval-backends";
 export * from "./explore";
@@ -666,6 +669,8 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	display_info: DisplayInfoTool.createIf,
 	list_apps: ListAppsTool.createIf,
 	close_app: CloseAppTool.createIf,
+	gemini_computer_use: GeminiComputerUseTool.createIf,
+	computer_use: GeminiComputerUseTool.createIf,
 	voice_control: VoiceControlTool.createIf,
 	camera_control: CameraControlTool.createIf,
 	search_context: SearchContextTool.createIf,
