@@ -39,6 +39,7 @@ export const commands: CommandEntry[] = [
 	{ name: "remote-control", load: () => import("./commands/remote-control").then(m => m.default) },
 	{ name: "hub", load: () => import("./commands/hub").then(m => m.default) },
 	{ name: "heal", load: () => import("./commands/heal").then(m => m.default) },
+	{ name: "live", load: () => import("./commands/live").then(m => m.default) },
 	{ name: "mic-serve", load: () => import("./commands/mic-serve").then(m => m.default) },
 	{ name: "sidecar", load: () => import("./commands/sidecar").then(m => m.default) },
 	{ name: "worktree", load: () => import("./commands/worktree").then(m => m.default), aliases: ["wt"] },
