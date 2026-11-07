@@ -97,4 +97,26 @@ describe("Native Wayland/Linux Bridge Dispatcher", () => {
 		expect(doc).toBeDefined();
 		expect(doc.compositor).toBe("hyprland");
 	});
+
+	it("captures full screenshot via wlroots-bridge directly into buffer", async () => {
+		const bin = resolveWlrootsBridge();
+		if (!bin) return;
+		const res = await runBridgeJson<{ base64?: string; width?: number; height?: number }>(bin, bridgeScreenshotArgs());
+		expect(res.base64).toBeDefined();
+		expect(typeof res.base64).toBe("string");
+		const buf = Buffer.from(res.base64!, "base64");
+		expect(buf.length).toBeGreaterThan(1000);
+	});
+
+	it("captures targeted zoom region via wlroots-bridge directly into buffer", async () => {
+		const bin = resolveWlrootsBridge();
+		if (!bin) return;
+		const res = await runBridgeJson<{ base64?: string; width?: number; height?: number }>(
+			bin,
+			bridgeZoomArgs(10, 10, 200, 150),
+		);
+		expect(res.base64).toBeDefined();
+		const buf = Buffer.from(res.base64!, "base64");
+		expect(buf.length).toBeGreaterThan(500);
+	});
 });

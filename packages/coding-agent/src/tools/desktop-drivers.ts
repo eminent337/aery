@@ -18,6 +18,17 @@ import * as path from "node:path";
 import { resolveAgentDesktopBinary } from "./desktop-accessibility";
 import { execFileNiced } from "./capture-priority";
 import { hyprCommandSocketPath, hyprFastMoveCursor, hyprIpcDispatch as hyprIpcQuery } from "./live-input";
+import {
+	resolveWlrootsBridge,
+	resolveGnomeBridge,
+	resolveX11Bridge,
+	runBridgeJson,
+	bridgeScreenshotArgs,
+	bridgeZoomArgs,
+	bridgeWindowsArgs,
+	bridgeFrontmostAppArgs,
+	bridgeActivateWindowArgs,
+} from "./native-bridge";
 
 export { hyprCommandSocketPath, hyprFastMoveCursor, hyprIpcQuery };
 
@@ -403,6 +414,32 @@ const hyprlandDriver: DesktopDriver = {
 	},
 	capture: {
 		async capture(tmpPath: string, geometry?: string) {
+			const bridge = resolveWlrootsBridge();
+			if (bridge) {
+				try {
+					let res: { base64?: string } | null = null;
+					if (geometry) {
+						const m = geometry.match(/^(\d+),(\d+)\s+(\d+)x(\d+)$/);
+						if (m) {
+							res = await runBridgeJson(
+								bridge,
+								bridgeZoomArgs(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])),
+								3000,
+							);
+						} else {
+							res = await runBridgeJson(bridge, bridgeScreenshotArgs(), 3000);
+						}
+					} else {
+						res = await runBridgeJson(bridge, bridgeScreenshotArgs(), 3000);
+					}
+					if (res?.base64) {
+						await fs.promises.writeFile(tmpPath, Buffer.from(res.base64, "base64"));
+						return { code: 0, stderr: "" };
+					}
+				} catch {
+					// Fall through to grim fallback
+				}
+			}
 			// -c paints the cursor into the frame: without it agents literally
 			// cannot see where the pointer is (verified: with/without differ
 			// by ~0.02 RMSE, cursor near-invisible in the downscaled frame).
@@ -413,6 +450,31 @@ const hyprlandDriver: DesktopDriver = {
 			return { code: res.code, stderr: res.stderr };
 		},
 		async captureBuffer(geometry?: string) {
+			const bridge = resolveWlrootsBridge();
+			if (bridge) {
+				try {
+					let res: { base64?: string } | null = null;
+					if (geometry) {
+						const m = geometry.match(/^(\d+),(\d+)\s+(\d+)x(\d+)$/);
+						if (m) {
+							res = await runBridgeJson(
+								bridge,
+								bridgeZoomArgs(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])),
+								3000,
+							);
+						} else {
+							res = await runBridgeJson(bridge, bridgeScreenshotArgs(), 3000);
+						}
+					} else {
+						res = await runBridgeJson(bridge, bridgeScreenshotArgs(), 3000);
+					}
+					if (res?.base64) {
+						return { code: 0, buffer: Buffer.from(res.base64, "base64"), stderr: "" };
+					}
+				} catch {
+					// Fall through to grim fallback
+				}
+			}
 			const args = geometry ? ["-t", "png", "-c", "-g", geometry, "-"] : ["-t", "png", "-c", "-"];
 			return new Promise<{ code: number; buffer?: Buffer; stderr: string }>((resolve) => {
 				const proc = spawn("grim", args, { stdio: ["ignore", "pipe", "pipe"] });
