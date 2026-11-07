@@ -107,6 +107,11 @@ export const desktopAccessibilitySchema = z.object({
 		.optional()
 		.describe("Text to type or value to set for an element."),
 
+	click_first: z
+		.boolean()
+		.optional()
+		.describe("Whether to click/focus the element before selecting or typing (default: false)."),
+
 	key: z
 		.string()
 		.optional()
@@ -309,6 +314,9 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 						isError: true,
 					};
 				}
+				if (params.click_first) {
+					await execFileAsync(binary, ["click", params.ref], { timeout: 3000 }).catch(() => null);
+				}
 				args.push("type", params.ref, params.text ?? "");
 				break;
 			}
@@ -376,8 +384,17 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 						isError: true,
 					};
 				}
-				args.push("select", params.ref);
-				if (params.text) args.push("--value", params.text);
+				const optionValue = params.text;
+				if (!optionValue) {
+					return {
+						content: [{ type: "text", text: "Error: 'text' (the option to select) is required for 'select'." }],
+						isError: true,
+					};
+				}
+				if (params.click_first) {
+					await execFileAsync(binary, ["click", params.ref], { timeout: 3000 }).catch(() => null);
+				}
+				args.push("select", params.ref, optionValue);
 				break;
 			}
 

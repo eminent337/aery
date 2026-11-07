@@ -88,6 +88,7 @@ import {
 	ydoMove,
 	ydoMoveRelative,
 	ydoPageScroll,
+	ydoWheelScroll,
 } from "./live-input";
 import {
 	CLICK_CHOREOGRAPHY,
@@ -130,7 +131,7 @@ export interface ScreenshotResultDetails {
 export type { InputFrame } from "./live-input";
 export type { OcrWordBox } from "./screen-ocr";
 
-const desktopControlSchema = z
+export const desktopControlSchema = z
 	.object({
 		action: z
 			.enum([
@@ -187,6 +188,8 @@ const desktopControlSchema = z
 				// System clipboard & display metadata
 				"clipboard_get",
 				"clipboard_set",
+				"paste",
+				"clipboard_paste",
 				"display_info",
 				// Application discovery and lifecycle
 				"list_apps",
@@ -320,6 +323,14 @@ const desktopControlSchema = z
 			.enum(["normalized_1000", "frame", "physical"])
 			.optional()
 			.describe("Coordinate system: 'normalized_1000' (0..1000 grid, default for AGY actions) or 'frame' px."),
+		click_first: z
+			.boolean()
+			.optional()
+			.describe("Whether to click at coordinates/target to focus before typing, pasting, or dragging (default: true when coordinates are specified)."),
+		click_to_focus: z
+			.boolean()
+			.optional()
+			.describe("Whether to click at coordinates to focus the container before scrolling (default: true when coordinates are specified)."),
 		include_base64: z.boolean().optional().describe("Whether to include base64 data for 'take_screenshot' (AGY format)."),
 		press_enter: z
 			.boolean()
@@ -2024,6 +2035,8 @@ const AGY_LIVE_ACTIONS = new Set([
 	"middle_click_at",
 	"right_click_at",
 	"left_click_drag",
+	"paste",
+	"clipboard_paste",
 ]);
 
 function liveApprovalDecision(args: unknown): ToolApprovalDecision {
@@ -2040,7 +2053,14 @@ function liveApprovalDecision(args: unknown): ToolApprovalDecision {
 		action === "list_apps"
 	)
 		return "read";
-	if (action === "clipboard_set" || action === "close_window" || action === "close_app") return "write";
+	if (
+		action === "clipboard_set" ||
+		action === "close_window" ||
+		action === "close_app" ||
+		action === "paste" ||
+		action === "clipboard_paste"
+	)
+		return "write";
 	if (!action.startsWith("live_") && !AGY_LIVE_ACTIONS.has(action)) return "read";
 	if (LIVE_GATE_ACTIONS.has(action)) return "read";
 	// First use of an injection kind is exec-tier ⇒ the host asks Peter once per kind
@@ -4531,6 +4551,9 @@ async function executeLiveAction(
 			action === "move_cursor" ||
 			action === "drag_and_drop_at" ||
 			action === "scroll_at" ||
+			action === "paste" ||
+			action === "clipboard_paste" ||
+			((action === "type_text" || action === "live_type") && (params.x !== undefined || params.target !== undefined)) ||
 			action === "mouse_down" ||
 			action === "mouse_up" ||
 			action === "mouse_move" ||
@@ -4658,6 +4681,7 @@ async function executeLiveAction(
 	else if (action === "press_key") action = "live_key";
 	else if (action === "drag_and_drop_at") action = "live_drag";
 	else if (action === "scroll_at") action = "live_scroll";
+	else if (action === "paste" || action === "clipboard_paste") action = "live_paste";
 
 	// Identity of THIS injection step — used both by the abort gate (does the
 	// incoming attempt repeat the stuck step?) and by the observers (does the
@@ -4836,7 +4860,11 @@ async function executeLiveAction(
 	}
 	const isPointer = action === "live_move" || action === "live_click" || action === "live_drag";
 	const kind: InputKind =
-		isPointer || action === "live_scroll" ? "pointer" : action === "live_type" ? "type" : "keyboard";
+		isPointer || action === "live_scroll"
+			? "pointer"
+			: action === "live_type" || action === "live_paste"
+				? "type"
+				: "keyboard";
 	let backend = resolveBackend(probe, win.xwayland, kind);
 	let chain = resolveBackendChain(probe, win.xwayland, kind);
 	if (backend === "no-daemon") {
@@ -5701,6 +5729,13 @@ async function executeLiveAction(
 			const before = verify ? await captureLiveFrame("Before drag") : null;
 			const end = frameToPhysical(frame, params.x2!, params.y2!);
 			const endLogical = physicalToLogical(end.x, end.y, scale);
+			if (params.click_first) {
+				const clickSeq =
+					backend === "ydotool"
+						? [ydoClickButton(YDO_LEFT, 1, 15)]
+						: [xdoClick(pt.x, pt.y, "left", 1)];
+				await runSteps(clickSeq, 40, win.address);
+			}
 			if (backend === "cliclick") {
 				const fail = await runSteps([cliclickDrag(pt.x, pt.y, end.x, end.y)], 0, win.address);
 				if (fail) return errObserve(action, fail);
@@ -5777,14 +5812,94 @@ async function executeLiveAction(
 		}
 	}
 
-	if (action === "live_type") {
-		const text = params.keys ?? "";
+	if (action === "live_type" || action === "live_paste") {
 		if (chain.length === 0) {
 			return errText(
 				`No typing backend available (need ydotool+daemon, wtype, or xdotool on XWayland). Probe: ydotool=${probe.ydotool}/${probe.ydotoold ? "up" : "down"}, wtype=${probe.wtype}, xdotool=${probe.xdotool}.`,
 				"no_backend",
 			);
 		}
+		if (params.target && params.x === undefined) {
+			const hit = resolveClickTarget(params.target);
+			if (hit) {
+				params.x = hit.x;
+				params.y = hit.y;
+			}
+		}
+		let focusedFirst = false;
+		const shouldClickFirst = params.click_first !== false;
+		if (params.x !== undefined && params.y !== undefined && lastInputFrame) {
+			const pt = frameToPhysical(lastInputFrame, params.x, params.y);
+			const scale = await detectOutputScale();
+			const logical = physicalToLogical(pt.x, pt.y, scale);
+			if (detectPlatformDriver().id === "hyprland") {
+				const fastMoved = await hyprFastMoveCursor(logical.x, logical.y);
+				if (!fastMoved) {
+					await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
+				}
+			} else if (backend === "ydotool") {
+				await runCmd("ydotool", ["mousemove", "--absolute", "-x", String(Math.round(pt.x)), "-y", String(Math.round(pt.y))]);
+			} else if (backend === "cliclick") {
+				await runCmd("cliclick", [`m:${Math.round(pt.x)},${Math.round(pt.y)}`]);
+			} else if (backend === "osascript") {
+				const cmd = osascriptMove(pt.x, pt.y);
+				await runCmd(cmd[0]!, cmd.slice(1));
+			} else if (backend === "powershell") {
+				const cmd = powershellMove(pt.x, pt.y);
+				await runCmd(cmd[0]!, cmd.slice(1));
+			} else {
+				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
+			}
+			if (shouldClickFirst) {
+				const clickSeq =
+					backend === "ydotool"
+						? [ydoClickButton(YDO_LEFT, 1, 15)]
+						: backend === "cliclick"
+							? [["cliclick", `c:${Math.round(pt.x)},${Math.round(pt.y)}`]]
+							: backend === "osascript"
+								? [osascriptClick(pt.x, pt.y, "left", 1)]
+								: backend === "powershell"
+									? [powershellClick(pt.x, pt.y, "left", 1)]
+									: [xdoClick(pt.x, pt.y, "left", 1)];
+				await runSteps(clickSeq, 50, win.address);
+				focusedFirst = true;
+			}
+		} else if (params.click_first === true) {
+			const clickSeq =
+				backend === "ydotool"
+					? [ydoClickButton(YDO_LEFT, 1, 15)]
+					: [["xdotool", "click", "1"]];
+			await runSteps(clickSeq, 50, win.address);
+			focusedFirst = true;
+		}
+
+		if (action === "live_paste") {
+			const pasteText = params.text ?? params.keys;
+			if (pasteText) {
+				const isWayland = detectPlatformDriver().id === "hyprland" || Boolean(process.env.WAYLAND_DISPLAY);
+				if (isWayland) {
+					await runCmd("wl-copy", ["--", pasteText]);
+				} else {
+					const child = spawn("xclip", ["-selection", "clipboard"], {
+						stdio: ["pipe", "ignore", "ignore"],
+						detached: true,
+					});
+					child.stdin?.write(pasteText);
+					child.stdin?.end();
+					child.unref();
+				}
+			}
+			const fail = await keyTextWith(chain, "ctrl+v", win.address);
+			if (fail) return errObserve(action, fail);
+			liveAuthorizedKinds.add(action);
+			return withVerify(
+				`Pasted into "${win.title}"${focusedFirst ? " (after focus click)" : ""}.`,
+				undefined,
+				pasteText,
+			);
+		}
+
+		const text = params.keys ?? "";
 		const fail = await typeTextWith(chain, text, win.address);
 		if (fail) return errObserve(action, fail);
 		liveAuthorizedKinds.add(action);
@@ -5792,7 +5907,7 @@ async function executeLiveAction(
 			await keyTextWith(chain, "Return", win.address);
 		}
 		return withVerify(
-			`Typed ${text.length} chars into "${win.title}"${params.press_enter ? " (followed by Return)" : ""}${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`,
+			`Typed ${text.length} chars into "${win.title}"${focusedFirst ? " (after focus click)" : ""}${params.press_enter ? " (followed by Return)" : ""}${chain[0] !== "ydotool" ? ` (backend: ${chain[0]})` : ""}.`,
 			undefined,
 			text,
 		);
@@ -5816,6 +5931,13 @@ async function executeLiveAction(
 
 	if (action === "live_scroll") {
 		const dir = params.direction ?? "down";
+		if (params.target && params.x === undefined) {
+			const hit = resolveClickTarget(params.target);
+			if (hit) {
+				params.x = hit.x;
+				params.y = hit.y;
+			}
+		}
 		if (params.x !== undefined && params.y !== undefined && lastInputFrame) {
 			const pt = frameToPhysical(lastInputFrame, params.x, params.y);
 			const scale = await detectOutputScale();
@@ -5837,6 +5959,19 @@ async function executeLiveAction(
 				await runCmd(cmd[0]!, cmd.slice(1));
 			} else {
 				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
+			}
+			if (params.click_to_focus !== false) {
+				const clickSeq =
+					backend === "ydotool"
+						? [ydoClickButton(YDO_LEFT, 1, 15)]
+						: backend === "cliclick"
+							? [["cliclick", `c:${Math.round(pt.x)},${Math.round(pt.y)}`]]
+							: backend === "osascript"
+								? [osascriptClick(pt.x, pt.y, "left", 1)]
+								: backend === "powershell"
+									? [powershellClick(pt.x, pt.y, "left", 1)]
+									: [xdoClick(pt.x, pt.y, "left", 1)];
+				await runSteps(clickSeq, 40, win.address);
 			}
 		}
 		const before = verify ? await captureLiveFrame("Before scroll") : null;
@@ -5945,13 +6080,24 @@ $.CGEventPost($.kCGHIDEventTap, event);`;
 			});
 			return `read:${words.length}:${quality.trustworthy ? "trusted" : "untrusted"}`;
 		};
-		const burst = await runScrollBurst(ydoPageScroll(dir, plan.steps), {
+		let usedWheel = true;
+		let burst = await runScrollBurst(ydoWheelScroll(dir, plan.steps), {
 			intervalMs: plan.intervalMs,
 			sample: plan.sample && verify,
 			expectedWindowAddress: win.address,
 			signal,
 			sampleFrame: plan.sample && verify ? readWhileScrolling : undefined,
 		});
+		if (burst.failure) {
+			usedWheel = false;
+			burst = await runScrollBurst(ydoPageScroll(dir, plan.steps), {
+				intervalMs: plan.intervalMs,
+				sample: plan.sample && verify,
+				expectedWindowAddress: win.address,
+				signal,
+				sampleFrame: plan.sample && verify ? readWhileScrolling : undefined,
+			});
+		}
 		if (burst.failure) return errObserve(action, burst.failure);
 		liveAuthorizedKinds.add(action);
 		// The reads must reach the MODEL, not just the UI: `details` is
@@ -5959,8 +6105,11 @@ $.CGEventPost($.kCGHIDEventTap, event);`;
 		// visible text as a bounded digest while full readings stay in
 		// details for the interface.
 		const digest = formatScrollReadDigest(scrollReadings);
+		const scrollMethod = usedWheel ? "Wheel-scrolled" : "Scrolled";
+		const scrollUnit = usedWheel ? "notch" : "page step";
+		const scrollBackend = usedWheel ? "native Wayland wheel" : "native Wayland page fallback";
 		return withVerify(
-			`Scrolled ${dir} ${burst.completedSteps} page step${burst.completedSteps === 1 ? "" : "s"} at ${plan.speed} cadence (native Wayland fallback — no REL_WHEEL backend)${scrollReadings.length ? `; read ${scrollReadings.length} mid-scroll frame${scrollReadings.length === 1 ? "" : "s"}.` : ""}${digest ? `\n\nWhat was read while scrolling:\n${digest}` : ""}`,
+			`${scrollMethod} ${dir} ${burst.completedSteps} ${scrollUnit}${burst.completedSteps === 1 ? "" : "es"} at ${plan.speed} cadence (${scrollBackend})${scrollReadings.length ? `; read ${scrollReadings.length} mid-scroll frame${scrollReadings.length === 1 ? "" : "s"}.` : ""}${digest ? `\n\nWhat was read while scrolling:\n${digest}` : ""}`,
 			{
 				scroll: {
 					direction: dir,
@@ -6191,6 +6340,8 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 			case "live_type":
 			case "live_key":
 			case "live_scroll":
+			case "paste":
+			case "clipboard_paste":
 			case "click_at":
 			case "move_cursor":
 			case "mouse_down":

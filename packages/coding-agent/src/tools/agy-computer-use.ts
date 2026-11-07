@@ -216,6 +216,26 @@ export class MoveCursorTool implements AgentTool<typeof moveCursorSchema> {
 // ---------------------------------------------------------------------------
 export const typeTextSchema = z.object({
 	text: z.string().describe("Text string to type into the focused application or control."),
+	x: z
+		.number()
+		.optional()
+		.describe("X coordinate to click and focus before typing (0..1000 normalized grid coordinate by default)."),
+	y: z
+		.number()
+		.optional()
+		.describe("Y coordinate to click and focus before typing (0..1000 normalized grid coordinate by default)."),
+	click_first: z
+		.boolean()
+		.optional()
+		.describe("Whether to click at coordinates to focus the input field before typing/pasting (default: true if coordinates are provided)."),
+	coordinate_system: z
+		.enum(["normalized_1000", "frame", "physical"])
+		.optional()
+		.describe("Coordinate system: 'normalized_1000' (0..1000 grid, default) or 'frame' px."),
+	target: z
+		.string()
+		.optional()
+		.describe("Target selector or OCR text to click and focus before typing."),
 	press_enter: z
 		.boolean()
 		.optional()
@@ -257,6 +277,11 @@ export class TypeTextTool implements AgentTool<typeof typeTextSchema> {
 			{
 				action: "type_text",
 				text: params.text,
+				x: params.x,
+				y: params.y,
+				click_first: params.click_first,
+				coordinate_system: params.coordinate_system ?? "normalized_1000",
+				target: params.target,
 				press_enter: params.press_enter ?? false,
 			},
 			signal,
@@ -411,6 +436,14 @@ export const scrollAtSchema = z.object({
 		.enum(["normalized_1000", "frame", "physical"])
 		.optional()
 		.describe("Coordinate system: 'normalized_1000' (0..1000 grid, default) or 'frame' px."),
+	click_to_focus: z
+		.boolean()
+		.optional()
+		.describe("Whether to click at coordinates to focus the container before scrolling (default: true when coordinates are provided)."),
+	target: z
+		.string()
+		.optional()
+		.describe("Target selector or OCR text of the container to focus and scroll."),
 });
 
 export type ScrollAtParams = z.infer<typeof scrollAtSchema>;
@@ -452,6 +485,8 @@ export class ScrollAtTool implements AgentTool<typeof scrollAtSchema> {
 				direction: params.direction,
 				count: params.count,
 				coordinate_system: params.coordinate_system ?? "normalized_1000",
+				click_to_focus: params.click_to_focus,
+				target: params.target,
 			},
 			signal,
 			onUpdate,

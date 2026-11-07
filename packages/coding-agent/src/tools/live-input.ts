@@ -509,9 +509,24 @@ export function ydoClearField(): string[][] {
 }
 
 /**
- * Native Wayland fallback: ydotool cannot emit REL_WHEEL, so one count is one
- * visual PageUp/PageDown step. Keep each key press separate so callers can
- * revalidate focus between steps rather than coalescing a stale batch.
+ * Native Wayland wheel scroll using ydotool mousemove -w.
+ * Emits REL_WHEEL/REL_HWHEEL relative events.
+ * Direction mapping:
+ * - 'down': dy = -1 (downwards wheel rotation)
+ * - 'up': dy = 1 (upwards wheel rotation)
+ * - 'left': dx = -1 (leftwards wheel rotation)
+ * - 'right': dx = 1 (rightwards wheel rotation)
+ */
+export function ydoWheelScroll(direction: ScrollDirection, count = 1): string[][] {
+	const steps = Math.max(0, Math.min(20, Math.trunc(count)));
+	const dx = direction === "left" ? "-1" : direction === "right" ? "1" : "0";
+	const dy = direction === "up" ? "1" : direction === "down" ? "-1" : "0";
+	return Array.from({ length: steps }, () => ["ydotool", "mousemove", "-w", "--", dx, dy]);
+}
+
+/**
+ * Native Wayland keyboard scroll fallback: one count is one visual PageUp/PageDown step.
+ * Keep each key press separate so callers can revalidate focus between steps.
  */
 export function ydoPageScroll(direction: ScrollDirection, count = 1): string[][] {
 	const key = direction === "up" ? 104 : direction === "down" ? 109 : direction === "left" ? 105 : 106;
