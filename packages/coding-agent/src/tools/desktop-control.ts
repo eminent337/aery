@@ -91,6 +91,7 @@ import {
 	ydoWheelScroll,
 } from "./live-input";
 import {
+	resolveActiveLinuxBridge,
 	resolveWlrootsBridge,
 	runBridgeJson,
 	bridgePointerMoveArgs,
@@ -100,6 +101,10 @@ import {
 	bridgeKeySequenceArgs,
 	bridgeTypeTextArgs,
 } from "./native-bridge";
+
+function resolveDesktopBridge(): string | null {
+	return resolveActiveLinuxBridge()?.bin ?? resolveWlrootsBridge();
+}
 import {
 	CLICK_CHOREOGRAPHY,
 	clickPath,
@@ -4168,8 +4173,8 @@ export async function runDragWithCleanup(
 async function typeTextWith(chain: LiveBackend[], text: string, expectedWindowAddress: string): Promise<string | null> {
 	let lastErr: string | null = null;
 	for (const backend of chain) {
-		if (backend === "wlroots-bridge") {
-			const bridge = resolveWlrootsBridge();
+		if (backend === "wlroots-bridge" || backend === "native-bridge") {
+			const bridge = resolveDesktopBridge();
 			if (bridge) {
 				try {
 					await runBridgeJson(bridge, bridgeTypeTextArgs(text));
@@ -4250,8 +4255,8 @@ async function typeTextWith(chain: LiveBackend[], text: string, expectedWindowAd
 async function keyTextWith(chain: LiveBackend[], spec: string, expectedWindowAddress: string): Promise<string | null> {
 	let lastErr: string | null = null;
 	for (const backend of chain) {
-		if (backend === "wlroots-bridge") {
-			const bridge = resolveWlrootsBridge();
+		if (backend === "wlroots-bridge" || backend === "native-bridge") {
+			const bridge = resolveDesktopBridge();
 			if (bridge) {
 				try {
 					await runBridgeJson(bridge, bridgeKeySequenceArgs(spec));
@@ -5497,8 +5502,8 @@ async function executeLiveAction(
 			const phys = frameToPhysical(frame, fx, fy);
 			const outScale = await detectOutputScale();
 			const point = physicalToLogical(phys.x, phys.y, outScale);
-			if (backend === "wlroots-bridge") {
-				const bridge = resolveWlrootsBridge();
+			if (backend === "wlroots-bridge" || backend === "native-bridge") {
+				const bridge = resolveDesktopBridge();
 				if (bridge) {
 					try {
 						await runBridgeJson(bridge, bridgePointerClickArgs(point.x, point.y, button, count));
@@ -5571,8 +5576,8 @@ async function executeLiveAction(
 		if (action === "live_move") {
 			const hyprAim = detectPlatformDriver().id === "hyprland";
 			let moveError: string | null = null;
-			if (backend === "wlroots-bridge") {
-				const bridge = resolveWlrootsBridge();
+			if (backend === "wlroots-bridge" || backend === "native-bridge") {
+				const bridge = resolveDesktopBridge();
 				if (bridge) {
 					try {
 						await runBridgeJson(bridge, bridgePointerMoveArgs(logical.x, logical.y));
@@ -5622,8 +5627,8 @@ async function executeLiveAction(
 			// hyprland logical, x11 pixels). Null/throw → reads unsupported,
 			// skip silently — the verify frame still covers us.
 			const warpTo = async (p: { x: number; y: number }): Promise<void> => {
-				if (backend === "wlroots-bridge") {
-					const bridge = resolveWlrootsBridge();
+				if (backend === "wlroots-bridge" || backend === "native-bridge") {
+					const bridge = resolveDesktopBridge();
 					if (bridge) {
 						try {
 							await runBridgeJson(bridge, bridgePointerMoveArgs(p.x, p.y));
@@ -5704,8 +5709,8 @@ async function executeLiveAction(
 				}
 			};
 
-			if (backend === "wlroots-bridge") {
-				const bridge = resolveWlrootsBridge();
+			if (backend === "wlroots-bridge" || backend === "native-bridge") {
+				const bridge = resolveDesktopBridge();
 				if (bridge) {
 					try {
 						await runBridgeJson(bridge, bridgePointerClickArgs(logical.x, logical.y, button, count));
@@ -5816,8 +5821,8 @@ async function executeLiveAction(
 			const before = verify ? await captureLiveFrame("Before drag") : null;
 			const end = frameToPhysical(frame, params.x2!, params.y2!);
 			const endLogical = physicalToLogical(end.x, end.y, scale);
-			if (backend === "wlroots-bridge") {
-				const bridge = resolveWlrootsBridge();
+			if (backend === "wlroots-bridge" || backend === "native-bridge") {
+				const bridge = resolveDesktopBridge();
 				if (bridge) {
 					try {
 						if (params.click_first) {
@@ -5949,8 +5954,8 @@ async function executeLiveAction(
 			const pt = frameToPhysical(lastInputFrame, params.x, params.y);
 			const scale = await detectOutputScale();
 			const logical = physicalToLogical(pt.x, pt.y, scale);
-			if (backend === "wlroots-bridge") {
-				const bridge = resolveWlrootsBridge();
+			if (backend === "wlroots-bridge" || backend === "native-bridge") {
+				const bridge = resolveDesktopBridge();
 				if (bridge) {
 					await runBridgeJson(bridge, bridgePointerMoveArgs(logical.x, logical.y)).catch(() => {});
 				}
@@ -5994,8 +5999,8 @@ async function executeLiveAction(
 				focusedFirst = true;
 			}
 		} else if (params.click_first === true) {
-			if (backend === "wlroots-bridge") {
-				const bridge = resolveWlrootsBridge();
+			if (backend === "wlroots-bridge" || backend === "native-bridge") {
+				const bridge = resolveDesktopBridge();
 				if (bridge) {
 					const pos = await detectPlatformDriver().capture.cursorPos().catch(() => ({ x: 500, y: 500 }));
 					await runBridgeJson(bridge, bridgePointerClickArgs(pos.x, pos.y, "left", 1)).catch(() => {});
@@ -6080,8 +6085,8 @@ async function executeLiveAction(
 			const pt = frameToPhysical(lastInputFrame, params.x, params.y);
 			const scale = await detectOutputScale();
 			const logical = physicalToLogical(pt.x, pt.y, scale);
-			if (backend === "wlroots-bridge") {
-				const bridge = resolveWlrootsBridge();
+			if (backend === "wlroots-bridge" || backend === "native-bridge") {
+				const bridge = resolveDesktopBridge();
 				if (bridge) {
 					await runBridgeJson(bridge, bridgePointerMoveArgs(logical.x, logical.y)).catch(() => {});
 				}
@@ -6130,8 +6135,8 @@ async function executeLiveAction(
 			scrollSpeed: params.scrollSpeed,
 			observeDuringScroll: params.observeDuringScroll,
 		});
-		if (backend === "wlroots-bridge") {
-			const bridge = resolveWlrootsBridge();
+		if (backend === "wlroots-bridge" || backend === "native-bridge") {
+			const bridge = resolveDesktopBridge();
 			if (bridge) {
 				const outScale = await detectOutputScale();
 				const scrollX = params.x !== undefined && params.y !== undefined && lastInputFrame
@@ -6146,7 +6151,7 @@ async function executeLiveAction(
 					await runBridgeJson(bridge, bridgePointerScrollArgs(scrollX, scrollY, dx, dy));
 					liveAuthorizedKinds.add(action);
 					return withVerify(
-						`Native wlroots-bridge scrolled ${dir} ${x11Plan.steps} notch${x11Plan.steps === 1 ? "" : "es"} on "${win.title}".`,
+						`Native bridge scrolled ${dir} ${x11Plan.steps} notch${x11Plan.steps === 1 ? "" : "es"} on "${win.title}".`,
 						{
 							scroll: {
 								direction: dir,

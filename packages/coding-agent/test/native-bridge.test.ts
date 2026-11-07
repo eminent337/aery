@@ -209,4 +209,35 @@ describe("Native Wayland/Linux Bridge Dispatcher", () => {
 		expect(keyChain).toContain("ydotool");
 		expect(keyChain).toContain("wtype");
 	});
+
+	it("resolves backend chain with activeBridge on GNOME and KDE Plasma", () => {
+		const gnomeProbe: BackendProbe = {
+			activeBridge: {
+				bin: "/usr/lib/claude-desktop-bin/resources/gnome-portal-bridge",
+				type: "gnome",
+				timeoutMs: 30000,
+			},
+			ydotool: true,
+			ydotoold: true,
+			xdotool: false,
+			wtype: false,
+		};
+		expect(resolveBackend(gnomeProbe, false, "pointer", "linux")).toBe("native-bridge");
+		expect(resolveBackendChain(gnomeProbe, false, "pointer", "linux")[0]).toBe("native-bridge");
+		expect(resolveBackendChain(gnomeProbe, false, "keyboard", "linux")[0]).toBe("native-bridge");
+
+		const kwinProbe: BackendProbe = {
+			activeBridge: {
+				bin: "/usr/lib/claude-desktop-bin/resources/kwin-portal-bridge",
+				type: "kwin",
+				timeoutMs: 20000,
+			},
+			ydotool: false,
+			ydotoold: false,
+			xdotool: false,
+			wtype: false,
+		};
+		expect(resolveBackend(kwinProbe, false, "type", "linux")).toBe("native-bridge");
+		expect(resolveBackendChain(kwinProbe, false, "type", "linux")).toEqual(["native-bridge"]);
+	});
 });

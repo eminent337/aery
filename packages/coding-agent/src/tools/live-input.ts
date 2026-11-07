@@ -19,7 +19,7 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import { promisify } from "node:util";
-import { resolveWlrootsBridge } from "./native-bridge";
+import { resolveWlrootsBridge, resolveActiveLinuxBridge, type ActiveBridge } from "./native-bridge";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +29,7 @@ import * as net from "node:net";
 
 export interface BackendProbe {
 	wlrootsBridge?: string | null;
+	activeBridge?: ActiveBridge | null;
 	ydotool: boolean;
 	ydotoold: boolean;
 	xdotool: boolean;
@@ -77,6 +78,7 @@ export async function probeBackends(): Promise<BackendProbe> {
 	]);
 	probeCache = {
 		wlrootsBridge: resolveWlrootsBridge(),
+		activeBridge: resolveActiveLinuxBridge(),
 		ydotool,
 		ydotoold: await hasYdotooldSocket(),
 		xdotool,
@@ -133,7 +135,7 @@ export async function ensureYdotoold(signal?: AbortSignal): Promise<boolean> {
 /** What kind of device an input action needs. */
 export type InputKind = "pointer" | "keyboard" | "type";
 
-export type LiveBackend = "wlroots-bridge" | "ydotool" | "wtype" | "xdotool" | "cliclick" | "osascript" | "powershell";
+export type LiveBackend = "wlroots-bridge" | "native-bridge" | "ydotool" | "wtype" | "xdotool" | "cliclick" | "osascript" | "powershell";
 
 /** Backend resolver — pure decision given probe + target window compositor. */
 export function resolveBackend(
@@ -151,6 +153,7 @@ export function resolveBackend(
 		if (probe.powershell) return "powershell";
 		return "none";
 	}
+	if (probe.activeBridge) return "native-bridge";
 	if (probe.wlrootsBridge) return "wlroots-bridge";
 	if (probe.ydotool && probe.ydotoold) return "ydotool";
 	if (probe.ydotool && !probe.ydotoold) return "no-daemon";
@@ -164,7 +167,7 @@ export function resolveBackend(
  * Every viable backend for an action kind, best first. Used as an execution
  * fallback chain: if the primary backend's command fails at runtime (glitch,
  * dropped chord, unsupported glyph), the tool retries down this list.
- * Priority: wlroots-bridge → ydotool (uinput — works native Wayland + XWayland)
+ * Priority: native-bridge → ydotool (uinput — works native Wayland + XWayland)
  * → xdotool (XTest — XWayland only) → wtype (virtual-keyboard protocol).
  */
 export function resolveBackendChain(
@@ -183,7 +186,8 @@ export function resolveBackendChain(
 		if (probe.powershell) chain.push("powershell");
 		return chain;
 	}
-	if (probe.wlrootsBridge) chain.push("wlroots-bridge");
+	if (probe.activeBridge) chain.push("native-bridge");
+	else if (probe.wlrootsBridge) chain.push("wlroots-bridge");
 	if (probe.ydotool && probe.ydotoold) chain.push("ydotool");
 	if (kind !== "pointer") {
 		if (windowXwayland && probe.xdotool) chain.push("xdotool");
