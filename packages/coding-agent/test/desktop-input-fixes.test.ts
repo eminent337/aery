@@ -116,7 +116,7 @@ describe("Desktop Input & Accessibility Fixes", () => {
 
 	it("routes desktop_accessibility press action via fallback on Hyprland", async () => {
 		const tool = new DesktopAccessibilityTool();
-		const res = await tool.execute("call-test", { action: "press", key: "Escape" });
+		const res = await tool.execute("call-test", { action: "press", key: "Shift_L" });
 		expect(res.isError).toBeFalsy();
 	});
 });
