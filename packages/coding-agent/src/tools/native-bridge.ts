@@ -15,6 +15,7 @@ const execFileAsync = promisify(execFile);
 
 let cachedWlrootsBridge: string | null | undefined = undefined;
 let cachedGnomeBridge: string | null | undefined = undefined;
+let cachedKwinBridge: string | null | undefined = undefined;
 let cachedX11Bridge: string | null | undefined = undefined;
 
 /**
@@ -91,10 +92,67 @@ export function resolveGnomeBridge(): string | null {
 	});
 }
 
+export function resolveKwinBridge(): string | null {
+	return resolveBridgeBinary("kwin-portal-bridge", "AERY_KWIN_BRIDGE", cachedKwinBridge, val => {
+		cachedKwinBridge = val;
+	});
+}
+
 export function resolveX11Bridge(): string | null {
 	return resolveBridgeBinary("x11-bridge", "AERY_X11_BRIDGE", cachedX11Bridge, val => {
 		cachedX11Bridge = val;
 	});
+}
+
+export type BridgeType = "wlroots" | "gnome" | "kwin" | "x11";
+
+export interface ActiveBridge {
+	bin: string;
+	type: BridgeType;
+	timeoutMs: number;
+}
+
+/**
+ * Resolve the appropriate active native Linux bridge for the current desktop session.
+ */
+export function resolveActiveLinuxBridge(env: NodeJS.ProcessEnv = process.env): ActiveBridge | null {
+	const isWlroots = Boolean(env.HYPRLAND_INSTANCE_SIGNATURE || env.SWAYSOCK || env.NIRI_SOCKET);
+	if (isWlroots) {
+		const bin = resolveWlrootsBridge();
+		if (bin) return { bin, type: "wlroots", timeoutMs: 15000 };
+	}
+
+	const currentDesktop = (env.XDG_CURRENT_DESKTOP || "").toLowerCase();
+	const isGnome = currentDesktop.includes("gnome");
+	if (isGnome) {
+		const bin = resolveGnomeBridge();
+		if (bin) return { bin, type: "gnome", timeoutMs: 30000 };
+	}
+
+	const isKde = currentDesktop.includes("kde") || env.KDE_FULL_SESSION === "true";
+	if (isKde) {
+		const bin = resolveKwinBridge();
+		if (bin) return { bin, type: "kwin", timeoutMs: 20000 };
+	}
+
+	const sessType = (env.XDG_SESSION_TYPE || "").toLowerCase();
+	const isX11 = sessType === "x11" || (!env.WAYLAND_DISPLAY && Boolean(env.DISPLAY));
+	if (isX11) {
+		const bin = resolveX11Bridge();
+		if (bin) return { bin, type: "x11", timeoutMs: 15000 };
+	}
+
+	// Dynamic fallbacks if compositor was not explicitly matched by desktop name
+	const wlr = resolveWlrootsBridge();
+	if (wlr && env.WAYLAND_DISPLAY) return { bin: wlr, type: "wlroots", timeoutMs: 15000 };
+	const kwin = resolveKwinBridge();
+	if (kwin && env.WAYLAND_DISPLAY) return { bin: kwin, type: "kwin", timeoutMs: 20000 };
+	const gnome = resolveGnomeBridge();
+	if (gnome && env.WAYLAND_DISPLAY) return { bin: gnome, type: "gnome", timeoutMs: 30000 };
+	const x11 = resolveX11Bridge();
+	if (x11 && env.DISPLAY) return { bin: x11, type: "x11", timeoutMs: 15000 };
+
+	return null;
 }
 
 /**
