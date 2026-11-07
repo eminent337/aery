@@ -92,7 +92,12 @@ export class InputController {
 		this.ctx.editor.onEscape = () => {
 			if (this.ctx.loopModeEnabled) {
 				this.ctx.pauseLoop();
-				if (this.ctx.session.isStreaming) {
+				if (
+					this.ctx.session.isStreaming ||
+					this.ctx.session.isCompacting ||
+					this.ctx.session.isRetrying ||
+					this.ctx.session.hasPostPromptWork
+				) {
 					void this.ctx.session.abort();
 				} else {
 					this.ctx.cancelPendingSubmission();
@@ -107,6 +112,12 @@ export class InputController {
 			}
 			if (this.ctx.loadingAnimation) {
 				if (this.ctx.cancelPendingSubmission()) {
+					return;
+				}
+				// If compacting or retrying (not just a pending user submission),
+				// abort the session so ESC always stops visible work.
+				if (this.ctx.session.isCompacting || this.ctx.session.isRetrying) {
+					void this.ctx.session.abort();
 					return;
 				}
 				this.restoreQueuedMessagesToEditor({ abort: true });
@@ -124,7 +135,12 @@ export class InputController {
 				this.ctx.isPythonMode = false;
 				this.ctx.updateEditorBorderColor();
 				this.ctx.updateEditorTopBorder();
-			} else if (this.ctx.session.isStreaming) {
+			} else if (
+				this.ctx.session.isStreaming ||
+				this.ctx.session.isCompacting ||
+				this.ctx.session.isRetrying ||
+				this.ctx.session.hasPostPromptWork
+			) {
 				void this.ctx.session.abort();
 			} else if (!this.ctx.editor.getText().trim()) {
 				// Double-interrupt with empty editor triggers /tree, /branch, or nothing based on setting
