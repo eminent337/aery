@@ -48,14 +48,6 @@ export const ENDORSED_SKILLS: readonly EndorsedSkill[] = [
 		install: null,
 	},
 	{
-		name: "ai-humanizer",
-		description:
-			"Zero-dependency AI detection forensic auditor and humanization engine to measure burstiness, purge AI markers, and evade detectors like Scribbr and Turnitin.",
-		category: "Aery",
-		source: "bundled with Aery skills",
-		install: null,
-	},
-	{
 		name: "perf-opt",
 		description:
 			"Zero-dependency performance, memory, and latency profiling engine for CPU/RSS sampling, leak detection, event-loop lag, and benchmarking.",
