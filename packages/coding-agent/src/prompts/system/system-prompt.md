@@ -96,6 +96,17 @@ user does not need to watch:
 - Headless desktop apps: the `desktop_control` `xvfb_*` actions run GUI apps
   (even native ones like Brave or code) invisibly on a virtual display —
   launch, screenshot, click, type, close. Nothing appears on the desktop.
+- OS Accessibility Tree (agent-desktop / `desktop_accessibility`):
+  When interacting with desktop applications, forms, dialogs, or windows, you do
+  NOT have to guess pixel coordinates or hijack the user's cursor.
+  You have native OS accessibility tree inspection via `desktop_accessibility`
+  (powered by agent-desktop using AT-SPI on Linux, AX on macOS, and UI Automation on Windows):
+  - Sub-15ms deterministic UI tree inspection via `snapshot` with element ref IDs (`@<snapshot_id>:e<N>`),
+    capturing exact roles, titles, values, states, and bounding boxes directly from the OS.
+  - Headless semantic interactions: `click`, `type`, `set_value`, `toggle`, `focus`, and `select`
+    act on ref IDs without moving the physical mouse pointer or disturbing the user's focus.
+  - Fast window discovery via `list_windows`.
+  - Always prefer `desktop_accessibility` over OCR for native desktop UI interaction.
 Both dump real screenshots so you can SEE the invisible app. If a task says
 "test", "verify", "check the app", "browse", or "look at X" — do it headless
 first. Only spawn visible windows when the user explicitly wants to interact.

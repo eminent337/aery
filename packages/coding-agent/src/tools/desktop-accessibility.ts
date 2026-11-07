@@ -12,6 +12,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
+import desktopAccessibilityDescription from "../prompts/tools/desktop-accessibility.md" with { type: "text" };
 import type {
 	AgentTool,
 	AgentToolContext,
@@ -86,6 +87,11 @@ export const desktopAccessibilitySchema = z.object({
 		.optional()
 		.describe("Target application name (e.g. 'nautilus', 'libreoffice', 'brave', 'kitty')."),
 
+	target: z
+		.string()
+		.optional()
+		.describe("Alias for target application or window title filter."),
+
 	window_id: z
 		.string()
 		.optional()
@@ -124,19 +130,16 @@ export const desktopAccessibilitySchema = z.object({
 	interactive_only: z
 		.boolean()
 		.optional()
-		.default(true)
-		.describe("Whether to return only actionable interactive elements (recommended: true)."),
+		.describe("Whether to return only actionable interactive elements (default: true)."),
 
 	compact: z
 		.boolean()
 		.optional()
-		.default(true)
-		.describe("Whether to omit empty structural container groups (recommended: true)."),
+		.describe("Whether to omit empty structural container groups (default: true)."),
 
 	skeleton: z
 		.boolean()
 		.optional()
-		.default(false)
 		.describe("Whether to produce a shallow structural skeleton map with child counts for dense UIs."),
 
 	max_depth: z
@@ -147,14 +150,12 @@ export const desktopAccessibilitySchema = z.object({
 	headed: z
 		.boolean()
 		.optional()
-		.default(false)
 		.describe("Force physical mouse pointer/focus if semantic headless execution is not available."),
 
 	timeout_ms: z
 		.number()
 		.optional()
-		.default(10000)
-		.describe("Timeout in milliseconds for the operation."),
+		.describe("Timeout in milliseconds for the operation (default: 10000)."),
 });
 
 export type DesktopAccessibilityParams = z.infer<typeof desktopAccessibilitySchema>;
@@ -208,10 +209,7 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 	readonly label = "Desktop Accessibility";
 	readonly summary =
 		"Inspect OS accessibility tree and perform headless, deterministic clicks, typing, and checks by ref ID";
-	readonly description =
-		"Operating system accessibility automation via agent-desktop (AT-SPI on Linux, AX on macOS, UI Automation on Windows). " +
-		"Allows sub-15ms inspection of desktop apps and deterministic headless clicks/typing on element ref IDs (@<snapshot_id>:e<N>) " +
-		"without moving the physical mouse pointer.";
+	readonly description = desktopAccessibilityDescription;
 	readonly parameters = desktopAccessibilitySchema;
 	readonly strict = true;
 	readonly loadMode = "discoverable" as const;
@@ -247,6 +245,8 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 			args.push("--headed");
 		}
 
+		const targetApp = params.app || params.target;
+
 		switch (params.action) {
 			case "status":
 				args.push("status");
@@ -254,17 +254,17 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 
 			case "list_windows":
 				args.push("list-windows");
-				if (params.app) args.push("--app", params.app);
+				if (targetApp) args.push("--app", targetApp);
 				break;
 
 			case "list_apps":
 				args.push("list-apps");
-				if (params.app) args.push("--app", params.app);
+				if (targetApp) args.push("--app", targetApp);
 				break;
 
 			case "snapshot": {
 				args.push("snapshot");
-				if (params.app) args.push("--app", params.app);
+				if (targetApp) args.push("--app", targetApp);
 				if (params.window_id) args.push("--window-id", params.window_id);
 				if (params.root_ref) args.push("--root", params.root_ref);
 				if (params.interactive_only ?? true) args.push("-i");
