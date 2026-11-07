@@ -62,6 +62,7 @@ import {
 	CloseAppTool,
 } from "./agy-computer-use";
 import { GeminiComputerUseTool } from "./gemini-computer-use";
+import { DesktopAccessibilityTool } from "./desktop-accessibility";
 import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
@@ -118,6 +119,7 @@ import { YieldTool } from "./yield";
 
 export * from "../edit";
 export * from "../exa";
+export * from "./desktop-accessibility";
 
 import { exaTools } from "../exa";
 import { CustomToolAdapter } from "../extensibility/custom-tools/wrapper";
@@ -671,6 +673,9 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	close_app: CloseAppTool.createIf,
 	gemini_computer_use: GeminiComputerUseTool.createIf,
 	computer_use: GeminiComputerUseTool.createIf,
+	desktop_accessibility: DesktopAccessibilityTool.createIf,
+	agent_desktop: DesktopAccessibilityTool.createIf,
+	desktop_tree: DesktopAccessibilityTool.createIf,
 	voice_control: VoiceControlTool.createIf,
 	camera_control: CameraControlTool.createIf,
 	search_context: SearchContextTool.createIf,

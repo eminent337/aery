@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { resolveAgentDesktopBinary } from "./desktop-accessibility";
 import { execFileNiced } from "./capture-priority";
 import { hyprCommandSocketPath, hyprFastMoveCursor, hyprIpcDispatch as hyprIpcQuery } from "./live-input";
 
@@ -50,18 +51,43 @@ export interface CaptureControl {
 	captureBuffer(geometry?: string): Promise<{ code: number; buffer?: Buffer; stderr: string }>;
 	cursorPos(): Promise<{ x: number; y: number } | null>;
 }
+export interface AccessibilityControl {
+	isAvailable(): Promise<boolean>;
+	run(args: string[]): Promise<{ code: number; stdout: string; stderr: string; data?: any }>;
+}
+
 export interface DesktopDriver {
 	readonly id: PlatformId;
 	/** Human one-liner for live_backend_probe ("Hyprland 0.4x (Wayland)"). */
 	readonly label: string;
 	readonly windows: WindowControl;
 	readonly capture: CaptureControl;
+	readonly accessibility: AccessibilityControl;
 	/** Shell out inside the driver (DISPLAY etc. handled per-driver). */
 	run(
 		cmd: string,
 		args: string[],
 		opts?: { timeout?: number; env?: NodeJS.ProcessEnv },
 	): Promise<{ code: number; stdout: string; stderr: string }>;
+}
+
+export function createAccessibilityControl(): AccessibilityControl {
+	return {
+		async isAvailable(): Promise<boolean> {
+			const bin = resolveAgentDesktopBinary();
+			return bin !== null;
+		},
+		async run(args: string[]): Promise<{ code: number; stdout: string; stderr: string; data?: any }> {
+			const bin = resolveAgentDesktopBinary();
+			if (!bin) return { code: 127, stdout: "", stderr: "agent-desktop binary not found" };
+			const res = await runCmd(bin, args, { timeout: 15000 });
+			let data: any;
+			try {
+				data = JSON.parse(res.stdout);
+			} catch {}
+			return { ...res, data };
+		},
+	};
 }
 
 /** --- Output scale (physical px → logical units) ----------------------- */
@@ -424,6 +450,7 @@ const hyprlandDriver: DesktopDriver = {
 			}
 		},
 	},
+	accessibility: createAccessibilityControl(),
 	run: runCmd,
 };
 
@@ -499,6 +526,7 @@ const x11Driver: DesktopDriver = {
 			return x && y ? { x: Number(x[1]), y: Number(y[1]) } : null;
 		},
 	},
+	accessibility: createAccessibilityControl(),
 	run: runCmd,
 };
 
@@ -646,6 +674,7 @@ end tell`;
 			}
 		},
 	},
+	accessibility: createAccessibilityControl(),
 	run: runCmd,
 };
 
@@ -782,6 +811,7 @@ Write-Output ('{"x":' + $p.X + ',"y":' + $p.Y + '}')`;
 			}
 		},
 	},
+	accessibility: createAccessibilityControl(),
 	run: runCmd,
 };
 
