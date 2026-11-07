@@ -3529,10 +3529,10 @@ export function validateInjection(params: {
 	}
 	// Restricted-app check needs the window — represented here by class/title
 	// passed via keys-free params; the live path re-checks with the real win.
-	// 1b. Continuous-observation freshness: when the caller supplies the
-	// snapshot status, a stale/superseded/mismatched reading refuses with an
-	// actionable code instead of driving from an old frame.
-	if (params.observation && params.observation.state !== "fresh") {
+	// 1b. Continuous-observation freshness: for pointer actions where coordinates
+	// are anchored to the visual scene, a stale/superseded/mismatched reading refuses
+	// with an actionable code instead of driving from an old frame.
+	if (isPointer && params.observation && params.observation.state !== "fresh") {
 		const obs = params.observation;
 		const code =
 			obs.state === "missing"
@@ -4612,7 +4612,14 @@ async function executeLiveAction(
 			if (params.y2 !== undefined) {
 				params.y2 = Math.round((params.y2 / 1000) * lastInputFrame.scaledH);
 			}
-		} else if (params.coordinate_system === "physical") {
+		} else if (
+			params.coordinate_system === "physical" ||
+			(!params.coordinate_system &&
+				lastInputFrame.physW > 0 &&
+				lastInputFrame.scaledW > 0 &&
+				((params.x !== undefined && params.x > lastInputFrame.scaledW) ||
+					(params.y !== undefined && params.y > lastInputFrame.scaledH)))
+		) {
 			if (params.x !== undefined && params.y !== undefined) {
 				const f = physicalToFrame({ x: params.x, y: params.y }, lastInputFrame);
 				params.x = f.x;
@@ -5008,7 +5015,7 @@ async function executeLiveAction(
 						details: { liveVerify: { at: Date.now() }, frame: cap.frame },
 						attribution: "agent",
 					},
-					{ deliverAs: "steer", triggerTurn: false },
+					{ deliverAs: "nextTurn", triggerTurn: false },
 				);
 				attached = true;
 			} catch {
@@ -7843,7 +7850,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								},
 								attribution: "agent",
 							},
-							{ deliverAs: "steer", triggerTurn: false },
+							{ deliverAs: "nextTurn", triggerTurn: false },
 						);
 						attached = true;
 					} catch {
@@ -8031,7 +8038,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								},
 								attribution: "agent",
 							},
-							{ deliverAs: "steer", triggerTurn: false },
+							{ deliverAs: "nextTurn", triggerTurn: false },
 						);
 					} catch {
 						// fire-and-forget

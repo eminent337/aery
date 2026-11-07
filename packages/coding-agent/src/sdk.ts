@@ -2256,16 +2256,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		//     this per-image; doing it here covers tool results + eye glances too).
 		const modelSupportsImages = (model?.input ?? []).includes("image");
 
+		const ocrImageCache = new Map<string, string>();
 		const ocrImageToText = async (image: { data: string; mimeType?: string }): Promise<string | null> => {
+			if (!image.data) return null;
+			const cacheKey =
+				image.data.length > 256 ? `${image.data.length}:${image.data.slice(0, 128)}` : image.data;
+			const cached = ocrImageCache.get(cacheKey);
+			if (cached !== undefined) return cached;
 			try {
-				const filePath = path.join(
-					os.tmpdir(),
-					`aery-ocr-visionless-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`,
-				);
-				await fs.promises.writeFile(filePath, Buffer.from(image.data, "base64"));
-				const ocr = await ocrFrame(filePath);
-				await fs.promises.rm(filePath, { force: true }).catch(() => {});
-				return ocr.text || null;
+				const buf = Buffer.from(image.data, "base64");
+				const ocr = await ocrFrame(buf);
+				const text = ocr.text || "Unreadable image.";
+				ocrImageCache.set(cacheKey, text);
+				return text;
 			} catch {
 				return null;
 			}

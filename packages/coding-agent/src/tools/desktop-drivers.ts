@@ -418,16 +418,32 @@ const hyprlandDriver: DesktopDriver = {
 				const proc = spawn("grim", args, { stdio: ["ignore", "pipe", "pipe"] });
 				const chunks: Buffer[] = [];
 				let stderr = "";
+				let settled = false;
+				const timer = setTimeout(() => {
+					if (!settled) {
+						settled = true;
+						try { proc.kill("SIGKILL"); } catch {}
+						resolve({ code: 1, stderr: "grim captureBuffer timed out after 5000ms" });
+					}
+				}, 5000);
 				proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
 				proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
 				proc.on("close", (code) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
 					if (code === 0) {
 						resolve({ code: 0, buffer: Buffer.concat(chunks), stderr: "" });
 					} else {
 						resolve({ code: code ?? 1, stderr });
 					}
 				});
-				proc.on("error", (err) => resolve({ code: 1, stderr: err.message }));
+				proc.on("error", (err) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					resolve({ code: 1, stderr: err.message });
+				});
 			});
 		},
 		async cursorPos() {

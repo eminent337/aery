@@ -113,22 +113,36 @@ export async function runTessTsvBuffer(
 	opts: { lang?: string; timeoutMs?: number; psm?: string } = {},
 ): Promise<{ stdout: string; stderr: string; code: number }> {
 	return new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+		const timeout = opts.timeoutMs ?? 10_000;
 		const proc = spawn(
 			"tesseract",
 			["stdin", "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", opts.psm ?? "3", "tsv"],
 			{
-				timeout: opts.timeoutMs ?? 30_000,
+				timeout,
 				env: { ...process.env, ...ocrThreadEnv() },
 				stdio: ["pipe", "pipe", "pipe"],
 			},
 		);
 		const chunks: Buffer[] = [];
 		let stderr = "";
+		let settled = false;
+
+		const timer = setTimeout(() => {
+			if (!settled) {
+				settled = true;
+				try { proc.kill("SIGKILL"); } catch {}
+				resolve({ stdout: "", stderr: `tesseract timed out after ${timeout}ms`, code: 1 });
+			}
+		}, timeout + 500);
+
 		proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
 		proc.stderr.on("data", (chunk: Buffer) => {
 			stderr += chunk.toString();
 		});
 		proc.on("close", (code) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
 			resolve({
 				stdout: Buffer.concat(chunks).toString("utf-8"),
 				stderr: stderr.trim(),
@@ -136,7 +150,13 @@ export async function runTessTsvBuffer(
 			});
 		});
 		proc.on("error", (err) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
 			resolve({ stdout: "", stderr: err.message, code: 1 });
+		});
+		proc.stdin.on("error", () => {
+			// ignore EPIPE
 		});
 		proc.stdin.end(buffer);
 	});

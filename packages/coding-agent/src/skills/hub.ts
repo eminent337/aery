@@ -96,7 +96,7 @@ export class SkillHubClient {
 			try {
 				const resp = await fetch(this.remoteUrl, { signal: AbortSignal.timeout(3000) });
 				if (resp.ok) {
-					manifest = await resp.json();
+					manifest = (await resp.json()) as SkillHubManifest;
 					await fs.mkdir(this.skillsDir, { recursive: true });
 					await fs.writeFile(cacheFile, JSON.stringify(manifest, null, 2), "utf-8");
 				}
@@ -104,7 +104,7 @@ export class SkillHubClient {
 				// try reading cache
 				try {
 					const cached = await fs.readFile(cacheFile, "utf-8");
-					manifest = JSON.parse(cached);
+					manifest = JSON.parse(cached) as SkillHubManifest;
 				} catch {
 					// fallback empty
 				}

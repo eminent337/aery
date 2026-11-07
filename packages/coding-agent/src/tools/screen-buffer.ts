@@ -63,6 +63,15 @@ export async function resizePngBuffer(
 
 		const chunks: Buffer[] = [];
 		let stderr = "";
+		let settled = false;
+
+		const timer = setTimeout(() => {
+			if (!settled) {
+				settled = true;
+				try { proc.kill("SIGKILL"); } catch {}
+				reject(new Error("resizePngBuffer timed out after 6000ms"));
+			}
+		}, 6000);
 
 		proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
 		proc.stderr.on("data", (chunk: Buffer) => {
@@ -70,6 +79,9 @@ export async function resizePngBuffer(
 		});
 
 		proc.on("close", code => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
 			if (code !== 0) {
 				return reject(new Error(`convert failed with code ${code}: ${stderr}`));
 			}
@@ -78,7 +90,17 @@ export async function resizePngBuffer(
 			resolve({ buffer: outBuf, width: outDims[0], height: outDims[1] });
 		});
 
-		proc.on("error", err => reject(err));
+		proc.on("error", err => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			reject(err);
+		});
+
+		proc.stdin.on("error", () => {
+			// ignore EPIPE
+		});
+
 		proc.stdin.end(buffer);
 	});
 }

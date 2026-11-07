@@ -214,7 +214,11 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 	readonly strict = true;
 	readonly loadMode = "discoverable" as const;
 
-	constructor(_session?: any) {}
+	private readonly session?: any;
+
+	constructor(session?: any) {
+		this.session = session;
+	}
 
 	static createIf(session?: any): DesktopAccessibilityTool | null {
 		return new DesktopAccessibilityTool(session);
@@ -448,6 +452,38 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 
 			if (!envelope.ok) {
 				const err = envelope.error || {};
+				// Fallback for Wayland/Hyprland sessions where Mutter RemoteDesktop or physical pointer is unavailable
+				if (
+					params.action === "press" &&
+					params.key &&
+					(err.code === "PLATFORM_NOT_SUPPORTED" || err.details?.backend?.includes("Mutter"))
+				) {
+					try {
+						const { DesktopControlTool } = await import("./desktop-control");
+						const dtTool = new DesktopControlTool(this.session);
+						const fallbackRes = await dtTool.execute(
+							toolCallId,
+							{
+								action: "press_key",
+								key: params.key,
+								app: targetApp,
+							},
+							signal,
+							_onUpdate,
+						);
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Sent key "${params.key}" via native Wayland input fallback (Mutter RemoteDesktop D-Bus is unavailable on ${process.env.XDG_CURRENT_DESKTOP || "Wayland"} compositor).\n\n${fallbackRes.content[0]?.type === "text" ? fallbackRes.content[0].text : ""}`,
+								},
+							],
+							isError: fallbackRes.isError ?? false,
+						};
+					} catch {
+						// fall through to reporting original error
+					}
+				}
 				return {
 					content: [
 						{
@@ -484,6 +520,22 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 				isError: false,
 			};
 		} catch (error: any) {
+			if (params.action === "press" && params.key) {
+				try {
+					const { DesktopControlTool } = await import("./desktop-control");
+					const dtTool = new DesktopControlTool(this.session);
+					return await dtTool.execute(
+						toolCallId,
+						{
+							action: "press_key",
+							key: params.key,
+							app: targetApp,
+						},
+						signal,
+						_onUpdate,
+					);
+				} catch {}
+			}
 			return {
 				content: [
 					{
