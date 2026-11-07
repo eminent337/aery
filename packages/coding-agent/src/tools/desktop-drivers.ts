@@ -19,6 +19,7 @@ import { resolveAgentDesktopBinary } from "./desktop-accessibility";
 import { execFileNiced } from "./capture-priority";
 import { hyprCommandSocketPath, hyprFastMoveCursor, hyprIpcDispatch as hyprIpcQuery } from "./live-input";
 import {
+	resolveActiveLinuxBridge,
 	resolveWlrootsBridge,
 	resolveGnomeBridge,
 	resolveX11Bridge,
@@ -29,6 +30,14 @@ import {
 	bridgeFrontmostAppArgs,
 	bridgeActivateWindowArgs,
 } from "./native-bridge";
+
+function getActiveBridge(): { bin: string; timeoutMs: number } | null {
+	const active = resolveActiveLinuxBridge();
+	if (active) return { bin: active.bin, timeoutMs: active.timeoutMs };
+	const wlr = resolveWlrootsBridge();
+	if (wlr) return { bin: wlr, timeoutMs: 15000 };
+	return null;
+}
 
 export { hyprCommandSocketPath, hyprFastMoveCursor, hyprIpcQuery };
 
@@ -364,7 +373,7 @@ const hyprlandDriver: DesktopDriver = {
 				const clients = parseHyprClients(res.stdout);
 				if (clients.length > 0) return clients;
 			}
-			const bridge = resolveWlrootsBridge();
+			const bridge = getActiveBridge()?.bin;
 			if (bridge) {
 				try {
 					const items = await runBridgeJson<
@@ -412,7 +421,7 @@ const hyprlandDriver: DesktopDriver = {
 				const parsed = parseHyprActive(res.stdout);
 				if (parsed) return parsed;
 			}
-			const bridge = resolveWlrootsBridge();
+			const bridge = getActiveBridge()?.bin;
 			if (bridge) {
 				try {
 					const items = await runBridgeJson<
@@ -447,7 +456,7 @@ const hyprlandDriver: DesktopDriver = {
 			return undefined;
 		},
 		async focusWindow(address: string) {
-			const bridge = resolveWlrootsBridge();
+			const bridge = getActiveBridge()?.bin;
 			if (bridge && /^\d+$/.test(address)) {
 				try {
 					await runBridgeJson(bridge, bridgeActivateWindowArgs(address), 3000);
@@ -503,7 +512,7 @@ const hyprlandDriver: DesktopDriver = {
 	},
 	capture: {
 		async capture(tmpPath: string, geometry?: string) {
-			const bridge = resolveWlrootsBridge();
+			const bridge = getActiveBridge();
 			if (bridge) {
 				try {
 					let res: { base64?: string } | null = null;
@@ -511,15 +520,15 @@ const hyprlandDriver: DesktopDriver = {
 						const m = geometry.match(/^(\d+),(\d+)\s+(\d+)x(\d+)$/);
 						if (m) {
 							res = await runBridgeJson(
-								bridge,
+								bridge.bin,
 								bridgeZoomArgs(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])),
-								3000,
+								bridge.timeoutMs,
 							);
 						} else {
-							res = await runBridgeJson(bridge, bridgeScreenshotArgs(), 3000);
+							res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
 						}
 					} else {
-						res = await runBridgeJson(bridge, bridgeScreenshotArgs(), 3000);
+						res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
 					}
 					if (res?.base64) {
 						await fs.promises.writeFile(tmpPath, Buffer.from(res.base64, "base64"));
@@ -539,7 +548,7 @@ const hyprlandDriver: DesktopDriver = {
 			return { code: res.code, stderr: res.stderr };
 		},
 		async captureBuffer(geometry?: string) {
-			const bridge = resolveWlrootsBridge();
+			const bridge = getActiveBridge();
 			if (bridge) {
 				try {
 					let res: { base64?: string } | null = null;
@@ -547,15 +556,15 @@ const hyprlandDriver: DesktopDriver = {
 						const m = geometry.match(/^(\d+),(\d+)\s+(\d+)x(\d+)$/);
 						if (m) {
 							res = await runBridgeJson(
-								bridge,
+								bridge.bin,
 								bridgeZoomArgs(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])),
-								3000,
+								bridge.timeoutMs,
 							);
 						} else {
-							res = await runBridgeJson(bridge, bridgeScreenshotArgs(), 3000);
+							res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
 						}
 					} else {
-						res = await runBridgeJson(bridge, bridgeScreenshotArgs(), 3000);
+						res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
 					}
 					if (res?.base64) {
 						return { code: 0, buffer: Buffer.from(res.base64, "base64"), stderr: "" };
