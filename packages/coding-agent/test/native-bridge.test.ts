@@ -17,6 +17,9 @@ import {
 	bridgeTypeTextArgs,
 	bridgeScreenshotArgs,
 	bridgeZoomArgs,
+	bridgeWindowsArgs,
+	bridgeFrontmostAppArgs,
+	bridgeActivateWindowArgs,
 } from "../src/tools/native-bridge";
 
 describe("Native Wayland/Linux Bridge Dispatcher", () => {
@@ -93,6 +96,10 @@ describe("Native Wayland/Linux Bridge Dispatcher", () => {
 			"--h",
 			"300",
 		]);
+
+		expect(bridgeWindowsArgs()).toEqual(["windows"]);
+		expect(bridgeFrontmostAppArgs()).toEqual(["frontmost-app"]);
+		expect(bridgeActivateWindowArgs("4278190084")).toEqual(["activate-window", "--window", "4278190084"]);
 	});
 
 	it("executes live doctor inspection on wlroots-bridge", async () => {
@@ -123,6 +130,18 @@ describe("Native Wayland/Linux Bridge Dispatcher", () => {
 		expect(res.base64).toBeDefined();
 		const buf = Buffer.from(res.base64!, "base64");
 		expect(buf.length).toBeGreaterThan(500);
+	});
+
+	it("queries foreign toplevel windows and frontmost app via wlroots-bridge", async () => {
+		const bin = resolveWlrootsBridge();
+		if (!bin) return;
+		const winList = await runBridgeJson<Array<{ id: string; title?: string }>>(bin, bridgeWindowsArgs());
+		expect(Array.isArray(winList)).toBe(true);
+		expect(winList.length).toBeGreaterThan(0);
+		expect(winList[0].id).toBeDefined();
+
+		const front = await runBridgeJson<{ bundleId?: string; displayName?: string }>(bin, bridgeFrontmostAppArgs());
+		expect(front).toBeDefined();
 	});
 
 	it("resolves backend chain with wlroots-bridge on Wayland", () => {

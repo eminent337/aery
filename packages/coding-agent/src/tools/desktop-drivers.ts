@@ -360,7 +360,42 @@ const hyprlandDriver: DesktopDriver = {
 				// fallback to hyprctl spawn
 			}
 			const res = await runCmd("hyprctl", ["clients", "-j"]);
-			return res.code === 0 ? parseHyprClients(res.stdout) : [];
+			if (res.code === 0) {
+				const clients = parseHyprClients(res.stdout);
+				if (clients.length > 0) return clients;
+			}
+			const bridge = resolveWlrootsBridge();
+			if (bridge) {
+				try {
+					const items = await runBridgeJson<
+						Array<{
+							id: string;
+							title?: string;
+							resource_class?: string;
+							desktop_file_name?: string;
+							geometry?: { x: number; y: number; width: number; height: number };
+							is_active?: boolean;
+							pid?: number | null;
+						}>
+					>(bridge, bridgeWindowsArgs(), 3000);
+					if (Array.isArray(items) && items.length > 0) {
+						return items.map(w => ({
+							address: w.id,
+							title: w.title || w.resource_class || "(untitled)",
+							class: w.resource_class || w.desktop_file_name || "(unknown)",
+							workspace: 1,
+							at: [w.geometry?.x ?? 0, w.geometry?.y ?? 0] as [number, number],
+							size: [w.geometry?.width ?? 0, w.geometry?.height ?? 0] as [number, number],
+							focused: Boolean(w.is_active),
+							pid: w.pid ?? undefined,
+							xwayland: false,
+						}));
+					}
+				} catch {
+					// fallback
+				}
+			}
+			return [];
 		},
 		async activeWindow() {
 			try {
@@ -373,9 +408,54 @@ const hyprlandDriver: DesktopDriver = {
 				// fallback
 			}
 			const res = await runCmd("hyprctl", ["activewindow", "-j"]);
-			return res.code === 0 ? parseHyprActive(res.stdout) : undefined;
+			if (res.code === 0) {
+				const parsed = parseHyprActive(res.stdout);
+				if (parsed) return parsed;
+			}
+			const bridge = resolveWlrootsBridge();
+			if (bridge) {
+				try {
+					const items = await runBridgeJson<
+						Array<{
+							id: string;
+							title?: string;
+							resource_class?: string;
+							desktop_file_name?: string;
+							geometry?: { x: number; y: number; width: number; height: number };
+							is_active?: boolean;
+							pid?: number | null;
+						}>
+					>(bridge, bridgeWindowsArgs(), 3000);
+					const active = items.find(w => w.is_active);
+					if (active) {
+						return {
+							address: active.id,
+							title: active.title || active.resource_class || "(untitled)",
+							class: active.resource_class || active.desktop_file_name || "(unknown)",
+							workspace: 1,
+							at: [active.geometry?.x ?? 0, active.geometry?.y ?? 0] as [number, number],
+							size: [active.geometry?.width ?? 0, active.geometry?.height ?? 0] as [number, number],
+							focused: true,
+							pid: active.pid ?? undefined,
+							xwayland: false,
+						};
+					}
+				} catch {
+					// fallback
+				}
+			}
+			return undefined;
 		},
 		async focusWindow(address: string) {
+			const bridge = resolveWlrootsBridge();
+			if (bridge && /^\d+$/.test(address)) {
+				try {
+					await runBridgeJson(bridge, bridgeActivateWindowArgs(address), 3000);
+					return null;
+				} catch {
+					// fallback to hyprctl
+				}
+			}
 			try {
 				if (hyprCommandSocketPath()) {
 					const reply = await hyprIpcQuery(`dispatch focuswindow address:${address}`);
@@ -385,7 +465,16 @@ const hyprlandDriver: DesktopDriver = {
 				// fallback
 			}
 			const res = await runCmd("hyprctl", ["dispatch", "focuswindow", `address:${address}`]);
-			return res.code === 0 ? null : `hyprctl focuswindow failed: ${res.stderr}`;
+			if (res.code === 0) return null;
+			if (bridge) {
+				try {
+					await runBridgeJson(bridge, bridgeActivateWindowArgs(address), 3000);
+					return null;
+				} catch {
+					// fallback
+				}
+			}
+			return `hyprctl focuswindow failed: ${res.stderr}`;
 		},
 		async closeWindow(address: string) {
 			try {
