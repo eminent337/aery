@@ -616,7 +616,7 @@ export class InteractiveMode implements InteractiveModeContext {
 
 			const activeFromRegistry = AgentRegistry.global()
 				.list()
-				.filter(a => a.kind === "sub" && (a.status === "running" || a.currentTool !== undefined))
+				.filter(a => a.kind === "sub" && a.status !== "parked" && a.status !== "aborted")
 				.map(a => ({
 					id: a.id,
 					agent: a.displayName || a.id,

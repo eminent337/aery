@@ -22,7 +22,6 @@ const TUI_HIDDEN_SLASH_COMMANDS: Record<string, true> = {
 	autoresearch: true,
 	autonomous: true,
 	browser: true,
-	btw: true,
 	changelog: true,
 	commit: true,
 	"commit-push-pr": true,
