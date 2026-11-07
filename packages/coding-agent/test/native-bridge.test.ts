@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
+	resolveBackend,
+	resolveBackendChain,
+	type BackendProbe,
+} from "../src/tools/live-input";
+import {
 	resolveWlrootsBridge,
 	resolveGnomeBridge,
 	resolveX11Bridge,
@@ -118,5 +123,29 @@ describe("Native Wayland/Linux Bridge Dispatcher", () => {
 		expect(res.base64).toBeDefined();
 		const buf = Buffer.from(res.base64!, "base64");
 		expect(buf.length).toBeGreaterThan(500);
+	});
+
+	it("resolves backend chain with wlroots-bridge on Wayland", () => {
+		const mockProbe: BackendProbe = {
+			wlrootsBridge: "/usr/lib/claude-desktop-bin/resources/wlroots-bridge",
+			ydotool: true,
+			ydotoold: true,
+			xdotool: true,
+			wtype: true,
+			cliclick: false,
+			osascript: false,
+			powershell: false,
+		};
+		const backend = resolveBackend(mockProbe, false, false, "linux");
+		expect(backend).toBe("wlroots-bridge");
+
+		const pointerChain = resolveBackendChain(mockProbe, "pointer", false, "linux");
+		expect(pointerChain[0]).toBe("wlroots-bridge");
+		expect(pointerChain).toContain("ydotool");
+
+		const keyChain = resolveBackendChain(mockProbe, "keyboard", false, "linux");
+		expect(keyChain[0]).toBe("wlroots-bridge");
+		expect(keyChain).toContain("ydotool");
+		expect(keyChain).toContain("wtype");
 	});
 });

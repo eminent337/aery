@@ -91,6 +91,16 @@ import {
 	ydoWheelScroll,
 } from "./live-input";
 import {
+	resolveWlrootsBridge,
+	runBridgeJson,
+	bridgePointerMoveArgs,
+	bridgePointerClickArgs,
+	bridgePointerScrollArgs,
+	bridgePointerDragArgs,
+	bridgeKeySequenceArgs,
+	bridgeTypeTextArgs,
+} from "./native-bridge";
+import {
 	CLICK_CHOREOGRAPHY,
 	clickPath,
 	DEFAULT_MOTION_CONFIG,
@@ -4158,6 +4168,18 @@ export async function runDragWithCleanup(
 async function typeTextWith(chain: LiveBackend[], text: string, expectedWindowAddress: string): Promise<string | null> {
 	let lastErr: string | null = null;
 	for (const backend of chain) {
+		if (backend === "wlroots-bridge") {
+			const bridge = resolveWlrootsBridge();
+			if (bridge) {
+				try {
+					await runBridgeJson(bridge, bridgeTypeTextArgs(text));
+					return null;
+				} catch (e) {
+					lastErr = String(e);
+					continue;
+				}
+			}
+		}
 		if (backend === "cliclick") {
 			const fail = await runSteps([cliclickType(text)], 0, expectedWindowAddress);
 			if (!fail) return null;
@@ -4228,6 +4250,18 @@ async function typeTextWith(chain: LiveBackend[], text: string, expectedWindowAd
 async function keyTextWith(chain: LiveBackend[], spec: string, expectedWindowAddress: string): Promise<string | null> {
 	let lastErr: string | null = null;
 	for (const backend of chain) {
+		if (backend === "wlroots-bridge") {
+			const bridge = resolveWlrootsBridge();
+			if (bridge) {
+				try {
+					await runBridgeJson(bridge, bridgeKeySequenceArgs(spec));
+					return null;
+				} catch (e) {
+					lastErr = String(e);
+					continue;
+				}
+			}
+		}
 		if (backend === "cliclick") {
 			const argv = cliclickKey(spec);
 			const fail = await runSteps([argv], 30, expectedWindowAddress);
@@ -5463,6 +5497,17 @@ async function executeLiveAction(
 			const phys = frameToPhysical(frame, fx, fy);
 			const outScale = await detectOutputScale();
 			const point = physicalToLogical(phys.x, phys.y, outScale);
+			if (backend === "wlroots-bridge") {
+				const bridge = resolveWlrootsBridge();
+				if (bridge) {
+					try {
+						await runBridgeJson(bridge, bridgePointerClickArgs(point.x, point.y, button, count));
+						return null;
+					} catch (e) {
+						// fall through
+					}
+				}
+			}
 			if (detectPlatformDriver().id === "hyprland") {
 				const ok = await hyprFastMoveCursor(point.x, point.y);
 				if (!ok) {
@@ -5526,7 +5571,16 @@ async function executeLiveAction(
 		if (action === "live_move") {
 			const hyprAim = detectPlatformDriver().id === "hyprland";
 			let moveError: string | null = null;
-			if (hyprAim) {
+			if (backend === "wlroots-bridge") {
+				const bridge = resolveWlrootsBridge();
+				if (bridge) {
+					try {
+						await runBridgeJson(bridge, bridgePointerMoveArgs(logical.x, logical.y));
+					} catch (e) {
+						moveError = String(e);
+					}
+				}
+			} else if (hyprAim) {
 				const focusError = await assertInputFocus(win.address);
 				if (focusError) return errObserve(action, focusError);
 				const from = await detectPlatformDriver().capture.cursorPos().catch(() => null);
@@ -5568,6 +5622,17 @@ async function executeLiveAction(
 			// hyprland logical, x11 pixels). Null/throw → reads unsupported,
 			// skip silently — the verify frame still covers us.
 			const warpTo = async (p: { x: number; y: number }): Promise<void> => {
+				if (backend === "wlroots-bridge") {
+					const bridge = resolveWlrootsBridge();
+					if (bridge) {
+						try {
+							await runBridgeJson(bridge, bridgePointerMoveArgs(p.x, p.y));
+							return;
+						} catch {
+							// fall through
+						}
+					}
+				}
 				if (hyprAim) {
 					const ok = await hyprFastMoveCursor(p.x, p.y);
 					if (ok) return;
@@ -5638,6 +5703,28 @@ async function executeLiveAction(
 					return null;
 				}
 			};
+
+			if (backend === "wlroots-bridge") {
+				const bridge = resolveWlrootsBridge();
+				if (bridge) {
+					try {
+						await runBridgeJson(bridge, bridgePointerClickArgs(logical.x, logical.y, button, count));
+						liveAuthorizedKinds.add(action);
+						let post: { x: number; y: number } | null = null;
+						try {
+							post = await readCursor();
+						} catch {
+							// reads unsupported — verify frame still covers us
+						}
+						const hoverHit = liveHoverTarget({ x: tx as number, y: ty as number });
+						return withVerify(
+							`${count > 1 ? `${count}× ` : ""}${button} click ${params.target ? `"${params.target}" ` : ""}frame (${tx},${ty}) → logical (${logical.x},${logical.y}) on "${win.title}".${hoverNote(hoverHit)}`,
+						);
+					} catch {
+						// fall through to fallback
+					}
+				}
+			}
 
 			// Smooth, visible glide to target so the user sees the pointer move and land
 			if (hyprAim) {
@@ -5729,6 +5816,36 @@ async function executeLiveAction(
 			const before = verify ? await captureLiveFrame("Before drag") : null;
 			const end = frameToPhysical(frame, params.x2!, params.y2!);
 			const endLogical = physicalToLogical(end.x, end.y, scale);
+			if (backend === "wlroots-bridge") {
+				const bridge = resolveWlrootsBridge();
+				if (bridge) {
+					try {
+						if (params.click_first) {
+							await runBridgeJson(bridge, bridgePointerClickArgs(logical.x, logical.y, "left", 1));
+							await new Promise(r => setTimeout(r, 40));
+						}
+						await runBridgeJson(bridge, bridgePointerDragArgs(logical.x, logical.y, endLogical.x, endLogical.y));
+						liveAuthorizedKinds.add(action);
+						let readEnd: { x: number; y: number } | null = null;
+						try {
+							readEnd = await detectPlatformDriver().capture.cursorPos();
+						} catch {
+							// skip
+						}
+						const endNote = cursorVerifyNote(endLogical, readEnd);
+						return withVerify(`Dragged frame (${params.x},${params.y}) → (${params.x2},${params.y2}).${endNote}`, {
+							drag: {
+								expectedEnd: endLogical,
+								readEnd,
+								beforeFrame: before && !("error" in before) ? before.frame : null,
+								beforeCaptureError: before && "error" in before ? before.error : undefined,
+							},
+						});
+					} catch (err) {
+						return errObserve(action, String(err));
+					}
+				}
+			}
 			if (params.click_first) {
 				const clickSeq =
 					backend === "ydotool"
@@ -5832,7 +5949,12 @@ async function executeLiveAction(
 			const pt = frameToPhysical(lastInputFrame, params.x, params.y);
 			const scale = await detectOutputScale();
 			const logical = physicalToLogical(pt.x, pt.y, scale);
-			if (detectPlatformDriver().id === "hyprland") {
+			if (backend === "wlroots-bridge") {
+				const bridge = resolveWlrootsBridge();
+				if (bridge) {
+					await runBridgeJson(bridge, bridgePointerMoveArgs(logical.x, logical.y)).catch(() => {});
+				}
+			} else if (detectPlatformDriver().id === "hyprland") {
 				const fastMoved = await hyprFastMoveCursor(logical.x, logical.y);
 				if (!fastMoved) {
 					await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
@@ -5851,26 +5973,42 @@ async function executeLiveAction(
 				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
 			}
 			if (shouldClickFirst) {
-				const clickSeq =
-					backend === "ydotool"
-						? [ydoClickButton(YDO_LEFT, 1, 15)]
-						: backend === "cliclick"
-							? [["cliclick", `c:${Math.round(pt.x)},${Math.round(pt.y)}`]]
-							: backend === "osascript"
-								? [osascriptClick(pt.x, pt.y, "left", 1)]
-								: backend === "powershell"
-									? [powershellClick(pt.x, pt.y, "left", 1)]
-									: [xdoClick(pt.x, pt.y, "left", 1)];
-				await runSteps(clickSeq, 50, win.address);
+				if (backend === "wlroots-bridge") {
+					const bridge = resolveWlrootsBridge();
+					if (bridge) {
+						await runBridgeJson(bridge, bridgePointerClickArgs(logical.x, logical.y, "left", 1)).catch(() => {});
+					}
+				} else {
+					const clickSeq =
+						backend === "ydotool"
+							? [ydoClickButton(YDO_LEFT, 1, 15)]
+							: backend === "cliclick"
+								? [["cliclick", `c:${Math.round(pt.x)},${Math.round(pt.y)}`]]
+								: backend === "osascript"
+									? [osascriptClick(pt.x, pt.y, "left", 1)]
+									: backend === "powershell"
+										? [powershellClick(pt.x, pt.y, "left", 1)]
+										: [xdoClick(pt.x, pt.y, "left", 1)];
+					await runSteps(clickSeq, 50, win.address);
+				}
 				focusedFirst = true;
 			}
 		} else if (params.click_first === true) {
-			const clickSeq =
-				backend === "ydotool"
-					? [ydoClickButton(YDO_LEFT, 1, 15)]
-					: [["xdotool", "click", "1"]];
-			await runSteps(clickSeq, 50, win.address);
-			focusedFirst = true;
+			if (backend === "wlroots-bridge") {
+				const bridge = resolveWlrootsBridge();
+				if (bridge) {
+					const pos = await detectPlatformDriver().capture.cursorPos().catch(() => ({ x: 500, y: 500 }));
+					await runBridgeJson(bridge, bridgePointerClickArgs(pos.x, pos.y, "left", 1)).catch(() => {});
+					focusedFirst = true;
+				}
+			} else {
+				const clickSeq =
+					backend === "ydotool"
+						? [ydoClickButton(YDO_LEFT, 1, 15)]
+						: [["xdotool", "click", "1"]];
+				await runSteps(clickSeq, 50, win.address);
+				focusedFirst = true;
+			}
 		}
 
 		if (action === "live_paste") {
@@ -5942,7 +6080,12 @@ async function executeLiveAction(
 			const pt = frameToPhysical(lastInputFrame, params.x, params.y);
 			const scale = await detectOutputScale();
 			const logical = physicalToLogical(pt.x, pt.y, scale);
-			if (detectPlatformDriver().id === "hyprland") {
+			if (backend === "wlroots-bridge") {
+				const bridge = resolveWlrootsBridge();
+				if (bridge) {
+					await runBridgeJson(bridge, bridgePointerMoveArgs(logical.x, logical.y)).catch(() => {});
+				}
+			} else if (detectPlatformDriver().id === "hyprland") {
 				const fastMoved = await hyprFastMoveCursor(logical.x, logical.y);
 				if (!fastMoved) {
 					await runCmd("hyprctl", ["dispatch", "movecursor", `${Math.round(logical.x)} ${Math.round(logical.y)}`]);
@@ -5961,17 +6104,24 @@ async function executeLiveAction(
 				await runCmd("xdotool", ["mousemove", String(Math.round(pt.x)), String(Math.round(pt.y))]);
 			}
 			if (params.click_to_focus !== false) {
-				const clickSeq =
-					backend === "ydotool"
-						? [ydoClickButton(YDO_LEFT, 1, 15)]
-						: backend === "cliclick"
-							? [["cliclick", `c:${Math.round(pt.x)},${Math.round(pt.y)}`]]
-							: backend === "osascript"
-								? [osascriptClick(pt.x, pt.y, "left", 1)]
-								: backend === "powershell"
-									? [powershellClick(pt.x, pt.y, "left", 1)]
-									: [xdoClick(pt.x, pt.y, "left", 1)];
-				await runSteps(clickSeq, 40, win.address);
+				if (backend === "wlroots-bridge") {
+					const bridge = resolveWlrootsBridge();
+					if (bridge) {
+						await runBridgeJson(bridge, bridgePointerClickArgs(logical.x, logical.y, "left", 1)).catch(() => {});
+					}
+				} else {
+					const clickSeq =
+						backend === "ydotool"
+							? [ydoClickButton(YDO_LEFT, 1, 15)]
+							: backend === "cliclick"
+								? [["cliclick", `c:${Math.round(pt.x)},${Math.round(pt.y)}`]]
+								: backend === "osascript"
+									? [osascriptClick(pt.x, pt.y, "left", 1)]
+									: backend === "powershell"
+										? [powershellClick(pt.x, pt.y, "left", 1)]
+										: [xdoClick(pt.x, pt.y, "left", 1)];
+					await runSteps(clickSeq, 40, win.address);
+				}
 			}
 		}
 		const before = verify ? await captureLiveFrame("Before scroll") : null;
@@ -5980,6 +6130,38 @@ async function executeLiveAction(
 			scrollSpeed: params.scrollSpeed,
 			observeDuringScroll: params.observeDuringScroll,
 		});
+		if (backend === "wlroots-bridge") {
+			const bridge = resolveWlrootsBridge();
+			if (bridge) {
+				const outScale = await detectOutputScale();
+				const scrollX = params.x !== undefined && params.y !== undefined && lastInputFrame
+					? physicalToLogical(frameToPhysical(lastInputFrame, params.x, params.y).x, 0, outScale).x
+					: (await detectPlatformDriver().capture.cursorPos().catch(() => ({ x: 500, y: 500 }))).x;
+				const scrollY = params.x !== undefined && params.y !== undefined && lastInputFrame
+					? physicalToLogical(0, frameToPhysical(lastInputFrame, params.x, params.y).y, outScale).y
+					: (await detectPlatformDriver().capture.cursorPos().catch(() => ({ x: 500, y: 500 }))).y;
+				const dx = dir === "left" ? -x11Plan.steps * 15 : dir === "right" ? x11Plan.steps * 15 : 0;
+				const dy = dir === "up" ? -x11Plan.steps * 15 : dir === "down" ? x11Plan.steps * 15 : 0;
+				try {
+					await runBridgeJson(bridge, bridgePointerScrollArgs(scrollX, scrollY, dx, dy));
+					liveAuthorizedKinds.add(action);
+					return withVerify(
+						`Native wlroots-bridge scrolled ${dir} ${x11Plan.steps} notch${x11Plan.steps === 1 ? "" : "es"} on "${win.title}".`,
+						{
+							scroll: {
+								direction: dir,
+								requestedSteps: x11Plan.steps,
+								completedSteps: x11Plan.steps,
+								speed: x11Plan.speed,
+								intervalMs: x11Plan.intervalMs,
+							},
+						},
+					);
+				} catch {
+					// fall through
+				}
+			}
+		}
 		if (backend === "powershell") {
 			const fail = await runSteps([powershellWheelScroll(dir, x11Plan.steps)], x11Plan.intervalMs, win.address);
 			if (fail) return errObserve(action, fail);
