@@ -2119,11 +2119,9 @@ export async function rememberFrame(
 	lastInputFrame = frame;
 	lastFramePath = finalPath;
 	lastRawPath = rawPath;
-	const addr = frame.address ?? win?.address;
-	if (addr) {
-		const windowRect = win ? { at: win.at, size: win.size } : undefined;
-		liveObservation.replace(addr, frame, Date.now(), windowRect);
-	}
+	const addr = frame.address ?? win?.address ?? "fullscreen";
+	const windowRect = win ? { at: win.at, size: win.size } : undefined;
+	liveObservation.replace(addr, frame, Date.now(), windowRect);
 	return frame;
 }
 
@@ -2721,7 +2719,7 @@ function anchorLiveObservation(
 		liveObservation.cancel();
 		return { observation: { anchored: false, reason: "no_frame" } };
 	}
-	const address = last.frame.address;
+	const address = last.frame.address ?? (last.frame.kind === "fullscreen" ? "fullscreen" : undefined);
 	if (!address) {
 		liveObservation.cancel();
 		return { observation: { anchored: false, reason: "unaddressed_frame" } };
@@ -3381,6 +3379,7 @@ export function observationInputStatus(input: {
 	const freshFrameMatches = !!input.freshFrame?.address && input.freshFrame.address === input.activeAddress;
 	if (!snap) {
 		if (freshFrameMatches) return { state: "fresh", ageMs: 0, address: input.freshFrame!.address! };
+		if (input.freshFrame?.kind === "fullscreen") return { state: "fresh", ageMs: 0, address: input.activeAddress || "fullscreen" };
 		return { state: "missing", detail: "No continuous observation yet — take a live_eye glance first.", ageMs: null };
 	}
 	if (snap.superseded)
@@ -3390,6 +3389,9 @@ export function observationInputStatus(input: {
 			ageMs: Math.max(0, now - snap.capturedAt),
 		};
 	const ageMs = Math.max(0, now - snap.capturedAt);
+	if (snap.address === "fullscreen" || input.freshFrame?.kind === "fullscreen") {
+		return { state: "fresh", ageMs, address: snap.address };
+	}
 	if (snap.address !== input.activeAddress) {
 		// Focus moved off the anchored window. A fresh pre-action frame for the
 		// NEW address re-anchors cleanly; otherwise refuse (never redirect).
@@ -3886,10 +3888,10 @@ interface LiveCapture {
 }
 
 /** Capture the focused window (or full display) and downscale to the vision frame. */
-async function captureLiveFrame(lead: string): Promise<LiveCapture | { error: string }> {
+async function captureLiveFrame(lead: string, forceFullscreen = false): Promise<LiveCapture | { error: string }> {
 	const driver = detectPlatformDriver();
 	if (!isSupportedDriver()) return { error: `live input is not supported on this platform yet (${driver.label}).` };
-	const win = await getDriverActiveWindow();
+	const win = forceFullscreen ? undefined : await getDriverActiveWindow();
 	const geometry =
 		win && win.size[0] > 0 && win.size[1] > 0 ? `${win.at[0]},${win.at[1]} ${win.size[0]}x${win.size[1]}` : undefined;
 	const stamp = Date.now();
@@ -4541,7 +4543,7 @@ async function executeLiveAction(
 			action === "right_click_at" ||
 			action === "left_click_drag")
 	) {
-		await captureLiveFrame("Auto reference snapshot for computer use").catch(() => null);
+		await captureLiveFrame("Auto reference snapshot for computer use", true).catch(() => null);
 	}
 
 	// Fall back to current cursor position if click action has no coordinates or target
@@ -4582,8 +4584,16 @@ async function executeLiveAction(
 
 	// Translate AGY 0..1000 normalized coordinates or physical coordinates to frame coordinates
 	if (lastInputFrame) {
+		const isAgyAction =
+			AGY_LIVE_ACTIONS.has(action) ||
+			action === "click_at" ||
+			action === "move_cursor" ||
+			action === "drag_and_drop_at" ||
+			action === "scroll_at" ||
+			action === "click";
 		const isNormalized =
-			params.coordinate_system === "normalized_1000" &&
+			(params.coordinate_system === "normalized_1000" ||
+				(params.coordinate_system === undefined && isAgyAction)) &&
 			(params.x === undefined || params.x <= 1000) &&
 			(params.y === undefined || params.y <= 1000) &&
 			(params.x2 === undefined || params.x2 <= 1000) &&
@@ -4852,7 +4862,9 @@ async function executeLiveAction(
 		AGY_LIVE_ACTIONS.has(originalAction) ||
 		AGY_LIVE_ACTIONS.has(action) ||
 		action === "live_move" ||
-		action === "move_cursor";
+		action === "live_click" ||
+		action === "move_cursor" ||
+		action === "click_at";
 	const verify = params.verify !== undefined ? params.verify : !isComputerUseAction;
 	const verifyStartedAt = Date.now();
 	const withVerify = async (
@@ -5077,7 +5089,10 @@ async function executeLiveAction(
 	const obsStatus = observationInputStatus({
 		snapshot: liveObservation.get(),
 		activeAddress: win.address,
-		freshFrame: lastInputFrame && lastInputFrame.address === win.address ? lastInputFrame : null,
+		freshFrame:
+			lastInputFrame && (lastInputFrame.kind === "fullscreen" || lastInputFrame.address === win.address)
+				? lastInputFrame
+				: null,
 		activeGeometry: { at: win.at, size: win.size },
 	});
 	// Lazy click-target hydration (cursor fix): vision callers skip OCR on
@@ -5476,13 +5491,23 @@ async function executeLiveAction(
 		if (action === "live_move") {
 			const hyprAim = detectPlatformDriver().id === "hyprland";
 			let moveError: string | null = null;
-			// Fast direct compositor warp for Hyprland when not using multi-waypoint path/pace
-			if (hyprAim && (!params.pace || params.pace === "brisk")) {
+			if (hyprAim) {
 				const focusError = await assertInputFocus(win.address);
 				if (focusError) return errObserve(action, focusError);
-				const moved = await hyprFastMoveCursor(logical.x, logical.y);
-				if (!moved) {
-					moveError = await runSteps([hyprMoveCursor(logical.x, logical.y)], 0, win.address);
+				const from = await detectPlatformDriver().capture.cursorPos().catch(() => null);
+				if (from && Math.hypot(logical.x - from.x, logical.y - from.y) > 20) {
+					const pts = liveAimGlide(from, logical);
+					const gapMs = params.pace === "deliberate" ? 20 : params.pace === "natural" ? 12 : 8;
+					const hops = pts.map(p => ({ x: p.x, y: p.y, gapMs }));
+					const glideRes = await hyprGlidePaced(hops, { timeoutMs: 2000 });
+					if (!glideRes.ok && !glideRes.aborted) {
+						await hyprFastMoveCursor(logical.x, logical.y);
+					}
+				} else {
+					const moved = await hyprFastMoveCursor(logical.x, logical.y);
+					if (!moved) {
+						moveError = await runSteps([hyprMoveCursor(logical.x, logical.y)], 0, win.address);
+					}
 				}
 			} else {
 				let steps: string[][];
@@ -5578,6 +5603,19 @@ async function executeLiveAction(
 					return null;
 				}
 			};
+
+			// Smooth, visible glide to target so the user sees the pointer move and land
+			if (hyprAim) {
+				const from = await readCursor();
+				if (from && Math.hypot(logical.x - from.x, logical.y - from.y) > 20) {
+					const pts = liveAimGlide(from, logical);
+					const hops = pts.map(p => ({ x: p.x, y: p.y, gapMs: 8 }));
+					await hyprGlidePaced(hops, { timeoutMs: 1000 });
+				} else {
+					await hyprFastMoveCursor(logical.x, logical.y);
+				}
+			}
+
 			let pre: { read: { x: number; y: number } | null; corrections: number } | null = null;
 			try {
 				pre = await convergeCursorLanding(logical, {
@@ -7229,7 +7267,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 				// and re-plan"): clear the counters so the model can act on what
 				// it sees instead of staying locked out.
 				resetDriveLoop();
-				const target = params.target ?? "active_window";
+				const target = params.target ?? (params.action === "take_screenshot" ? "fullscreen" : "active_window");
 				const timestamp = Date.now();
 				const tmpRaw = path.join(os.tmpdir(), `aerys-shot-${timestamp}-raw.png`);
 				const tmpScaled = path.join(os.tmpdir(), `aerys-shot-${timestamp}.png`);

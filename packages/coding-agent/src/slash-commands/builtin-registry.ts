@@ -39,7 +39,6 @@ import { buildUsageReportText } from "./helpers/usage-report";
 import { parsePluginScopeArgs } from "./marketplace-install-parser";
 import { pluginCommand } from "./plugin-command";
 import { skillCommand } from "./skill-command";
-import { DesktopAccessibilityTool } from "../tools/desktop-accessibility";
 import type {
 	BuiltinSlashCommand,
 	ParsedSlashCommand,
@@ -2185,87 +2184,6 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		handleTui: (_command, runtime) => {
 			runtime.ctx.showMediaStudio();
 			runtime.ctx.editor.setText("");
-		},
-	},
-	{
-		name: "desktop",
-		aliases: ["a11y"],
-		description: "Inspect OS accessibility tree and desktop windows via agent-desktop",
-		inlineHint: "[windows|snapshot|status|<task>]",
-		acpInputHint: "[windows|snapshot|status|<task>]",
-		subcommands: [
-			{ name: "windows", description: "List active desktop windows and application titles" },
-			{ name: "snapshot", description: "Snapshot accessibility tree (optional app/window target)", usage: "[target]" },
-			{ name: "status", description: "Check agent-desktop daemon & permissions status" },
-		],
-		allowArgs: true,
-		handle: async (command, runtime) => {
-			const rawArgs = command.args.trim();
-			const [sub, ...rest] = rawArgs.split(/\s+/);
-			const subCmd = (sub || "").toLowerCase();
-
-			const tool = DesktopAccessibilityTool.createIf();
-			if (!tool) {
-				return usage("desktop_accessibility tool is not available in this environment.", runtime);
-			}
-
-			if (!subCmd || subCmd === "windows" || subCmd === "ls") {
-				const result = await tool.execute("cmd", { action: "list_windows" });
-				const text = result.content[0]?.type === "text" ? result.content[0].text : JSON.stringify(result.content);
-				await runtime.output(text);
-				return commandConsumed();
-			}
-
-			if (subCmd === "status") {
-				const result = await tool.execute("cmd", { action: "status" });
-				const text = result.content[0]?.type === "text" ? result.content[0].text : JSON.stringify(result.content);
-				await runtime.output(text);
-				return commandConsumed();
-			}
-
-			if (subCmd === "snapshot" || subCmd === "tree") {
-				const target = rest.join(" ").trim() || undefined;
-				const result = await tool.execute("cmd", { action: "snapshot", target, max_depth: 4 });
-				const text = result.content[0]?.type === "text" ? result.content[0].text : JSON.stringify(result.content);
-				await runtime.output(text);
-				return commandConsumed();
-			}
-
-			return {
-				prompt: `Use the desktop_accessibility tool to inspect and interact with the desktop: "${rawArgs}"`,
-			};
-		},
-		handleTui: async (command, runtime) => {
-			const rawArgs = command.args.trim();
-			const [sub, ...rest] = rawArgs.split(/\s+/);
-			const subCmd = (sub || "").toLowerCase();
-
-			runtime.ctx.editor.setText("");
-
-			if (!subCmd || subCmd === "windows" || subCmd === "ls") {
-				return {
-					prompt: "Use the desktop_accessibility tool with action 'list_windows' to list all active desktop windows.",
-				};
-			}
-
-			if (subCmd === "status") {
-				return {
-					prompt: "Use the desktop_accessibility tool with action 'status' to report agent-desktop accessibility status.",
-				};
-			}
-
-			if (subCmd === "snapshot" || subCmd === "tree") {
-				const target = rest.join(" ").trim();
-				return {
-					prompt: target
-						? `Use the desktop_accessibility tool with action 'snapshot' and target '${target}' to inspect its accessibility tree.`
-						: "Use the desktop_accessibility tool with action 'snapshot' to inspect the active window's accessibility tree.",
-				};
-			}
-
-			return {
-				prompt: `Use the desktop_accessibility tool to inspect and interact with the desktop: "${rawArgs}"`,
-			};
 		},
 	},
 ];
