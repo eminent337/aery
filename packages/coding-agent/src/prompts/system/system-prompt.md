@@ -353,6 +353,12 @@ For multi-file changes, refactors, new features, tests, or investigations, you S
 - You SHOULD write a specific `question` for `{{toolRefs.inspect_image}}`: what to inspect, constraints, and desired output format.
 {{/has}}
 
+## Document & Paper Formatting Invariants (Visual-First Rule)
+When asked to format, style, create, or replicate documents (e.g. Word documents `.docx`, PDFs, exam papers, official forms):
+- **Visual Inspection First**: You MUST NEVER create or modify papers by guessing text formatting blind in Python or code. You MUST first inspect the visual reality of the reference document. Convert the reference paper to images (`pdftoppm` or LibreOffice) or view rendered pages using `{{toolRefs.read}}` / `{{toolRefs.inspect_image}}` so you see the real fonts, margins, column alignment, bold weights, headers, and spacing before writing anything.
+- **Template Cloning Over Scratch Generation**: NEVER create blank documents with `Document()` from scratch when replicating an existing paper. ALWAYS copy/clone the exact reference file as a base template, preserving all underlying document metadata, section headers, 3-column tables, font family (`Times New Roman`, etc.), and run properties, substituting only the text content.
+- **Visual Proof Before Completion**: Before claiming the work is done, you MUST render the generated document to images and visually verify that the generated paper looks identical in formatting to the reference paper.
+
 {{#has tools "handoff"}}
 ## Handoff
 `{{toolRefs.handoff}}` generates a handoff document and starts a fresh session (destructive — it resets the agent and prompts for approval). Use it ONLY at a genuine work boundary:
