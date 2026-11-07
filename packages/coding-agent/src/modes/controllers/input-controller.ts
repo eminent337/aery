@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import type { AgentMessage } from "@aryee337/aery-core";
-import type { AutocompleteProvider, SlashCommand } from "@aryee337/aery-tui";
+import { type AutocompleteProvider, matchesKey, type SlashCommand } from "@aryee337/aery-tui";
 import { $env, sanitizeText } from "@aryee337/aery-utils";
 import { getRoleInfo } from "../../config/model-registry";
 import { isSettingsInitialized, settings } from "../../config/settings";
@@ -9,6 +9,7 @@ import { TinyTitleDownloadProgressComponent } from "../../modes/components/tiny-
 import { expandEmoticons } from "../../modes/emoji-autocomplete";
 import { createPromptActionAutocompleteProvider } from "../../modes/prompt-action-autocomplete";
 import type { InteractiveModeContext } from "../../modes/types";
+import { matchesAppInterrupt } from "../../modes/utils/keybinding-matchers";
 import type { AgentSessionEvent } from "../../session/agent-session";
 import { SKILL_PROMPT_MESSAGE_TYPE, type SkillPromptDetails } from "../../session/messages";
 import { executeBuiltinSlashCommand, lookupBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
@@ -40,7 +41,21 @@ const TINY_TITLE_PROGRESS_DONE_TTL_MS = 3_000;
 const TINY_TITLE_PROGRESS_REVEAL_DELAY_MS = 1_000;
 
 export class InputController {
+	#globalInterruptUnsubscribe?: () => void;
+
 	constructor(private ctx: InteractiveModeContext) {}
+
+	#isSessionBusy(): boolean {
+		return (
+			this.ctx.session.isStreaming ||
+			this.ctx.session.isCompacting ||
+			this.ctx.session.isRetrying ||
+			this.ctx.session.hasPostPromptWork ||
+			this.ctx.session.isBashRunning ||
+			this.ctx.session.isEvalRunning ||
+			Boolean(this.ctx.loadingAnimation)
+		);
+	}
 
 	#showTinyTitleDownloadProgress(modelKey: string): void {
 		if (!isTinyTitleLocalModelKey(modelKey) || this.ctx.isBackgrounded) return;
@@ -292,12 +307,32 @@ export class InputController {
 			}
 		};
 
-		// Scroll the chat scroll-box with PageUp / PageDown / mouse wheel.
-		// Using addInputListener so it fires globally before focus dispatch.
-		this.ctx.ui.addInputListener((_data: string) => {
-			const _SCROLL_LINES = 5;
-			// Native scrolling is handled by the terminal itself, so we don't
-			// need to manually scroll a ScrollBox here anymore.
+		// AGY-style Root Interrupt Architecture:
+		// Install a global input listener that intercepts Escape/app.interrupt and Ctrl+C
+		// at the TUI root level, BEFORE focused component dispatch.
+		// If the session is actively executing/busy and no modal overlay is capturing input,
+		// we interrupt the agent immediately and consume the event. This prevents
+		// dropped interrupts caused by focus loss, autocomplete popup absorption, or
+		// component key swallowing.
+		this.#globalInterruptUnsubscribe?.();
+		this.#globalInterruptUnsubscribe = this.ctx.ui.addInputListener((data: string) => {
+			const isInterrupt = matchesAppInterrupt(data);
+			const isCtrlC = matchesKey(data, "ctrl+c");
+
+			if (isInterrupt || isCtrlC) {
+				// If an interactive modal overlay is visible (e.g. Model Selector, Tree View),
+				// let the overlay handle ESC first so the user can dismiss the modal.
+				if (this.ctx.ui.hasOverlay()) {
+					return;
+				}
+
+				if (this.#isSessionBusy()) {
+					// Trigger complete session abort sequence
+					this.ctx.editor.onEscape?.();
+					return { consume: true };
+				}
+			}
+			return;
 		});
 	}
 
@@ -497,6 +532,11 @@ export class InputController {
 	}
 
 	handleCtrlC(): void {
+		if (this.#isSessionBusy()) {
+			this.ctx.editor.onEscape?.();
+			return;
+		}
+
 		const now = Date.now();
 		if (now - this.ctx.lastSigintTime < 500) {
 			void this.ctx.shutdown();
