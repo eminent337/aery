@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { ENDORSED_SKILLS } from "../../../skills/endorsed-catalog";
+import { getSkillHubClient } from "../../../skills/hub";
 import type { SkillItem, SkillTabId } from "./types";
 
 export class SkillsStateManager {
@@ -46,6 +47,34 @@ export class SkillsStateManager {
 			}
 		}
 
+		// 3. Aery Skill Hub on-demand registry skills
+		try {
+			const hubClient = getSkillHubClient();
+			const hubManifest = await hubClient.getCatalog();
+			for (const hubSkill of hubManifest.skills) {
+				const isInst = installedMap.has(hubSkill.name) || hubSkill.installed;
+				const existingIndex = items.findIndex(item => item.name === hubSkill.name);
+				if (existingIndex >= 0) {
+					// Update with hub metadata if local
+					items[existingIndex].category = hubSkill.category || "Aery Skill Hub";
+					items[existingIndex].installCmd = "aery-skill-hub";
+				} else {
+					items.push({
+						name: hubSkill.name,
+						description: hubSkill.description,
+						category: hubSkill.category || "Aery Skill Hub",
+						source: "Aery Skill Hub",
+						installCmd: "aery-skill-hub",
+						installed: !!isInst,
+						filePath: hubSkill.filePath,
+					});
+					seenNames.add(hubSkill.name);
+				}
+			}
+		} catch {
+			// Ignore offline/catalog errors gracefully
+		}
+
 		return items;
 	}
 
@@ -65,6 +94,12 @@ export class SkillsStateManager {
 	}
 
 	async installSkill(skill: SkillItem): Promise<{ ok: boolean; message: string }> {
+		if (skill.installCmd === "aery-skill-hub" || skill.source === "Aery Skill Hub") {
+			const hubClient = getSkillHubClient();
+			const res = await hubClient.install(skill.name);
+			return { ok: res.success, message: res.message };
+		}
+
 		if (!skill.installCmd) {
 			return { ok: false, message: `Skill ${skill.name} is bundled or cannot be installed via npx.` };
 		}
