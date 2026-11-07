@@ -80,22 +80,30 @@ async function runSkillCommand(
 
 	const hubClient = getSkillHubClient();
 
-	// 1. Aery Skill Hub browser (/skill hub, /skill search)
-	if (subcommand === "hub" || subcommand === "search") {
-		const query = restArgs.join(" ").toLowerCase();
+	// 1. Unified skill discovery listing (/skill or /skill list)
+	if (!subcommand || subcommand === "list") {
 		const catalog = await hubClient.getCatalog();
-		const matches = catalog.skills.filter(s =>
-			!query || s.name.toLowerCase().includes(query) || s.description.toLowerCase().includes(query)
-		);
+		const installed = new Set(installedSkills.map(skill => skill.name));
 
-		await io.writeln(`\nAery Skill Hub (${matches.length} skills available):`);
+		await io.writeln(`\nDiscovered Skills (${catalog.skills.length + installedSkills.length} total):`);
 		await io.writeln(`--------------------------------------------------`);
-		for (const s of matches) {
-			const status = s.installed ? "[installed]" : "[available]";
-			await io.writeln(`${status.padEnd(12)} ${s.name} (v${s.version})`);
-			await io.writeln(`             ${s.description}`);
-			if (!s.installed) {
-				await io.writeln(`             Install: /skill install ${s.name}`);
+
+		// Show installed skills first
+		if (installedSkills.length > 0) {
+			await io.writeln(`Installed:`);
+			for (const s of installedSkills) {
+				await io.writeln(`  [installed]  ${s.name}`);
+			}
+			await io.writeln(``);
+		}
+
+		// Show available skills from catalog
+		const available = catalog.skills.filter(s => !installed.has(s.name) && !s.installed);
+		if (available.length > 0) {
+			await io.writeln(`Available to install:`);
+			for (const s of available) {
+				await io.writeln(`  [available]  ${s.name} (v${s.version}) - ${s.description}`);
+				await io.writeln(`               Install: /skill install ${s.name}`);
 			}
 			await io.writeln(``);
 		}
@@ -170,22 +178,17 @@ export const skillCommand: SlashCommandSpec = {
 	description: "Manage Aery skills",
 	allowArgs: true,
 	subcommands: [
-		{ name: "hub", description: "Browse the on-demand Aery Skill Hub catalog" },
-		{ name: "search", description: "Search skills in the Aery Skill Hub" },
-		{ name: "install", description: "Install a skill from the Skill Hub" },
+		{ name: "install", description: "Install a skill" },
 		{ name: "uninstall", description: "Uninstall an installed skill" },
-		{ name: "list", description: "List installed skills" },
+		{ name: "list", description: "List discovered skills" },
 		{ name: "endorsed", description: "Show the endorsed skills catalog with install status" },
 	],
 	handle: async (command: ParsedSlashCommand, runtime: SlashCommandRuntime): Promise<SlashCommandResult> => {
 		const userArgs = command.args.trim().split(/\s+/).filter(Boolean);
-		if (userArgs.length === 0) {
-			await runtime.output(`Usage: /skill <install|uninstall|list|endorsed> [options]`);
-			return commandConsumed();
-		}
+		const argsToRun = userArgs.length === 0 ? ["list"] : userArgs;
 
 		await runSkillCommand(
-			userArgs,
+			argsToRun,
 			{
 				writeln: async t => {
 					if (t) {
