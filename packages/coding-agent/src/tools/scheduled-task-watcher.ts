@@ -125,6 +125,7 @@ export class ScheduledTaskWatcher {
 	private save(): void {
 		if (!this.storagePath) return;
 
+		let tempFile: string | null = null;
 		try {
 			const dir = path.dirname(this.storagePath);
 			if (!fs.existsSync(dir)) {
@@ -132,7 +133,7 @@ export class ScheduledTaskWatcher {
 			}
 
 			const randomId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-			const tempFile = path.join(
+			tempFile = path.join(
 				dir,
 				`.tmp_${path.basename(this.storagePath)}_${Date.now()}_${randomId}`,
 			);
@@ -148,6 +149,11 @@ export class ScheduledTaskWatcher {
 			fs.writeFileSync(tempFile, data, "utf8");
 			fs.renameSync(tempFile, this.storagePath);
 		} catch (error) {
+			if (tempFile && fs.existsSync(tempFile)) {
+				try {
+					fs.unlinkSync(tempFile);
+				} catch {}
+			}
 			console.error("ScheduledTaskWatcher: persistence write failed", error);
 		}
 	}
@@ -250,6 +256,9 @@ export class ScheduledTaskWatcher {
 		}
 
 		this.history.push(record);
+		if (this.history.length > 5000) {
+			this.history = this.history.slice(-5000);
+		}
 		this.save();
 		return record;
 	}

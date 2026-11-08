@@ -372,7 +372,7 @@ describe("ScheduledTaskWatcherTool", () => {
 		});
 
 		expect(createResult.content[0].type).toBe("text");
-		expect(createResult.content[0].text).toContain("Lifecycle Task");
+		expect((createResult.content[0] as { text: string }).text).toContain("Lifecycle Task");
 		const createdTask = createResult.details?.task;
 		expect(createdTask).toBeDefined();
 		expect(createdTask.id).toBeDefined();
