@@ -64,6 +64,7 @@ import {
 import { GeminiComputerUseTool } from "./gemini-computer-use";
 import { DesktopAccessibilityTool } from "./desktop-accessibility";
 import { ComputerUseTeachTool } from "./computer-use-teach";
+import { QuickLauncherTool } from "./quick-launcher";
 import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
@@ -661,6 +662,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	terminal_pane: TerminalPaneTool.createIf,
 	desktop_control: DesktopControlTool.createIf,
 	computer_use_teach: ComputerUseTeachTool.createIf,
+	quick_launcher: QuickLauncherTool.createIf,
 	take_screenshot: TakeScreenshotTool.createIf,
 	click_at: ClickAtTool.createIf,
 	move_cursor: MoveCursorTool.createIf,
