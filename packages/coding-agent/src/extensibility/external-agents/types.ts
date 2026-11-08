@@ -8,6 +8,7 @@ export interface ExternalAgentExecutionOptions {
 	extraArgs?: string[];
 	customBinary?: string;
 	timeoutMs?: number;
+	model?: string;
 }
 
 export interface ResolvedAgentInvocation {

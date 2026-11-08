@@ -41,6 +41,11 @@ describe("External Agent Adapters", () => {
 		const invocation = resolveAgentInvocation("opencode", "fix build error");
 		expect(invocation.binary).toBe("opencode");
 		expect(invocation.args).toEqual(["run", "fix build error", "--auto"]);
+
+		const withModel = resolveAgentInvocation("opencode", "fix build error", {
+			model: "nemotron-3.5-lightning-free",
+		});
+		expect(withModel.args).toEqual(["run", "-m", "opencode/nemotron-3.5-lightning-free", "fix build error", "--auto"]);
 	});
 
 	it("formats claude non-interactive execution arguments", () => {

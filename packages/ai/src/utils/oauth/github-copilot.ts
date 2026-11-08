@@ -8,7 +8,7 @@ import type { OAuthCredentials } from "./types";
 const CLIENT_ID = "Ov23li8tweQw6odWQebz";
 
 export const COPILOT_USER_AGENT = "opencode/1.3.15" as const;
-export const OPENCODE_USER_AGENT = "opencode/1.18.18" as const;
+export const OPENCODE_USER_AGENT = "opencode/1.19.5 ai-sdk/provider-utils/4.0.23 runtime/bun/1.4.4" as const;
 
 export const OPENCODE_HEADERS = {
 	"User-Agent": COPILOT_USER_AGENT,
@@ -47,31 +47,30 @@ export function generateOpenCodeRequestId(timestamp = Date.now()): string {
 }
 
 /**
- * Attribution headers for chat requests to opencode-hosted gateways (zen,
- * zen/go).  The zen gateway rate-limits free-tier chat/completions requests
- * by IP and only grants the full per-model daily quota to requests whose
- * `User-Agent` identifies an opencode client; unattributed requests fall
- * into a much smaller fallback bucket and quickly return 429
- * FreeUsageLimitError (verified 2026-08-31: identical requests alternate
- * 200/429 solely on the UA string).  Mirror the opencode CLI's attribution
- * headers (`x-opencode-client`/`-session`/`-request`) and append aery's own
- * identity to the UA so both the gateway and upstream logs can attribute
- * the traffic.  Only chat/completions enforces this today (/v1/responses
- * and /v1/models do not), but sending it everywhere is harmless.
+ * Attribution headers for chat requests to opencode-hosted gateways.
+ * Mirrors the exact opencode CLI attribution protocol:
+ * User-Agent with ai-sdk and runtime, x-opencode-client, x-opencode-project,
+ * x-opencode-session, x-opencode-session-id, x-opencode-request, and x-session-affinity.
  */
 export function createOpenCodeChatHeaders(identifiers?: {
 	sessionId?: string;
 	requestId?: string;
 }): Record<string, string> {
+	const sessionId = identifiers?.sessionId?.startsWith("ses_")
+		? identifiers.sessionId
+		: generateOpenCodeSessionId();
+	const requestId = identifiers?.requestId?.startsWith("msg_")
+		? identifiers.requestId
+		: generateOpenCodeRequestId();
+
 	const headers: Record<string, string> = {
 		"User-Agent": OPENCODE_USER_AGENT,
 		"x-opencode-client": "cli",
-		"x-opencode-session": identifiers?.sessionId?.startsWith("ses_")
-			? identifiers.sessionId
-			: generateOpenCodeSessionId(),
-		"x-opencode-request": identifiers?.requestId?.startsWith("msg_")
-			? identifiers.requestId
-			: generateOpenCodeRequestId(),
+		"x-opencode-project": "global",
+		"x-opencode-session": sessionId,
+		"x-opencode-session-id": sessionId,
+		"x-opencode-request": requestId,
+		"x-session-affinity": sessionId,
 	};
 	return headers;
 }

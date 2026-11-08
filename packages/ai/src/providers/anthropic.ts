@@ -1963,8 +1963,8 @@ export function buildAnthropicClientOptions(args: AnthropicClientOptionsArgs): A
 		baseUrl?.includes("opencode.ai")
 	) {
 		const opencodeHeaders: Record<string, string> = {
-			...createOpenCodeChatHeaders(),
 			...defaultHeaders,
+			...createOpenCodeChatHeaders(),
 		};
 		if (apiKey) {
 			opencodeHeaders.authorization = `Bearer ${apiKey}`;

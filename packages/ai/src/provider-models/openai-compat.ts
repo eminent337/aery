@@ -1231,13 +1231,27 @@ export interface OpenCodeModelManagerConfig {
  */
 const OPENCODE_ZEN_FREE_EXCLUSIONS = new Set<string>(["deepseek-v4-flash-free"]);
 
+const OPENCODE_ZEN_KNOWN_FREE_MODELS = new Set<string>([
+	"big-pickle",
+	"beam-free",
+	"flint-40b-free",
+	"mimo-v2.6-flash-free",
+	"nemotron-3.5-lightning-free",
+	"nemotron-3.5-super-vl-free",
+	"deepseek-v4.1-flash-free",
+	"glm-5.3-flash-free",
+	"crouton-alpha-free",
+	"iceman-free",
+	"inkling-2-small-free",
+]);
+
 /** Whether a zen model id is genuinely free-tier anonymous accessible. */
 export function isOpencodeZenFreeModelId(modelId: string): boolean {
 	const lowerId = modelId.toLowerCase();
 	if (OPENCODE_ZEN_FREE_EXCLUSIONS.has(lowerId)) {
 		return false;
 	}
-	return lowerId.endsWith("-free") || lowerId === "big-pickle";
+	return lowerId.endsWith("-free") || lowerId === "big-pickle" || OPENCODE_ZEN_KNOWN_FREE_MODELS.has(lowerId);
 }
 
 function normalizeOpenCodeBasePath(baseUrl: string | undefined, fallbackBasePath: string): string {
@@ -1246,6 +1260,9 @@ function normalizeOpenCodeBasePath(baseUrl: string | undefined, fallbackBasePath
 }
 
 function openCodeBaseUrlForApi(api: Api, basePath: string): string {
+	if (basePath.includes("/inference")) {
+		return api === "anthropic-messages" ? `${basePath}/anthropic/v1` : `${basePath}/openai/v1`;
+	}
 	return api === "anthropic-messages" ? basePath : `${basePath}/v1`;
 }
 

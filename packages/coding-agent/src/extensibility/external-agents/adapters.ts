@@ -37,7 +37,14 @@ export const BUILTIN_EXTERNAL_AGENTS: Record<string, ExternalAgentAdapter> = {
 		defaultBinary: "opencode",
 		versionArgs: ["--version"],
 		buildArgs: (prompt, options) => {
-			const args = ["run", prompt, "--auto"];
+			const args = ["run"];
+			if (options?.model) {
+				const modelTarget = options.model.startsWith("opencode/")
+					? options.model
+					: `opencode/${options.model}`;
+				args.push("-m", modelTarget);
+			}
+			args.push(prompt, "--auto");
 			if (options?.extraArgs?.length) {
 				args.push(...options.extraArgs);
 			}

@@ -55,6 +55,7 @@ import { getClineCommonHeaders } from "../utils/oauth/cline";
 import { createFreebuffFetch, getFreebuffCommonHeaders } from "../utils/oauth/freebuff";
 import { createOpenCodeChatHeaders, parseGitHubCopilotApiKey } from "../utils/oauth/github-copilot";
 import { getKimiCommonHeaders } from "../utils/oauth/kimi";
+import { isLocalOpenCodeAvailable, streamOpenCodeLocalCli } from "./opencode-local";
 import { notifyProviderResponse } from "../utils/provider-response";
 import { callWithCopilotModelRetry } from "../utils/retry";
 import { adaptSchemaForStrict, NO_STRICT, toolWireSchema } from "../utils/schema";
@@ -523,6 +524,25 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions"> = (
 					disableStrictTools = true;
 					openaiStream = await createCompletionsStream("none");
 				} else {
+					const isOpencode =
+						model.provider === "opencode" ||
+						model.provider === "opencode-zen" ||
+						model.provider === "opencode-go" ||
+						model.baseUrl?.includes("opencode.ai");
+					const isRateLimit =
+						extractHttpStatusFromError(error) === 429 ||
+						capturedErrorResponse?.status === 429 ||
+						/FreeUsageLimitError/i.test(String(error)) ||
+						/FreeUsageLimitError/i.test(capturedErrorResponse?.bodyText || "");
+					if (isOpencode && isRateLimit && isLocalOpenCodeAvailable()) {
+						const localStream = streamOpenCodeLocalCli(model, context, options);
+						for await (const event of localStream) {
+							stream.push(event as any);
+						}
+						const finalResult = await localStream.result();
+						stream.end(finalResult);
+						return;
+					}
 					if (!shouldRetryWithoutStrictTools(error, capturedErrorResponse, appliedToolStrictMode, context.tools)) {
 						throw error;
 					}
@@ -940,6 +960,28 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions"> = (
 			stream.push({ type: "done", reason: output.stopReason, message: output });
 			stream.end();
 		} catch (error) {
+			const capturedErrorResponse = getCapturedErrorResponse?.();
+			const isOpencode =
+				model.provider === "opencode" ||
+				model.provider === "opencode-zen" ||
+				model.provider === "opencode-go" ||
+				model.baseUrl?.includes("opencode.ai");
+			const isRateLimit =
+				extractHttpStatusFromError(error) === 429 ||
+				capturedErrorResponse?.status === 429 ||
+				/FreeUsageLimitError/i.test(String(error)) ||
+				/FreeUsageLimitError/i.test(capturedErrorResponse?.bodyText || "");
+			if (isOpencode && isRateLimit && isLocalOpenCodeAvailable() && output.content.length === 0) {
+				try {
+					const localStream = streamOpenCodeLocalCli(model, context, options);
+					for await (const event of localStream) {
+						stream.push(event as any);
+					}
+					const finalResult = await localStream.result();
+					stream.end(finalResult);
+					return;
+				} catch {}
+			}
 			for (const block of output.content) delete (block as any).index;
 			const firstEventTimeoutError = abortTracker.getLocalAbortReason();
 			output.stopReason = abortTracker.wasCallerAbort() ? "aborted" : "error";
@@ -1026,7 +1068,7 @@ async function createClient(
 		// full per-model daily quota when the User-Agent identifies an opencode
 		// client; unattributed requests land in a small fallback bucket and
 		// 429 with FreeUsageLimitError (see createOpenCodeChatHeaders).
-		headers = { ...createOpenCodeChatHeaders(), ...headers };
+		headers = { ...headers, ...createOpenCodeChatHeaders() };
 	}
 	let copilotPremiumRequests: number | undefined;
 
@@ -1088,12 +1130,17 @@ async function createClient(
 		baseFetch.preconnect ? { preconnect: baseFetch.preconnect } : {},
 	);
 	const debugFetch = onSseEvent ? wrapFetchForSseDebug(wrappedFetch, event => onSseEvent(event, model)) : wrappedFetch;
+	const isOpenCode =
+		model.provider === "opencode" ||
+		model.provider === "opencode-zen" ||
+		model.provider === "opencode-go" ||
+		model.baseUrl?.includes("opencode.ai");
 	return {
 		client: new OpenAI({
 			apiKey,
 			baseURL: baseUrl,
 			dangerouslyAllowBrowser: true,
-			maxRetries: 5,
+			maxRetries: isOpenCode ? 0 : 5,
 			defaultHeaders: headers,
 			defaultQuery: azureDefaultQuery,
 			fetch: debugFetch,

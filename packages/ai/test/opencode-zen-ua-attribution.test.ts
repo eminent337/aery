@@ -126,10 +126,13 @@ describe("opencode-zen chat request attribution headers", () => {
 
 	it("createOpenCodeChatHeaders formats opencode UA, client cli, and timestamped IDs", () => {
 		const headers = createOpenCodeChatHeaders({ sessionId: "ses_custom", requestId: "msg_custom" });
-		expect(headers["User-Agent"]).toBe("opencode/1.18.18");
+		expect(headers["User-Agent"]).toBe("opencode/1.19.5 ai-sdk/provider-utils/4.0.23 runtime/bun/1.4.4");
 		expect(headers["x-opencode-client"]).toBe("cli");
+		expect(headers["x-opencode-project"]).toBe("global");
 		expect(headers["x-opencode-session"]).toBe("ses_custom");
+		expect(headers["x-opencode-session-id"]).toBe("ses_custom");
 		expect(headers["x-opencode-request"]).toBe("msg_custom");
+		expect(headers["x-session-affinity"]).toBe("ses_custom");
 
 		const bare = createOpenCodeChatHeaders();
 		expect(bare["x-opencode-session"]).toMatch(/^ses_[0-9a-f]{12}[0-9a-zA-Z]{14}$/);
