@@ -17,6 +17,7 @@ export interface CoworkAssets {
 	smolImage: string | null;
 	available: boolean;
 	resourceDir?: string | null;
+	kvmAvailable: boolean;
 }
 
 export interface ResolveAssetsOptions {
@@ -165,6 +166,7 @@ export function resolveCoworkAssets(
 		const virtiofsdSystemLocations = [
 			"/usr/lib/virtiofsd",
 			"/usr/libexec/virtiofsd",
+			"/usr/lib/qemu/virtiofsd",
 			"/usr/local/bin/virtiofsd",
 			"/usr/bin/virtiofsd",
 		];
@@ -177,6 +179,7 @@ export function resolveCoworkAssets(
 		}
 	}
 
+	const kvmAvailable = fs.existsSync("/dev/kvm");
 	const available = Boolean(coworkHelper && virtiofsd && smolImage);
 
 	return {
@@ -185,12 +188,13 @@ export function resolveCoworkAssets(
 		smolImage,
 		available,
 		resourceDir,
+		kvmAvailable,
 	};
 }
 
 /**
  * Sensitive path validator rejecting sensitive user and system paths.
- * Blocks ~/.ssh, ~/.aws, ~/.gnupg, ~/.kube, ~/.docker, .env, .env.*, .bashrc, .zshrc, .gitconfig.
+ * Blocks root directories, ~/.ssh, ~/.aws, ~/.gnupg, ~/.kube, ~/.docker, .env, .env.*, .bashrc, .zshrc, .profile, .gitconfig, .netrc.
  */
 export function isSensitivePath(targetPath: string): boolean {
 	if (!targetPath || typeof targetPath !== "string") return false;
@@ -205,12 +209,24 @@ export function isSensitivePath(targetPath: string): boolean {
 
 	const normalized = path.normalize(expanded);
 	const resolved = path.resolve(normalized);
+
+	// Reject root directory and entire user home directory to prevent blanket exposure
+	if (resolved === "/" || resolved === home) {
+		return true;
+	}
+
 	const base = path.basename(resolved);
 
 	if (base === ".env" || base.startsWith(".env.")) {
 		return true;
 	}
-	if (base === ".bashrc" || base === ".zshrc" || base === ".gitconfig") {
+	if (
+		base === ".bashrc" ||
+		base === ".zshrc" ||
+		base === ".profile" ||
+		base === ".gitconfig" ||
+		base === ".netrc"
+	) {
 		return true;
 	}
 
@@ -231,7 +247,13 @@ export function isSensitivePath(targetPath: string): boolean {
 		if (seg === ".env" || seg.startsWith(".env.")) {
 			return true;
 		}
-		if (seg === ".bashrc" || seg === ".zshrc" || seg === ".gitconfig") {
+		if (
+			seg === ".bashrc" ||
+			seg === ".zshrc" ||
+			seg === ".profile" ||
+			seg === ".gitconfig" ||
+			seg === ".netrc"
+		) {
 			return true;
 		}
 	}
@@ -346,6 +368,7 @@ export class MicrovmSandboxTool implements AgentTool<typeof microvmSandboxSchema
 					"MicroVM Sandbox Status:",
 					`• running: ${this.state.running}`,
 					`• assets available: ${assets.available}`,
+					`• kvm hardware acceleration: ${assets.kvmAvailable}`,
 					`• cowork helper: ${assets.coworkHelper || "(not found)"}`,
 					`• virtiofsd: ${assets.virtiofsd || "(not found)"}`,
 					`• smol image: ${assets.smolImage || "(not found)"}`,
@@ -382,11 +405,22 @@ export class MicrovmSandboxTool implements AgentTool<typeof microvmSandboxSchema
 				const guestPath = params.guest_path || `/mnt/${path.basename(hostPath)}`;
 				const isReadonly = params.readonly ?? true;
 
-				this.state.mountedDirectories.push({
-					hostPath,
-					guestPath,
-					readonly: isReadonly,
-				});
+				const existingIndex = this.state.mountedDirectories.findIndex(
+					m => m.hostPath === hostPath || m.guestPath === guestPath,
+				);
+				if (existingIndex >= 0) {
+					this.state.mountedDirectories[existingIndex] = {
+						hostPath,
+						guestPath,
+						readonly: isReadonly,
+					};
+				} else {
+					this.state.mountedDirectories.push({
+						hostPath,
+						guestPath,
+						readonly: isReadonly,
+					});
+				}
 
 				return {
 					content: [

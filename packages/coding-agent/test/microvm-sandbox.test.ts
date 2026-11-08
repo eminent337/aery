@@ -46,9 +46,20 @@ describe("MicroVM Sandbox Tool", () => {
 			expect(isSensitivePath(`${home}/.bashrc`)).toBe(true);
 			expect(isSensitivePath("~/.zshrc")).toBe(true);
 			expect(isSensitivePath(`${home}/.zshrc`)).toBe(true);
+			expect(isSensitivePath("~/.profile")).toBe(true);
+			expect(isSensitivePath(`${home}/.profile`)).toBe(true);
 			expect(isSensitivePath("~/.gitconfig")).toBe(true);
 			expect(isSensitivePath(`${home}/.gitconfig`)).toBe(true);
 			expect(isSensitivePath(".gitconfig")).toBe(true);
+			expect(isSensitivePath("~/.netrc")).toBe(true);
+			expect(isSensitivePath(`${home}/.netrc`)).toBe(true);
+		});
+
+		it("rejects root directory and home directory root", () => {
+			const home = os.homedir();
+			expect(isSensitivePath("/")).toBe(true);
+			expect(isSensitivePath("~")).toBe(true);
+			expect(isSensitivePath(home)).toBe(true);
 		});
 
 		it("permits standard non sensitive workspace paths", () => {
@@ -63,6 +74,7 @@ describe("MicroVM Sandbox Tool", () => {
 		it("detects bundled system assets if present", () => {
 			const assets = resolveCoworkAssets();
 			expect(typeof assets.available).toBe("boolean");
+			expect(typeof assets.kvmAvailable).toBe("boolean");
 			if (assets.coworkHelper) {
 				expect(assets.coworkHelper).toContain("cowork-linux-helper");
 			}
