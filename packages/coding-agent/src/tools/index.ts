@@ -30,6 +30,21 @@ import type { EventBus } from "../utils/event-bus";
 import { WebSearchTool } from "../web/search";
 import type { WorkspaceTree } from "../workspace-tree";
 import { AdvisorTool } from "./advisor";
+import {
+	ClickAtTool,
+	ClipboardGetTool,
+	ClipboardSetTool,
+	CloseAppTool,
+	DisplayInfoTool,
+	DragAndDropAtTool,
+	ListAppsTool,
+	MoveCursorTool,
+	PressKeyTool,
+	ScrollAtTool,
+	TakeScreenshotTool,
+	TypeTextTool,
+} from "./agy-computer-use";
+import { AppBridgeTool } from "./app-bridge";
 import { AskTool } from "./ask";
 import { AskQuestionTool } from "./ask-question";
 import { AstEditTool } from "./ast-edit";
@@ -41,76 +56,61 @@ import { BestOfNTool } from "./best-of-n";
 import { BrowserTool } from "./browser";
 import { CameraControlTool } from "./camera-control";
 import { type CheckpointState, CheckpointTool, RewindTool } from "./checkpoint";
+import { ComputerUseTeachTool } from "./computer-use-teach";
 import { ContextUsageTool } from "./context-usage";
 import { ConversationSearchTool } from "./conversation-search";
 import { DaemonTool } from "./daemon";
 import { DaemonControlTool } from "./daemon-control";
 import { DebugTool } from "./debug";
-import { DesktopControlTool } from "./desktop-control";
-import {
-	TakeScreenshotTool,
-	ClickAtTool,
-	MoveCursorTool,
-	TypeTextTool,
-	PressKeyTool,
-	DragAndDropAtTool,
-	ScrollAtTool,
-	ClipboardGetTool,
-	ClipboardSetTool,
-	DisplayInfoTool,
-	ListAppsTool,
-	CloseAppTool,
-} from "./agy-computer-use";
-import { GeminiComputerUseTool } from "./gemini-computer-use";
+import { DefineSubagentTool } from "./define-subagent";
 import { DesktopAccessibilityTool } from "./desktop-accessibility";
-import { ComputerUseTeachTool } from "./computer-use-teach";
-import { QuickLauncherTool } from "./quick-launcher";
-import { FastFileSearchTool } from "./file-indexer";
-import { MicrovmSandboxTool } from "./microvm-sandbox";
+import { DesktopControlTool } from "./desktop-control";
 import { DesktopEmergencyStopTool } from "./desktop-emergency-stop";
-import { ScheduledTaskWatcherTool } from "./scheduled-task-watcher";
-import { AppBridgeTool } from "./app-bridge";
 import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
 import { ExploreTool } from "./explore";
+import { CallExternalAgentTool } from "./external-agent";
+import { FastFileSearchTool } from "./file-indexer";
 import { FindTool } from "./find";
+import { GeminiComputerUseTool } from "./gemini-computer-use";
 import { GithubTool } from "./gh";
 import { GraphTool } from "./graph";
 import { HandoffTool } from "./handoff";
 import { InspectImageTool } from "./inspect-image";
+import { InvokeSubagentTool } from "./invoke-subagent";
 import { IrcTool } from "./irc";
 import { JobTool } from "./job";
-import { CallExternalAgentTool } from "./external-agent";
-import { DefineSubagentTool } from "./define-subagent";
-import { InvokeSubagentTool } from "./invoke-subagent";
 import { ManageSubagentsTool } from "./manage-subagents";
 import { ManageTaskTool } from "./manage-task";
-import { SendMessageTool } from "./send-message";
 import { MemoryEditTool } from "./memory-edit";
 import { MemoryLinkTool } from "./memory-link";
-import { MemoryRecallTool as LegacyRecallTool } from "./memory-recall";
 import { MemoryRecallTool, MemorySearchTool } from "./memory-progressive";
+import { MemoryRecallTool as LegacyRecallTool } from "./memory-recall";
 import { MemoryReflectTool } from "./memory-reflect";
 import { MemoryRelatedTool } from "./memory-related";
 import { MemoryRetainTool } from "./memory-retain";
+import { MicrovmSandboxTool } from "./microvm-sandbox";
 import { MultiPromptReviewTool } from "./multi-prompt-review";
 import { wrapToolWithMetaNotice } from "./output-meta";
 import { EnterPlanModeTool, ExitPlanModeTool } from "./plan-mode";
+import { QuickLauncherTool } from "./quick-launcher";
 import { ReadTool } from "./read";
-import { ReadFileTool } from "./read-file";
 import { ReadDocTool } from "./read-doc";
+import { ReadFileTool } from "./read-file";
 import { RenderMermaidTool } from "./render-mermaid";
 import { createReportToolIssueTool, isAutoQaEnabled } from "./report-tool-issue";
 import { ResolveTool } from "./resolve";
 import { reportFindingTool } from "./review";
 import { RunCommandTool } from "./run-command";
 import { ScheduleTool } from "./schedule";
+import { ScheduledTaskWatcherTool } from "./scheduled-task-watcher";
 import { SearchTool } from "./search";
 import { SearchContextTool } from "./search-context";
 import { SearchToolBm25Tool } from "./search-tool-bm25";
 import { SearchWebTool } from "./search-web";
 import { SendInputTool } from "./send-input";
+import { SendMessageTool } from "./send-message";
 import { SetFastTool } from "./set-fast";
 import { SetModelTool } from "./set-model";
 import { ShadowWatchTool } from "./shadow";
@@ -190,6 +190,7 @@ export * from "../session/streaming-output";
 export * from "../task";
 export * from "../web/search";
 export * from "./advisor";
+export * from "./agy-computer-use";
 export * from "./ask";
 export * from "./ast-edit";
 export * from "./ast-grep";
@@ -201,26 +202,37 @@ export * from "./camera-control";
 export * from "./checkpoint";
 export * from "./conversation-search";
 export * from "./debug";
+export * from "./define-subagent";
 export * from "./desktop-control";
-export * from "./agy-computer-use";
-export * from "./gemini-computer-use";
-export * from "./screen-buffer";
 export * from "./eval";
 export * from "./eval-backends";
 export * from "./explore";
 export * from "./find";
+export * from "./gemini-computer-use";
 export * from "./gh";
 export * from "./graph";
 export * from "./handoff";
 export * from "./image-gen";
 export * from "./inspect-image";
+export * from "./invoke-subagent";
 export * from "./irc";
 export * from "./job";
 export * from "./memory-edit";
 export * from "./memory-link";
+export {
+	createMemoryRecallTool,
+	createMemorySearchTool,
+	formatObservationMarkdown,
+	formatSearchObservationItem,
+	formatSearchResultsMarkdown,
+	MemoryRecallTool as ProgressiveMemoryRecallTool,
+	type MemorySearchParams,
+	MemorySearchTool,
+	memoryRecallSchema as progressiveMemoryRecallSchema,
+	memorySearchSchema,
+	type ProgressiveMemoryRecallParams,
+} from "./memory-progressive";
 export * from "./memory-recall";
-export * from "./memory-progressive";
-export { MemoryRecallTool, MemorySearchTool } from "./memory-progressive";
 export * from "./memory-reflect";
 export * from "./memory-related";
 export * from "./memory-retain";
@@ -234,14 +246,13 @@ export * from "./resolve";
 export * from "./review";
 export * from "./run-command";
 export * from "./schedule";
+export * from "./screen-buffer";
 export * from "./search";
 export * from "./search-context";
 export * from "./search-tool-bm25";
 export * from "./search-web";
 export * from "./send-input";
 export * from "./send-message";
-export * from "./define-subagent";
-export * from "./invoke-subagent";
 export * from "./set-fast";
 export * from "./set-model";
 export * from "./shadow";
@@ -861,11 +872,6 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 		}
 		if (["hindsight", "mnemopi"].includes(session.settings.get("memory.backend") ?? "")) {
 			for (const name of ["recall", "retain", "reflect"]) {
-				if (!requestedTools.includes(name)) requestedTools.push(name);
-			}
-		}
-		if (session.settings.get("memory.progressive.enabled") !== false) {
-			for (const name of ["memory_recall", "memory_search"]) {
 				if (!requestedTools.includes(name)) requestedTools.push(name);
 			}
 		}

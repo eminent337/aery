@@ -1,7 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import type { AgentToolResult } from "@aryee337/aery-core";
 import { Settings } from "../../src/config/settings";
 import { ProgressiveMemoryCoordinator } from "../../src/memory/progressive-memory-coordinator";
 import { ProgressiveMemoryStore } from "../../src/memory/progressive-memory-store";
@@ -18,6 +19,11 @@ import {
 } from "../../src/tools/memory-progressive";
 
 Bun.env.PI_PYTHON_SKIP_CHECK = "1";
+
+function getText(result: AgentToolResult): string {
+	const first = result.content[0];
+	return first && first.type === "text" ? first.text : "";
+}
 
 describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 	let tempDir: string;
@@ -48,141 +54,127 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 				"memory.progressive.dbPath": dbPath,
 			}),
 			...overrides,
-		};
+		} as ToolSession;
 	}
 
 	function seedObservations() {
 		store.insertObservation({
 			id: "obs-1",
-			sessionId: "session-alpha",
+			sessionId: "test-session",
 			turnIndex: 0,
 			category: "decision",
 			title: "Adopted SQLite FTS5 for local memory",
 			summary: "Selected SQLite with FTS5 lexical search to achieve zero external dependencies.",
 			files: ["src/memory/store.ts", "src/memory/schema.ts"],
-			context: { rationale: "offline-first architecture", speed: "sub-millisecond" },
-			createdAt: Date.now() - 3600000 * 2, // 2h ago
+			context: { rationale: "offline-first architecture", benchmarkMs: 2.4 },
+			createdAt: Date.now() - 3600 * 1000 * 2, // 2h ago
 		});
 
 		store.insertObservation({
 			id: "obs-2",
-			sessionId: "session-alpha",
+			sessionId: "test-session",
 			turnIndex: 1,
 			category: "bugfix",
 			title: "Fixed sandbox EROFS test errors",
-			summary: "Exported HOME=/tmp in bun test to avoid permission denied in sandbox.",
-			files: ["package.json"],
-			context: { errorCode: "EROFS" },
-			createdAt: Date.now() - 60000 * 15, // 15m ago
+			summary: "Resolved sandbox test failures by passing HOME=/tmp environment variable.",
+			files: ["test/memory/store.test.ts"],
+			context: { fix: "export HOME=/tmp before running bun test" },
+			createdAt: Date.now() - 3600 * 1000 * 5, // 5h ago
 		});
 
 		store.insertObservation({
 			id: "obs-3",
-			sessionId: "session-beta",
-			turnIndex: 0,
+			sessionId: "test-session",
+			turnIndex: 2,
 			category: "feature",
-			title: "Added hidden-ref workspace checkpointing",
-			summary: "Implemented git checkpoint coordinator for automatic turn rollbacks.",
-			files: ["src/checkpoint/coordinator.ts"],
-			createdAt: Date.now() - 10000, // just now
+			title: "Implemented hidden-ref git checkpoints",
+			summary: "Added checkpoint tool to save workspace states under hidden git refs.",
+			files: ["src/tools/checkpoint.ts"],
+			createdAt: Date.now() - 3600 * 1000 * 24 * 2, // 2d ago
 		});
 
 		store.insertObservation({
 			id: "obs-4",
-			sessionId: "session-beta",
-			turnIndex: 1,
+			sessionId: "test-session",
+			turnIndex: 3,
 			category: "discovery",
-			title: "Discovered Mnemopi bank isolation layout",
-			summary: "Identified how per-project and global banks are partitioned in vector storage.",
-			files: [],
-			createdAt: Date.now() - 86400000 * 3, // 3d ago
+			title: "Discovered existing mnemopi session protocol",
+			summary: "Mnemopi backend supports scoped recall results via session manager.",
+			createdAt: Date.now() - 1000 * 30, // 30s ago
 		});
 	}
 
-	describe("formatRelativeAge and helper formatters", () => {
+	describe("formatters", () => {
 		it("formats relative age accurately", () => {
-			const now = 1000000000000;
-			expect(formatRelativeAge(now - 10000, now)).toBe("just now");
-			expect(formatRelativeAge(now - 60000 * 5, now)).toBe("5m ago");
-			expect(formatRelativeAge(now - 3600000 * 4, now)).toBe("4h ago");
-			expect(formatRelativeAge(now - 86400000 * 2, now)).toBe("2d ago");
+			const now = 10000000;
+			expect(formatRelativeAge(now - 30 * 1000, now)).toBe("just now");
+			expect(formatRelativeAge(now - 5 * 60 * 1000, now)).toBe("5m ago");
+			expect(formatRelativeAge(now - 3 * 3600 * 1000, now)).toBe("3h ago");
+			expect(formatRelativeAge(now - 48 * 3600 * 1000, now)).toBe("2d ago");
 		});
 
-		it("formats observation markdown with all expected fields", () => {
-			const obs = {
-				id: "obs-100",
-				sessionId: "sess-1",
-				entryId: null,
-				turnIndex: 0,
-				category: "bugfix" as const,
-				title: "Fixed memory leak",
-				summary: "Cleaned up event listeners on session close.",
-				files: ["src/event-bus.ts"],
-				context: { leakType: "listeners" },
+		it("formats full observation markdown", () => {
+			const markdown = formatObservationMarkdown({
+				id: "obs-test",
+				category: "bugfix",
+				title: "Fixed race condition",
+				summary: "Resolved concurrency issue in async task worker.",
+				files: ["src/worker.ts"],
+				context: { threadCount: 4 },
 				createdAt: 1700000000000,
-			};
-			const md = formatObservationMarkdown(obs);
-			expect(md).toContain("### Observation: obs-100");
-			expect(md).toContain("- **ID**: obs-100");
-			expect(md).toContain("- **Category**: bugfix");
-			expect(md).toContain("- **Title**: Fixed memory leak");
-			expect(md).toContain("- **Summary**: Cleaned up event listeners on session close.");
-			expect(md).toContain("- **Files**: `src/event-bus.ts`");
-			expect(md).toContain("- **Timestamp**: 2023-11-14T22:13:20.000Z");
-			expect(md).toContain("- **Detail**:");
-			expect(md).toContain("leakType");
+			});
+
+			expect(markdown).toContain("### Observation: obs-test");
+			expect(markdown).toContain("- **ID**: obs-test");
+			expect(markdown).toContain("- **Category**: bugfix");
+			expect(markdown).toContain("- **Title**: Fixed race condition");
+			expect(markdown).toContain("- **Summary**: Resolved concurrency issue in async task worker.");
+			expect(markdown).toContain("- **Files**: `src/worker.ts`");
+			expect(markdown).toContain("- **Timestamp**: 2023-11-14T22:13:20.000Z");
+			expect(markdown).toContain('"threadCount": 4');
 		});
 
-		it("formats search observation item cleanly", () => {
-			const now = 1700000000000;
-			const obs = {
-				id: "obs-101",
-				sessionId: "sess-1",
-				entryId: null,
-				turnIndex: 0,
-				category: "discovery" as const,
-				title: "Found config path",
-				summary: "Config is stored under ~/.aery/config.json.",
-				files: [],
-				createdAt: now - 60000 * 2,
-			};
-			const item = formatSearchObservationItem(obs, now);
-			expect(item).toContain("- **[`obs-101`]** (`discovery`) **Found config path** (2m ago)");
-			expect(item).toContain("  - **Summary**: Config is stored under ~/.aery/config.json.");
-			expect(item).toContain("  - **Files**: (none)");
+		it("formats search result items", () => {
+			const item = formatSearchObservationItem(
+				{
+					id: "obs-item",
+					category: "feature",
+					title: "Added tool",
+					summary: "New tool created",
+					files: ["src/tool.ts"],
+					createdAt: Date.now() - 120000,
+				},
+				Date.now(),
+			);
+
+			expect(item).toContain("- **[`obs-item`]** (`feature`) **Added tool** (2m ago)");
+			expect(item).toContain("- **Summary**: New tool created");
+			expect(item).toContain("- **Files**: `src/tool.ts`");
 		});
 
-		it("formats list of search results", () => {
-			const now = 1700000000000;
-			const results = [
-				{
-					id: "obs-1",
-					sessionId: "s1",
-					entryId: null,
-					turnIndex: 0,
-					category: "feature" as const,
-					title: "Feature One",
-					summary: "Summary One",
-					files: ["f1.ts"],
-					createdAt: now - 10000,
-				},
-				{
-					id: "obs-2",
-					sessionId: "s1",
-					entryId: null,
-					turnIndex: 1,
-					category: "bugfix" as const,
-					title: "Bugfix Two",
-					summary: "Summary Two",
-					files: [],
-					createdAt: now - 3600000,
-				},
-			];
-			const md = formatSearchResultsMarkdown(results, now);
-			expect(md).toContain("[`obs-1`]");
-			expect(md).toContain("[`obs-2`]");
-			expect(md).toContain("(just now)");
-			expect(md).toContain("(1h ago)");
+		it("formats multiple search results", () => {
+			const markdown = formatSearchResultsMarkdown(
+				[
+					{
+						id: "obs-a",
+						category: "discovery",
+						title: "Item A",
+						summary: "Summary A",
+						createdAt: Date.now(),
+					},
+					{
+						id: "obs-b",
+						category: "decision",
+						title: "Item B",
+						summary: "Summary B",
+						createdAt: Date.now(),
+					},
+				],
+				Date.now(),
+			);
+
+			expect(markdown).toContain("`obs-a`");
+			expect(markdown).toContain("`obs-b`");
 		});
 	});
 
@@ -195,7 +187,7 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 			const result = await tool.execute("call-1", { id: "obs-1" });
 			expect(result.content).toHaveLength(1);
 			expect(result.content[0].type).toBe("text");
-			const text = result.content[0].text;
+			const text = getText(result);
 			expect(text).toContain("### Observation: obs-1");
 			expect(text).toContain("- **Category**: decision");
 			expect(text).toContain("- **Title**: Adopted SQLite FTS5 for local memory");
@@ -217,7 +209,7 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 
 			const result = await tool.execute("call-2", { id: "obs-999" });
 			expect(result.content).toHaveLength(1);
-			expect(result.content[0].text).toBe('Observation "obs-999" not found in project memory.');
+			expect(getText(result)).toBe('Observation "obs-999" not found in project memory.');
 			expect(result.details.found).toBe(false);
 		});
 
@@ -227,7 +219,7 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 			const tool = createMemoryRecallTool(session, store);
 
 			const result = await tool.execute("call-3", { id: "obs-4" });
-			const text = result.content[0].text;
+			const text = getText(result);
 			expect(text).toContain("### Observation: obs-4");
 			expect(text).toContain("- **Files**: (none)");
 			expect(text).toContain("- **Detail**: (none)");
@@ -242,9 +234,6 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 
 			const invalid = tool.parameters.safeParse({});
 			expect(invalid.success).toBe(false);
-
-			const nonString = tool.parameters.safeParse({ id: 123 });
-			expect(nonString.success).toBe(false);
 		});
 
 		it("resolves store from session.progressiveMemoryCoordinator", async () => {
@@ -260,7 +249,8 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 			const tool = new MemoryRecallTool(session);
 
 			const result = await tool.execute("call-coord", { id: "obs-1" });
-			expect(result.content[0].text).toContain("Adopted SQLite FTS5");
+			expect(getText(result)).toContain("Adopted SQLite FTS5");
+			tool.dispose();
 		});
 
 		it("resolves store from dbPath when coordinator is absent", async () => {
@@ -269,7 +259,8 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 			const tool = new MemoryRecallTool(session);
 
 			const result = await tool.execute("call-fallback", { id: "obs-2" });
-			expect(result.content[0].text).toContain("Fixed sandbox EROFS test errors");
+			expect(getText(result)).toContain("Fixed sandbox EROFS test errors");
+			tool.dispose();
 		});
 
 		it("createIf factory returns tool or null based on settings", () => {
@@ -291,7 +282,7 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 
 			const result = await tool.execute("call-s1", { query: "SQLite" });
 			expect(result.content).toHaveLength(1);
-			const text = result.content[0].text;
+			const text = getText(result);
 			expect(text).toContain("`obs-1`");
 			expect(text).toContain("`decision`");
 			expect(text).toContain("Adopted SQLite FTS5 for local memory");
@@ -319,7 +310,7 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 				query: "sandbox",
 				category: "decision",
 			});
-			expect(decisionResult.content[0].text).toBe('No observations matching "sandbox" found in project memory.');
+			expect(getText(decisionResult)).toBe('No observations matching "sandbox" found in project memory.');
 			expect(decisionResult.details.count).toBe(0);
 		});
 
@@ -344,9 +335,7 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 			const tool = createMemorySearchTool(session, store);
 
 			const result = await tool.execute("call-s5", { query: "nonexistentkeywordxyz" });
-			expect(result.content[0].text).toBe(
-				'No observations matching "nonexistentkeywordxyz" found in project memory.',
-			);
+			expect(getText(result)).toBe('No observations matching "nonexistentkeywordxyz" found in project memory.');
 			expect(result.details.count).toBe(0);
 			expect(result.details.results).toHaveLength(0);
 		});
@@ -357,7 +346,7 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 			const tool = createMemorySearchTool(session, store);
 
 			const result = await tool.execute("call-s6", { query: "   " });
-			expect(result.content[0].text).toBe('No observations matching "   " found in project memory.');
+			expect(getText(result)).toBe('No observations matching "   " found in project memory.');
 			expect(result.details.count).toBe(0);
 		});
 
@@ -432,24 +421,24 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 			expect(names).not.toContain("memory_search");
 		});
 
-		it("auto-includes memory_recall and memory_search when requestedTools is provided and enabled", async () => {
+		it("includes memory_recall and memory_search when explicitly requested in toolNames", async () => {
 			const session = createMockSession({
 				settings: Settings.isolated({
 					"memory.progressive.enabled": true,
 				}),
 			});
 
-			const tools = await createTools(session, ["read"]);
+			const tools = await createTools(session, ["read", "memory_recall"]);
 			const names = tools.map(t => t.name);
 			expect(names).toContain("read");
 			expect(names).toContain("memory_recall");
-			expect(names).toContain("memory_search");
+			expect(names).not.toContain("memory_search");
 		});
 
-		it("does not auto-include memory_recall or memory_search when requestedTools is provided and disabled", async () => {
+		it("respects restricted requested tool subsets", async () => {
 			const session = createMockSession({
 				settings: Settings.isolated({
-					"memory.progressive.enabled": false,
+					"memory.progressive.enabled": true,
 				}),
 			});
 

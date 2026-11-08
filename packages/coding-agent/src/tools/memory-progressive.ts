@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import type { AgentTool, AgentToolResult } from "@aryee337/aery-core";
+import { logger, untilAborted } from "@aryee337/aery-utils";
 import * as z from "zod/v4";
 import { ProgressiveMemoryStore } from "../memory/progressive-memory-store";
 import type { ObservationRecord } from "../memory/types";
@@ -53,7 +54,7 @@ export const memoryRecallSchema = z.object({
 	id: z.string().describe("Observation ID to recall (e.g. obs-1)"),
 });
 
-export type MemoryRecallParams = z.infer<typeof memoryRecallSchema>;
+export type ProgressiveMemoryRecallParams = z.infer<typeof memoryRecallSchema>;
 
 export class MemoryRecallTool implements AgentTool<typeof memoryRecallSchema> {
 	readonly name = "memory_recall";
@@ -66,6 +67,7 @@ export class MemoryRecallTool implements AgentTool<typeof memoryRecallSchema> {
 	readonly summary = "Recall full observation details by ID from project memory";
 
 	private store?: ProgressiveMemoryStore;
+	private ownsStore = false;
 
 	constructor(
 		private readonly session: ToolSession,
@@ -85,7 +87,14 @@ export class MemoryRecallTool implements AgentTool<typeof memoryRecallSchema> {
 			this.session.settings?.get?.("memory.progressive.dbPath") ??
 			path.join(this.session.cwd, ".aery", "memory", "project-memory.db");
 		this.store = new ProgressiveMemoryStore({ dbPath });
+		this.ownsStore = true;
 		return this.store;
+	}
+
+	dispose(): void {
+		if (this.ownsStore && this.store && !this.store.isClosed) {
+			this.store.close();
+		}
 	}
 
 	static createIf(session: ToolSession): MemoryRecallTool | null {
@@ -95,35 +104,54 @@ export class MemoryRecallTool implements AgentTool<typeof memoryRecallSchema> {
 		return new MemoryRecallTool(session);
 	}
 
-	async execute(_id: string, params: MemoryRecallParams): Promise<AgentToolResult> {
-		const store = this.getStore();
-		const observation = store.getObservation(params.id);
+	async execute(_id: string, params: ProgressiveMemoryRecallParams, signal?: AbortSignal): Promise<AgentToolResult> {
+		return untilAborted(signal, async () => {
+			try {
+				const store = this.getStore();
+				if (store.isClosed) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Progressive memory store is closed.",
+							},
+						],
+						details: { id: params.id, found: false, error: "store_closed" },
+					};
+				}
 
-		if (!observation) {
-			return {
-				content: [
-					{
-						type: "text",
-						text: `Observation "${params.id}" not found in project memory.`,
+				const observation = store.getObservation(params.id);
+
+				if (!observation) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Observation "${params.id}" not found in project memory.`,
+							},
+						],
+						details: { id: params.id, found: false },
+					};
+				}
+
+				const formatted = formatObservationMarkdown(observation);
+				return {
+					content: [
+						{
+							type: "text",
+							text: formatted,
+						},
+					],
+					details: {
+						observation,
+						found: true,
 					},
-				],
-				details: { id: params.id, found: false },
-			};
-		}
-
-		const formatted = formatObservationMarkdown(observation);
-		return {
-			content: [
-				{
-					type: "text",
-					text: formatted,
-				},
-			],
-			details: {
-				observation,
-				found: true,
-			},
-		};
+				};
+			} catch (err) {
+				logger.warn("memory_recall failed", { id: params.id, error: String(err) });
+				throw err instanceof Error ? err : new Error(String(err));
+			}
+		});
 	}
 }
 
@@ -149,6 +177,7 @@ export class MemorySearchTool implements AgentTool<typeof memorySearchSchema> {
 	readonly summary = "Search project memory for relevant historical observations";
 
 	private store?: ProgressiveMemoryStore;
+	private ownsStore = false;
 
 	constructor(
 		private readonly session: ToolSession,
@@ -168,7 +197,14 @@ export class MemorySearchTool implements AgentTool<typeof memorySearchSchema> {
 			this.session.settings?.get?.("memory.progressive.dbPath") ??
 			path.join(this.session.cwd, ".aery", "memory", "project-memory.db");
 		this.store = new ProgressiveMemoryStore({ dbPath });
+		this.ownsStore = true;
 		return this.store;
+	}
+
+	dispose(): void {
+		if (this.ownsStore && this.store && !this.store.isClosed) {
+			this.store.close();
+		}
 	}
 
 	static createIf(session: ToolSession): MemorySearchTool | null {
@@ -178,46 +214,71 @@ export class MemorySearchTool implements AgentTool<typeof memorySearchSchema> {
 		return new MemorySearchTool(session);
 	}
 
-	async execute(_id: string, params: MemorySearchParams): Promise<AgentToolResult> {
-		const store = this.getStore();
-		const results = store.searchObservations({
-			query: params.query,
-			category: params.category,
-			limit: params.limit ?? 5,
-		});
+	async execute(_id: string, params: MemorySearchParams, signal?: AbortSignal): Promise<AgentToolResult> {
+		return untilAborted(signal, async () => {
+			try {
+				const store = this.getStore();
+				if (store.isClosed) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Progressive memory store is closed.",
+							},
+						],
+						details: {
+							query: params.query,
+							category: params.category,
+							results: [],
+							count: 0,
+							error: "store_closed",
+						},
+					};
+				}
 
-		if (results.length === 0) {
-			return {
-				content: [
-					{
-						type: "text",
-						text: `No observations matching "${params.query}" found in project memory.`,
-					},
-				],
-				details: {
+				const results = store.searchObservations({
 					query: params.query,
 					category: params.category,
-					results: [],
-					count: 0,
-				},
-			};
-		}
+					limit: params.limit ?? 5,
+				});
 
-		const formatted = formatSearchResultsMarkdown(results);
-		return {
-			content: [
-				{
-					type: "text",
-					text: formatted,
-				},
-			],
-			details: {
-				query: params.query,
-				category: params.category,
-				results,
-				count: results.length,
-			},
-		};
+				if (results.length === 0) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `No observations matching "${params.query}" found in project memory.`,
+							},
+						],
+						details: {
+							query: params.query,
+							category: params.category,
+							results: [],
+							count: 0,
+						},
+					};
+				}
+
+				const formatted = formatSearchResultsMarkdown(results);
+				return {
+					content: [
+						{
+							type: "text",
+							text: formatted,
+						},
+					],
+					details: {
+						query: params.query,
+						category: params.category,
+						results,
+						count: results.length,
+					},
+				};
+			} catch (err) {
+				logger.warn("memory_search failed", { query: params.query, error: String(err) });
+				throw err instanceof Error ? err : new Error(String(err));
+			}
+		});
 	}
 }
 
