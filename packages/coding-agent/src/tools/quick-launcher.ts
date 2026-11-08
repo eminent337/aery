@@ -1,5 +1,5 @@
 /**
- * quick-launcher.ts — Global Quick Launcher HUD Tool for Aery.
+ * quick-launcher.ts: Global Quick Launcher HUD Tool for Aery.
  *
  * Implements a floating Spotlight/Raycast-style HUD summoned via a global hotkey,
  * enabling instantaneous user prompt dispatching from anywhere on the desktop.
