@@ -10,6 +10,7 @@ import {
 	getSubagentDefinition,
 	resetCustomSubagentsForTests,
 } from "../../src/registry/builtin-subagents";
+import { createMockSubagentSession, SubagentRunner } from "../../src/registry/subagent-runner";
 import { DefineSubagentTool } from "../../src/tools/define-subagent";
 import { InvokeSubagentTool } from "../../src/tools/invoke-subagent";
 import { ManageSubagentsTool } from "../../src/tools/manage-subagents";
@@ -78,8 +79,11 @@ describe("DefineSubagentTool", () => {
 			EnableWriteTools: true,
 		});
 
-		// Invoke the subagent using the newly defined custom type
-		const invokeTool = new InvokeSubagentTool();
+		// Invoke the subagent using the newly defined custom type with mock runner
+		const mockRunner = new SubagentRunner(AgentRegistry.global(), async (opts: any) => ({
+			session: createMockSubagentSession(),
+		}));
+		const invokeTool = new InvokeSubagentTool(undefined, mockRunner);
 		const invokeResult = await invokeTool.execute("invoke-1", {
 			TypeName: "db-migrator",
 			Role: "Database Migrator",

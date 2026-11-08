@@ -150,6 +150,43 @@ describe("SubagentRunner Engine", () => {
 			expect(resolveSubagentModel("FLASH_LITE")).toBe("gemini-2.5-flash-lite");
 			expect(resolveSubagentModel("Flash", "anthropic/claude-3-7-sonnet")).toBe("claude-3-5-haiku");
 		});
+
+		it("resolves 'local' tier to keyless offline local model", () => {
+			expect(resolveSubagentModel("local")).toBe("ollama/qwen2.5-coder");
+			expect(resolveSubagentModel("LOCAL")).toBe("ollama/qwen2.5-coder");
+		});
+
+		it("resolves provider-aware speed tiers for DeepSeek parent model", () => {
+			expect(resolveSubagentModel("flash", "deepseek/deepseek-chat")).toBe("deepseek/deepseek-chat");
+			expect(resolveSubagentModel("pro", "deepseek/deepseek-chat")).toBe("deepseek/deepseek-reasoner");
+		});
+
+		it("resolves model role aliases from user settings when provided", () => {
+			const mockSettings = {
+				getModelRoles: () => ({
+					smol: "custom-provider/fast-model",
+					task: "custom-provider/task-model",
+					slow: "custom-provider/smart-model",
+				}),
+			};
+			expect(resolveSubagentModel("smol", undefined, { settings: mockSettings as any })).toBe(
+				"custom-provider/fast-model",
+			);
+			expect(resolveSubagentModel("task", undefined, { settings: mockSettings as any })).toBe(
+				"custom-provider/task-model",
+			);
+			expect(resolveSubagentModel("slow", undefined, { settings: mockSettings as any })).toBe(
+				"custom-provider/smart-model",
+			);
+		});
+
+		it("safely falls back to parent model when requested provider has no authenticated credentials", () => {
+			const options = {
+				isProviderAuthenticated: (provider: string) => provider === "anthropic",
+			};
+			const result = resolveSubagentModel("deepseek/deepseek-chat", "anthropic/claude-3-7-sonnet", options);
+			expect(result).toBe("anthropic/claude-3-7-sonnet");
+		});
 	});
 
 	describe("Workspace Isolation", () => {

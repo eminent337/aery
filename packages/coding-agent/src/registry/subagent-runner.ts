@@ -54,7 +54,25 @@ export const OPENAI_SUBAGENT_MODEL_TIERS: Record<string, string> = {
 	pro: "gpt-4o",
 };
 
+export const DEEPSEEK_SUBAGENT_MODEL_TIERS: Record<string, string> = {
+	flash: "deepseek/deepseek-chat",
+	flash_lite: "deepseek/deepseek-chat",
+	pro: "deepseek/deepseek-reasoner",
+};
+
+export const LOCAL_SUBAGENT_MODEL_TIERS: Record<string, string> = {
+	local: "ollama/qwen2.5-coder",
+	flash: "ollama/qwen2.5-coder",
+	flash_lite: "ollama/qwen2.5-coder",
+	pro: "ollama/deepseek-r1:8b",
+};
+
 export const DEFAULT_SUBAGENT_MODEL = "gemini-2.5-flash";
+
+export interface ResolveSubagentModelOptions {
+	settings?: { getModelRoles?: () => Record<string, string> };
+	isProviderAuthenticated?: (provider: string) => boolean;
+}
 
 /**
  * Generate a stable, human-readable conversation ID for a subagent.
@@ -99,9 +117,14 @@ export function resolveSubagentTools(typeName: string, customTools?: string[]): 
 }
 
 /**
- * Resolve a requested model tier ("flash", "flash_lite", "pro", "inherit") to a concrete model identifier.
+ * Resolve a requested model tier ("flash", "flash_lite", "pro", "local", "inherit") to a concrete model identifier.
+ * Incorporates user settings role mappings and authentication verification with parent fallback.
  */
-export function resolveSubagentModel(model?: string, parentModel?: string): string {
+export function resolveSubagentModel(
+	model?: string,
+	parentModel?: string,
+	options?: ResolveSubagentModelOptions,
+): string {
 	const trimmed = model?.trim();
 	if (!trimmed) {
 		return parentModel || DEFAULT_SUBAGENT_MODEL;
@@ -112,21 +135,54 @@ export function resolveSubagentModel(model?: string, parentModel?: string): stri
 		return parentModel || DEFAULT_SUBAGENT_MODEL;
 	}
 
+	// 1. Check user settings configured model roles (e.g. smol, task, slow, vision)
+	const configuredRoles = options?.settings?.getModelRoles?.() ?? {};
+	if (trimmed in configuredRoles && configuredRoles[trimmed]) {
+		return configuredRoles[trimmed];
+	}
+	if (normalized in configuredRoles && configuredRoles[normalized]) {
+		return configuredRoles[normalized];
+	}
+
+	// 2. Check for local tier
+	if (normalized === "local") {
+		return LOCAL_SUBAGENT_MODEL_TIERS.local;
+	}
+
+	let candidate = trimmed;
 	const parentLower = parentModel?.toLowerCase() ?? "";
-	if (parentLower.includes("claude") || parentLower.includes("anthropic")) {
+
+	// 3. Provider-specific speed tiers based on parent model
+	if (parentLower.includes("deepseek")) {
+		if (normalized in DEEPSEEK_SUBAGENT_MODEL_TIERS) {
+			candidate = DEEPSEEK_SUBAGENT_MODEL_TIERS[normalized];
+		}
+	} else if (parentLower.includes("claude") || parentLower.includes("anthropic")) {
 		if (normalized in ANTHROPIC_SUBAGENT_MODEL_TIERS) {
-			return ANTHROPIC_SUBAGENT_MODEL_TIERS[normalized];
+			candidate = ANTHROPIC_SUBAGENT_MODEL_TIERS[normalized];
 		}
 	} else if (parentLower.includes("gpt") || parentLower.includes("openai")) {
 		if (normalized in OPENAI_SUBAGENT_MODEL_TIERS) {
-			return OPENAI_SUBAGENT_MODEL_TIERS[normalized];
+			candidate = OPENAI_SUBAGENT_MODEL_TIERS[normalized];
+		}
+	} else if (parentLower.includes("ollama") || parentLower.includes("local")) {
+		if (normalized in LOCAL_SUBAGENT_MODEL_TIERS) {
+			candidate = LOCAL_SUBAGENT_MODEL_TIERS[normalized];
+		}
+	} else if (normalized in SUBAGENT_MODEL_TIERS) {
+		candidate = SUBAGENT_MODEL_TIERS[normalized];
+	}
+
+	// 4. Auth-aware check with safe parent fallback
+	if (options?.isProviderAuthenticated && candidate.includes("/")) {
+		const [provider] = candidate.split("/");
+		const isKeyless = provider === "ollama" || provider === "llama.cpp" || provider === "lm-studio";
+		if (!isKeyless && !options.isProviderAuthenticated(provider)) {
+			return parentModel || DEFAULT_SUBAGENT_MODEL;
 		}
 	}
 
-	if (normalized in SUBAGENT_MODEL_TIERS) {
-		return SUBAGENT_MODEL_TIERS[normalized];
-	}
-	return trimmed;
+	return candidate;
 }
 
 function normalizeLaunchOptions(options: SubagentLaunchOptions) {
