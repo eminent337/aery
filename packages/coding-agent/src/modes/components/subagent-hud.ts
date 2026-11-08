@@ -51,19 +51,26 @@ export class SubagentActivityHudComponent extends Container {
 		return rawArgs.length > 30 ? `${rawArgs.slice(0, 27)}…` : rawArgs;
 	}
 
+	#cleanRole(rawName: string): string {
+		if (!rawName || rawName.toLowerCase() === "claudeagent" || rawName.toLowerCase() === "task") {
+			return "Subagent";
+		}
+		return rawName.replace(/\s*\[(?:self|research|image-generator)\]$/i, "").trim();
+	}
+
 	#rebuild(): void {
 		this.clear();
 		if (this.#subagents.length === 0) return;
 
-		this.addChild(new DynamicBorder((str: string) => theme.fg("dim", str)));
 		const countStr = theme.fg("dim", `(${this.#subagents.length} active)`);
-		const title = ` ${theme.fg("accent", theme.bold("Subagent Activity"))} ${countStr}`;
+		const title = ` ${theme.fg("dim", "Subagent Activity")} ${countStr}`;
 		this.addChild(new Text(title, 0, 0));
 
 		for (const sub of this.#subagents) {
-			const dot = theme.fg("success", "●");
-			const idBadge = theme.fg("accent", `[${sub.id}]`);
-			const role = theme.bold(sub.agent);
+			const dot = theme.fg("accent", "⠋");
+			const idBadge = theme.fg("dim", `[${sub.id}]`);
+			const cleanName = this.#cleanRole(sub.agent);
+			const role = theme.bold(cleanName);
 
 			let detail = "";
 			if (sub.currentTool) {
@@ -78,7 +85,5 @@ export class SubagentActivityHudComponent extends Container {
 			const line = `  ${dot} ${idBadge} ${role} · ${theme.fg("muted", detail)}`;
 			this.addChild(new Text(line, 0, 0));
 		}
-
-		this.addChild(new DynamicBorder((str: string) => theme.fg("dim", str)));
 	}
 }

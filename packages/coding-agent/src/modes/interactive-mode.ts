@@ -607,7 +607,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				.filter(s => s.kind === "subagent" && s.status === "active")
 				.map(s => ({
 					id: s.id,
-					agent: s.agent || s.label,
+					agent: s.agent && s.agent !== "claudeagent" ? s.agent : (s.label || s.description || "Subagent"),
 					status: s.status,
 					currentTool: s.progress?.currentTool,
 					currentToolArgs: s.progress?.currentToolArgs,
