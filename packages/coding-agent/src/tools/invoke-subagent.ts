@@ -92,6 +92,11 @@ export class InvokeSubagentTool implements AgentTool<typeof invokeSubagentSchema
 		const subagentDef = getSubagentDefinition(typeName);
 		const description = subagentDef?.description ?? `Custom subagent of type '${typeName}'`;
 
+		const modelDisplay =
+			launchResult.resolvedModel !== model
+				? `\`${launchResult.resolvedModel}\` *(tier: ${model})*`
+				: `\`${launchResult.resolvedModel}\``;
+
 		const resultLines = [
 			`Subagent launched successfully.`,
 			``,
@@ -100,7 +105,7 @@ export class InvokeSubagentTool implements AgentTool<typeof invokeSubagentSchema
 			`| **conversationId** | \`${launchResult.conversationId}\` |`,
 			`| **TypeName** | ${typeName} |`,
 			`| **Role** | ${role} |`,
-			`| **Model** | ${model} |`,
+			`| **Model** | ${modelDisplay} |`,
 			`| **Workspace** | ${workspace} |`,
 			`| **Log** | \`${launchResult.logAbsoluteUri}\` |`,
 			``,
@@ -119,6 +124,7 @@ export class InvokeSubagentTool implements AgentTool<typeof invokeSubagentSchema
 				typeName,
 				role,
 				model,
+				resolvedModel: launchResult.resolvedModel,
 				workspace,
 				description,
 			},

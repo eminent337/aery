@@ -37,6 +37,7 @@ export interface SubagentLaunchResult {
 	conversationId: string;
 	logAbsoluteUri: string;
 	workspaceUris: string[];
+	resolvedModel: string;
 }
 
 export const SUBAGENT_MODEL_TIERS: Record<string, string> = {
@@ -325,6 +326,7 @@ export class SubagentRunner {
 			conversationId,
 			logAbsoluteUri,
 			workspaceUris,
+			resolvedModel,
 		};
 	}
 
@@ -538,6 +540,7 @@ export class SubagentRunner {
 				conversationId,
 				logAbsoluteUri,
 				workspaceUris,
+				resolvedModel,
 			};
 		} catch (error) {
 			if (isolationHandle) {
