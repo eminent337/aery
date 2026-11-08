@@ -209,6 +209,10 @@ async function executeShellEnvResolution(options?: ShellEnvResolverOptions): Pro
 			finish(resolveFallback(options), false);
 		});
 
+		if (child.stderr) {
+			child.stderr.resume();
+		}
+
 		if (child.stdout) {
 			child.stdout.on("data", (chunk: Buffer) => {
 				stdoutBuffer += chunk.toString("utf8");

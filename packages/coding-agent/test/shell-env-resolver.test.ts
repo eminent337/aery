@@ -156,5 +156,16 @@ describe("shell-env-resolver", () => {
 			});
 			expect(env.PATH).toBeDefined();
 		});
+
+		it("falls back immediately when abort signal triggers", async () => {
+			const controller = new AbortController();
+			controller.abort();
+			const fallback = { ABORT_TEST: "success" };
+			const env = await resolveShellEnv({
+				signal: controller.signal,
+				fallbackEnv: fallback,
+			});
+			expect(env.ABORT_TEST).toBe("success");
+		});
 	});
 });
