@@ -226,6 +226,8 @@ import {
 	selectDiscoverableToolNamesByServer,
 } from "../tool-discovery/tool-index";
 import { assertEditableFile } from "../tools/auto-generated-guard";
+import { GitCheckpointService } from "@aryee337/aery-core/checkpoint";
+import { SessionCheckpointCoordinator } from "../checkpoint";
 import type { CheckpointState } from "../tools/checkpoint";
 import { outputMeta } from "../tools/output-meta";
 import { normalizeLocalScheme, resolveToCwd } from "../tools/path-utils";
@@ -433,6 +435,10 @@ export interface AgentSessionConfig {
 	 * caches. Undefined when the advisor is disabled.
 	 */
 	advisorReadOnlyTools?: AgentTool[];
+	/** Checkpoint coordinator for managing git checkouts and hidden refs */
+	checkpointCoordinator?: SessionCheckpointCoordinator;
+	/** Git checkpoint service backing this session */
+	gitCheckpointService?: GitCheckpointService;
 }
 
 /** Options for AgentSession.prompt() */
@@ -1085,6 +1091,7 @@ export class AgentSession {
 	// both #endInFlight (normal) and #resetInFlight (abort).
 	#pendingAgentEndEmit: AgentSessionEvent | undefined;
 	#obfuscator: SecretObfuscator | undefined;
+	#checkpointCoordinator: SessionCheckpointCoordinator | undefined;
 	#checkpointState: CheckpointState | undefined = undefined;
 	#pendingRewindReport: string | undefined = undefined;
 	#lastSuccessfulYieldToolCallId: string | undefined = undefined;
@@ -1323,6 +1330,15 @@ export class AgentSession {
 				);
 			},
 		});
+
+		this.#checkpointCoordinator =
+			config.checkpointCoordinator ??
+			new SessionCheckpointCoordinator({
+				cwd: this.sessionManager.getCwd(),
+				sessionId: this.sessionManager.getSessionId(),
+				sessionManager: this.sessionManager,
+				gitService: config.gitCheckpointService,
+			});
 
 		if (this.settings.get("advisor.enabled")) this.#buildAdvisorRuntime();
 
@@ -1830,6 +1846,12 @@ export class AgentSession {
 				cacheRead: usage.cacheRead,
 				cacheWrite: usage.cacheWrite,
 			});
+			const currentEntryId = this.sessionManager.getLeafId() ?? this.sessionManager.getEntries().at(-1)?.id;
+			if (currentEntryId) {
+				void this.#checkpointCoordinator?.onTurnStart(currentEntryId).catch(err => {
+					logger.debug("Background checkpoint error on turn start", { error: err });
+				});
+			}
 		}
 
 		await this.#emitSessionEvent(displayEvent);
@@ -2117,7 +2139,14 @@ export class AgentSession {
 			if (event.message.role === "toolResult") {
 				const { toolName, details, isError, content } = event.message as {
 					toolName?: string;
-					details?: { path?: string; phases?: TodoPhase[]; report?: string; startedAt?: string };
+					details?: {
+						path?: string;
+						phases?: TodoPhase[];
+						report?: string;
+						startedAt?: string;
+						commit?: string;
+						ref?: string;
+					};
 					isError?: boolean;
 					content?: Array<TextContent | ImageContent>;
 				};
@@ -2148,11 +2177,16 @@ export class AgentSession {
 					);
 				}
 				if (toolName === "checkpoint" && !isError) {
-					const checkpointEntryId = this.sessionManager.getEntries().at(-1)?.id ?? null;
+					const checkpointEntryId =
+						this.#checkpointState?.checkpointEntryId ??
+						this.sessionManager.getEntries().at(-1)?.id ??
+						null;
 					this.#checkpointState = {
 						checkpointMessageCount: this.agent.state.messages.length,
 						checkpointEntryId,
-						startedAt: details?.startedAt ?? new Date().toISOString(),
+						startedAt: details?.startedAt ?? this.#checkpointState?.startedAt ?? new Date().toISOString(),
+						commit: details?.commit ?? this.#checkpointState?.commit,
+						ref: details?.ref ?? this.#checkpointState?.ref,
 					};
 					this.#pendingRewindReport = undefined;
 				}
@@ -4419,6 +4453,10 @@ export class AgentSession {
 			.filter((tool): tool is AgentTool => tool !== undefined)
 			.map(tool => this.#wrapToolForAcpPermission(tool));
 		this.agent.setTools(activeTools);
+	}
+
+	get checkpointCoordinator(): SessionCheckpointCoordinator | undefined {
+		return this.#checkpointCoordinator;
 	}
 
 	getCheckpointState(): CheckpointState | undefined {
@@ -7557,6 +7595,27 @@ export class AgentSession {
 				error: error instanceof Error ? error.message : String(error),
 			});
 			this.sessionManager.branchWithSummary(null, report, { startedAt: checkpointState.startedAt });
+		}
+		if (checkpointState.checkpointEntryId) {
+			try {
+				if (this.#checkpointCoordinator) {
+					await this.#checkpointCoordinator.gitService.restoreCheckpoint({
+						cwd: this.sessionManager.getCwd(),
+						sessionId: this.sessionManager.getSessionId(),
+						entryId: checkpointState.checkpointEntryId,
+					});
+				} else {
+					await GitCheckpointService.restoreCheckpoint({
+						cwd: this.sessionManager.getCwd(),
+						sessionId: this.sessionManager.getSessionId(),
+						entryId: checkpointState.checkpointEntryId,
+					});
+				}
+			} catch (error) {
+				logger.warn("Git restore checkpoint failed during rewind", {
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
 		}
 		const details = { startedAt: checkpointState.startedAt, rewoundAt: new Date().toISOString() };
 		this.agent.appendMessage({

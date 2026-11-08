@@ -496,6 +496,12 @@ export interface ToolSession {
 	getCheckpointState?: () => CheckpointState | undefined;
 	/** Set or clear active checkpoint state. */
 	setCheckpointState?: (state: CheckpointState | null) => void;
+	/** Session manager backing this session */
+	sessionManager?: import("../session/session-manager").SessionManager;
+	/** Checkpoint coordinator for this session */
+	checkpointCoordinator?: import("../checkpoint/session-checkpoint-coordinator").SessionCheckpointCoordinator;
+	/** Git checkpoint service for this session */
+	gitCheckpointService?: import("@aryee337/aery-core/checkpoint").GitCheckpointService;
 
 	/** Per-session snapshot store of file contents as last shown to the model
 	 *  by `read`/`search`. Used by hashline anchor-stale recovery to

@@ -1382,6 +1382,13 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			getDiscoverableToolSearchIndex: () => session.getDiscoverableToolSearchIndex(),
 			getSelectedDiscoveredToolNames: () => session.getSelectedDiscoveredToolNames(),
 			activateDiscoveredTools: toolNames => session.activateDiscoveredTools(toolNames),
+			sessionManager,
+			get checkpointCoordinator() {
+				return session?.checkpointCoordinator;
+			},
+			get gitCheckpointService() {
+				return session?.checkpointCoordinator?.gitService;
+			},
 			getCheckpointState: () => session.getCheckpointState(),
 			setCheckpointState: state => session.setCheckpointState(state ?? undefined),
 			getToolChoiceQueue: () => session.toolChoiceQueue,

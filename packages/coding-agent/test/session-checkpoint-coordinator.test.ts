@@ -152,7 +152,7 @@ describe("SessionCheckpointCoordinator", () => {
 		expect(untrackedExists).toBe(false);
 
 		// Verify sessionManager.branch was called with entryId
-		expect(branchedId).toBe("entry-checkpoint-1");
+		expect(branchedId as string | null).toBe("entry-checkpoint-1");
 	});
 
 	it("verifies rewindTo without sessionManager restores code cleanly", async () => {
@@ -207,11 +207,17 @@ describe("SessionCheckpointCoordinator", () => {
 		const res1 = await coordinator.prune();
 		expect(res1.deletedCount).toBe(1);
 		expect(res1.deletedRefs).toEqual(["refs/aery/checkpoints/old"]);
-		expect(pruneOptionsPassed).toEqual({ cwd: repoDir, maxAgeDays: 7 });
+		expect(pruneOptionsPassed as { cwd: string; maxAgeDays: number } | null).toEqual({
+			cwd: repoDir,
+			maxAgeDays: 7,
+		});
 
 		// Prune with explicit maxAgeDays (e.g. 14)
 		const res2 = await coordinator.prune(14);
 		expect(res2.deletedCount).toBe(1);
-		expect(pruneOptionsPassed).toEqual({ cwd: repoDir, maxAgeDays: 14 });
+		expect(pruneOptionsPassed as { cwd: string; maxAgeDays: number } | null).toEqual({
+			cwd: repoDir,
+			maxAgeDays: 14,
+		});
 	});
 });
