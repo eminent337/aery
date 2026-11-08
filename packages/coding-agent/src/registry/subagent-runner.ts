@@ -10,6 +10,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { AgentRegistry, MAIN_AGENT_ID } from "./agent-registry";
 import { getSubagentDefinition } from "./builtin-subagents";
+import { runSubagentQaReviews, type SubagentQaReviewRequest, type SubagentQaReviewResult } from "./subagent-qa";
+
+export { runSubagentQaReviews, type SubagentQaReviewRequest, type SubagentQaReviewResult };
 
 export interface SubagentLaunchOptions {
 	typeName?: string;
