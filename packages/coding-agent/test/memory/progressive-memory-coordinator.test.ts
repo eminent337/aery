@@ -359,6 +359,65 @@ describe("ProgressiveMemoryCoordinator", () => {
 			session.beginDispose();
 		});
 
+		it("returns empty array or null if store is closed", async () => {
+			const coordinator = new ProgressiveMemoryCoordinator({
+				cwd: tempDir,
+				sessionId: "sess-closed",
+				dbPath,
+			});
+			coordinator.close();
+
+			const result = await coordinator.onTurnEnd({
+				turnIndex: 0,
+				assistantText: "Test response",
+			});
+			expect(result).toEqual([]);
+			expect(coordinator.buildStartupPromptPrelude()).toBeNull();
+		});
+
+		it("captures observations when session executes a prompt turn", async () => {
+			const model = getBundledModel("anthropic", "claude-sonnet-4-5");
+			if (!model) throw new Error("Test model not found");
+			const modelRegistry = new ModelRegistry(authStorage!, path.join(sessionDir, "models.yml"));
+			const mock = createMockModel({
+				responses: [
+					{
+						content: [
+							{
+								type: "text",
+								text: "Decided to adopt PostgreSQL for persistence layer to support relational integrity.",
+							},
+						],
+					},
+				],
+			});
+			const agent = new Agent({
+				initialState: { model, systemPrompt: ["test"], tools: [], messages: [] },
+				streamFn: mock.stream,
+			});
+			const settings = Settings.isolated();
+			settings.set("memory.progressive.dbPath", path.join(sessionDir, "prompt-turn-mem.db"));
+			const session = new AgentSession({
+				agent,
+				sessionManager: SessionManager.inMemory(),
+				settings,
+				modelRegistry,
+			});
+
+			await session.prompt("Which database should we choose?");
+
+			// Allow microtask queue / event emission
+			await Bun.sleep(50);
+
+			const store = session.progressiveMemoryCoordinator!.getStore();
+			expect(store.getObservationCount()).toBeGreaterThanOrEqual(1);
+			const recent = store.listRecentObservations(5);
+			expect(recent[0].category).toBe("decision");
+			expect(recent[0].summary).toContain("PostgreSQL");
+
+			session.beginDispose();
+		});
+
 		it("disposes coordinator on session dispose", () => {
 			const model = getBundledModel("anthropic", "claude-sonnet-4-5");
 			if (!model) throw new Error("Test model not found");

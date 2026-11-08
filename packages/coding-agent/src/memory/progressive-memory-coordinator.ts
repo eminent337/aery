@@ -71,6 +71,10 @@ export class ProgressiveMemoryCoordinator {
 	}
 
 	async onTurnEnd(turnData: TurnEndData): Promise<ObservationRecord[]> {
+		if (this.store.isClosed) {
+			return [];
+		}
+
 		const rawObservations = this.distiller.distillFromTurn({
 			sessionId: this.sessionId,
 			entryId: turnData.entryId,
@@ -91,6 +95,10 @@ export class ProgressiveMemoryCoordinator {
 	}
 
 	buildStartupPromptPrelude(maxItems = 5): string | null {
+		if (this.store.isClosed) {
+			return null;
+		}
+
 		const observations = this.store.listRecentObservations(maxItems);
 		if (observations.length === 0) {
 			return null;

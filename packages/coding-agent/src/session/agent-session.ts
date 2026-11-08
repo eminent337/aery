@@ -1873,74 +1873,75 @@ export class AgentSession {
 		if (event.type === "turn_end") {
 			// Progressive cross-session memory capture
 			if (this.#progressiveMemoryCoordinator) {
-				const currentEntryId =
-					this.sessionManager.getLeafId() ?? this.sessionManager.getEntries().at(-1)?.id;
-				let assistantText = "";
-				let assistantThinking = "";
-				const toolCalls: { id: string; name: string; args: any }[] = [];
+				try {
+					const currentEntryId = this.sessionManager.getLeafId() ?? this.sessionManager.getEntries().at(-1)?.id;
+					let assistantText = "";
+					let assistantThinking = "";
+					const toolCalls: { id: string; name: string; args: any }[] = [];
 
-				if (event.message?.role === "assistant") {
-					const assistantMsg = event.message as AssistantMessage;
-					if (Array.isArray(assistantMsg.content)) {
-						for (const block of assistantMsg.content) {
-							if (block.type === "text") {
-								assistantText += block.text;
-							} else if (block.type === "thinking") {
-								assistantThinking += block.thinking;
-							} else if (block.type === "toolCall") {
-								toolCalls.push({ id: block.id, name: block.name, args: block.arguments });
+					if (event.message?.role === "assistant") {
+						const assistantMsg = event.message as AssistantMessage;
+						if (Array.isArray(assistantMsg.content)) {
+							for (const block of assistantMsg.content) {
+								if (block.type === "text") {
+									assistantText += block.text;
+								} else if (block.type === "thinking") {
+									assistantThinking += block.thinking;
+								} else if (block.type === "toolCall") {
+									toolCalls.push({ id: block.id, name: block.name, args: block.arguments });
+								}
 							}
 						}
 					}
-				}
 
-				const toolExecutions: ToolExecutionRecord[] = [];
-				if (Array.isArray(event.toolResults)) {
-					for (const res of event.toolResults) {
-						const matchingCall = toolCalls.find(tc => tc.id === res.toolCallId);
-						const resultText = Array.isArray(res.content)
-							? res.content
-									.filter((c): c is { type: "text"; text: string } => c.type === "text")
-									.map(c => c.text)
-									.join("\n")
-							: "";
-						toolExecutions.push({
-							toolName: res.toolName || matchingCall?.name || "",
-							params: matchingCall?.args,
-							resultText,
-							isError: Boolean(res.isError),
-						});
+					const toolExecutions: ToolExecutionRecord[] = [];
+					if (Array.isArray(event.toolResults)) {
+						for (const res of event.toolResults) {
+							const matchingCall = toolCalls.find(tc => tc.id === res.toolCallId);
+							const resultText = Array.isArray(res.content)
+								? res.content
+										.filter((c): c is { type: "text"; text: string } => c.type === "text")
+										.map(c => c.text)
+										.join("\n")
+								: "";
+							toolExecutions.push({
+								toolName: res.toolName || matchingCall?.name || "",
+								params: matchingCall?.args,
+								resultText,
+								isError: Boolean(res.isError),
+							});
+						}
 					}
-				}
-				if (toolExecutions.length === 0 && toolCalls.length > 0) {
-					for (const tc of toolCalls) {
-						toolExecutions.push({
-							toolName: tc.name,
-							params: tc.args,
-						});
+					if (toolExecutions.length === 0 && toolCalls.length > 0) {
+						for (const tc of toolCalls) {
+							toolExecutions.push({
+								toolName: tc.name,
+								params: tc.args,
+							});
+						}
 					}
+
+					const lastUserMessage = this.messages
+						.slice()
+						.reverse()
+						.find(m => m.role === "user");
+					const userPrompt = lastUserMessage ? this.#extractUserMessageText(lastUserMessage.content) : undefined;
+
+					void this.#progressiveMemoryCoordinator
+						.onTurnEnd({
+							entryId: currentEntryId,
+							turnIndex: this.#progressiveTurnIndex++,
+							userPrompt,
+							assistantText,
+							assistantThinking,
+							toolExecutions,
+						})
+						.catch(err => {
+							logger.debug("Progressive memory capture failed", { error: String(err) });
+						});
+				} catch (err) {
+					logger.debug("Progressive memory capture failed", { error: String(err) });
 				}
-
-				const lastUserMessage = this.messages
-					.slice()
-					.reverse()
-					.find(m => m.role === "user");
-				const userPrompt = lastUserMessage
-					? this._extractUserMessageText(lastUserMessage.content)
-					: undefined;
-
-				void this.#progressiveMemoryCoordinator
-					.onTurnEnd({
-						entryId: currentEntryId,
-						turnIndex: this.#progressiveTurnIndex++,
-						userPrompt,
-						assistantText,
-						assistantThinking,
-						toolExecutions,
-					})
-					.catch(err => {
-						logger.debug("Progressive memory capture failed", { error: String(err) });
-					});
 			}
 
 			this.#advisorRuntime?.onTurnEnd();
@@ -2265,9 +2266,7 @@ export class AgentSession {
 				}
 				if (toolName === "checkpoint" && !isError) {
 					const checkpointEntryId =
-						this.#checkpointState?.checkpointEntryId ??
-						this.sessionManager.getEntries().at(-1)?.id ??
-						null;
+						this.#checkpointState?.checkpointEntryId ?? this.sessionManager.getEntries().at(-1)?.id ?? null;
 					this.#checkpointState = {
 						checkpointMessageCount: this.agent.state.messages.length,
 						checkpointEntryId,
@@ -4127,8 +4126,7 @@ export class AgentSession {
 		// Progressive memory prelude injection
 		if (this.#progressiveMemoryCoordinator) {
 			try {
-				const maxItems =
-					this.settings.get("memory.progressive.maxStartupObservations") ?? 5;
+				const maxItems = this.settings.get("memory.progressive.maxStartupObservations") ?? 5;
 				const prelude = this.#progressiveMemoryCoordinator.buildStartupPromptPrelude(maxItems);
 				if (prelude) blocks.push(prelude);
 			} catch (err) {
