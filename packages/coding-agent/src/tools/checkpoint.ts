@@ -94,6 +94,10 @@ export class CheckpointTool implements AgentTool<typeof checkpointSchema, Checkp
 		if (this.session.getCheckpointState?.()) {
 			throw new ToolError("Checkpoint already active.");
 		}
+		const goal = params.goal.trim();
+		if (goal.length === 0) {
+			throw new ToolError("Goal cannot be empty.");
+		}
 		const startedAt = new Date().toISOString();
 		const sessionId = this.session.getSessionId?.() ?? "default-session";
 		const entryId =
@@ -111,7 +115,7 @@ export class CheckpointTool implements AgentTool<typeof checkpointSchema, Checkp
 				cwd: this.session.cwd,
 				sessionId,
 				entryId,
-				message: `Agent checkpoint: ${params.goal}`,
+				message: `Agent checkpoint: ${goal}`,
 			});
 			commit = result.commit;
 			ref = result.ref;
@@ -126,7 +130,7 @@ export class CheckpointTool implements AgentTool<typeof checkpointSchema, Checkp
 		};
 		this.session.setCheckpointState?.(state);
 
-		const lines = ["Checkpoint created.", `Goal: ${params.goal}`];
+		const lines = ["Checkpoint created.", `Goal: ${goal}`];
 		if (ref && commit) {
 			lines.push(`Ref: ${ref}`);
 			lines.push(`Commit: ${commit}`);
@@ -134,7 +138,7 @@ export class CheckpointTool implements AgentTool<typeof checkpointSchema, Checkp
 		lines.push("Run your investigation, then call rewind with a concise report.");
 
 		return toolResult<CheckpointToolDetails>({
-			goal: params.goal,
+			goal,
 			startedAt,
 			commit,
 			ref,
@@ -244,9 +248,6 @@ export function createCheckpointTool(
 	return CheckpointTool.createIf(session, gitCheckpointService);
 }
 
-export function createRewindTool(
-	session: ToolSession,
-	gitCheckpointService?: GitCheckpointService,
-): RewindTool | null {
+export function createRewindTool(session: ToolSession, gitCheckpointService?: GitCheckpointService): RewindTool | null {
 	return RewindTool.createIf(session, gitCheckpointService);
 }

@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { GitCheckpointService } from "@aryee337/aery-core/checkpoint";
 import { Settings } from "../../src/config/settings";
+import type { ToolSession } from "../../src/tools";
 import {
 	type CheckpointState,
 	CheckpointTool,
@@ -13,7 +14,6 @@ import {
 	createRewindTool,
 	RewindTool,
 } from "../../src/tools/checkpoint";
-import type { ToolSession } from "../../src/tools";
 import { ToolError } from "../../src/tools/tool-errors";
 
 const execAsync = promisify(execFile);
@@ -48,10 +48,8 @@ describe("Checkpoint and Rewind Autonomous Tools", () => {
 		leafId?: string;
 		onBranch?: (branchFromId: string) => void;
 	}): ToolSession {
-		let state: CheckpointState | undefined = undefined;
-		const settings = new Settings({
-			settingsFilePath: path.join(options.cwd, "settings.json"),
-		});
+		let state: CheckpointState | undefined;
+		const settings = Settings.isolated();
 
 		return {
 			cwd: options.cwd,
@@ -101,16 +99,16 @@ describe("Checkpoint and Rewind Autonomous Tools", () => {
 		});
 
 		// Verify result structure and details
-		expect(result.details.goal).toBe("Investigate performance bottleneck in database connection pool");
-		expect(result.details.ref).toBe("refs/aery/checkpoints/session-cp-test/entry-cp-1");
-		expect(result.details.commit).toBeDefined();
+		expect(result.details?.goal).toBe("Investigate performance bottleneck in database connection pool");
+		expect(result.details?.ref).toBe("refs/aery/checkpoints/session-cp-test/entry-cp-1");
+		expect(result.details?.commit).toBeDefined();
 
 		// Verify confirmation text body returned to agent
 		const textContent = result.content[0]?.type === "text" ? result.content[0].text : "";
 		expect(textContent).toContain("Checkpoint created.");
 		expect(textContent).toContain("Goal: Investigate performance bottleneck in database connection pool");
 		expect(textContent).toContain("Ref: refs/aery/checkpoints/session-cp-test/entry-cp-1");
-		expect(textContent).toContain(result.details.commit!);
+		expect(textContent).toContain(result.details?.commit ?? "");
 
 		// Verify hidden ref exists in git repository
 		const hasRef = await GitCheckpointService.hasCheckpoint({
@@ -125,7 +123,7 @@ describe("Checkpoint and Rewind Autonomous Tools", () => {
 		expect(recordedState).toBeDefined();
 		expect(recordedState?.checkpointEntryId).toBe("entry-cp-1");
 		expect(recordedState?.ref).toBe("refs/aery/checkpoints/session-cp-test/entry-cp-1");
-		expect(recordedState?.commit).toBe(result.details.commit);
+		expect(recordedState?.commit).toBe(result.details?.commit);
 	});
 
 	it("RewindTool restores tracked files and cleans untracked files", async () => {
@@ -161,14 +159,16 @@ describe("Checkpoint and Rewind Autonomous Tools", () => {
 		});
 
 		// Verify rewind tool details
-		expect(rewindResult.details.rewound).toBe(true);
-		expect(rewindResult.details.report).toBe("Hypothesis invalid: experimental patch caused connection timeouts.");
-		expect(rewindResult.details.ref).toBe("refs/aery/checkpoints/session-rewind-test/entry-rewind-1");
+		expect(rewindResult.details?.rewound).toBe(true);
+		expect(rewindResult.details?.report).toBe("Hypothesis invalid: experimental patch caused connection timeouts.");
+		expect(rewindResult.details?.ref).toBe("refs/aery/checkpoints/session-rewind-test/entry-rewind-1");
 
 		// Verify confirmation text body
 		const textContent = rewindResult.content[0]?.type === "text" ? rewindResult.content[0].text : "";
 		expect(textContent).toContain("Rewind completed.");
-		expect(textContent).toContain("Restored working tree to refs/aery/checkpoints/session-rewind-test/entry-rewind-1");
+		expect(textContent).toContain(
+			"Restored working tree to refs/aery/checkpoints/session-rewind-test/entry-rewind-1",
+		);
 		expect(textContent).toContain("Report captured for context replacement.");
 
 		// Verify modified tracked file is restored to baseline
@@ -225,8 +225,19 @@ describe("Checkpoint and Rewind Autonomous Tools", () => {
 		}
 		expect(threwNoCheckpoint).toBe(true);
 
-		// Checkpoint when already active throws
+		// Checkpoint with empty goal throws
 		const cpTool = new CheckpointTool(topSession);
+		let threwEmptyGoal = false;
+		try {
+			await cpTool.execute("c-empty", { goal: "   " });
+		} catch (err) {
+			threwEmptyGoal = true;
+			expect(err).toBeInstanceOf(ToolError);
+			expect((err as ToolError).message).toContain("Goal cannot be empty.");
+		}
+		expect(threwEmptyGoal).toBe(true);
+
+		// Checkpoint when already active throws
 		await cpTool.execute("c4", { goal: "First active checkpoint" });
 
 		let threwAlreadyActive = false;
@@ -275,13 +286,13 @@ describe("Checkpoint and Rewind Autonomous Tools", () => {
 
 		const cpTool = new CheckpointTool(session);
 		const cpResult = await cpTool.execute("ng-1", { goal: "Non git investigation" });
-		expect(cpResult.details.goal).toBe("Non git investigation");
-		expect(cpResult.details.commit).toBeUndefined();
-		expect(cpResult.details.ref).toBeUndefined();
+		expect(cpResult.details?.goal).toBe("Non git investigation");
+		expect(cpResult.details?.commit).toBeUndefined();
+		expect(cpResult.details?.ref).toBeUndefined();
 
 		const rwTool = new RewindTool(session);
 		const rwResult = await rwTool.execute("ng-2", { report: "Non git findings report" });
-		expect(rwResult.details.rewound).toBe(true);
-		expect(rwResult.details.report).toBe("Non git findings report");
+		expect(rwResult.details?.rewound).toBe(true);
+		expect(rwResult.details?.report).toBe("Non git findings report");
 	});
 });
