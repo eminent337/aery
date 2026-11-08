@@ -89,7 +89,8 @@ import { ManageTaskTool } from "./manage-task";
 import { SendMessageTool } from "./send-message";
 import { MemoryEditTool } from "./memory-edit";
 import { MemoryLinkTool } from "./memory-link";
-import { MemoryRecallTool } from "./memory-recall";
+import { MemoryRecallTool as LegacyRecallTool } from "./memory-recall";
+import { MemoryRecallTool, MemorySearchTool } from "./memory-progressive";
 import { MemoryReflectTool } from "./memory-reflect";
 import { MemoryRelatedTool } from "./memory-related";
 import { MemoryRetainTool } from "./memory-retain";
@@ -218,6 +219,8 @@ export * from "./job";
 export * from "./memory-edit";
 export * from "./memory-link";
 export * from "./memory-recall";
+export * from "./memory-progressive";
+export { MemoryRecallTool, MemorySearchTool } from "./memory-progressive";
 export * from "./memory-reflect";
 export * from "./memory-related";
 export * from "./memory-retain";
@@ -502,6 +505,8 @@ export interface ToolSession {
 	checkpointCoordinator?: import("../checkpoint/session-checkpoint-coordinator").SessionCheckpointCoordinator;
 	/** Git checkpoint service for this session */
 	gitCheckpointService?: import("@aryee337/aery-core/checkpoint").GitCheckpointService;
+	/** Progressive cross-session memory coordinator */
+	progressiveMemoryCoordinator?: import("../memory/progressive-memory-coordinator").ProgressiveMemoryCoordinator;
 
 	/** Per-session snapshot store of file contents as last shown to the model
 	 *  by `read`/`search`. Used by hashline anchor-stale recovery to
@@ -664,10 +669,12 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	write_file: s => new WriteFileTool(s),
 	memory_edit: MemoryEditTool.createIf,
 	retain: MemoryRetainTool.createIf,
-	recall: MemoryRecallTool.createIf,
+	recall: LegacyRecallTool.createIf,
 	reflect: MemoryReflectTool.createIf,
 	memory_link: MemoryLinkTool.createIf,
 	memory_related: MemoryRelatedTool.createIf,
+	memory_recall: MemoryRecallTool.createIf,
+	memory_search: MemorySearchTool.createIf,
 	schedule: ScheduleTool.createIf,
 	send_input: SendInputTool.createIf,
 	terminal_pane: TerminalPaneTool.createIf,
@@ -857,6 +864,11 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 				if (!requestedTools.includes(name)) requestedTools.push(name);
 			}
 		}
+		if (session.settings.get("memory.progressive.enabled") !== false) {
+			for (const name of ["memory_recall", "memory_search"]) {
+				if (!requestedTools.includes(name)) requestedTools.push(name);
+			}
+		}
 	}
 	// Resolve effective tool discovery mode.
 	// tools.discoveryMode takes precedence; mcp.discoveryMode is a back-compat alias for "mcp-only".
@@ -894,6 +906,9 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 		if (name === "camera_control") return session.settings.get("camera.enabled") !== false;
 		if (name === "retain" || name === "recall" || name === "reflect") {
 			return ["hindsight", "mnemopi"].includes(session.settings.get("memory.backend") ?? "");
+		}
+		if (name === "memory_recall" || name === "memory_search") {
+			return session.settings.get("memory.progressive.enabled") !== false;
 		}
 		if (name === "task") {
 			const maxDepth = session.settings.get("task.maxRecursionDepth") ?? 2;

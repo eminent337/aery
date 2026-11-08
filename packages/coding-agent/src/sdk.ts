@@ -1386,6 +1386,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			get checkpointCoordinator() {
 				return session?.checkpointCoordinator;
 			},
+			get progressiveMemoryCoordinator() {
+				return session?.progressiveMemoryCoordinator;
+			},
 			get gitCheckpointService() {
 				return session?.checkpointCoordinator?.gitService;
 			},
@@ -2266,8 +2269,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		const ocrImageCache = new Map<string, string>();
 		const ocrImageToText = async (image: { data: string; mimeType?: string }): Promise<string | null> => {
 			if (!image.data) return null;
-			const cacheKey =
-				image.data.length > 256 ? `${image.data.length}:${image.data.slice(0, 128)}` : image.data;
+			const cacheKey = image.data.length > 256 ? `${image.data.length}:${image.data.slice(0, 128)}` : image.data;
 			const cached = ocrImageCache.get(cacheKey);
 			if (cached !== undefined) return cached;
 			try {
