@@ -315,10 +315,10 @@ describe("shouldCompact", () => {
 			expect(shouldCompact(40_001, 1_000_000, settings, "gemini-2.5-flash-lite")).toBe(true);
 			expect(shouldCompact(39_999, 1_000_000, settings, "gemini-2.5-flash-lite")).toBe(false);
 
-			// Flash / Standard: capped at 120k
-			expect(resolveThresholdTokens(1_000_000, settings, "gemini-2.5-flash")).toBe(120_000);
-			expect(shouldCompact(120_001, 1_000_000, settings, "gemini-2.5-flash")).toBe(true);
-			expect(shouldCompact(119_999, 1_000_000, settings, "gemini-2.5-flash")).toBe(false);
+			// Flash / Standard: capped at 150k
+			expect(resolveThresholdTokens(1_000_000, settings, "gemini-2.5-flash")).toBe(150_000);
+			expect(shouldCompact(150_001, 1_000_000, settings, "gemini-2.5-flash")).toBe(true);
+			expect(shouldCompact(149_999, 1_000_000, settings, "gemini-2.5-flash")).toBe(false);
 
 			// Pro: capped at 180k
 			expect(resolveThresholdTokens(1_000_000, settings, "gemini-1.5-pro")).toBe(180_000);

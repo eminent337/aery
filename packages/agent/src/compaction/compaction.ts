@@ -139,7 +139,7 @@ export const DEFAULT_MAX_THRESHOLD_TOKENS = 160_000;
 
 export const TIER_MAX_THRESHOLD_TOKENS: Record<CompactionModelTier, number> = {
 	lite: 40_000,
-	standard: 120_000,
+	standard: 150_000,
 	pro: 180_000,
 };
 
