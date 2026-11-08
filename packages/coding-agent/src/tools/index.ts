@@ -67,6 +67,8 @@ import { ComputerUseTeachTool } from "./computer-use-teach";
 import { QuickLauncherTool } from "./quick-launcher";
 import { FastFileSearchTool } from "./file-indexer";
 import { MicrovmSandboxTool } from "./microvm-sandbox";
+import { DesktopEmergencyStopTool } from "./desktop-emergency-stop";
+import { ScheduledTaskWatcherTool } from "./scheduled-task-watcher";
 import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
@@ -667,6 +669,8 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	quick_launcher: QuickLauncherTool.createIf,
 	fast_file_search: () => new FastFileSearchTool(),
 	microvm_sandbox: MicrovmSandboxTool.createIf,
+	desktop_emergency_stop: DesktopEmergencyStopTool.createIf,
+	scheduled_task_watcher: ScheduledTaskWatcherTool.createIf,
 	take_screenshot: TakeScreenshotTool.createIf,
 	click_at: ClickAtTool.createIf,
 	move_cursor: MoveCursorTool.createIf,
