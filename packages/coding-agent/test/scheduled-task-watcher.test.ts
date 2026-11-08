@@ -178,6 +178,39 @@ describe("ScheduledTaskWatcher", () => {
 		expect(clearedCountAll).toBe(1);
 		expect(watcher.getHistory().length).toBe(0);
 	});
+
+	test("supports spec method aliases (createScheduledTask, getAllScheduledTasks, etc.)", () => {
+		const watcher = new ScheduledTaskWatcher({ storagePath });
+
+		const task = watcher.createScheduledTask({
+			title: "Spec Title",
+			cron: "*/15 * * * *",
+			prompt: "Run check",
+		});
+		expect(task.id).toBeDefined();
+		expect(task.title).toBe("Spec Title");
+		expect(task.name).toBe("Spec Title");
+		expect(task.cron).toBe("*/15 * * * *");
+		expect(task.created_at).toBeDefined();
+
+		const all = watcher.getAllScheduledTasks();
+		expect(all.length).toBe(1);
+
+		const updated = watcher.updateScheduledTaskStatus(task.id, false);
+		expect(updated.enabled).toBe(false);
+
+		const record = watcher.logExecution(task.id, "success", "All good");
+		expect(record.taskId).toBe(task.id);
+		expect(record.status).toBe("success");
+		expect(record.output).toBe("All good");
+
+		const history = watcher.getWatcherHistory(10);
+		expect(history.length).toBe(1);
+
+		const cleared = watcher.clearWatcherHistory(task.id);
+		expect(cleared).toBe(1);
+		expect(watcher.getWatcherHistory().length).toBe(0);
+	});
 });
 
 describe("Persistence", () => {

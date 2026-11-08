@@ -20,10 +20,13 @@ import * as z from "zod/v4";
 export interface ScheduledTask {
 	id: string;
 	name: string;
+	title?: string;
 	schedule: string;
+	cron?: string;
 	prompt: string;
 	enabled: boolean;
 	createdAt: number;
+	created_at?: number;
 	updatedAt: number;
 	lastRunAt?: number;
 	metadata?: Record<string, unknown>;
@@ -43,8 +46,10 @@ export interface TaskExecutionRecord {
 
 export interface CreateTaskOptions {
 	id?: string;
-	name: string;
-	schedule: string;
+	name?: string;
+	title?: string;
+	schedule?: string;
+	cron?: string;
 	prompt: string;
 	enabled?: boolean;
 	metadata?: Record<string, unknown>;
@@ -150,14 +155,19 @@ export class ScheduledTaskWatcher {
 	createTask(options: CreateTaskOptions): ScheduledTask {
 		const now = Date.now();
 		const taskId = options.id ?? `task_${now}_${Math.random().toString(36).slice(2, 8)}`;
+		const taskName = options.name ?? options.title ?? `Task ${taskId}`;
+		const taskSchedule = options.schedule ?? options.cron ?? "* * * * *";
 
 		const task: ScheduledTask = {
 			id: taskId,
-			name: options.name,
-			schedule: options.schedule,
+			name: taskName,
+			title: taskName,
+			schedule: taskSchedule,
+			cron: taskSchedule,
 			prompt: options.prompt,
 			enabled: options.enabled ?? true,
 			createdAt: now,
+			created_at: now,
 			updatedAt: now,
 			metadata: options.metadata,
 		};
@@ -165,6 +175,10 @@ export class ScheduledTaskWatcher {
 		this.tasks.push(task);
 		this.save();
 		return task;
+	}
+
+	createScheduledTask(options: CreateTaskOptions): ScheduledTask {
+		return this.createTask(options);
 	}
 
 	create(options: CreateTaskOptions): ScheduledTask {
@@ -176,6 +190,10 @@ export class ScheduledTaskWatcher {
 			return this.tasks.filter((t) => t.enabled === filter.enabled);
 		}
 		return [...this.tasks];
+	}
+
+	getAllScheduledTasks(filter?: { enabled?: boolean }): ScheduledTask[] {
+		return this.listTasks(filter);
 	}
 
 	list(filter?: { enabled?: boolean }): ScheduledTask[] {
@@ -196,6 +214,10 @@ export class ScheduledTaskWatcher {
 		task.updatedAt = Date.now();
 		this.save();
 		return task;
+	}
+
+	updateScheduledTaskStatus(id: string, enabled: boolean): ScheduledTask {
+		return this.updateTaskStatus(id, enabled);
 	}
 
 	updateStatus(id: string, enabled: boolean): ScheduledTask {
@@ -232,6 +254,20 @@ export class ScheduledTaskWatcher {
 		return record;
 	}
 
+	logExecution(
+		taskId: string,
+		status: "success" | "failure" | "running" | "skipped" | string,
+		output?: string,
+		error?: string,
+	): TaskExecutionRecord {
+		return this.recordExecution({
+			taskId,
+			status,
+			output,
+			error,
+		});
+	}
+
 	recordHistory(options: RecordExecutionOptions): TaskExecutionRecord {
 		return this.recordExecution(options);
 	}
@@ -251,6 +287,13 @@ export class ScheduledTaskWatcher {
 		return results;
 	}
 
+	getWatcherHistory(limitOrFilter?: number | HistoryFilterOptions): TaskExecutionRecord[] {
+		if (typeof limitOrFilter === "number") {
+			return this.getHistory({ limit: limitOrFilter });
+		}
+		return this.getHistory(limitOrFilter);
+	}
+
 	clearHistory(taskId?: string): number {
 		if (!taskId) {
 			const count = this.history.length;
@@ -259,11 +302,17 @@ export class ScheduledTaskWatcher {
 			return count;
 		}
 
-		const previousCount = this.history.length;
+		const initialCount = this.history.length;
 		this.history = this.history.filter((r) => r.taskId !== taskId);
-		const cleared = previousCount - this.history.length;
-		this.save();
-		return cleared;
+		const removed = initialCount - this.history.length;
+		if (removed > 0) {
+			this.save();
+		}
+		return removed;
+	}
+
+	clearWatcherHistory(taskId?: string): number {
+		return this.clearHistory(taskId);
 	}
 }
 
