@@ -73,6 +73,24 @@ describe("EmergencyStopController", () => {
 		controller.halt("Blocked operation");
 		expect(() => controller.assertNotHalted()).toThrow("Blocked operation");
 	});
+
+	test("isolates throwing and rejecting callbacks so other listeners still run", () => {
+		const controller = new EmergencyStopController();
+		let secondListenerCalled = false;
+
+		controller.onHalt(() => {
+			throw new Error("Synchronous callback explosion");
+		});
+		controller.onHalt(async () => {
+			throw new Error("Asynchronous rejection explosion");
+		});
+		controller.onHalt(() => {
+			secondListenerCalled = true;
+		});
+
+		expect(() => controller.halt("Safety test")).not.toThrow();
+		expect(secondListenerCalled).toBe(true);
+	});
 });
 
 describe("FramePort", () => {

@@ -67,9 +67,12 @@ export class EmergencyStopController {
 		this.reason = haltReason;
 		this.haltedAt = Date.now();
 
-		for (const listener of this.haltListeners) {
+		for (const listener of [...this.haltListeners]) {
 			try {
-				listener(haltReason, this.haltedAt);
+				const res = listener(haltReason, this.haltedAt);
+				if (res && typeof (res as Promise<void>).catch === "function") {
+					(res as Promise<void>).catch(() => {});
+				}
 			} catch {
 				// Suppress listener error so other callbacks still execute
 			}
@@ -81,9 +84,12 @@ export class EmergencyStopController {
 		this.reason = null;
 		this.haltedAt = null;
 
-		for (const listener of this.resetListeners) {
+		for (const listener of [...this.resetListeners]) {
 			try {
-				listener();
+				const res = listener();
+				if (res && typeof (res as Promise<void>).catch === "function") {
+					(res as Promise<void>).catch(() => {});
+				}
 			} catch {
 				// Suppress listener error so other callbacks still execute
 			}
@@ -202,11 +208,14 @@ export class FramePort {
 	}
 
 	emitFrame(frame: DesktopFrame): void {
-		this.lastFrameTimestamp = frame.timestamp || Date.now();
+		this.lastFrameTimestamp = frame.timestamp ?? Date.now();
 		this.totalFramesEmitted += 1;
-		for (const listener of this.listeners) {
+		for (const listener of [...this.listeners]) {
 			try {
-				listener(frame);
+				const res = listener(frame);
+				if (res && typeof (res as Promise<void>).catch === "function") {
+					(res as Promise<void>).catch(() => {});
+				}
 			} catch {
 				// Suppress listener error so other callbacks still receive the frame
 			}
@@ -403,4 +412,9 @@ export class DesktopEmergencyStopTool implements AgentTool<typeof desktopEmergen
 			}
 		}
 	}
+}
+
+export function _resetDesktopEmergencyStopDefaults(): void {
+	defaultEmergencyStopController.reset();
+	defaultFramePort.clearListeners();
 }
