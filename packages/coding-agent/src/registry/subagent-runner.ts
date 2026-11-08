@@ -25,8 +25,8 @@ export interface SubagentLaunchOptions {
 	Model?: string;
 	parentModel?: string;
 	parentId?: string;
-	workspace?: "inherit" | "branch" | "share";
-	Workspace?: "inherit" | "branch" | "share";
+	workspace?: "inherit" | "branch" | "share" | "microvm";
+	Workspace?: "inherit" | "branch" | "share" | "microvm";
 	customTools?: string[];
 	cwd?: string;
 	mock?: boolean;
@@ -291,7 +291,7 @@ export class SubagentRunner {
 		const resolvedTools = resolveSubagentTools(opts.typeName, opts.customTools);
 
 		let effectiveCwd = opts.cwd;
-		if (opts.workspace === "branch" || opts.workspace === "share") {
+		if (opts.workspace === "branch" || opts.workspace === "share" || opts.workspace === "microvm") {
 			effectiveCwd = path.resolve(opts.cwd, ".system_generated", "workspaces", conversationId);
 		}
 
@@ -354,10 +354,35 @@ export class SubagentRunner {
 					const parentRef = this.registry.get(parentId);
 					const parentSession = parentRef?.session as any;
 
-					const finalOutput =
+					let finalOutput =
 						typeof session?.getLastAssistantText === "function"
 							? session.getLastAssistantText()
 							: ((session as any)?.lastAssistantText ?? "Task completed.");
+
+					// Parallel Two-Stage QA Review check if code diff is present
+					try {
+						const diff =
+							typeof (session as any)?.getDiff === "function"
+								? await (session as any).getDiff()
+								: (session as any)?.diff;
+						if (diff && typeof diff === "string" && diff.trim().length > 0) {
+							const qaResult = await runSubagentQaReviews({
+								subagentId: conversationId,
+								role: opts.role ?? "Subagent",
+								prompt: opts.prompt ?? "",
+								diff,
+							});
+							const badge = qaResult.approved ? "APPROVED" : "ISSUES_FLAGGED";
+							let qaNotice = `\n\n[Two-Stage QA Review: ${badge}]`;
+							const issues = [...qaResult.specReview.issues, ...qaResult.qualityReview.issues];
+							if (issues.length > 0) {
+								qaNotice += `\nIssues detected:\n- ${issues.join("\n- ")}`;
+							}
+							finalOutput = `${finalOutput || ""}${qaNotice}`;
+						}
+					} catch {
+						// QA review is non-blocking
+					}
 
 					if (parentSession && typeof parentSession.sendCustomMessage === "function") {
 						try {
@@ -437,7 +462,7 @@ export class SubagentRunner {
 		let isolationHandle: import("../task/worktree").IsolationHandle | undefined;
 		let createdScratchDir: string | undefined;
 
-		if (opts.workspace === "branch" || opts.workspace === "share") {
+		if (opts.workspace === "branch" || opts.workspace === "share" || opts.workspace === "microvm") {
 			try {
 				const { ensureIsolation } = await import("../task/worktree");
 				isolationHandle = await ensureIsolation(opts.cwd, conversationId);

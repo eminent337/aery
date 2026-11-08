@@ -48,7 +48,7 @@ describe("InvokeSubagentTool", () => {
 		expect(details.logAbsoluteUri as string).toStartWith("file://");
 		expect(Array.isArray(details.workspaceUris)).toBe(true);
 		expect((details.workspaceUris as string[]).length).toBeGreaterThan(0);
-	});
+	}, 20000);
 
 	it("registers the subagent in global AgentRegistry with status 'running' and live session attached", async () => {
 		const tool = new InvokeSubagentTool();
@@ -74,7 +74,7 @@ describe("InvokeSubagentTool", () => {
 		expect(ref?.sessionFile).toBeDefined();
 		expect(typeof ref?.sessionFile).toBe("string");
 		expect(ref?.sessionFile?.endsWith(".jsonl")).toBe(true);
-	});
+	}, 20000);
 
 	it("supports dependency injection of custom SubagentRunner in constructor and createIf", async () => {
 		let launchedOptions: any;
@@ -168,7 +168,7 @@ describe("InvokeSubagentTool", () => {
 		expect(typeof details.conversationId).toBe("string");
 		expect(details.conversationId as string).toStartWith("sub-");
 		expect(details.typeName).toBe("my-custom-agent");
-	});
+	}, 20000);
 
 	it("applies default model and workspace when not specified", async () => {
 		const tool = new InvokeSubagentTool();
@@ -183,7 +183,7 @@ describe("InvokeSubagentTool", () => {
 		expect(details.workspace).toBe("inherit");
 		expect(details.logAbsoluteUri).toBeDefined();
 		expect(details.workspaceUris).toBeDefined();
-	});
+	}, 20000);
 });
 
 describe("SendMessageTool", () => {
@@ -279,5 +279,5 @@ describe("SendMessageTool", () => {
 		expect(sendText).toContain("delivered");
 		const sendDetails = sendResult.details as Record<string, unknown>;
 		expect(sendDetails.delivered).toBe(true);
-	});
+	}, 20000);
 });

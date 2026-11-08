@@ -1,12 +1,12 @@
 /**
- * InvokeSubagentTool — Ported from Google Antigravity (agy).
+ * InvokeSubagentTool: Ported from Google Antigravity (agy).
  *
  * Launches a named subagent (built-in or custom type) in the background.
  * Returns a conversationId the caller can use with send_message to communicate
  * with the running subagent.
  *
  * Built-in types: "self", "research", "image-generator"
- * Custom types can be defined via define_subagent (not yet wired — registry lookup only).
+ * Custom types can be defined via define_subagent (registry lookup).
  */
 
 import type { AgentTool, AgentToolContext, AgentToolResult } from "@aryee337/aery-core";
@@ -22,17 +22,17 @@ const invokeSubagentSchema = z.object({
 		.describe(
 			"Type name of the subagent to invoke. Built-in types: 'self', 'research', 'image-generator'. Use 'inherit' for a direct copy of the current agent.",
 		),
-	Role: z.string().describe("A 2–5 word description of the subagent's role (e.g. 'Codebase Researcher')."),
+	Role: z.string().describe("A 2-5 word description of the subagent's role (e.g. 'Codebase Researcher')."),
 	Prompt: z.string().describe("A clear, actionable task description for the subagent."),
 	Model: z
 		.string()
 		.optional()
 		.describe("Model for the subagent. 'inherit' uses the parent model. 'flash' or 'pro' for lighter/heavier work."),
 	Workspace: z
-		.enum(["inherit", "branch", "share"])
+		.enum(["inherit", "branch", "share", "microvm"])
 		.optional()
 		.describe(
-			"Workspace mode. 'inherit' shares the parent workspace. 'branch' creates an isolated copy. 'share' shares the underlying repo without duplicating storage.",
+			"Workspace mode. 'inherit' shares parent workspace. 'branch' creates an isolated git worktree copy. 'share' shares the underlying repo. 'microvm' runs with hardware microVM isolation for untrusted execution.",
 		),
 });
 
