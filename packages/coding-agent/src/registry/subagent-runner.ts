@@ -1,5 +1,5 @@
 /**
- * SubagentRunner — Background runner for subagents matching Google Antigravity (agy).
+ * SubagentRunner: Background runner for subagents matching Google Antigravity (agy).
  *
  * Spawns subagents asynchronously, tracks them in AgentRegistry, and bridges
  * turn/tool events for live progress and status streaming.
