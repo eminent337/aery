@@ -180,6 +180,7 @@ import type { Goal, GoalModeState } from "../goals/state";
 import type { HindsightSessionState } from "../hindsight/state";
 import { type LocalProtocolOptions, resolveLocalUrlToPath } from "../internal-urls";
 import type { IrcMessage } from "../irc/bus";
+import { ProgressiveMemoryCoordinator, type ToolExecutionRecord } from "../memory";
 import { resolveMemoryBackend } from "../memory-backend";
 import { getMnemopiSessionState, type MnemopiSessionState, setMnemopiSessionState } from "../mnemopi/state";
 import { containsOrchestrate, ORCHESTRATE_NOTICE } from "../modes/orchestrate";
@@ -439,6 +440,8 @@ export interface AgentSessionConfig {
 	checkpointCoordinator?: SessionCheckpointCoordinator;
 	/** Git checkpoint service backing this session */
 	gitCheckpointService?: GitCheckpointService;
+	/** Progressive cross-session memory coordinator */
+	progressiveMemoryCoordinator?: ProgressiveMemoryCoordinator;
 }
 
 /** Options for AgentSession.prompt() */
@@ -1092,6 +1095,8 @@ export class AgentSession {
 	#pendingAgentEndEmit: AgentSessionEvent | undefined;
 	#obfuscator: SecretObfuscator | undefined;
 	#checkpointCoordinator: SessionCheckpointCoordinator | undefined;
+	#progressiveMemoryCoordinator?: ProgressiveMemoryCoordinator;
+	#progressiveTurnIndex = 0;
 	#checkpointState: CheckpointState | undefined = undefined;
 	#pendingRewindReport: string | undefined = undefined;
 	#lastSuccessfulYieldToolCallId: string | undefined = undefined;
@@ -1339,6 +1344,16 @@ export class AgentSession {
 				sessionManager: this.sessionManager,
 				gitService: config.gitCheckpointService,
 			});
+
+		this.#progressiveMemoryCoordinator =
+			config.progressiveMemoryCoordinator ??
+			(this.settings.get("memory.progressive.enabled") !== false
+				? new ProgressiveMemoryCoordinator({
+						cwd: this.sessionManager.getCwd(),
+						sessionId: this.sessionId,
+						dbPath: this.settings.get("memory.progressive.dbPath"),
+					})
+				: undefined);
 
 		if (this.settings.get("advisor.enabled")) this.#buildAdvisorRuntime();
 
@@ -1856,6 +1871,78 @@ export class AgentSession {
 
 		await this.#emitSessionEvent(displayEvent);
 		if (event.type === "turn_end") {
+			// Progressive cross-session memory capture
+			if (this.#progressiveMemoryCoordinator) {
+				const currentEntryId =
+					this.sessionManager.getLeafId() ?? this.sessionManager.getEntries().at(-1)?.id;
+				let assistantText = "";
+				let assistantThinking = "";
+				const toolCalls: { id: string; name: string; args: any }[] = [];
+
+				if (event.message?.role === "assistant") {
+					const assistantMsg = event.message as AssistantMessage;
+					if (Array.isArray(assistantMsg.content)) {
+						for (const block of assistantMsg.content) {
+							if (block.type === "text") {
+								assistantText += block.text;
+							} else if (block.type === "thinking") {
+								assistantThinking += block.thinking;
+							} else if (block.type === "toolCall") {
+								toolCalls.push({ id: block.id, name: block.name, args: block.arguments });
+							}
+						}
+					}
+				}
+
+				const toolExecutions: ToolExecutionRecord[] = [];
+				if (Array.isArray(event.toolResults)) {
+					for (const res of event.toolResults) {
+						const matchingCall = toolCalls.find(tc => tc.id === res.toolCallId);
+						const resultText = Array.isArray(res.content)
+							? res.content
+									.filter((c): c is { type: "text"; text: string } => c.type === "text")
+									.map(c => c.text)
+									.join("\n")
+							: "";
+						toolExecutions.push({
+							toolName: res.toolName || matchingCall?.name || "",
+							params: matchingCall?.args,
+							resultText,
+							isError: Boolean(res.isError),
+						});
+					}
+				}
+				if (toolExecutions.length === 0 && toolCalls.length > 0) {
+					for (const tc of toolCalls) {
+						toolExecutions.push({
+							toolName: tc.name,
+							params: tc.args,
+						});
+					}
+				}
+
+				const lastUserMessage = this.messages
+					.slice()
+					.reverse()
+					.find(m => m.role === "user");
+				const userPrompt = lastUserMessage
+					? this._extractUserMessageText(lastUserMessage.content)
+					: undefined;
+
+				void this.#progressiveMemoryCoordinator
+					.onTurnEnd({
+						entryId: currentEntryId,
+						turnIndex: this.#progressiveTurnIndex++,
+						userPrompt,
+						assistantText,
+						assistantThinking,
+						toolExecutions,
+					})
+					.catch(err => {
+						logger.debug("Progressive memory capture failed", { error: String(err) });
+					});
+			}
+
 			this.#advisorRuntime?.onTurnEnd();
 			// Autonomous mode execution check
 			if (this.#autonomousRuntime && this.#autonomousRuntime.status === "active") {
@@ -3260,6 +3347,11 @@ export class AgentSession {
 		this.agent.setOnBeforeYield(undefined);
 		this.#stopAdvisorRuntime();
 		this.#evalExecutionDisposing = true;
+		try {
+			this.#progressiveMemoryCoordinator?.close();
+		} catch (err) {
+			logger.debug("Failed to close progressive memory coordinator", { error: String(err) });
+		}
 	}
 
 	async dispose(): Promise<void> {
@@ -4032,6 +4124,17 @@ export class AgentSession {
 				});
 			}
 		}
+		// Progressive memory prelude injection
+		if (this.#progressiveMemoryCoordinator) {
+			try {
+				const maxItems =
+					this.settings.get("memory.progressive.maxStartupObservations") ?? 5;
+				const prelude = this.#progressiveMemoryCoordinator.buildStartupPromptPrelude(maxItems);
+				if (prelude) blocks.push(prelude);
+			} catch (err) {
+				logger.debug("Progressive memory prelude injection failed", { error: String(err) });
+			}
+		}
 		// Continual harness: inject the refined prompts/memories/skills back
 		// into the working context (recall-aware per turn, gated by settings).
 		if (this.settings.get("harness.inject")) {
@@ -4457,6 +4560,10 @@ export class AgentSession {
 
 	get checkpointCoordinator(): SessionCheckpointCoordinator | undefined {
 		return this.#checkpointCoordinator;
+	}
+
+	get progressiveMemoryCoordinator(): ProgressiveMemoryCoordinator | undefined {
+		return this.#progressiveMemoryCoordinator;
 	}
 
 	getCheckpointState(): CheckpointState | undefined {

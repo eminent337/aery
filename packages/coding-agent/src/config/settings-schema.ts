@@ -1629,6 +1629,39 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"memory.progressive.enabled": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "memory",
+			group: "Progressive Memory",
+			label: "Progressive Memory",
+			description: "Enable in-process cross-session memory with progressive disclosure",
+		},
+	},
+
+	"memory.progressive.maxStartupObservations": {
+		type: "number",
+		default: 5,
+		ui: {
+			tab: "memory",
+			group: "Progressive Memory",
+			label: "Startup Memory Count",
+			description: "Maximum recent observations to inject at session startup",
+		},
+	},
+
+	"memory.progressive.dbPath": {
+		type: "string",
+		default: undefined,
+		ui: {
+			tab: "memory",
+			group: "Progressive Memory",
+			label: "DB Path",
+			description: "Custom SQLite path for progressive memory database",
+		},
+	},
+
 	// Mnemopi local SQLite memory backend.
 	"mnemopi.dbPath": {
 		type: "string",

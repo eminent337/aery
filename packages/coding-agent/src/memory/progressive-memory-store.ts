@@ -75,6 +75,7 @@ function mapRowToRecord(row: ObservationRow): ObservationRecord {
  */
 export class ProgressiveMemoryStore {
 	readonly #db: Database;
+	#closed = false;
 	#insertStmt!: Statement<
 		void,
 		[string, string, string | null, number, string, string, string, string, string, number]
@@ -286,17 +287,35 @@ END;
 		}
 	}
 
+	get isClosed(): boolean {
+		return this.#closed;
+	}
+
+	#assertOpen(): void {
+		if (this.#closed) {
+			throw new Error("ProgressiveMemoryStore is closed");
+		}
+	}
+
 	deleteObservation(id: string): boolean {
+		this.#assertOpen();
 		const result = this.#deleteStmt.run(id) as { changes?: number } | undefined;
 		return (result?.changes ?? 0) > 0;
 	}
 
 	getObservationCount(): number {
+		this.#assertOpen();
 		const row = this.#countStmt.get();
 		return row?.count ?? 0;
 	}
 
+	countObservations(): number {
+		return this.getObservationCount();
+	}
+
 	close(): void {
+		if (this.#closed) return;
+		this.#closed = true;
 		this.#db.close();
 	}
 }
