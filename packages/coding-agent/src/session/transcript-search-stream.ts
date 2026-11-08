@@ -197,11 +197,10 @@ export async function openTranscriptNoFollow(filePath: string): Promise<fs.FileH
 
 	try {
 		const stat = await handle.stat();
-		if (stat.isDirectory()) {
-			await handle.close();
-			const dirErr = new Error(`Path is a directory: ${filePath}`);
-			(dirErr as NodeJS.ErrnoException).code = "ELOOP";
-			throw dirErr;
+		if (!stat.isFile()) {
+			const nonFileErr = new Error(`Path is not a regular file: ${filePath}`);
+			(nonFileErr as NodeJS.ErrnoException).code = "ELOOP";
+			throw nonFileErr;
 		}
 		return handle;
 	} catch (err) {
@@ -317,14 +316,17 @@ async function executeStreamSearch(options: TranscriptSearchOptions): Promise<Tr
 	const results: TranscriptSearchResult[] = [];
 	const matcher = buildSearchMatcher(query);
 
+	let stream: ReturnType<fs.FileHandle["createReadStream"]> | null = null;
+	let rl: readline.Interface | null = null;
+
 	try {
 		const stat = await handle.stat();
 		if (stat.size === 0 || startOffset >= stat.size) {
 			return [];
 		}
 
-		const stream = handle.createReadStream({ start: startOffset });
-		const rl = readline.createInterface({
+		stream = handle.createReadStream({ start: startOffset });
+		rl = readline.createInterface({
 			input: stream,
 			crlfDelay: Number.POSITIVE_INFINITY,
 		});
@@ -396,6 +398,20 @@ async function executeStreamSearch(options: TranscriptSearchOptions): Promise<Tr
 
 		return results;
 	} finally {
+		if (rl) {
+			try {
+				rl.close();
+			} catch {
+				// Ignore close error
+			}
+		}
+		if (stream) {
+			try {
+				stream.destroy();
+			} catch {
+				// Ignore destroy error
+			}
+		}
 		await handle.close();
 	}
 }
