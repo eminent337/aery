@@ -6,12 +6,17 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import {
 	captureCheckpoint,
+	deleteCheckpoint,
 	GitCheckpointService,
+	getCheckpointRef,
+	getRepoRoot,
 	hasCheckpoint,
 	isGitRepository,
+	listCheckpoints,
 	pruneCheckpoints,
 	resolveCheckpointCommit,
 	restoreCheckpoint,
+	validateId,
 } from "../src/checkpoint";
 
 const execAsync = promisify(execFile);
@@ -63,6 +68,46 @@ describe("GitCheckpointService", () => {
 		const service = new GitCheckpointService(repoDir);
 		expect(await service.isGitRepository()).toBe(true);
 		expect(await GitCheckpointService.isGitRepository(repoDir)).toBe(true);
+	});
+
+	it("resolves repository root via getRepoRoot", async () => {
+		const repoDir = await initGitRepo();
+		const subDir = path.join(repoDir, "sub", "deep");
+		await fs.mkdir(subDir, { recursive: true });
+
+		const rootFromRoot = await getRepoRoot(repoDir);
+		const rootFromSub = await getRepoRoot(subDir);
+
+		// Resolve any symlinks in comparison (e.g. /tmp vs /private/tmp)
+		const realRepoDir = await fs.realpath(repoDir);
+		const realRootFromRoot = await fs.realpath(rootFromRoot);
+		const realRootFromSub = await fs.realpath(rootFromSub);
+
+		expect(realRootFromRoot).toBe(realRepoDir);
+		expect(realRootFromSub).toBe(realRepoDir);
+	});
+
+	it("validates identifiers against disallowed git characters", () => {
+		expect(() => validateId("")).toThrow();
+		expect(() => validateId("   ")).toThrow();
+		expect(() => validateId("foo/bar")).toThrow();
+		expect(() => validateId("foo\\bar")).toThrow();
+		expect(() => validateId("foo..bar")).toThrow();
+		expect(() => validateId("foo~bar")).toThrow();
+		expect(() => validateId("foo^bar")).toThrow();
+		expect(() => validateId("foo:bar")).toThrow();
+		expect(() => validateId("foo?bar")).toThrow();
+		expect(() => validateId("foo*bar")).toThrow();
+		expect(() => validateId("foo[bar")).toThrow();
+		expect(() => validateId(".hidden")).toThrow();
+		expect(() => validateId("dotend.")).toThrow();
+		expect(() => validateId("branch.lock")).toThrow();
+
+		// Valid identifiers should not throw
+		expect(() => validateId("session-123")).not.toThrow();
+		expect(() => validateId("entry_456")).not.toThrow();
+		expect(() => validateId("a1b2c3d4")).not.toThrow();
+		expect(getCheckpointRef("session-123", "entry_456")).toBe("refs/aery/checkpoints/session-123/entry_456");
 	});
 
 	it("creates a hidden ref using an isolated temporary GIT_INDEX_FILE and does not alter HEAD", async () => {
@@ -192,6 +237,160 @@ describe("GitCheckpointService", () => {
 			subdirExists = false;
 		}
 		expect(subdirExists).toBe(false);
+	});
+
+	it("restores cleanly across repo root even when cwd is a subdirectory", async () => {
+		const repoDir = await initGitRepo();
+		const subDir = path.join(repoDir, "subfolder");
+		await fs.mkdir(subDir, { recursive: true });
+
+		const sessionId = "sess-subdir";
+		const entryId = "entry-sub";
+
+		// Baseline files at root and inside subdirectory
+		await fs.writeFile(path.join(repoDir, "root-file.txt"), "root original", "utf8");
+		await fs.writeFile(path.join(subDir, "sub-file.txt"), "sub original", "utf8");
+
+		// Capture checkpoint from subdirectory cwd
+		await captureCheckpoint({
+			cwd: subDir,
+			sessionId,
+			entryId,
+		});
+
+		// Mutate files at root and in subdirectory
+		await fs.writeFile(path.join(repoDir, "root-file.txt"), "root modified", "utf8");
+		await fs.writeFile(path.join(subDir, "sub-file.txt"), "sub modified", "utf8");
+		await fs.writeFile(path.join(repoDir, "root-untracked.txt"), "root extra", "utf8");
+		await fs.writeFile(path.join(subDir, "sub-untracked.txt"), "sub extra", "utf8");
+
+		// Restore checkpoint using subdirectory cwd
+		await restoreCheckpoint({
+			cwd: subDir,
+			sessionId,
+			entryId,
+		});
+
+		// Verify entire repository restored
+		expect(await fs.readFile(path.join(repoDir, "root-file.txt"), "utf8")).toBe("root original");
+		expect(await fs.readFile(path.join(subDir, "sub-file.txt"), "utf8")).toBe("sub original");
+
+		let rootUntrackedExists = true;
+		try {
+			await fs.access(path.join(repoDir, "root-untracked.txt"));
+		} catch {
+			rootUntrackedExists = false;
+		}
+		expect(rootUntrackedExists).toBe(false);
+
+		let subUntrackedExists = true;
+		try {
+			await fs.access(path.join(subDir, "sub-untracked.txt"));
+		} catch {
+			subUntrackedExists = false;
+		}
+		expect(subUntrackedExists).toBe(false);
+	});
+
+	it("lists checkpoints with normalized millisecond timestamps and filters by sessionId", async () => {
+		const repoDir = await initGitRepo();
+
+		await captureCheckpoint({ cwd: repoDir, sessionId: "sess-1", entryId: "e1" });
+		await captureCheckpoint({ cwd: repoDir, sessionId: "sess-1", entryId: "e2" });
+		await captureCheckpoint({ cwd: repoDir, sessionId: "sess-2", entryId: "e3" });
+
+		const allCheckpoints = await listCheckpoints({ cwd: repoDir });
+		expect(allCheckpoints.length).toBe(3);
+
+		// Verify millisecond timestamps (should be > 1_000_000_000_000 for recent dates)
+		for (const cp of allCheckpoints) {
+			expect(cp.timestamp).toBeGreaterThan(1_000_000_000_000);
+			const date = new Date(cp.timestamp);
+			expect(date.getFullYear()).toBeGreaterThanOrEqual(2025);
+		}
+
+		// Filter by sessionId
+		const sess1Checkpoints = await listCheckpoints({ cwd: repoDir, sessionId: "sess-1" });
+		expect(sess1Checkpoints.length).toBe(2);
+		expect(sess1Checkpoints.every(cp => cp.sessionId === "sess-1")).toBe(true);
+
+		const sess2Checkpoints = await listCheckpoints({ cwd: repoDir, sessionId: "sess-2" });
+		expect(sess2Checkpoints.length).toBe(1);
+		expect(sess2Checkpoints[0].sessionId).toBe("sess-2");
+		expect(sess2Checkpoints[0].entryId).toBe("e3");
+	});
+
+	it("deletes checkpoints correctly with deleteCheckpoint", async () => {
+		const repoDir = await initGitRepo();
+		const sessionId = "sess-del";
+		const entryId = "entry-del";
+
+		await captureCheckpoint({ cwd: repoDir, sessionId, entryId });
+		expect(await hasCheckpoint({ cwd: repoDir, sessionId, entryId })).toBe(true);
+
+		const deleted = await deleteCheckpoint({ cwd: repoDir, sessionId, entryId });
+		expect(deleted).toBe(true);
+		expect(await hasCheckpoint({ cwd: repoDir, sessionId, entryId })).toBe(false);
+
+		// Deleting again or non-existent returns true for update-ref -d (git removes or succeeds)
+		const deletedNonexistent = await deleteCheckpoint({ cwd: repoDir, sessionId: "no-sess", entryId: "no-entry" });
+		expect(typeof deletedNonexistent).toBe("boolean");
+	});
+
+	it("throws informative errors on non-git repo and non-existent checkpoints", async () => {
+		const nonRepoDir = await createTempDir("non-repo-err-");
+		const repoDir = await initGitRepo();
+
+		// captureCheckpoint in non-git directory throws
+		await expect(captureCheckpoint({ cwd: nonRepoDir, sessionId: "s", entryId: "e" })).rejects.toThrow(
+			"Not a git repository",
+		);
+
+		// restoreCheckpoint in non-git directory throws
+		await expect(restoreCheckpoint({ cwd: nonRepoDir, sessionId: "s", entryId: "e" })).rejects.toThrow(
+			"Not a git repository",
+		);
+
+		// restoreCheckpoint for non-existent checkpoint throws
+		await expect(restoreCheckpoint({ cwd: repoDir, sessionId: "non-existent", entryId: "missing" })).rejects.toThrow(
+			"Checkpoint ref not found",
+		);
+	});
+
+	it("supports class instance methods with default cwd", async () => {
+		const repoDir = await initGitRepo();
+		const service = new GitCheckpointService(repoDir);
+
+		expect(await service.isGitRepository()).toBe(true);
+		const repoRoot = await service.getRepoRoot();
+		expect(await fs.realpath(repoRoot)).toBe(await fs.realpath(repoDir));
+
+		// Capture via instance
+		const cp = await service.captureCheckpoint({ sessionId: "inst-sess", entryId: "inst-entry" });
+		expect(cp.commit).toMatch(/^[0-9a-f]{40}$/);
+
+		// Has and resolve via instance
+		expect(await service.hasCheckpoint({ sessionId: "inst-sess", entryId: "inst-entry" })).toBe(true);
+		expect(await service.resolveCheckpointCommit({ sessionId: "inst-sess", entryId: "inst-entry" })).toBe(cp.commit);
+
+		// List via instance
+		const list = await service.listCheckpoints({ sessionId: "inst-sess" });
+		expect(list.length).toBe(1);
+
+		// Restore via instance
+		await fs.writeFile(path.join(repoDir, "extra-inst.txt"), "trash", "utf8");
+		await service.restoreCheckpoint({ sessionId: "inst-sess", entryId: "inst-entry" });
+		let extraExists = true;
+		try {
+			await fs.access(path.join(repoDir, "extra-inst.txt"));
+		} catch {
+			extraExists = false;
+		}
+		expect(extraExists).toBe(false);
+
+		// Delete via instance
+		await service.deleteCheckpoint({ sessionId: "inst-sess", entryId: "inst-entry" });
+		expect(await service.hasCheckpoint({ sessionId: "inst-sess", entryId: "inst-entry" })).toBe(false);
 	});
 
 	it("pruneCheckpoints deletes refs older than the threshold", async () => {

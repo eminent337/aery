@@ -17,9 +17,33 @@ import type {
 const execAsync = promisify(execFile);
 
 /**
+ * Validates that an identifier does not contain disallowed git ref characters.
+ */
+export function validateId(id: string, fieldName = "id"): void {
+	if (!id || typeof id !== "string" || id.trim().length === 0) {
+		throw new Error(`${fieldName} cannot be empty`);
+	}
+	// Git ref component rules: no '/', '\\', '..', '@{', control chars, spaces, ~, ^, :, ?, *, [
+	if (
+		id.includes("/") ||
+		id.includes("\\") ||
+		id.includes("..") ||
+		id.includes("@{") ||
+		/[\s~^:?*[\x00-\x1f\x7f]/.test(id) ||
+		id.startsWith(".") ||
+		id.endsWith(".") ||
+		id.endsWith(".lock")
+	) {
+		throw new Error(`Invalid characters in ${fieldName}: "${id}"`);
+	}
+}
+
+/**
  * Returns the hidden git ref for an Aery checkpoint.
  */
 export function getCheckpointRef(sessionId: string, entryId: string): string {
+	validateId(sessionId, "sessionId");
+	validateId(entryId, "entryId");
 	return `refs/aery/checkpoints/${sessionId}/${entryId}`;
 }
 
@@ -36,6 +60,14 @@ export async function isGitRepository(cwd: string): Promise<boolean> {
 }
 
 /**
+ * Resolves the top-level repository root directory.
+ */
+export async function getRepoRoot(cwd: string): Promise<string> {
+	const { stdout } = await execAsync("git", ["rev-parse", "--show-toplevel"], { cwd });
+	return stdout.trim();
+}
+
+/**
  * Captures a checkpoint of the working tree using an isolated temporary git index.
  * Hidden ref is created at refs/aery/checkpoints/<sessionId>/<entryId>.
  * HEAD commit log and baseline count are not altered.
@@ -48,6 +80,7 @@ export async function captureCheckpoint(options: CaptureCheckpointOptions): Prom
 		throw new Error(`Not a git repository: ${cwd}`);
 	}
 
+	const repoRoot = await getRepoRoot(cwd);
 	const ref = getCheckpointRef(sessionId, entryId);
 	const tempIndex = path.join(os.tmpdir(), `aery-cp-idx-${randomUUID()}`);
 
@@ -64,21 +97,21 @@ export async function captureCheckpoint(options: CaptureCheckpointOptions): Prom
 		// Determine whether HEAD exists
 		let headCommit: string | null = null;
 		try {
-			const { stdout } = await execAsync("git", ["rev-parse", "--verify", "HEAD"], { cwd, env });
+			const { stdout } = await execAsync("git", ["rev-parse", "--verify", "HEAD"], { cwd: repoRoot, env });
 			headCommit = stdout.trim() || null;
 		} catch {
 			// Repository has no commits yet
 		}
 
 		if (headCommit) {
-			await execAsync("git", ["read-tree", "HEAD"], { cwd, env });
+			await execAsync("git", ["read-tree", "HEAD"], { cwd: repoRoot, env });
 		}
 
-		// Stage all changes into isolated temporary index
-		await execAsync("git", ["add", "-A"], { cwd, env });
+		// Stage all changes into isolated temporary index from repository root
+		await execAsync("git", ["add", "-A"], { cwd: repoRoot, env });
 
 		// Write tree from isolated index
-		const { stdout: treeOut } = await execAsync("git", ["write-tree"], { cwd, env });
+		const { stdout: treeOut } = await execAsync("git", ["write-tree"], { cwd: repoRoot, env });
 		const treeSha = treeOut.trim();
 
 		// Create commit object
@@ -88,11 +121,11 @@ export async function captureCheckpoint(options: CaptureCheckpointOptions): Prom
 			commitArgs.push("-p", headCommit);
 		}
 
-		const { stdout: commitOut } = await execAsync("git", commitArgs, { cwd, env });
+		const { stdout: commitOut } = await execAsync("git", commitArgs, { cwd: repoRoot, env });
 		const commitSha = commitOut.trim();
 
 		// Update hidden ref
-		await execAsync("git", ["update-ref", ref, commitSha], { cwd });
+		await execAsync("git", ["update-ref", ref, commitSha], { cwd: repoRoot });
 
 		return {
 			ref,
@@ -112,8 +145,8 @@ export async function captureCheckpoint(options: CaptureCheckpointOptions): Prom
  * Checks whether a checkpoint ref exists.
  */
 export async function hasCheckpoint(options: GitCheckpointOptions): Promise<boolean> {
-	const ref = getCheckpointRef(options.sessionId, options.entryId);
 	try {
+		const ref = getCheckpointRef(options.sessionId, options.entryId);
 		await execAsync("git", ["rev-parse", "--verify", ref], { cwd: options.cwd });
 		return true;
 	} catch {
@@ -125,8 +158,8 @@ export async function hasCheckpoint(options: GitCheckpointOptions): Promise<bool
  * Resolves the commit SHA for a checkpoint ref, or null if it does not exist.
  */
 export async function resolveCheckpointCommit(options: GitCheckpointOptions): Promise<string | null> {
-	const ref = getCheckpointRef(options.sessionId, options.entryId);
 	try {
+		const ref = getCheckpointRef(options.sessionId, options.entryId);
 		const { stdout } = await execAsync("git", ["rev-parse", "--verify", ref], { cwd: options.cwd });
 		return stdout.trim() || null;
 	} catch {
@@ -135,23 +168,29 @@ export async function resolveCheckpointCommit(options: GitCheckpointOptions): Pr
 }
 
 /**
- * Restores modified files from a checkpoint and cleans untracked files.
+ * Restores modified files from a checkpoint and cleans untracked files across the repository.
  */
 export async function restoreCheckpoint(options: GitCheckpointOptions): Promise<void> {
+	const isRepo = await isGitRepository(options.cwd);
+	if (!isRepo) {
+		throw new Error(`Not a git repository: ${options.cwd}`);
+	}
+
+	const repoRoot = await getRepoRoot(options.cwd);
 	const commitSha = await resolveCheckpointCommit(options);
 	if (!commitSha) {
 		const ref = getCheckpointRef(options.sessionId, options.entryId);
 		throw new Error(`Checkpoint ref not found: ${ref}`);
 	}
 
-	// Reset index to checkpoint tree
-	await execAsync("git", ["read-tree", commitSha], { cwd: options.cwd });
+	// Reset index to checkpoint tree using repository root
+	await execAsync("git", ["read-tree", commitSha], { cwd: repoRoot });
 
 	// Force checkout tracked files into working tree
-	await execAsync("git", ["checkout-index", "-a", "-f"], { cwd: options.cwd });
+	await execAsync("git", ["checkout-index", "-a", "-f"], { cwd: repoRoot });
 
-	// Clean untracked files and directories
-	await execAsync("git", ["clean", "-fd"], { cwd: options.cwd });
+	// Clean untracked files and directories across the repository
+	await execAsync("git", ["clean", "-fd"], { cwd: repoRoot });
 }
 
 /**
@@ -173,7 +212,7 @@ export async function pruneCheckpoints(options: PruneCheckpointsOptions): Promis
 		const lines = stdout.trim().split("\n").filter(Boolean);
 
 		for (const line of lines) {
-			const [ref, timestampStr] = line.trim().split(" ");
+			const [ref, timestampStr] = line.trim().split(/\s+/);
 			const timestamp = parseInt(timestampStr, 10);
 			if (ref && !isNaN(timestamp) && timestamp <= cutoffSeconds) {
 				await execAsync("git", ["update-ref", "-d", ref], { cwd });
@@ -194,6 +233,10 @@ export async function pruneCheckpoints(options: PruneCheckpointsOptions): Promis
  * Lists checkpoints in a repository, optionally filtered by sessionId.
  */
 export async function listCheckpoints(options: ListCheckpointsOptions): Promise<CheckpointInfo[]> {
+	if (options.sessionId) {
+		validateId(options.sessionId, "sessionId");
+	}
+
 	const prefix = options.sessionId ? `refs/aery/checkpoints/${options.sessionId}` : "refs/aery/checkpoints";
 
 	try {
@@ -207,19 +250,20 @@ export async function listCheckpoints(options: ListCheckpointsOptions): Promise<
 		const lines = stdout.trim().split("\n").filter(Boolean);
 
 		for (const line of lines) {
-			const [ref, commit, tsStr] = line.trim().split(" ");
+			const [ref, commit, tsStr] = line.trim().split(/\s+/);
 			if (!ref || !commit) continue;
 			const trimmedRef = ref.replace(/^refs\/aery\/checkpoints\//, "");
 			const slashIdx = trimmedRef.indexOf("/");
 			const sessionId = slashIdx !== -1 ? trimmedRef.slice(0, slashIdx) : trimmedRef;
 			const entryId = slashIdx !== -1 ? trimmedRef.slice(slashIdx + 1) : "";
-			const timestamp = parseInt(tsStr, 10);
+			const timestampSeconds = parseInt(tsStr, 10);
+			const timestampMs = isNaN(timestampSeconds) ? 0 : timestampSeconds * 1000;
 			results.push({
 				ref,
 				sessionId,
 				entryId,
 				commit,
-				timestamp: isNaN(timestamp) ? 0 : timestamp,
+				timestamp: timestampMs,
 			});
 		}
 
@@ -233,8 +277,8 @@ export async function listCheckpoints(options: ListCheckpointsOptions): Promise<
  * Deletes a single checkpoint ref.
  */
 export async function deleteCheckpoint(options: GitCheckpointOptions): Promise<boolean> {
-	const ref = getCheckpointRef(options.sessionId, options.entryId);
 	try {
+		const ref = getCheckpointRef(options.sessionId, options.entryId);
 		await execAsync("git", ["update-ref", "-d", ref], { cwd: options.cwd });
 		return true;
 	} catch {
@@ -249,6 +293,8 @@ export class GitCheckpointService {
 	constructor(private readonly defaultCwd?: string) {}
 
 	static isGitRepository = isGitRepository;
+	static getRepoRoot = getRepoRoot;
+	static validateId = validateId;
 	static captureCheckpoint = captureCheckpoint;
 	static hasCheckpoint = hasCheckpoint;
 	static resolveCheckpointCommit = resolveCheckpointCommit;
@@ -264,6 +310,10 @@ export class GitCheckpointService {
 
 	async isGitRepository(cwd?: string): Promise<boolean> {
 		return isGitRepository(this.getCwd(cwd));
+	}
+
+	async getRepoRoot(cwd?: string): Promise<string> {
+		return getRepoRoot(this.getCwd(cwd));
 	}
 
 	async captureCheckpoint(
