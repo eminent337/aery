@@ -616,7 +616,7 @@ export class InteractiveMode implements InteractiveModeContext {
 
 			const activeFromRegistry = AgentRegistry.global()
 				.list()
-				.filter(a => a.kind === "sub" && a.status !== "parked" && a.status !== "aborted")
+				.filter(a => a.kind === "sub" && a.status === "running")
 				.map(a => ({
 					id: a.id,
 					agent: a.displayName || a.id,
@@ -640,8 +640,10 @@ export class InteractiveMode implements InteractiveModeContext {
 				}
 			}
 
-			this.statusLine.setActiveSubagents(merged);
-			this.statusLine.setSubagentCount(merged.length);
+			// Subagent indicator is displayed in the top HUD above prompt box only;
+			// bottom status line subagent indicator is disabled per user preference.
+			this.statusLine.setActiveSubagents([]);
+			this.statusLine.setSubagentCount(0);
 			this.subagentHud.setSubagents(merged);
 			if (merged.length > 0) {
 				this.#startSubagentAnimationTimer();
