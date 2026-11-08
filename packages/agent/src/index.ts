@@ -4,6 +4,8 @@ export * from "./agent";
 export * from "./agent-loop";
 // Append-only context mode
 export * from "./append-only-context";
+// Checkpoint
+export * from "./checkpoint";
 // Compaction
 export * from "./compaction";
 export * from "./harmony-leak";
