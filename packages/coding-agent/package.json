@@ -138,6 +138,14 @@
       "types": "./src/capability/*.ts",
       "import": "./src/capability/*.ts"
     },
+    "./checkpoint": {
+      "types": "./src/checkpoint/index.ts",
+      "import": "./src/checkpoint/index.ts"
+    },
+    "./checkpoint/*": {
+      "types": "./src/checkpoint/*.ts",
+      "import": "./src/checkpoint/*.ts"
+    },
     "./cli/*": {
       "types": "./src/cli/*.ts",
       "import": "./src/cli/*.ts"

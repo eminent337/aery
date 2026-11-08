@@ -6,6 +6,8 @@ import { HookEditorComponent, HookInputComponent, HookSelectorComponent } from "
 export { Container, Markdown, Spacer, Text } from "@aryee337/aery-tui";
 // Logging
 export { getAgentDir, logger, VERSION } from "@aryee337/aery-utils";
+// Checkpoint
+export * from "./checkpoint";
 export * from "./config/keybindings";
 export * from "./config/model-registry";
 // Prompt templates

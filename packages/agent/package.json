@@ -64,6 +64,14 @@
       "types": "./src/compaction/*.ts",
       "import": "./src/compaction/*.ts"
     },
+    "./checkpoint": {
+      "types": "./src/checkpoint/index.ts",
+      "import": "./src/checkpoint/index.ts"
+    },
+    "./checkpoint/*": {
+      "types": "./src/checkpoint/*.ts",
+      "import": "./src/checkpoint/*.ts"
+    },
     "./*": {
       "types": "./src/*.ts",
       "import": "./src/*.ts"
