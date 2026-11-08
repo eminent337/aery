@@ -69,6 +69,7 @@ import { FastFileSearchTool } from "./file-indexer";
 import { MicrovmSandboxTool } from "./microvm-sandbox";
 import { DesktopEmergencyStopTool } from "./desktop-emergency-stop";
 import { ScheduledTaskWatcherTool } from "./scheduled-task-watcher";
+import { AppBridgeTool } from "./app-bridge";
 import { EditFileTool } from "./edit-file";
 import { EvalTool } from "./eval";
 import { resolveEvalBackends } from "./eval-backends";
@@ -671,6 +672,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	microvm_sandbox: MicrovmSandboxTool.createIf,
 	desktop_emergency_stop: DesktopEmergencyStopTool.createIf,
 	scheduled_task_watcher: ScheduledTaskWatcherTool.createIf,
+	app_bridge: AppBridgeTool.createIf,
 	take_screenshot: TakeScreenshotTool.createIf,
 	click_at: ClickAtTool.createIf,
 	move_cursor: MoveCursorTool.createIf,

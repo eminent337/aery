@@ -74,7 +74,7 @@ function validateActionParams(
 			return customValidation;
 		}
 	}
-	for (const [paramName, paramDef] of Object.entries(actionDef.parameters)) {
+	for (const [paramName, paramDef] of Object.entries(actionDef.parameters ?? {})) {
 		if (paramDef.required) {
 			const val = params[paramName];
 			if (val === undefined || val === null || val === "") {
@@ -515,15 +515,15 @@ export class AppBridgeRegistry {
 			};
 		}
 
-		const validation = validateActionParams(actionDef, params);
-		if (!validation.valid) {
-			return {
-				success: false,
-				error: validation.error ?? "Invalid parameters",
-			};
-		}
-
 		try {
+			const validation = validateActionParams(actionDef, params);
+			if (!validation.valid) {
+				return {
+					success: false,
+					error: validation.error ?? "Invalid parameters",
+				};
+			}
+
 			const handler = actionDef.handler ?? (() => ({ executed: true }));
 			const data = await handler(params);
 			return {
