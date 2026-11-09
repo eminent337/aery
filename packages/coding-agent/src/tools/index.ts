@@ -76,6 +76,7 @@ import { FindTool } from "./find";
 import { GeminiComputerUseTool } from "./gemini-computer-use";
 import { GithubTool } from "./gh";
 import { GraphTool } from "./graph";
+import { GrindTool } from "./grind";
 import { HandoffTool } from "./handoff";
 import { InspectImageTool } from "./inspect-image";
 import { InvokeSubagentTool } from "./invoke-subagent";
@@ -211,6 +212,7 @@ export * from "./find";
 export * from "./gemini-computer-use";
 export * from "./gh";
 export * from "./graph";
+export * from "./grind";
 export * from "./handoff";
 export * from "./image-gen";
 export * from "./inspect-image";
@@ -667,6 +669,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	browser: s => new BrowserTool(s),
 	checkpoint: CheckpointTool.createIf,
 	rewind: RewindTool.createIf,
+	grind: s => new GrindTool(s),
 	task: s => TaskTool.create(s),
 	job: JobTool.createIf,
 	irc: IrcTool.createIf,
