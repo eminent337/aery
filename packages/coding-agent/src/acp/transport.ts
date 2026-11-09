@@ -31,6 +31,8 @@ export class AcpTransportError extends Error {
 	}
 }
 
+export const MAX_ACP_BUFFER_SIZE = 16 * 1024 * 1024; // 16MB threshold
+
 interface PendingRequest {
 	resolve: (val: any) => void;
 	reject: (err: Error) => void;
@@ -46,6 +48,9 @@ export class AcpTransport {
 	private readonly pendingRequests = new Map<number | string, PendingRequest>();
 	private readonly notificationListeners = new Set<(notif: JsonRpcNotification) => void>();
 	private readonly dataHandler: (chunk: Buffer | string) => void;
+	private readonly endHandler: () => void;
+	private readonly inErrorHandler: (err: Error) => void;
+	private readonly outErrorHandler: (err: Error) => void;
 
 	constructor(inStream: NodeJS.ReadableStream, outStream: NodeJS.WritableStream) {
 		this.inStream = inStream;
@@ -55,7 +60,23 @@ export class AcpTransport {
 			this.handleData(chunk);
 		};
 
+		this.endHandler = () => {
+			this.close(new AcpTransportError("Input stream closed"));
+		};
+
+		this.inErrorHandler = (err: Error) => {
+			this.close(new AcpTransportError(`Input stream error: ${err.message}`));
+		};
+
+		this.outErrorHandler = (err: Error) => {
+			this.close(new AcpTransportError(`Output stream error: ${err.message}`));
+		};
+
 		this.inStream.on("data", this.dataHandler);
+		this.inStream.on("end", this.endHandler);
+		this.inStream.on("close", this.endHandler);
+		this.inStream.on("error", this.inErrorHandler);
+		this.outStream.on("error", this.outErrorHandler);
 	}
 
 	sendMessage(msg: JsonRpcMessage): void {
@@ -125,7 +146,7 @@ export class AcpTransport {
 		};
 	}
 
-	close(): void {
+	close(reason?: Error): void {
 		if (this.closed) {
 			return;
 		}
@@ -133,9 +154,16 @@ export class AcpTransport {
 
 		if (typeof (this.inStream as any).removeListener === "function") {
 			(this.inStream as any).removeListener("data", this.dataHandler);
+			(this.inStream as any).removeListener("end", this.endHandler);
+			(this.inStream as any).removeListener("close", this.endHandler);
+			(this.inStream as any).removeListener("error", this.inErrorHandler);
 		}
 
-		const abortErr = new AcpTransportError("Transport closed");
+		if (typeof (this.outStream as any).removeListener === "function") {
+			(this.outStream as any).removeListener("error", this.outErrorHandler);
+		}
+
+		const abortErr = reason ?? new AcpTransportError("Transport closed");
 		for (const pending of this.pendingRequests.values()) {
 			if (pending.timer) {
 				clearTimeout(pending.timer);
@@ -147,7 +175,14 @@ export class AcpTransport {
 	}
 
 	private handleData(chunk: Buffer | string): void {
-		this.buffer += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+		const str = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+		this.buffer += str;
+
+		if (this.buffer.length > MAX_ACP_BUFFER_SIZE) {
+			this.buffer = "";
+			this.close(new AcpTransportError("Buffer limit exceeded (16MB)"));
+			return;
+		}
 
 		let newlineIdx: number;
 		while ((newlineIdx = this.buffer.indexOf("\n")) !== -1) {
@@ -159,8 +194,11 @@ export class AcpTransport {
 			}
 
 			try {
-				const parsed = JSON.parse(line) as JsonRpcMessage;
-				this.handleMessage(parsed);
+				const parsed = JSON.parse(line);
+				if (!parsed || typeof parsed !== "object") {
+					continue;
+				}
+				this.handleMessage(parsed as JsonRpcMessage);
 			} catch {
 				// Ignore malformed JSON lines
 			}
@@ -169,7 +207,7 @@ export class AcpTransport {
 
 	private handleMessage(msg: JsonRpcMessage): void {
 		// Response message
-		if ("id" in msg && msg.id !== undefined && ("result" in msg || "error" in msg)) {
+		if ("id" in msg && msg.id !== undefined && msg.id !== null && ("result" in msg || "error" in msg)) {
 			const pending = this.pendingRequests.get(msg.id);
 			if (pending) {
 				if (pending.timer) {

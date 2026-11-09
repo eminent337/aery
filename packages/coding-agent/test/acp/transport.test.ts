@@ -229,5 +229,39 @@ describe("AcpTransport", () => {
 			transport.close();
 			await expect(transport.request("after/close")).rejects.toThrow("Transport closed");
 		});
+
+		it("closes transport and rejects pending requests when inStream ends", async () => {
+			const reqPromise = transport.request("pending/turn", {}, 10000);
+
+			inStream.end();
+
+			await expect(reqPromise).rejects.toThrow("Input stream closed");
+		});
+
+		it("closes transport cleanly when outStream emits error", async () => {
+			const reqPromise = transport.request("stream/test", {}, 10000);
+
+			outStream.emit("error", new Error("EPIPE write error"));
+
+			await expect(reqPromise).rejects.toThrow("Output stream error: EPIPE write error");
+		});
+
+		it("protects against buffer overflow on oversized lines", async () => {
+			const reqPromise = transport.request("stream/test", {}, 10000);
+
+			// Exceed 16MB buffer threshold without newline
+			const oversizedChunk = "x".repeat(17 * 1024 * 1024);
+			inStream.write(oversizedChunk);
+
+			await expect(reqPromise).rejects.toThrow("Buffer limit exceeded");
+		});
+
+		it("safely ignores non-object JSON payloads like numbers or null", () => {
+			// Should not throw or crash
+			inStream.write("null\n");
+			inStream.write("12345\n");
+			inStream.write("true\n");
+			inStream.write("\"string-only\"\n");
+		});
 	});
 });
