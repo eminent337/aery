@@ -9,6 +9,12 @@ export { default as memoryBehaviorsExtension } from "./core/memory-behaviors";
 export { default as modelFailoverExtension } from "./core/model-failover";
 export { default as monitorToolExtension } from "./core/monitor-tool";
 export { default as ragExtension } from "./core/rag";
+export {
+	resolveAuditLogPath,
+	SecurityAuditLogger,
+	type SecurityAuditLoggerOptions,
+	type SecurityDecisionEntry,
+} from "./core/security-audit";
 export { default as sessionAutoNameExtension } from "./core/session-auto-name";
 export { default as toolDeferralExtension } from "./core/tool-deferral";
 export { default as workflowBehaviorsExtension } from "./core/workflow-behaviors";
