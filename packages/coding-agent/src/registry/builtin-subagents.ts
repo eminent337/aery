@@ -1,10 +1,11 @@
 /**
- * Built-in Subagent Definitions — Ported from Google Antigravity (agy).
+ * Built-in Subagent Definitions - Ported from Google Antigravity (agy).
  *
  * Defines the standard pre-configured subagents:
  * - `self`: Full-capability subagent inheriting parent agent tools and configuration.
  * - `research`: Read-only subagent for codebase exploration and research.
  * - `image-generator`: Visual generator & editor with 3-attempt self-inspection loop.
+ * - `opencode`: Autonomous worker subagent powered by local OpenCode ACP engine.
  */
 
 export interface BuiltinSubagentDefinition {
@@ -23,6 +24,17 @@ export const BUILTIN_SUBAGENTS: Record<string, BuiltinSubagentDefinition> = {
 			"Subagent that inherits the parent agent's full configuration including tools, system prompt, and model. Use this when you need to run a task in a separate conversation context but with the same capabilities as the current agent.",
 		systemPrompt: `You are a delegated subagent running as an isolated self-instance.
 You possess the parent agent's full capabilities and toolset.
+Execute the assigned tasks thoroughly and autonomously within your workspace.
+Always communicate your progress and final results back to the caller using send_message.`,
+		tools: ["*"],
+	},
+
+	opencode: {
+		typeName: "opencode",
+		role: "OpenCode ACP Worker",
+		description:
+			"Autonomous worker subagent powered by local OpenCode ACP engine. Capable of multi-agent execution with zero cloud token cost using local or free models (qwen, minimax, glm, deepseek). Operates in workspace isolation with full code editing and terminal execution capabilities.",
+		systemPrompt: `You are an autonomous OpenCode ACP worker subagent.
 Execute the assigned tasks thoroughly and autonomously within your workspace.
 Always communicate your progress and final results back to the caller using send_message.`,
 		tools: ["*"],

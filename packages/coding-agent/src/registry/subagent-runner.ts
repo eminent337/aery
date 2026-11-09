@@ -31,6 +31,7 @@ export interface SubagentLaunchOptions {
 	cwd?: string;
 	mock?: boolean;
 	sessionCreator?: (options: any) => Promise<{ session: any }>;
+	acpClient?: import("../acp/client").AcpClient;
 }
 
 export interface SubagentLaunchResult {
@@ -486,6 +487,81 @@ export class SubagentRunner {
 		const logPath = path.resolve(opts.cwd, ".system_generated", "logs", `${conversationId}.jsonl`);
 		const logAbsoluteUri = `file://${logPath}`;
 		const workspaceUris = [effectiveCwd];
+
+		if (opts.typeName === "opencode") {
+			this.registry.register({
+				id: conversationId,
+				displayName: `${opts.role} [${opts.typeName}]`,
+				kind: "sub",
+				parentId: opts.parentId,
+				session: null,
+				sessionFile: null,
+				status: opts.prompt?.trim() ? "running" : "idle",
+			});
+
+			try {
+				const { OpencodeSubagentSession } = await import("../acp");
+				const session = new OpencodeSubagentSession({
+					conversationId,
+					cwd: effectiveCwd,
+					logPath,
+					client: options.acpClient,
+				});
+
+				if (isolationHandle || createdScratchDir) {
+					const origDispose = session.dispose.bind(session);
+					session.dispose = async () => {
+						try {
+							await origDispose();
+						} finally {
+							if (isolationHandle) {
+								const handleToClean = isolationHandle;
+								isolationHandle = undefined;
+								try {
+									const { cleanupIsolation } = await import("../task/worktree");
+									await cleanupIsolation(handleToClean);
+								} catch {}
+							}
+							if (createdScratchDir) {
+								const dirToClean = createdScratchDir;
+								createdScratchDir = undefined;
+								try {
+									await fs.rm(dirToClean, { recursive: true, force: true });
+								} catch {}
+							}
+						}
+					};
+				}
+
+				this.registry.attachSession(conversationId, session as any, logPath);
+				wireAgentEndEvent(this.registry, conversationId, session);
+
+				if (opts.prompt) {
+					this.runBackgroundExecution(conversationId, session, opts);
+				}
+
+				return {
+					conversationId,
+					logAbsoluteUri,
+					workspaceUris,
+					resolvedModel: "opencode-acp",
+				};
+			} catch (error) {
+				if (isolationHandle) {
+					try {
+						const { cleanupIsolation } = await import("../task/worktree");
+						await cleanupIsolation(isolationHandle);
+					} catch {}
+				}
+				if (createdScratchDir) {
+					try {
+						await fs.rm(createdScratchDir, { recursive: true, force: true });
+					} catch {}
+				}
+				this.registry.unregister(conversationId);
+				throw error;
+			}
+		}
 
 		const customCreator = options.sessionCreator ?? this.sessionCreator;
 

@@ -9,13 +9,14 @@ import type {
 } from "./types";
 
 export interface AcpClientOptions {
-	command: string;
+	command?: string;
 	args?: string[];
 	cwd?: string;
 	env?: NodeJS.ProcessEnv;
 	clientInfo?: AcpClientInfo;
 	timeoutMs?: number;
 	customTransport?: AcpTransport;
+	transport?: AcpTransport;
 }
 
 export class AcpClient {
@@ -30,6 +31,10 @@ export class AcpClient {
 
 	constructor(options: AcpClientOptions) {
 		this.options = options;
+		const configuredTransport = options.customTransport ?? options.transport;
+		if (configuredTransport) {
+			this.transport = configuredTransport;
+		}
 	}
 
 	get childProcess(): ChildProcess | undefined {
@@ -37,7 +42,14 @@ export class AcpClient {
 	}
 
 	isAlive(): boolean {
-		if (this.stopped || !this.transport || this.transport.isClosed) {
+		if (this.stopped || !this.transport || !this.initializeResult) {
+			return false;
+		}
+		const closed =
+			typeof (this.transport as any).isClosed === "function"
+				? (this.transport as any).isClosed()
+				: Boolean((this.transport as any).isClosed);
+		if (closed) {
 			return false;
 		}
 		if (this.child) {
@@ -53,9 +65,13 @@ export class AcpClient {
 
 		this.stopped = false;
 
-		if (this.options.customTransport) {
-			this.transport = this.options.customTransport;
+		const configuredTransport = this.options.customTransport ?? this.options.transport;
+		if (configuredTransport) {
+			this.transport = configuredTransport;
 		} else {
+			if (!this.options.command) {
+				throw new Error("AcpClient requires either a command or a custom transport");
+			}
 			const env = { ...process.env, ...this.options.env };
 			const child = spawn(this.options.command, this.options.args ?? [], {
 				cwd: this.options.cwd,
@@ -178,7 +194,7 @@ export class AcpClient {
 			}
 
 			const target = { text: "", toolCalls: [] as any[] };
-			if (update.content) {
+			if (update.updateType !== "tool_result" && update.content) {
 				this.accumulateContent(update.content, target);
 			}
 			if ((update as any).text && typeof (update as any).text === "string") {
@@ -286,8 +302,14 @@ export class AcpClient {
 			this.unsubscribeNotifications = undefined;
 		}
 
-		if (this.transport && !this.transport.isClosed) {
-			this.transport.close();
+		if (this.transport) {
+			const closed =
+				typeof (this.transport as any).isClosed === "function"
+					? (this.transport as any).isClosed()
+					: Boolean((this.transport as any).isClosed);
+			if (!closed) {
+				await this.transport.close();
+			}
 		}
 
 		if (this.child) {

@@ -2,3 +2,5 @@ export * from "./types";
 export * from "./transport";
 export * from "./client";
 export * from "./adapters/opencode";
+export * from "./subagent-session";
+
