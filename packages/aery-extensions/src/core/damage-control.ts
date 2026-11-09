@@ -6,25 +6,32 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@aryee337/aery";
 
-interface DamageControlConfig {
+export interface DamageControlConfig {
 	block?: string[];
 	protect?: string[];
 	read_only?: string[];
+	allow_git_writes?: boolean;
 }
 
-function loadConfig(): DamageControlConfig {
-	const path = join(homedir(), ".aery", "agent", "damage-control.yaml");
+export function loadConfig(configPath?: string): DamageControlConfig {
+	const path = configPath ?? join(homedir(), ".aery", "agent", "damage-control.yaml");
 	if (!existsSync(path)) return {};
 	try {
 		const text = readFileSync(path, "utf-8");
 		const result: DamageControlConfig = {};
-		let section: keyof DamageControlConfig | null = null;
+		let section: "block" | "protect" | "read_only" | null = null;
 		for (const line of text.split("\n")) {
 			const trimmed = line.trim();
 			if (!trimmed || trimmed.startsWith("#")) continue;
+			if (trimmed.startsWith("allow_git_writes:")) {
+				const val = trimmed.slice("allow_git_writes:".length).trim().toLowerCase();
+				result.allow_git_writes = val === "true";
+				section = null;
+				continue;
+			}
 			if (trimmed === "block:") {
 				section = "block";
 				result.block = [];
@@ -58,8 +65,44 @@ const ALWAYS_BLOCK = [
 	/:(){:|:&};:/, // fork bomb
 ];
 
-export default function (aery: ExtensionAPI) {
-	const config = loadConfig();
+// Dangerous git mutations blocked unless allow_git_writes is enabled
+const GIT_MUTATION_PATTERNS = [
+	/rm\s+(-[a-zA-Z]*r[a-zA-Z]*f*|-rf|-fr)\s+.*\.git(?:\/|\s|$)/,
+	/>\s*.*\.git\//,
+	/git\s+clean\s+-[a-zA-Z]*f/,
+	/git\s+checkout\s+(-f\b|--force\b|-[a-zA-Z]*f)/,
+];
+
+export function isGitPath(filePath: string): boolean {
+	if (!filePath) return false;
+	const expanded = filePath.replace(/^~/, homedir());
+	const normalized = expanded.replace(/\\/g, "/").trim();
+	if (
+		normalized === ".git" ||
+		normalized.startsWith(".git/") ||
+		normalized.startsWith("./.git/") ||
+		normalized.includes("/.git/") ||
+		normalized.endsWith("/.git")
+	) {
+		return true;
+	}
+	try {
+		const resolved = resolve(expanded).replace(/\\/g, "/");
+		if (resolved.endsWith("/.git") || resolved.includes("/.git/")) {
+			return true;
+		}
+	} catch {
+		// Ignore path resolution errors
+	}
+	return false;
+}
+
+export default function damageControl(aery: ExtensionAPI, configOverride?: DamageControlConfig) {
+	const config: DamageControlConfig = {
+		allow_git_writes: false,
+		...loadConfig(),
+		...configOverride,
+	};
 
 	aery.on("tool_call", async (event, _ctx) => {
 		const toolName = event.toolName;
@@ -79,6 +122,18 @@ export default function (aery: ExtensionAPI) {
 				}
 			}
 
+			// Block dangerous git mutations unless allow_git_writes is true
+			if (!config.allow_git_writes) {
+				for (const pattern of GIT_MUTATION_PATTERNS) {
+					if (pattern.test(cmd)) {
+						return {
+							block: true,
+							reason: `Blocked by damage control: direct writes to .git metadata are forbidden (blockGitWrites).\nCommand: ${cmd}`,
+						};
+					}
+				}
+			}
+
 			// User-configured block patterns
 			for (const pattern of config.block ?? []) {
 				if (cmd.includes(pattern)) {
@@ -90,9 +145,18 @@ export default function (aery: ExtensionAPI) {
 		// Check file write/edit operations
 		if (toolName === "write" || toolName === "edit") {
 			const filePath = input?.path ?? "";
+
+			// Block direct writes to .git metadata unless allow_git_writes is true
+			if (!config.allow_git_writes && isGitPath(filePath)) {
+				return {
+					block: true,
+					reason: "Blocked by damage control: direct writes to .git metadata are forbidden (blockGitWrites).",
+				};
+			}
+
 			const expandedHome = filePath.replace(/^~/, homedir());
 
-			// Protected paths — block writes
+			// Protected paths - block writes
 			for (const pattern of config.protect ?? []) {
 				const expanded = pattern.replace(/^~/, homedir());
 				if (expandedHome.startsWith(expanded) || expandedHome.includes(pattern.replace(/^~\//, ""))) {
@@ -113,7 +177,7 @@ export default function (aery: ExtensionAPI) {
 				}
 			}
 
-			// Read-only paths — block writes but allow reads
+			// Read-only paths - block writes but allow reads
 			for (const pattern of config.read_only ?? []) {
 				const expanded = pattern.replace(/^~/, homedir());
 				if (expandedHome.startsWith(expanded) || expandedHome === expanded) {
