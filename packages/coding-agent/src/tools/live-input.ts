@@ -664,7 +664,11 @@ export function hyprCommandSocketPath(env: NodeJS.ProcessEnv = process.env): str
 	const sig = env.HYPRLAND_INSTANCE_SIGNATURE;
 	if (!sig) return null;
 	const runtime = env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.() ?? 1000}`;
-	return `${runtime}/hypr/${sig}/.socket.sock`;
+	const sockPath = `${runtime}/hypr/${sig}/.socket.sock`;
+	try {
+		if (fs.existsSync(sockPath)) return sockPath;
+	} catch {}
+	return null;
 }
 
 /**

@@ -119,7 +119,7 @@ export function resolveActiveLinuxBridge(env: NodeJS.ProcessEnv = process.env): 
 	const isWlroots = Boolean(env.HYPRLAND_INSTANCE_SIGNATURE || env.SWAYSOCK || env.NIRI_SOCKET);
 	if (isWlroots) {
 		const bin = resolveWlrootsBridge();
-		if (bin) return { bin, type: "wlroots", timeoutMs: 15000 };
+		if (bin) return { bin, type: "wlroots", timeoutMs: 2000 };
 	}
 
 	const currentDesktop = (env.XDG_CURRENT_DESKTOP || "").toLowerCase();

@@ -35,7 +35,7 @@ function getActiveBridge(): { bin: string; timeoutMs: number } | null {
 	const active = resolveActiveLinuxBridge();
 	if (active) return { bin: active.bin, timeoutMs: active.timeoutMs };
 	const wlr = resolveWlrootsBridge();
-	if (wlr) return { bin: wlr, timeoutMs: 15000 };
+	if (wlr) return { bin: wlr, timeoutMs: 2000 };
 	return null;
 }
 
@@ -512,32 +512,6 @@ const hyprlandDriver: DesktopDriver = {
 	},
 	capture: {
 		async capture(tmpPath: string, geometry?: string) {
-			const bridge = getActiveBridge();
-			if (bridge) {
-				try {
-					let res: { base64?: string } | null = null;
-					if (geometry) {
-						const m = geometry.match(/^(\d+),(\d+)\s+(\d+)x(\d+)$/);
-						if (m) {
-							res = await runBridgeJson(
-								bridge.bin,
-								bridgeZoomArgs(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])),
-								bridge.timeoutMs,
-							);
-						} else {
-							res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
-						}
-					} else {
-						res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
-					}
-					if (res?.base64) {
-						await fs.promises.writeFile(tmpPath, Buffer.from(res.base64, "base64"));
-						return { code: 0, stderr: "" };
-					}
-				} catch {
-					// Fall through to grim fallback
-				}
-			}
 			// -c paints the cursor into the frame: without it agents literally
 			// cannot see where the pointer is (verified: with/without differ
 			// by ~0.02 RMSE, cursor near-invisible in the downscaled frame).
@@ -545,36 +519,42 @@ const hyprlandDriver: DesktopDriver = {
 			// Short timeout: a locked/wedged compositor must fail fast so
 			// settle() degrades instead of hanging the drive loop.
 			const res = await runCmd("grim", args, { timeout: 4000 });
-			return { code: res.code, stderr: res.stderr };
-		},
-		async captureBuffer(geometry?: string) {
+			if (res.code === 0) {
+				return { code: 0, stderr: "" };
+			}
+
+			// Fallback to bridge only if grim fails
 			const bridge = getActiveBridge();
 			if (bridge) {
 				try {
-					let res: { base64?: string } | null = null;
+					let bridgeRes: { base64?: string } | null = null;
 					if (geometry) {
 						const m = geometry.match(/^(\d+),(\d+)\s+(\d+)x(\d+)$/);
 						if (m) {
-							res = await runBridgeJson(
+							bridgeRes = await runBridgeJson(
 								bridge.bin,
 								bridgeZoomArgs(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])),
 								bridge.timeoutMs,
 							);
 						} else {
-							res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
+							bridgeRes = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
 						}
 					} else {
-						res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
+						bridgeRes = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
 					}
-					if (res?.base64) {
-						return { code: 0, buffer: Buffer.from(res.base64, "base64"), stderr: "" };
+					if (bridgeRes?.base64) {
+						await fs.promises.writeFile(tmpPath, Buffer.from(bridgeRes.base64, "base64"));
+						return { code: 0, stderr: "" };
 					}
 				} catch {
-					// Fall through to grim fallback
+					// Fall through to error
 				}
 			}
+			return { code: res.code, stderr: res.stderr };
+		},
+		async captureBuffer(geometry?: string) {
 			const args = geometry ? ["-t", "png", "-c", "-g", geometry, "-"] : ["-t", "png", "-c", "-"];
-			return new Promise<{ code: number; buffer?: Buffer; stderr: string }>((resolve) => {
+			const grimResult = await new Promise<{ code: number; buffer?: Buffer; stderr: string }>((resolve) => {
 				const proc = spawn("grim", args, { stdio: ["ignore", "pipe", "pipe"] });
 				const chunks: Buffer[] = [];
 				let stderr = "";
@@ -605,6 +585,39 @@ const hyprlandDriver: DesktopDriver = {
 					resolve({ code: 1, stderr: err.message });
 				});
 			});
+
+			if (grimResult.code === 0 && grimResult.buffer) {
+				return grimResult;
+			}
+
+			// Fallback to bridge only if grim fails
+			const bridge = getActiveBridge();
+			if (bridge) {
+				try {
+					let res: { base64?: string } | null = null;
+					if (geometry) {
+						const m = geometry.match(/^(\d+),(\d+)\s+(\d+)x(\d+)$/);
+						if (m) {
+							res = await runBridgeJson(
+								bridge.bin,
+								bridgeZoomArgs(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])),
+								bridge.timeoutMs,
+							);
+						} else {
+							res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
+						}
+					} else {
+						res = await runBridgeJson(bridge.bin, bridgeScreenshotArgs(), bridge.timeoutMs);
+					}
+					if (res?.base64) {
+						return { code: 0, buffer: Buffer.from(res.base64, "base64"), stderr: "" };
+					}
+				} catch {
+					// Fall through to grim error
+				}
+			}
+
+			return grimResult;
 		},
 		async cursorPos() {
 			try {
