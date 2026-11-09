@@ -79,6 +79,10 @@ export class AcpTransport {
 		this.outStream.on("error", this.outErrorHandler);
 	}
 
+	get isClosed(): boolean {
+		return this.closed;
+	}
+
 	sendMessage(msg: JsonRpcMessage): void {
 		if (this.closed) {
 			throw new AcpTransportError("Transport closed");

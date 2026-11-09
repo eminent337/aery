@@ -68,3 +68,9 @@ export interface AcpSessionUpdateNotification {
 	toolCall?: any;
 	status?: any;
 }
+
+export interface AcpPromptResult {
+	fullText: string;
+	toolCalls: any[];
+	rawResult?: any;
+}
