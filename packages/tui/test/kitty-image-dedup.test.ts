@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Image, TUI } from "@aryee337/aery-tui";
-import { acquireStableImageId, setKittyGraphics } from "@aryee337/aery-tui/kitty-graphics";
+import { acquireStableImageId, detectKittyUnicodePlaceholdersSupport, setKittyGraphics } from "@aryee337/aery-tui/kitty-graphics";
 import {
 	type CellDimensions,
 	getCellDimensions,
@@ -174,6 +174,14 @@ describe("kitty image dedup (stable id + placeholder placement)", () => {
 				tui.stop();
 			}
 		});
+	});
+
+	it("detectKittyUnicodePlaceholdersSupport respects AERY env overrides and TERM=dumb", () => {
+		expect(detectKittyUnicodePlaceholdersSupport("kitty", { TERM: "xterm-256color" })).toBe(true);
+		expect(detectKittyUnicodePlaceholdersSupport("kitty", { TERM: "dumb" })).toBe(false);
+		expect(detectKittyUnicodePlaceholdersSupport("kitty", { AERY_NO_KITTY_PLACEHOLDERS: "1" })).toBe(false);
+		expect(detectKittyUnicodePlaceholdersSupport("kitty", { PI_NO_KITTY_PLACEHOLDERS: "1" })).toBe(false);
+		expect(detectKittyUnicodePlaceholdersSupport("wezterm", { AERY_KITTY_PLACEHOLDERS: "1" })).toBe(true);
 	});
 });
 

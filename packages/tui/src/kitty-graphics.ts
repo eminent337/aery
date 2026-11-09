@@ -77,12 +77,13 @@ export interface KittyGraphicsFeatures {
  *  - `PI_KITTY_PLACEHOLDERS=1` explicit opt-in anywhere.
  */
 export function detectKittyUnicodePlaceholdersSupport(terminalId: string, env: NodeJS.ProcessEnv = Bun.env): boolean {
-	const offRaw = env.PI_NO_KITTY_PLACEHOLDERS?.trim().toLowerCase();
+	const offRaw = (env.AERY_NO_KITTY_PLACEHOLDERS ?? env.PI_NO_KITTY_PLACEHOLDERS)?.trim().toLowerCase();
 	if (offRaw === "1" || offRaw === "true" || offBy(offRaw)) return false;
-	const force = env.PI_KITTY_PLACEHOLDERS?.trim().toLowerCase();
+	const force = (env.AERY_KITTY_PLACEHOLDERS ?? env.PI_KITTY_PLACEHOLDERS)?.trim().toLowerCase();
 	if (force === "1" || force === "true" || force === "on" || force === "yes" || force === "y") return true;
 	if (force === "0" || force === "false" || force === "off" || force === "no" || force === "n") return false;
-	if (insideMultiplexer(env) && env.PI_FORCE_IMAGE_PROTOCOL?.trim().toLowerCase() === "kitty") return true;
+	if (env.TERM?.toLowerCase() === "dumb") return false;
+	if (insideMultiplexer(env) && (env.AERY_FORCE_IMAGE_PROTOCOL ?? env.PI_FORCE_IMAGE_PROTOCOL)?.trim().toLowerCase() === "kitty") return true;
 	return terminalId === "kitty" || terminalId === "ghostty";
 }
 
