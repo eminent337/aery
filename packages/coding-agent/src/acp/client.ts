@@ -159,11 +159,11 @@ export class AcpClient {
 		return this.startPromise;
 	}
 
-	async sessionNew(cwd: string, mcpServers?: any[]): Promise<string> {
+	async sessionNew(cwd: string, mcpServers: any[] = []): Promise<string> {
 		const transport = this.ensureStarted();
 		const res = await transport.request<AcpSessionNewResult>(
 			"session/new",
-			{ cwd, mcpServers },
+			{ cwd, mcpServers: mcpServers ?? [] },
 			this.options.timeoutMs,
 		);
 		return res.sessionId;
