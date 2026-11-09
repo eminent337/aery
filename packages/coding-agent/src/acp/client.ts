@@ -28,6 +28,7 @@ export class AcpClient {
 	private stopped = false;
 	private unsubscribeNotifications?: () => void;
 	private readonly promptListeners = new Map<string, Set<(update: AcpSessionUpdateNotification) => void>>();
+	private startPromise?: Promise<AcpInitializeResult>;
 
 	constructor(options: AcpClientOptions) {
 		this.options = options;
@@ -63,7 +64,13 @@ export class AcpClient {
 			return this.initializeResult;
 		}
 
-		this.stopped = false;
+		if (this.startPromise) {
+			return this.startPromise;
+		}
+
+		this.startPromise = (async () => {
+			try {
+				this.stopped = false;
 
 		const configuredTransport = this.options.customTransport ?? this.options.transport;
 		if (configuredTransport) {
@@ -144,6 +151,12 @@ export class AcpClient {
 
 		this.initializeResult = initResult;
 		return initResult;
+			} finally {
+				this.startPromise = undefined;
+			}
+		})();
+
+		return this.startPromise;
 	}
 
 	async sessionNew(cwd: string, mcpServers?: any[]): Promise<string> {

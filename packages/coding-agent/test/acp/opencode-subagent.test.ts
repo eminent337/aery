@@ -148,6 +148,14 @@ describe("OpenCode Subagent Swarm Integration", () => {
 				expect(eventTypes).toContain("turn_end");
 				expect(eventTypes).toContain("agent_end");
 
+				const deltaEvent = events.find((e) => e.type === "message_delta");
+				expect(deltaEvent).toBeDefined();
+				expect(deltaEvent.chunk).toBe("Analyzed src/index.ts and completed task.");
+
+				const toolEndEvent = events.find((e) => e.type === "tool_execution_end");
+				expect(toolEndEvent).toBeDefined();
+				expect(toolEndEvent.result).toBe("file contents");
+
 				expect(fs.existsSync(logPath)).toBe(true);
 				const logContent = fs.readFileSync(logPath, "utf-8");
 				expect(logContent).toContain("USER_INPUT");
@@ -158,6 +166,44 @@ describe("OpenCode Subagent Swarm Integration", () => {
 			} finally {
 				fs.rmSync(tmpDir, { recursive: true, force: true });
 			}
+		});
+
+		it("serializes concurrent prompts cleanly without interleaving", async () => {
+			const transport = new MockAcpTransport();
+			const client = new AcpClient({ transport });
+
+			const session = new OpencodeSubagentSession({
+				conversationId: "sub-opencode-concurrent",
+				cwd: os.tmpdir(),
+				client,
+			});
+
+			const p1 = session.prompt("First instruction");
+			const p2 = session.prompt("Second instruction");
+			await Promise.all([p1, p2]);
+
+			const promptRequests = transport.requests.filter((r) => r.method === "session/prompt");
+			expect(promptRequests.length).toBe(2);
+
+			await session.dispose();
+			expect(transport.isClosed).toBe(true);
+		});
+
+		it("handles dispose while prompt is in-flight cleanly", async () => {
+			const transport = new MockAcpTransport();
+			const client = new AcpClient({ transport });
+
+			const session = new OpencodeSubagentSession({
+				conversationId: "sub-opencode-inflight-dispose",
+				cwd: os.tmpdir(),
+				client,
+			});
+
+			const inFlight = session.prompt("Long running work");
+			await session.dispose();
+			await inFlight.catch(() => {});
+
+			expect(transport.isClosed).toBe(true);
 		});
 
 		it("supports cancellation and abort", async () => {

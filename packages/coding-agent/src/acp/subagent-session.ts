@@ -31,6 +31,8 @@ export class OpencodeSubagentSession {
 	private abortController = new AbortController();
 	private isDisposed = false;
 	private inFlightPrompt: Promise<void> | null = null;
+	private promptQueue: Promise<void> = Promise.resolve();
+	private initPromise: Promise<AcpClient> | null = null;
 
 	constructor(private readonly options: OpencodeSubagentSessionOptions) {
 		this.conversationId = options.conversationId;
@@ -72,22 +74,37 @@ export class OpencodeSubagentSession {
 		if (this.isDisposed) {
 			throw new Error("OpencodeSubagentSession is already disposed");
 		}
-		if (!this.client) {
-			this.client = createOpencodeAcpClient({
-				cwd: this.cwd,
-				binaryPath: this.options.binaryPath,
-				env: this.options.env,
-				timeoutMs: this.options.timeoutMs,
-			});
+		if (this.client && this.client.isAlive() && this.sessionId) {
+			return this.client;
 		}
-		if (!this.client.isAlive()) {
-			await this.client.start();
+		if (this.initPromise) {
+			return this.initPromise;
 		}
-		if (!this.sessionId) {
-			const sessionId = await this.client.sessionNew(this.cwd);
-			this.sessionId = sessionId;
-		}
-		return this.client;
+
+		this.initPromise = (async () => {
+			try {
+				if (!this.client) {
+					this.client = createOpencodeAcpClient({
+						cwd: this.cwd,
+						binaryPath: this.options.binaryPath,
+						env: this.options.env,
+						timeoutMs: this.options.timeoutMs,
+					});
+				}
+				if (!this.client.isAlive()) {
+					await this.client.start();
+				}
+				if (!this.sessionId) {
+					const sessionId = await this.client.sessionNew(this.cwd);
+					this.sessionId = sessionId;
+				}
+				return this.client;
+			} finally {
+				this.initPromise = null;
+			}
+		})();
+
+		return this.initPromise;
 	}
 
 	async prompt(text: string): Promise<void> {
@@ -95,13 +112,19 @@ export class OpencodeSubagentSession {
 			throw new Error("OpencodeSubagentSession is already disposed");
 		}
 
-		this.abortController = new AbortController();
-		const client = await this.ensureClient();
-		const sessionId = this.sessionId!;
+		const runSinglePrompt = async (): Promise<void> => {
+			if (this.isDisposed) {
+				throw new Error("OpencodeSubagentSession is already disposed");
+			}
+			if (this.abortController.signal.aborted) {
+				this.abortController = new AbortController();
+			}
 
-		this.emitEvent({ type: "turn_start" });
+			const client = await this.ensureClient();
+			const sessionId = this.sessionId!;
 
-		const promptPromise = (async () => {
+			this.emitEvent({ type: "turn_start" });
+
 			try {
 				const promptResult = await client.sessionPrompt(
 					sessionId,
@@ -109,9 +132,22 @@ export class OpencodeSubagentSession {
 					(update) => {
 						const updateType = (update as any).type ?? update.updateType;
 						if (updateType === "chunk") {
+							let chunkText = (update as any).text ?? (update as any).delta;
+							if (!chunkText) {
+								if (typeof update.content === "string") {
+									chunkText = update.content;
+								} else if (Array.isArray(update.content)) {
+									chunkText = update.content
+										.filter((c: any) => typeof c?.text === "string")
+										.map((c: any) => c.text)
+										.join("");
+								} else if (typeof update.content?.text === "string") {
+									chunkText = update.content.text;
+								}
+							}
 							this.emitEvent({
 								type: "message_delta",
-								chunk: (update as any).text ?? (update as any).delta ?? "",
+								chunk: chunkText ?? "",
 							});
 						} else if (updateType === "tool_call") {
 							this.emitEvent({
@@ -123,7 +159,7 @@ export class OpencodeSubagentSession {
 							this.emitEvent({
 								type: "tool_execution_end",
 								toolName: update.toolCall?.toolName ?? (update as any).toolName,
-								result: (update as any).result,
+								result: (update as any).result ?? update.content,
 							});
 						}
 					},
@@ -162,13 +198,13 @@ export class OpencodeSubagentSession {
 				this.emitEvent({ type: "turn_end" });
 				this.emitEvent({ type: "agent_end" });
 				throw err;
-			} finally {
-				this.inFlightPrompt = null;
 			}
-		})();
+		};
 
-		this.inFlightPrompt = promptPromise;
-		await promptPromise;
+		const currentPromptPromise = this.promptQueue.catch(() => {}).then(runSinglePrompt);
+		this.promptQueue = currentPromptPromise.catch(() => {});
+		this.inFlightPrompt = this.promptQueue;
+		await currentPromptPromise;
 	}
 
 	async waitForIdle(): Promise<void> {
@@ -210,6 +246,9 @@ export class OpencodeSubagentSession {
 		if (this.isDisposed) return;
 		this.isDisposed = true;
 		await this.abort();
+		if (this.inFlightPrompt) {
+			await this.inFlightPrompt.catch(() => {});
+		}
 		if (this.client) {
 			try {
 				await this.client.stop();
