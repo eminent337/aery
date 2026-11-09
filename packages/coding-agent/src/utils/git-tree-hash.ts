@@ -7,6 +7,48 @@ export interface RepoChangeResult {
 	currentHash: string | null;
 }
 
+const GIT_SPAWN_TIMEOUT_MS = 5000;
+
+async function runGitCommand(
+	args: string[],
+	cwd: string,
+	timeoutMs = GIT_SPAWN_TIMEOUT_MS,
+): Promise<{ stdout: string; exitCode: number }> {
+	try {
+		const proc = Bun.spawn(["git", ...args], {
+			cwd,
+			stdin: "ignore",
+			stdout: "pipe",
+			stderr: "ignore",
+			env: {
+				...process.env,
+				GIT_TERMINAL_PROMPT: "0",
+				GIT_OPTIONAL_LOCKS: "0",
+			},
+		});
+
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const timeoutPromise = new Promise<{ stdout: string; exitCode: number }>((_, reject) => {
+			timer = setTimeout(() => {
+				try {
+					proc.kill();
+				} catch {}
+				reject(new Error(`git command timed out after ${timeoutMs}ms`));
+			}, timeoutMs);
+		});
+
+		const executionPromise = Promise.all([new Response(proc.stdout).text(), proc.exited]).then(
+			([stdout, exitCode]) => ({ stdout, exitCode }),
+		);
+
+		const result = await Promise.race([executionPromise, timeoutPromise]);
+		if (timer) clearTimeout(timer);
+		return result;
+	} catch {
+		return { stdout: "", exitCode: 1 };
+	}
+}
+
 /**
  * Computes a fast tree hash representing the working state of a git repository.
  * Returns null if the directory is not inside a git repository or git binary fails.
@@ -22,28 +64,16 @@ export async function getGitTreeHash(cwd?: string): Promise<string | null> {
 		}
 
 		// Run rev-parse and status check concurrently for optimal performance
-		const revParseProc = Bun.spawn(["git", "rev-parse", "--show-toplevel", "HEAD^{tree}"], {
-			cwd: targetDir,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-
-		const statusProc = Bun.spawn(["git", "-c", "core.quotepath=false", "status", "--porcelain=v1"], {
-			cwd: targetDir,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-
-		const [[revStdout, revExitCode], [statusStdout, statusExitCode]] = await Promise.all([
-			Promise.all([new Response(revParseProc.stdout).text(), revParseProc.exited]),
-			Promise.all([new Response(statusProc.stdout).text(), statusProc.exited]),
+		const [revResult, statusResult] = await Promise.all([
+			runGitCommand(["rev-parse", "--show-toplevel", "HEAD^{tree}"], targetDir),
+			runGitCommand(["-c", "core.quotepath=false", "status", "--porcelain=v1"], targetDir),
 		]);
 
 		let repoRoot = "";
 		let treeOid = "";
 
-		if (revExitCode === 0) {
-			const lines = revStdout
+		if (revResult.exitCode === 0) {
+			const lines = revResult.stdout
 				.trim()
 				.split("\n")
 				.map(line => line.trim())
@@ -58,20 +88,11 @@ export async function getGitTreeHash(cwd?: string): Promise<string | null> {
 
 		// If treeOid was not found (e.g. fresh repo with no commits yet)
 		if (!treeOid) {
-			const writeTreeProc = Bun.spawn(["git", "write-tree", "--missing-ok"], {
-				cwd: targetDir,
-				stdout: "pipe",
-				stderr: "pipe",
-			});
-			const [writeTreeStdout, writeTreeExitCode] = await Promise.all([
-				new Response(writeTreeProc.stdout).text(),
-				writeTreeProc.exited,
-			]);
-
-			if (writeTreeExitCode !== 0) {
+			const writeTreeResult = await runGitCommand(["write-tree", "--missing-ok"], targetDir);
+			if (writeTreeResult.exitCode !== 0) {
 				return null;
 			}
-			treeOid = writeTreeStdout.trim();
+			treeOid = writeTreeResult.stdout.trim();
 		}
 
 		// If still not a valid 40-character hex string
@@ -80,11 +101,11 @@ export async function getGitTreeHash(cwd?: string): Promise<string | null> {
 		}
 
 		// If status failed (not a git repo), return null
-		if (statusExitCode !== 0) {
+		if (statusResult.exitCode !== 0) {
 			return null;
 		}
 
-		const statusTrimmed = statusStdout.trim();
+		const statusTrimmed = statusResult.stdout.trim();
 		if (!statusTrimmed) {
 			// Working tree is completely clean
 			return treeOid;
@@ -92,14 +113,9 @@ export async function getGitTreeHash(cwd?: string): Promise<string | null> {
 
 		// If repoRoot was not captured from rev-parse, query it
 		if (!repoRoot) {
-			const rootProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], {
-				cwd: targetDir,
-				stdout: "pipe",
-				stderr: "pipe",
-			});
-			const [rootStdout, rootExitCode] = await Promise.all([new Response(rootProc.stdout).text(), rootProc.exited]);
-			if (rootExitCode === 0) {
-				repoRoot = rootStdout.trim();
+			const rootResult = await runGitCommand(["rev-parse", "--show-toplevel"], targetDir);
+			if (rootResult.exitCode === 0) {
+				repoRoot = rootResult.stdout.trim();
 			}
 		}
 
@@ -158,24 +174,22 @@ export async function getModifiedFilesSince(cwd: string, previousTreeOid: string
 	const targetDir = cwd ? path.resolve(cwd) : process.cwd();
 	const treeIsh = previousTreeOid.includes(":") ? previousTreeOid.split(":")[0].trim() : previousTreeOid.trim();
 
-	if (!treeIsh) {
+	// Guard against flag injection or malformed object IDs
+	if (!treeIsh || treeIsh.startsWith("-") || !/^[0-9a-fA-F]{4,40}$/.test(treeIsh)) {
 		return [];
 	}
 
 	try {
-		const proc = Bun.spawn(["git", "-c", "core.quotepath=false", "diff", "--name-only", treeIsh], {
-			cwd: targetDir,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
+		const diffResult = await runGitCommand(
+			["-c", "core.quotepath=false", "diff", "--name-only", treeIsh, "--"],
+			targetDir,
+		);
 
-		const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-
-		if (exitCode !== 0) {
+		if (diffResult.exitCode !== 0) {
 			return [];
 		}
 
-		const trimmed = stdout.trim();
+		const trimmed = diffResult.stdout.trim();
 		if (!trimmed) {
 			return [];
 		}
