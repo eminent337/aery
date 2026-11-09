@@ -84,7 +84,11 @@ export function detectKittyUnicodePlaceholdersSupport(terminalId: string, env: N
 	if (force === "0" || force === "false" || force === "off" || force === "no" || force === "n") return false;
 	if (env.TERM?.toLowerCase() === "dumb") return false;
 	if (insideMultiplexer(env) && (env.AERY_FORCE_IMAGE_PROTOCOL ?? env.PI_FORCE_IMAGE_PROTOCOL)?.trim().toLowerCase() === "kitty") return true;
-	return terminalId === "kitty" || terminalId === "ghostty";
+	// Direct `a=T` transmission (encodeKitty) reliably renders all images across
+	// Kitty, Ghostty, and WezTerm. Unicode placeholders (U+10EEEE) require
+	// explicit opt-in (AERY_KITTY_PLACEHOLDERS=1) because large screenshot frames
+	// emitted as line-prefixed APCs get corrupted by TUI column slicing.
+	return false;
 }
 
 function offBy(raw: string | undefined): boolean {

@@ -177,7 +177,8 @@ describe("kitty image dedup (stable id + placeholder placement)", () => {
 	});
 
 	it("detectKittyUnicodePlaceholdersSupport respects AERY env overrides and TERM=dumb", () => {
-		expect(detectKittyUnicodePlaceholdersSupport("kitty", { TERM: "xterm-256color" })).toBe(true);
+		expect(detectKittyUnicodePlaceholdersSupport("kitty", { TERM: "xterm-256color" })).toBe(false);
+		expect(detectKittyUnicodePlaceholdersSupport("kitty", { AERY_KITTY_PLACEHOLDERS: "1" })).toBe(true);
 		expect(detectKittyUnicodePlaceholdersSupport("kitty", { TERM: "dumb" })).toBe(false);
 		expect(detectKittyUnicodePlaceholdersSupport("kitty", { AERY_NO_KITTY_PLACEHOLDERS: "1" })).toBe(false);
 		expect(detectKittyUnicodePlaceholdersSupport("kitty", { PI_NO_KITTY_PLACEHOLDERS: "1" })).toBe(false);
