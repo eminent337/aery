@@ -207,6 +207,22 @@ export class GrindTool implements AgentTool<typeof grindSchema, GrindToolDetails
 		const maxOutputChars = params.maxOutputChars ?? 8000;
 		const workingDir = params.cwd || this.session.cwd || process.cwd();
 
+		if (signal?.aborted) {
+			const details: GrindToolDetails = {
+				command,
+				passed: false,
+				exitCode: -1,
+				output: "Command aborted before execution started.",
+				errorSummary: "Command aborted before execution started.",
+				failures: [{ message: "Command aborted before execution started." }],
+				durationMs: 0,
+			};
+			return toolResult(details)
+				.text("Command aborted before execution started.")
+				.error()
+				.done();
+		}
+
 		const startTime = Date.now();
 
 		return new Promise<AgentToolResult<GrindToolDetails>>(resolve => {
@@ -214,32 +230,42 @@ export class GrindTool implements AgentTool<typeof grindSchema, GrindToolDetails
 			let stderr = "";
 			let timedOut = false;
 			let aborted = false;
+			let settled = false;
 
 			const child = spawn("sh", ["-c", command], {
 				cwd: workingDir,
 				env: process.env,
 				stdio: ["ignore", "pipe", "pipe"],
+				detached: process.platform !== "win32",
 			});
+
+			const killChildTree = () => {
+				if (child.pid && process.platform !== "win32") {
+					try {
+						process.kill(-child.pid, "SIGKILL");
+						return;
+					} catch {
+						// Fall through to regular kill
+					}
+				}
+				try {
+					child.kill("SIGKILL");
+				} catch {
+					// Ignored: process already exited
+				}
+			};
 
 			let timer: ReturnType<typeof setTimeout> | undefined;
 			if (timeoutMs > 0) {
 				timer = setTimeout(() => {
 					timedOut = true;
-					try {
-						child.kill("SIGKILL");
-					} catch {
-						// Ignored: process may have already exited
-					}
+					killChildTree();
 				}, timeoutMs);
 			}
 
 			const onAbort = () => {
 				aborted = true;
-				try {
-					child.kill("SIGKILL");
-				} catch {
-					// Ignored: process may have already exited
-				}
+				killChildTree();
 			};
 
 			if (signal) {
@@ -255,6 +281,8 @@ export class GrindTool implements AgentTool<typeof grindSchema, GrindToolDetails
 			});
 
 			child.on("error", err => {
+				if (settled) return;
+				settled = true;
 				if (timer) clearTimeout(timer);
 				if (signal) signal.removeEventListener("abort", onAbort);
 
@@ -277,7 +305,9 @@ export class GrindTool implements AgentTool<typeof grindSchema, GrindToolDetails
 				);
 			});
 
-			child.on("close", (code, _killSignal) => {
+			child.on("close", (code, killSignal) => {
+				if (settled) return;
+				settled = true;
 				if (timer) clearTimeout(timer);
 				if (signal) signal.removeEventListener("abort", onAbort);
 
@@ -322,6 +352,27 @@ export class GrindTool implements AgentTool<typeof grindSchema, GrindToolDetails
 					return resolve(
 						toolResult(details)
 							.text(`Command aborted in ${durationMs}ms.\n\nOutput:\n${truncated}`)
+							.error()
+							.done(),
+					);
+				}
+
+				if (code === null && killSignal) {
+					const signalMsg = `Command terminated by signal ${killSignal}`;
+					const fullOutput = sanitized ? `${sanitized}\n${signalMsg}` : signalMsg;
+					const truncated = truncateOutput(fullOutput, maxOutputChars);
+					const details: GrindToolDetails = {
+						command,
+						passed: false,
+						exitCode: -1,
+						output: truncated,
+						errorSummary: signalMsg,
+						failures: [{ message: signalMsg }],
+						durationMs,
+					};
+					return resolve(
+						toolResult(details)
+							.text(`Command terminated by signal ${killSignal} in ${durationMs}ms.\n\nOutput:\n${truncated}`)
 							.error()
 							.done(),
 					);

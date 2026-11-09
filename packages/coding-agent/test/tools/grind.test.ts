@@ -160,6 +160,35 @@ describe("GrindTool", () => {
 		expect(details.passed).toBe(false);
 		expect(details.errorSummary).toContain("aborted");
 	});
+
+	it("returns immediate abort when signal is already aborted", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		const tool = new GrindTool(makeSession(tmpDir) as any);
+
+		const result = await tool.execute(
+			"call-8",
+			{ command: "sleep 10" },
+			controller.signal,
+		);
+
+		const details = result.details as GrindToolDetails;
+		expect(details.passed).toBe(false);
+		expect(details.errorSummary).toContain("aborted");
+		expect(details.durationMs).toBe(0);
+	});
+
+	it("handles process termination by signal as failure", async () => {
+		const tool = new GrindTool(makeSession(tmpDir) as any);
+		const result = await tool.execute("call-9", {
+			command: "kill -SEGV $$",
+		});
+
+		const details = result.details as GrindToolDetails;
+		expect(details.passed).toBe(false);
+		expect(details.exitCode).toBe(-1);
+		expect(details.errorSummary).toContain("terminated by signal");
+	});
 });
 
 describe("Grind utilities", () => {
