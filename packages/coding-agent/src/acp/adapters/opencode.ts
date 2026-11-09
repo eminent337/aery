@@ -3,13 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { AcpClient } from "../client";
 
-const homeNpmGlobal = process.env.HOME
-	? path.join(process.env.HOME, ".npm-global", "bin", "opencode")
-	: "/home/aryee/.npm-global/bin/opencode";
+const homeDir = process.env.HOME || os.homedir();
+const homeNpmGlobal = path.join(homeDir, ".npm-global", "bin", "opencode");
 
 export const OPENCODE_STANDARD_PATHS: string[] = Array.from(
 	new Set([
-		"/home/aryee/.npm-global/bin/opencode",
 		homeNpmGlobal,
 		"/usr/local/bin/opencode",
 		"/usr/bin/opencode",
@@ -25,31 +23,45 @@ export const OPENCODE_FREE_MODELS: readonly string[] = [
 	"deepseek-chat",
 ];
 
+export function isExecutableFile(targetPath: string): boolean {
+	try {
+		const stats = fs.statSync(targetPath);
+		if (!stats.isFile()) {
+			return false;
+		}
+		fs.accessSync(targetPath, fs.constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export function resolveOpencodeBinary(customPath?: string): string | null {
 	if (customPath) {
-		return fs.existsSync(customPath) ? customPath : null;
+		return isExecutableFile(customPath) ? customPath : null;
 	}
 
-	if (process.env.OPENCODE_BIN && fs.existsSync(process.env.OPENCODE_BIN)) {
+	if (process.env.OPENCODE_BIN && isExecutableFile(process.env.OPENCODE_BIN)) {
 		return process.env.OPENCODE_BIN;
 	}
 
 	const candidates = [
 		...OPENCODE_STANDARD_PATHS,
-		...(process.env.HOME ? [path.join(process.env.HOME, ".npm-global", "bin", "opencode")] : []),
+		path.join(homeDir, ".npm-global", "bin", "opencode"),
 	];
 
 	for (const candidate of candidates) {
-		if (candidate && fs.existsSync(candidate)) {
+		if (candidate && isExecutableFile(candidate)) {
 			return candidate;
 		}
 	}
 
 	const pathDirs = (process.env.PATH || "").split(path.delimiter);
-	for (const dir of pathDirs) {
+	for (const rawDir of pathDirs) {
+		const dir = rawDir.trim().replace(/^["']+|["']+$/g, "");
 		if (!dir) continue;
 		const candidate = path.join(dir, "opencode");
-		if (fs.existsSync(candidate)) {
+		if (isExecutableFile(candidate)) {
 			return candidate;
 		}
 	}
@@ -62,26 +74,38 @@ export function getOpencodeEnvironment(baseEnv?: NodeJS.ProcessEnv): NodeJS.Proc
 	const env: NodeJS.ProcessEnv = { ...source };
 	env.OPENCODE_DISABLE_UPDATE_CHECK = "1";
 
-	const homeDir = env.HOME || os.homedir();
-	const candidateDir = env.XDG_DATA_HOME || path.join(homeDir, ".local", "share");
+	const effectiveHome = env.HOME || os.homedir();
+	const candidateDir = env.XDG_DATA_HOME || path.join(effectiveHome, ".local", "share");
 
 	let writable = false;
+	let testFile: string | null = null;
 	try {
 		fs.mkdirSync(candidateDir, { recursive: true });
 		fs.accessSync(candidateDir, fs.constants.W_OK);
-		const testFile = path.join(
+		testFile = path.join(
 			candidateDir,
 			`.test-write-${Date.now()}-${Math.random().toString(36).slice(2)}`
 		);
 		fs.writeFileSync(testFile, "");
-		fs.unlinkSync(testFile);
 		writable = true;
 	} catch {
 		writable = false;
+	} finally {
+		if (testFile) {
+			try {
+				fs.unlinkSync(testFile);
+			} catch {
+				// ignore unlink cleanup error
+			}
+		}
 	}
 
 	if (!writable) {
-		const fallback = "/tmp/aery-opencode-data";
+		const userIdentifier =
+			env.USER ||
+			env.LOGNAME ||
+			(typeof process.getuid === "function" ? String(process.getuid()) : "default");
+		const fallback = path.join(os.tmpdir(), `aery-opencode-data-${userIdentifier}`);
 		try {
 			fs.mkdirSync(fallback, { recursive: true });
 		} catch {
