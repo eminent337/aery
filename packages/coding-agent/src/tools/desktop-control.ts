@@ -3300,8 +3300,65 @@ export function restrictedAppHit(winClass: string | undefined): string | null {
 }
 
 /**
+ * Resolves a window target string against active desktop windows.
+ * Prioritizes exact matches and non-restricted applications over terminals.
+ */
+export function resolveTargetWindow(
+	windows: DesktopWindowInfo[],
+	target: string,
+): DesktopWindowInfo | undefined {
+	if (!target) return undefined;
+	const q = target.trim().toLowerCase();
+	if (!q) return undefined;
+
+	// 1. Exact address match
+	const byAddress = windows.find(w => w.address.toLowerCase() === q);
+	if (byAddress) return byAddress;
+
+	// 2. Exact class match
+	const byExactClass = windows.find(w => w.class.toLowerCase() === q);
+	if (byExactClass) return byExactClass;
+
+	// 3. Exact title match
+	const byExactTitle = windows.find(w => w.title.toLowerCase() === q);
+	if (byExactTitle) return byExactTitle;
+
+	// Deprioritize terminal windows unless the query explicitly targets one
+	const isTargetingTerminal = Boolean(restrictedAppHit(q));
+	const nonRestricted = windows.filter(w => !restrictedAppHit(w.class));
+	const searchPool =
+		!isTargetingTerminal && nonRestricted.length > 0
+			? [...nonRestricted, ...windows.filter(w => restrictedAppHit(w.class))]
+			: windows;
+
+	// 4. Class includes query
+	const byClassSub = searchPool.find(w => w.class.toLowerCase().includes(q));
+	if (byClassSub) return byClassSub;
+
+	// 5. Friendly app name includes query
+	const byFriendly = searchPool.find(w => getFriendlyAppName(w.class).toLowerCase().includes(q));
+	if (byFriendly) return byFriendly;
+
+	// 6. Title includes query
+	const byTitleSub = searchPool.find(w => w.title.toLowerCase().includes(q));
+	if (byTitleSub) return byTitleSub;
+
+	// 7. Multi-word fuzzy match (all words present across title, class, and friendly name)
+	const words = q.split(/\s+/).filter(Boolean);
+	if (words.length > 1) {
+		const byAllWords = searchPool.find(w => {
+			const combined = `${w.class} ${w.title} ${getFriendlyAppName(w.class)}`.toLowerCase();
+			return words.every(word => combined.includes(word));
+		});
+		if (byAllWords) return byAllWords;
+	}
+
+	return undefined;
+}
+
+/**
  * Fail-closed refusal for live_type/live_click into restricted apps
- * (terminals, agent CLI). live_move/live_key/live_scroll stay allowed —
+ * (terminals, agent CLI). live_move/live_key/live_scroll stay allowed -
  * looking and navigating are harmless; only text injection and clicks
  * (which can focus editors/buttons inside the terminal) are refused.
  */
@@ -6604,12 +6661,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 					};
 				}
 				const windows = await getDriverWindows();
-				const queryLower = target.toLowerCase();
-				const match =
-					windows.find(w => w.address.toLowerCase() === queryLower) ||
-					windows.find(w => w.class.toLowerCase().includes(queryLower)) ||
-					windows.find(w => w.title.toLowerCase().includes(queryLower)) ||
-					windows.find(w => getFriendlyAppName(w.class).toLowerCase().includes(queryLower));
+				const match = resolveTargetWindow(windows, target);
 
 				if (!match) {
 					return {
@@ -7629,11 +7681,7 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 						}
 					} else if (target !== "fullscreen") {
 						const windows = await getDriverWindows();
-						const q = target.toLowerCase();
-						targetWindow =
-							windows.find(w => w.address.toLowerCase() === q) ||
-							windows.find(w => w.class.toLowerCase().includes(q)) ||
-							windows.find(w => w.title.toLowerCase().includes(q));
+						targetWindow = resolveTargetWindow(windows, target);
 						if (targetWindow && targetWindow.size[0] > 0 && targetWindow.size[1] > 0) {
 							geometry = `${targetWindow.at[0]},${targetWindow.at[1]} ${targetWindow.size[0]}x${targetWindow.size[1]}`;
 						}

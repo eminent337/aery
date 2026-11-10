@@ -182,6 +182,92 @@ export interface AgentDesktopEnvelope {
 }
 
 /**
+ * Normalizes common accessibility role aliases to canonical names.
+ */
+export function normalizeRole(role?: string): string | undefined {
+	if (!role) return undefined;
+	const r = role.trim().toLowerCase();
+	if (r === "btn") return "button";
+	if (r === "input" || r === "entry") return "textfield";
+	if (r === "check" || r === "chk") return "checkbox";
+	if (r === "win") return "window";
+	return r;
+}
+
+/**
+ * Compacts an accessibility tree by pruning empty intermediate container wrappers.
+ */
+export function compactAccessibilityTree(node: any): any {
+	if (!node) return null;
+	if (!Array.isArray(node.children) || node.children.length === 0) {
+		return { ...node };
+	}
+
+	const compactedChildren: any[] = [];
+	for (const child of node.children) {
+		const c = compactAccessibilityTree(child);
+		if (!c) continue;
+
+		const isAnonymousWrapper =
+			(c.role === "group" || c.role === "panel" || c.role === "filler") &&
+			!c.name &&
+			!c.ref_id &&
+			!c.value &&
+			Array.isArray(c.children) &&
+			c.children.length > 0;
+
+		if (isAnonymousWrapper) {
+			compactedChildren.push(...c.children);
+		} else {
+			compactedChildren.push(c);
+		}
+	}
+
+	return {
+		...node,
+		children: compactedChildren,
+	};
+}
+
+/**
+ * Resolves an app query or window title to an exact window ID in agent-desktop.
+ */
+export async function resolveAccessibilityTarget(
+	binary: string,
+	target: string,
+): Promise<string | null> {
+	try {
+		const { stdout } = await execFileAsync(binary, ["list-windows"], { timeout: 3000 });
+		const envelope = JSON.parse(stdout);
+		if (!envelope.ok || !Array.isArray(envelope.data)) return null;
+		const q = target.trim().toLowerCase();
+
+		// 1. Direct window id match
+		const byId = envelope.data.find((w: any) => w.id?.toLowerCase() === q);
+		if (byId) return byId.id;
+
+		// 2. Exact app_name match
+		const byApp = envelope.data.find((w: any) => w.app_name?.toLowerCase() === q);
+		if (byApp) return byApp.id;
+
+		// 3. Exact title match
+		const byExactTitle = envelope.data.find((w: any) => w.title?.toLowerCase() === q);
+		if (byExactTitle) return byExactTitle;
+
+		// 4. Substring in window title (e.g. Brave, Chrome, LinkedIn when proxied by xdg-dbus-proxy)
+		const byTitleSub = envelope.data.find((w: any) => w.title?.toLowerCase().includes(q));
+		if (byTitleSub) return byTitleSub;
+
+		// 5. Substring in app_name
+		const byAppSub = envelope.data.find((w: any) => w.app_name?.toLowerCase().includes(q));
+		if (byAppSub) return byAppSub;
+	} catch {
+		// fallback
+	}
+	return null;
+}
+
+/**
  * Format an accessibility tree into a compact readable markdown structure.
  */
 function formatTreeMarkdown(node: any, indent = 0): string {
@@ -255,6 +341,10 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 		}
 
 		const targetApp = params.app || params.target;
+		let resolvedWindowId = params.window_id;
+		if (!resolvedWindowId && targetApp) {
+			resolvedWindowId = (await resolveAccessibilityTarget(binary, targetApp)) ?? undefined;
+		}
 
 		switch (params.action) {
 			case "status":
@@ -273,8 +363,11 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 
 			case "snapshot": {
 				args.push("snapshot");
-				if (targetApp) args.push("--app", targetApp);
-				if (params.window_id) args.push("--window-id", params.window_id);
+				if (resolvedWindowId) {
+					args.push("--window-id", resolvedWindowId);
+				} else if (targetApp) {
+					args.push("--app", targetApp);
+				}
 				if (params.root_ref) args.push("--root", params.root_ref);
 				if (params.interactive_only ?? true) args.push("-i");
 				if (params.compact ?? true) args.push("--compact");
@@ -417,15 +510,24 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 
 			case "find": {
 				args.push("find");
-				if (params.app) args.push("--app", params.app);
-				if (params.role) args.push("--role", params.role);
+				if (resolvedWindowId) {
+					args.push("--window-id", resolvedWindowId);
+				} else if (params.app) {
+					args.push("--app", params.app);
+				}
+				const normRole = normalizeRole(params.role);
+				if (normRole) args.push("--role", normRole);
 				if (params.name) args.push("--name", params.name);
 				break;
 			}
 
 			case "wait": {
 				args.push("wait");
-				if (params.app) args.push("--app", params.app);
+				if (resolvedWindowId) {
+					args.push("--window-id", resolvedWindowId);
+				} else if (params.app) {
+					args.push("--app", params.app);
+				}
 				if (params.name) args.push("--text", params.name);
 				if (params.ref) args.push("--element", params.ref);
 				if (params.timeout_ms) args.push("--timeout", String(params.timeout_ms));
@@ -445,6 +547,9 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 				signal,
 				env: {
 					...process.env,
+					NO_AT_BRIDGE: undefined,
+					ACCESSIBILITY_ENABLED: "1",
+					GNOME_ACCESSIBILITY: "1",
 					// ensure DBUS session bus is inherited
 					DBUS_SESSION_BUS_ADDRESS:
 						process.env.DBUS_SESSION_BUS_ADDRESS ||
@@ -501,6 +606,44 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 						// fall through to reporting original error
 					}
 				}
+
+				// Fallback for focus on Wayland where client-to-client activation is restricted
+				if (
+					params.action === "focus" &&
+					(err.code === "ACTION_NOT_SUPPORTED" ||
+						err.code === "POLICY_DENIED" ||
+						err.code === "PLATFORM_NOT_SUPPORTED" ||
+						err.details?.cause === "wayland_session")
+				) {
+					try {
+						const { DesktopControlTool } = await import("./desktop-control");
+						const dtTool = new DesktopControlTool(this.session);
+						const fallbackTarget = targetApp || params.ref;
+						if (fallbackTarget) {
+							const fallbackRes = await dtTool.execute(
+								toolCallId,
+								{
+									action: "focus_window",
+									app: fallbackTarget,
+								},
+								signal,
+								_onUpdate,
+							);
+							return {
+								content: [
+									{
+										type: "text",
+										text: `Dispatched window focus via Hyprland/Wayland compositor fallback (${err.message || "compositor policy"}).\n\n${fallbackRes.content[0]?.type === "text" ? fallbackRes.content[0].text : ""}`,
+									},
+								],
+								isError: fallbackRes.isError ?? false,
+							};
+						}
+					} catch {
+						// fall through
+					}
+				}
+
 				return {
 					content: [
 						{
@@ -518,7 +661,7 @@ export class DesktopAccessibilityTool implements AgentTool<typeof desktopAccessi
 				const snapshotId = envelope.data.snapshot_id;
 				const refCount = envelope.data.ref_count ?? 0;
 				const app = envelope.data.app || "Desktop";
-				const treeMd = formatTreeMarkdown(envelope.data.tree);
+				const treeMd = formatTreeMarkdown(compactAccessibilityTree(envelope.data.tree));
 				displayText = `### Accessibility Tree: ${app} (Snapshot: \`${snapshotId}\`, ${refCount} interactive elements)\n\n${treeMd}`;
 			} else if (params.action === "list_windows" && Array.isArray(envelope.data)) {
 				const list = envelope.data
