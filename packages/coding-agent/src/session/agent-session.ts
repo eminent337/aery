@@ -6569,8 +6569,32 @@ export class AgentSession {
 				removed += before - details.images.length;
 			}
 		}
+
+		// Also sweep older desktop_control screenshot images past the most recent one
+		let screenshotCount = 0;
+		for (let i = branchEntries.length - 1; i >= 0; i--) {
+			const entry = branchEntries[i];
+			if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
+			if (entry.message.toolName !== "desktop_control") continue;
+			const content = entry.message.content;
+			if (!Array.isArray(content) || !content.some(p => p.type === "image")) continue;
+			screenshotCount++;
+			if (screenshotCount > 1) {
+				const kept = content.filter(p => p.type !== "image");
+				const dropped = content.length - kept.length;
+				if (dropped > 0) {
+					entry.message.content =
+						kept.length > 0
+							? kept
+							: [{ type: "text", text: "[historical screenshot image swept - file preserved on disk]" }];
+					removed += dropped;
+				}
+			}
+		}
+
 		if (removed === 0) return 0;
-		await this.sessionManager.rewriteEntries();
+		// Async rewrite so disk I/O does not block the live drive loop or freeze the TUI
+		void this.sessionManager.rewriteEntries().catch(() => {});
 		const sessionContext = this.buildDisplaySessionContext();
 		this.agent.replaceMessages(sessionContext.messages);
 		this.#advisorRuntime?.reset();
@@ -6580,9 +6604,9 @@ export class AgentSession {
 
 	/**
 	 * Sweep older live-verify frames (hidden steers, customType "live-verify").
-	 * Each new verify capture supersedes the previous one's *pixels* — drop
+	 * Each new verify capture supersedes the previous one's *pixels* - drop
 	 * image blocks so context stays at ~1 verify frame no matter how many
-	 * live_* steps run in a row — but KEEP the OCR text (durable copy lives in
+	 * live_* steps run in a row - but KEEP the OCR text (durable copy lives in
 	 * the watch transcript via watch_transcript). Call before attaching a new
 	 * verify steer; returns the number of image blocks removed.
 	 */
@@ -6607,14 +6631,15 @@ export class AgentSession {
 						: [
 								{
 									type: "text",
-									text: "[verify frame superseded — image swept, reading kept in watch transcript]",
+									text: "[verify frame superseded - image swept, reading kept in watch transcript]",
 								},
 							];
 				removed += dropped;
 			}
 		}
 		if (removed === 0) return 0;
-		await this.sessionManager.rewriteEntries();
+		// Async rewrite so disk I/O does not block the live drive loop or freeze the TUI
+		void this.sessionManager.rewriteEntries().catch(() => {});
 		const sessionContext = this.buildDisplaySessionContext();
 		this.agent.replaceMessages(sessionContext.messages);
 		this.#advisorRuntime?.reset();
@@ -6623,8 +6648,8 @@ export class AgentSession {
 	}
 	/**
 	 * Sweep superseded live-watch OCR steers (hidden custom messages, customType
-	 * "live-watch"). Each new watch OCR delta supersedes the previous one — same
-	 * ephemerality contract as the eye/verify frames — so a long watch session
+	 * "live-watch"). Each new watch OCR delta supersedes the previous one - same
+	 * ephemerality contract as the eye/verify frames - so a long watch session
 	 * (e.g. reading a document or following movie subtitles) stays at ~1 watch
 	 * steer in context no matter how many deltas arrive. Call before attaching a
 	 * new watch steer; returns the number of superseded entries.
@@ -6645,7 +6670,8 @@ export class AgentSession {
 			removed += 1;
 		}
 		if (removed === 0) return 0;
-		await this.sessionManager.rewriteEntries();
+		// Async rewrite so disk I/O does not block the live drive loop or freeze the TUI
+		void this.sessionManager.rewriteEntries().catch(() => {});
 		const sessionContext = this.buildDisplaySessionContext();
 		this.agent.replaceMessages(sessionContext.messages);
 		this.#advisorRuntime?.reset();

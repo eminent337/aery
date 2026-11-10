@@ -89,7 +89,9 @@ function nonWs(text: string): number {
  *  currently maps to the same single-threaded value; keep it for a future
  *  box with more cores. */
 function ocrThreadEnv(): NodeJS.ProcessEnv {
-	return { OMP_THREAD_LIMIT: "1" };
+	const cpus = os.cpus().length;
+	const threads = cpus > 1 ? "2" : "1";
+	return { OMP_THREAD_LIMIT: threads };
 }
 
 /** Run tesseract TSV on one image file. Engine (--oem 1) and layout (--psm
@@ -116,7 +118,7 @@ export async function runTessTsvBuffer(
 		const timeout = opts.timeoutMs ?? 10_000;
 		const proc = spawn(
 			"tesseract",
-			["stdin", "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", opts.psm ?? "3", "tsv"],
+			["-", "stdout", "--oem", "1", "-l", opts.lang ?? "eng", "--psm", opts.psm ?? "3", "tsv"],
 			{
 				timeout,
 				env: { ...process.env, ...ocrThreadEnv() },

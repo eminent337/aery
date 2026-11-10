@@ -35,6 +35,7 @@ export class TerminalInfo {
 
 	isImageLine(line: string): boolean {
 		if (!this.imageProtocol) return false;
+		if (line.includes("\u{10eeee}")) return true;
 		if (this.imageProtocol === ImageProtocol.Sixel) {
 			return SIXEL_DCS_START_REGEX.test(line.slice(0, 128));
 		}

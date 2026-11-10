@@ -2936,6 +2936,7 @@ export function formatClickTargets(targets: ClickTarget[], max = 20): string {
 export function rememberClickTargets(targets: ClickTarget[], frame?: InputFrame | null): void {
 	clickTargetGen++;
 	lastClickTargets = targets.map(t => ({ ...t, gen: clickTargetGen }));
+	if (frame !== undefined) lastInputFrame = frame;
 	// Pairing: remember WHICH reading the boxes were measured against, so a
 	// concurrent same-turn capture that supersedes the frame can't leave
 	// stale boxes resolving through newer coordinates (eye+cursor together).
@@ -7782,15 +7783,6 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							}
 						: {}),
 					...(shotClickTargets.length > 0 ? { clickTargets: shotClickTargets } : {}),
-					...(includeBase64 && base64
-						? {
-								base64,
-								image: {
-									bytesBase64Encoded: base64,
-									mimeType: "image/png",
-								},
-							}
-						: {}),
 				};
 
 				return {
@@ -8062,8 +8054,8 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 							const hasBuf = "buffer" in c && Buffer.isBuffer(c.buffer);
 							if (wantOcr && (hasBuf || c.finalPath)) {
 								const ocrTarget = hasBuf
-									? (c.rawBuffer || c.buffer)
-									: (c.rawPath && fs.existsSync(c.rawPath) ? c.rawPath : c.finalPath);
+									? (c.buffer || c.rawBuffer)
+									: (c.finalPath && fs.existsSync(c.finalPath) ? c.finalPath : c.rawPath);
 								const ocr = await ocrFrame(ocrTarget!, { lang: params.ocrLang });
 								ocrText = ocr.text;
 								ocrError = ocr.error;
@@ -8079,7 +8071,9 @@ export class DesktopControlTool implements AgentTool<typeof desktopControlSchema
 								targets = clickTargetsFromOcr(
 									ocr.words,
 									c.frame ?? null,
-									hasBuf ? "physical" : (ocrTarget === c.rawPath ? "physical" : "scaled"),
+									hasBuf
+										? (ocrTarget === c.rawBuffer ? "physical" : "scaled")
+										: (ocrTarget === c.rawPath ? "physical" : "scaled"),
 								);
 							}
 							let base64 = "";
