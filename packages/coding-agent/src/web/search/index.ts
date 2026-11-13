@@ -13,7 +13,6 @@ import * as z from "zod/v4";
 import type { CustomTool, CustomToolContext, RenderResultOptions } from "../../extensibility/custom-tools/types";
 import type { Theme } from "../../modes/theme/theme";
 import webSearchDescription from "../../prompts/tools/web-search.md" with { type: "text" };
-import { discoverAuthStorage } from "../../sdk";
 import type { ToolSession } from "../../tools";
 import { throwIfAborted } from "../../tools/tool-errors";
 import { executeCascade } from "./execute-cascade";
@@ -21,6 +20,11 @@ import { renderSearchCall, renderSearchResult, type SearchRenderDetails } from "
 import type { SearchProviderId, SearchResponse } from "./types";
 import { SearchProviderError } from "./types";
 import { formatAge, formatCount, MAX_SEARCH_ANSWER_CHARS, truncateText } from "./utils";
+
+async function getDiscoveredAuthStorage(): Promise<AuthStorage> {
+	const { discoverAuthStorage } = await import("../../sdk");
+	return discoverAuthStorage();
+}
 
 /** Web search tool parameters schema */
 export const webSearchSchema = z.object({
@@ -142,7 +146,7 @@ export async function runSearchQuery(
 	params: SearchQueryParams,
 	options: { authStorage?: AuthStorage; sessionId?: string; signal?: AbortSignal } = {},
 ): Promise<{ content: Array<{ type: "text"; text: string }>; details: SearchRenderDetails }> {
-	const authStorage = options.authStorage ?? (await discoverAuthStorage());
+	const authStorage = options.authStorage ?? (await getDiscoveredAuthStorage());
 	return executeSearch("cli-web-search", params, {
 		authStorage,
 		sessionId: options.sessionId,
@@ -179,7 +183,7 @@ export class WebSearchTool implements AgentTool<typeof webSearchSchema, SearchRe
 		_onUpdate?: AgentToolUpdateCallback<SearchRenderDetails>,
 		_context?: AgentToolContext,
 	): Promise<AgentToolResult<SearchRenderDetails>> {
-		const authStorage = this.#session.authStorage ?? (await discoverAuthStorage());
+		const authStorage = this.#session.authStorage ?? (await getDiscoveredAuthStorage());
 		const sessionId = this.#session.getSessionId?.() ?? undefined;
 		return executeSearch(_toolCallId, params, { authStorage, sessionId, signal });
 	}
@@ -200,7 +204,7 @@ export const webSearchCustomTool: CustomTool<typeof webSearchSchema, SearchRende
 		ctx: CustomToolContext,
 		signal?: AbortSignal,
 	) {
-		const authStorage = ctx.modelRegistry?.authStorage ?? (await discoverAuthStorage());
+		const authStorage = ctx.modelRegistry?.authStorage ?? (await getDiscoveredAuthStorage());
 		const sessionId = ctx.sessionManager.getSessionId();
 		return executeSearch(toolCallId, params, { authStorage, sessionId, signal });
 	},
