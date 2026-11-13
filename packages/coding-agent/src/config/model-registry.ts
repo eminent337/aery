@@ -22,7 +22,7 @@ import {
 	UNK_MAX_TOKENS,
 	unregisterCustomApis,
 } from "@aryee337/aery-ai";
-import { readAgyKeyringAccessToken } from "@aryee337/aery-ai/utils/oauth/agy-keyring";
+import { readAgyKeyringAccessToken, readAgyKeyringToken } from "@aryee337/aery-ai/utils/oauth/agy-keyring";
 import { readFreebuffLocalToken } from "@aryee337/aery-ai/utils/oauth/freebuff-local";
 
 // Sentinel for local-only OAuth token (LM Studio, vLLM) — declared inline to avoid loading
@@ -2462,9 +2462,22 @@ export class ModelRegistry {
 		if (this.#keylessProviders.has(model.provider) && !this.authStorage.hasAuth(model.provider)) {
 			return kNoAuth;
 		}
-		const key = await this.authStorage.getApiKey(model.provider, sessionId, { baseUrl: model.baseUrl, modelId: model.id });
+		let key = await this.authStorage.getApiKey(model.provider, sessionId, { baseUrl: model.baseUrl, modelId: model.id });
 		if (!key && model.provider === "google") {
 			return this.authStorage.getApiKey("google-aistudio", sessionId, { baseUrl: model.baseUrl, modelId: model.id });
+		}
+		if (!key && model.provider === "google-antigravity") {
+			const keyringToken = await readAgyKeyringToken();
+			if (keyringToken?.accessToken) {
+				return JSON.stringify({
+					token: keyringToken.accessToken,
+					projectId: "default-cli-project",
+					refreshToken: keyringToken.refreshToken,
+					expiresAt: keyringToken.expiresAt,
+				});
+			}
+			key = (await this.authStorage.getApiKey("google", sessionId, { baseUrl: model.baseUrl, modelId: model.id })) ??
+				(await this.authStorage.getApiKey("google-aistudio", sessionId, { baseUrl: model.baseUrl, modelId: model.id }));
 		}
 		return key;
 	}
@@ -2476,9 +2489,22 @@ export class ModelRegistry {
 		if (this.#keylessProviders.has(provider) && !this.authStorage.hasAuth(provider)) {
 			return kNoAuth;
 		}
-		const key = await this.authStorage.getApiKey(provider, sessionId, { baseUrl });
+		let key = await this.authStorage.getApiKey(provider, sessionId, { baseUrl });
 		if (!key && provider === "google") {
 			return this.authStorage.getApiKey("google-aistudio", sessionId, { baseUrl });
+		}
+		if (!key && provider === "google-antigravity") {
+			const keyringToken = await readAgyKeyringToken();
+			if (keyringToken?.accessToken) {
+				return JSON.stringify({
+					token: keyringToken.accessToken,
+					projectId: "default-cli-project",
+					refreshToken: keyringToken.refreshToken,
+					expiresAt: keyringToken.expiresAt,
+				});
+			}
+			key = (await this.authStorage.getApiKey("google", sessionId, { baseUrl })) ??
+				(await this.authStorage.getApiKey("google-aistudio", sessionId, { baseUrl }));
 		}
 		return key;
 	}
@@ -2487,9 +2513,17 @@ export class ModelRegistry {
 		if (this.#keylessProviders.has(provider) && !this.authStorage.hasAuth(provider)) {
 			return kNoAuth;
 		}
-		const key = await this.authStorage.peekApiKey(provider);
+		let key = await this.authStorage.peekApiKey(provider);
 		if (!key && provider === "google") {
 			return this.authStorage.peekApiKey("google-aistudio");
+		}
+		if (!key && provider === "google-antigravity") {
+			const keyringToken = await readAgyKeyringToken();
+			if (keyringToken?.accessToken) {
+				return keyringToken.accessToken;
+			}
+			key = (await this.authStorage.peekApiKey("google")) ??
+				(await this.authStorage.peekApiKey("google-aistudio"));
 		}
 		return key;
 	}

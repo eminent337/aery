@@ -31,7 +31,7 @@ interface AntigravityUsageResponse {
 	models: Record<string, AntigravityModelInfo>;
 }
 
-const DEFAULT_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
+const DEFAULT_ENDPOINT = "https://cloudcode-pa.googleapis.com";
 const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels";
 
 function clampFraction(value: number | undefined): number | undefined {

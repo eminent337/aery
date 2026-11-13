@@ -212,7 +212,7 @@ function applyCodexPricingFallback(models: readonly Model[]): Model[] {
 	});
 }
 
-const ANTIGRAVITY_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com";
+const ANTIGRAVITY_ENDPOINT = "https://cloudcode-pa.googleapis.com";
 
 async function getOAuthAccessFromStorage(provider: OAuthProvider): Promise<OAuthAccess | null> {
 	try {

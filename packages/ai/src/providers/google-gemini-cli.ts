@@ -73,7 +73,11 @@ export interface GoogleGeminiCliOptions extends StreamOptions {
 const DEFAULT_ENDPOINT = "https://cloudcode-pa.googleapis.com";
 const ANTIGRAVITY_DAILY_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
 const ANTIGRAVITY_SANDBOX_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com";
-const ANTIGRAVITY_ENDPOINT_FALLBACKS = [ANTIGRAVITY_DAILY_ENDPOINT, ANTIGRAVITY_SANDBOX_ENDPOINT] as const;
+const ANTIGRAVITY_ENDPOINT_FALLBACKS = [
+	DEFAULT_ENDPOINT,
+	ANTIGRAVITY_DAILY_ENDPOINT,
+	ANTIGRAVITY_SANDBOX_ENDPOINT,
+] as const;
 
 export {
 	ANTIGRAVITY_SYSTEM_INSTRUCTION,
@@ -164,6 +168,14 @@ export function parseGeminiCliCredentials(apiKeyRaw: string): ParsedGeminiCliCre
 	const missingCredentialsMessage =
 		"Missing token or projectId in Google Cloud credentials. Use /login to re-authenticate.";
 
+	if (typeof apiKeyRaw === "string" && !apiKeyRaw.trim().startsWith("{")) {
+		const token = apiKeyRaw.trim();
+		return {
+			accessToken: token,
+			projectId: "default-cli-project",
+		};
+	}
+
 	let parsed: GeminiCliApiKeyPayload;
 	try {
 		parsed = JSON.parse(apiKeyRaw) as GeminiCliApiKeyPayload;
@@ -176,9 +188,18 @@ export function parseGeminiCliCredentials(apiKeyRaw: string): ParsedGeminiCliCre
 			? parsed.projectId
 			: typeof parsed.project_id === "string"
 				? parsed.project_id
-				: undefined;
+				: "default-cli-project";
 
-	if (typeof parsed.token !== "string" || typeof projectId !== "string") {
+	const token =
+		typeof parsed.token === "string"
+			? parsed.token
+			: typeof (parsed as Record<string, unknown>).key === "string"
+				? ((parsed as Record<string, unknown>).key as string)
+				: typeof (parsed as Record<string, unknown>).apiKey === "string"
+					? ((parsed as Record<string, unknown>).apiKey as string)
+					: undefined;
+
+	if (typeof token !== "string" || !token) {
 		throw new Error(missingCredentialsMessage);
 	}
 
@@ -191,7 +212,7 @@ export function parseGeminiCliCredentials(apiKeyRaw: string): ParsedGeminiCliCre
 	const expiresAt = normalizeExpiryMs(parsed.expiresAt ?? parsed.expires);
 
 	return {
-		accessToken: parsed.token,
+		accessToken: token,
 		projectId,
 		refreshToken,
 		expiresAt,
@@ -313,7 +334,7 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli"> = (
 			// AuthStorage already refreshed credentials before threading them
 			// here (see {@link OAUTH_REFRESH_SKEW_MS}). If the credential lands
 			// expired we bail rather than POSTing a stale token; the next call
-			// — driven by AuthStorage's invalidate+retry path — will carry a
+			// - driven by AuthStorage's invalidate+retry path - will carry a
 			// fresh credential.
 			if (
 				shouldRefreshGeminiCliCredentials(parsedCredentials.expiresAt, isAntigravity) &&
@@ -321,13 +342,43 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli"> = (
 				Date.now() >= parsedCredentials.expiresAt
 			) {
 				throw new Error(
-					"OAuth token expired before request — please retry; AuthStorage will refresh on the next attempt.",
+					"OAuth token expired before request - please retry; AuthStorage will refresh on the next attempt.",
 				);
 			}
 			const { accessToken, projectId } = parsedCredentials;
 
+			// If authenticated with a Google API key (starts with AIza),
+			// route through Google Generative AI (Google AI Studio) since Cloud Code Assist
+			// endpoints do not accept API keys.
+			const isApiKey = accessToken.startsWith("AIza");
+			if (isApiKey) {
+				const { streamGoogle } = await import("./google");
+				const googleModel = {
+					...model,
+					api: "google-generative-ai" as const,
+					provider: "google",
+					input: model.input ?? ["text", "image"],
+					baseUrl:
+						model.baseUrl && !model.baseUrl.includes("cloudcode-pa")
+							? model.baseUrl
+							: undefined,
+				};
+				const subStream = streamGoogle(googleModel as any, context, {
+					...options,
+					apiKey: accessToken,
+				});
+				for await (const event of subStream) {
+					stream.push(event);
+				}
+				return;
+			}
+
 			const baseUrl = model.baseUrl?.trim();
-			const endpoints = baseUrl ? [baseUrl] : isAntigravity ? ANTIGRAVITY_ENDPOINT_FALLBACKS : [DEFAULT_ENDPOINT];
+			const endpoints = baseUrl && !baseUrl.includes("daily-cloudcode-pa")
+				? [baseUrl, ...ANTIGRAVITY_ENDPOINT_FALLBACKS.filter(e => e !== baseUrl)]
+				: isAntigravity
+					? ANTIGRAVITY_ENDPOINT_FALLBACKS
+					: [DEFAULT_ENDPOINT];
 
 			let requestBody = buildRequest(model, context, projectId, options, isAntigravity);
 			const replacementPayload = await options?.onPayload?.(requestBody, model);

@@ -5,8 +5,8 @@ import type { Model } from "../../types";
 import { toPositiveNumber } from "../../utils";
 
 const DEFAULT_ANTIGRAVITY_DISCOVERY_ENDPOINTS = [
-	"https://daily-cloudcode-pa.googleapis.com",
 	"https://cloudcode-pa.googleapis.com",
+	"https://daily-cloudcode-pa.googleapis.com",
 	"https://daily-cloudcode-pa.sandbox.googleapis.com",
 ] as const;
 const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels";

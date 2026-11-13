@@ -12,8 +12,8 @@
  *
  * The fallback chain in AuthStorage is:
  *   1. Aery's own SQLite credential store  (freshest when Aery itself logged in)
- *   2. OS keyring entry written by `agy`    (fallback — always fresh if agy ran recently)
- *   3. Fail → prompt user to run `aery auth google-antigravity`
+ *   2. OS keyring entry written by `agy`    (fallback - auto-refreshed if expired)
+ *   3. Fail -> prompt user to run `aery auth google-antigravity`
  */
 
 import { logger } from "@aryee337/aery-utils";
@@ -37,11 +37,14 @@ const KEYRING_USERNAME = "antigravity";
 /**
  * Read the Antigravity OAuth token that `agy` stored in the OS keyring.
  *
+ * When the access token is expired, auto-refreshes it using the stored
+ * refresh_token and writes the fresh token back to the keyring.
+ *
  * Returns `null` when:
  * - `secret-tool` is not installed (libsecret not present).
  * - No matching entry exists in the keyring.
  * - The stored JSON is malformed.
- * - The token is expired (with a 30s buffer).
+ * - The token is expired and refresh failed.
  */
 export async function readAgyKeyringToken(): Promise<{
 	accessToken: string;
@@ -64,10 +67,50 @@ export async function readAgyKeyringToken(): Promise<{
 
 		const expiresAt = token.expiry ? new Date(token.expiry).getTime() : undefined;
 
-		// Treat the token as valid only if it has not expired yet (with a 30s buffer).
+		// When expired (with a 30s buffer), attempt auto-refresh using refresh_token
 		const BUFFER_MS = 30_000;
 		if (expiresAt !== undefined && expiresAt - BUFFER_MS <= Date.now()) {
-			logger.debug("agy keyring token is expired", { expiresAt, now: Date.now() });
+			if (token.refresh_token) {
+				try {
+					const { refreshAntigravityToken } = await import("./google-antigravity");
+					const refreshed = await refreshAntigravityToken(token.refresh_token, "default-cli-project");
+					const updatedPayload = JSON.stringify({
+						...parsed,
+						token: {
+							...token,
+							access_token: refreshed.access,
+							refresh_token: refreshed.refresh,
+							expiry: new Date(refreshed.expires).toISOString(),
+						},
+					});
+					const proc = Bun.spawn(
+						[
+							"secret-tool",
+							"store",
+							"--label=Antigravity token",
+							"service",
+							KEYRING_SERVICE,
+							"username",
+							KEYRING_USERNAME,
+						],
+						{ stdin: "pipe" },
+					);
+					proc.stdin.write(updatedPayload);
+					proc.stdin.end();
+
+					return {
+						accessToken: refreshed.access,
+						refreshToken: refreshed.refresh,
+						expiresAt: refreshed.expires,
+					};
+				} catch (refreshErr) {
+					logger.debug("agy keyring token refresh failed", {
+						err: refreshErr instanceof Error ? refreshErr.message : String(refreshErr),
+					});
+					return null;
+				}
+			}
+			logger.debug("agy keyring token is expired with no refresh_token", { expiresAt, now: Date.now() });
 			return null;
 		}
 
@@ -77,7 +120,7 @@ export async function readAgyKeyringToken(): Promise<{
 			expiresAt,
 		};
 	} catch (err) {
-		// secret-tool not found, entry missing, or JSON parse error — all are silent.
+		// secret-tool not found, entry missing, or JSON parse error - all are silent.
 		logger.debug("agy keyring read failed (non-fatal)", {
 			err: err instanceof Error ? err.message : String(err),
 		});
