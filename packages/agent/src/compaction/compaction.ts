@@ -144,10 +144,30 @@ export const TIER_MAX_THRESHOLD_TOKENS: Record<CompactionModelTier, number> = {
 };
 
 /**
+ * Check if the model is explicitly configured for the 15% compaction threshold:
+ * Gemini 3.8, Gemini 3.6, and Gemini 3.5 Flash-Lite.
+ */
+export function isGeminiFifteenPercentModel(modelIdOrName?: string): boolean {
+	if (!modelIdOrName) return false;
+	const lower = modelIdOrName.toLowerCase();
+	return (
+		lower.includes("gemini-3.8") ||
+		lower.includes("gemini-3-8") ||
+		lower.includes("gemini-3.6") ||
+		lower.includes("gemini-3-6") ||
+		lower.includes("gemini-3.5-flash-lite") ||
+		lower.includes("gemini-3-5-flash-lite")
+	);
+}
+
+/**
  * Detect model tier for smart compaction thresholds (ported from agy).
  */
 export function detectCompactionModelTier(modelIdOrName?: string): CompactionModelTier {
 	if (!modelIdOrName) return "standard";
+	if (isGeminiFifteenPercentModel(modelIdOrName)) {
+		return "standard";
+	}
 	const lower = modelIdOrName.toLowerCase();
 	// Avoid false positive matching "mini" inside "gemini"
 	const sanitized = lower.replace(/gemini/g, "");
@@ -301,10 +321,18 @@ export function resolveThresholdTokens(
 
 	let effectiveCeiling = explicitMaxThreshold ?? DEFAULT_MAX_THRESHOLD_TOKENS;
 	if (settings.tierAware !== false && modelIdOrName) {
-		const tier = detectCompactionModelTier(modelIdOrName);
-		effectiveCeiling = explicitMaxThreshold !== undefined
-			? Math.min(explicitMaxThreshold, TIER_MAX_THRESHOLD_TOKENS[tier])
-			: TIER_MAX_THRESHOLD_TOKENS[tier];
+		if (isGeminiFifteenPercentModel(modelIdOrName)) {
+			// Explicit 15% context window ceiling for Gemini 3.8, Gemini 3.6, and Gemini 3.5 Flash-Lite
+			const fifteenPercent = Math.floor(contextWindow * 0.15);
+			effectiveCeiling = explicitMaxThreshold !== undefined
+				? Math.min(explicitMaxThreshold, fifteenPercent)
+				: fifteenPercent;
+		} else {
+			const tier = detectCompactionModelTier(modelIdOrName);
+			effectiveCeiling = explicitMaxThreshold !== undefined
+				? Math.min(explicitMaxThreshold, TIER_MAX_THRESHOLD_TOKENS[tier])
+				: TIER_MAX_THRESHOLD_TOKENS[tier];
+		}
 	}
 
 	// Clamp to at least reserveTokens and at most baseThreshold

@@ -326,6 +326,32 @@ describe("shouldCompact", () => {
 			expect(shouldCompact(179_999, 1_000_000, settings, "gemini-1.5-pro")).toBe(false);
 		});
 
+		it("should enforce 15% compaction threshold for gemini-3.8, gemini-3.6, and gemini-3.5-flash-lite", () => {
+			const settings: CompactionSettings = {
+				enabled: true,
+				reserveTokens: 16384,
+				keepRecentTokens: 20000,
+				tierAware: true,
+			};
+
+			const oneMillion = 1_000_000;
+			const expected15Pct = 150_000;
+
+			expect(resolveThresholdTokens(oneMillion, settings, "gemini-3.8-flash")).toBe(expected15Pct);
+			expect(resolveThresholdTokens(oneMillion, settings, "gemini-3.8-flash-low")).toBe(expected15Pct);
+			expect(resolveThresholdTokens(oneMillion, settings, "gemini-3.6-flash")).toBe(expected15Pct);
+			expect(resolveThresholdTokens(oneMillion, settings, "gemini-3.6-flash-high")).toBe(expected15Pct);
+			expect(resolveThresholdTokens(oneMillion, settings, "gemini-3.5-flash-lite")).toBe(expected15Pct);
+
+			const standard1M = 1_048_576;
+			const expectedStandard15Pct = Math.floor(standard1M * 0.15); // 157_286
+			expect(resolveThresholdTokens(standard1M, settings, "gemini-3.8-flash")).toBe(expectedStandard15Pct);
+			expect(resolveThresholdTokens(standard1M, settings, "gemini-3.6-flash")).toBe(expectedStandard15Pct);
+			expect(resolveThresholdTokens(standard1M, settings, "gemini-3.5-flash-lite")).toBe(expectedStandard15Pct);
+			expect(shouldCompact(expectedStandard15Pct + 1, standard1M, settings, "gemini-3.5-flash-lite")).toBe(true);
+			expect(shouldCompact(expectedStandard15Pct - 1, standard1M, settings, "gemini-3.5-flash-lite")).toBe(false);
+		});
+
 		it("should allow disabling max threshold ceiling with maxThresholdTokens: -1", () => {
 			const settings: CompactionSettings = {
 				enabled: true,
