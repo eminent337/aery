@@ -89,16 +89,22 @@ if (isMainThread) {
 		})
 		.on("uncaughtException", async err => {
 			process.stderr.write(formatFatalError("Uncaught Exception", err));
-			logger.error("Uncaught exception", { err });
+			logger.error("Uncaught exception", { err, stack: err.stack });
 			await runCleanup(Reason.UNCAUGHT_EXCEPTION);
 			process.exit(1);
 		})
 		.on("unhandledRejection", async reason => {
 			const err = reason instanceof Error ? reason : new Error(String(reason));
-			process.stderr.write(formatFatalError("Unhandled Rejection", err));
-			logger.error("Unhandled rejection", { err });
-			await runCleanup(Reason.UNHANDLED_REJECTION);
-			process.exit(1);
+			logger.error("Unhandled rejection in background task", { err, stack: err.stack });
+			// In interactive CLI sessions, an unhandled rejection in a background task
+			// (telemetry, background usage fetch, MCP ping, extension timer)
+			// should not abruptly crash the user's session.
+			// Only exit if fail-fast mode is explicitly requested.
+			if (process.env.AERY_FAIL_FAST === "1" || process.env.NODE_ENV === "test") {
+				process.stderr.write(formatFatalError("Unhandled Rejection", err));
+				await runCleanup(Reason.UNHANDLED_REJECTION);
+				process.exit(1);
+			}
 		})
 		.on("exit", async () => {
 			void runCleanup(Reason.EXIT); // fire and forget (exit imminent)

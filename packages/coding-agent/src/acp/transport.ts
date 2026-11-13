@@ -150,10 +150,6 @@ export class AcpTransport {
 		};
 	}
 
-	get isClosed(): boolean {
-		return this.closed;
-	}
-
 	close(reason?: Error): void {
 		if (this.closed) {
 			return;

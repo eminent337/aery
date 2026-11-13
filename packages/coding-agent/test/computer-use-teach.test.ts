@@ -10,6 +10,7 @@ import {
 
 describe("Computer Use Teach Mode & Recipe Engine", () => {
 	const testDir = path.join(os.tmpdir(), `aery-teach-test-${Date.now()}`);
+	const textOf = (res: any) => (res.content[0] as any).text as string;
 
 	beforeEach(async () => {
 		await fs.promises.mkdir(testDir, { recursive: true });
@@ -70,7 +71,7 @@ describe("Computer Use Teach Mode & Recipe Engine", () => {
 			app: "firefox",
 		});
 		expect(startRes.isError).toBeFalsy();
-		expect(startRes.content[0].text).toContain("Started teaching session");
+		expect(textOf(startRes)).toContain("Started teaching session");
 
 		// 2. Record click step
 		const step1Res = await tool.execute("call-2", {
@@ -81,7 +82,7 @@ describe("Computer Use Teach Mode & Recipe Engine", () => {
 			description: "Focus username field",
 		});
 		expect(step1Res.isError).toBeFalsy();
-		expect(step1Res.content[0].text).toContain("Step 1 recorded");
+		expect(textOf(step1Res)).toContain("Step 1 recorded");
 
 		// 3. Record type step
 		const step2Res = await tool.execute("call-3", {
@@ -91,7 +92,7 @@ describe("Computer Use Teach Mode & Recipe Engine", () => {
 			description: "Enter username",
 		});
 		expect(step2Res.isError).toBeFalsy();
-		expect(step2Res.content[0].text).toContain("Step 2 recorded");
+		expect(textOf(step2Res)).toContain("Step 2 recorded");
 
 		// 4. Record key step
 		const step3Res = await tool.execute("call-4", {
@@ -101,7 +102,7 @@ describe("Computer Use Teach Mode & Recipe Engine", () => {
 			description: "Submit login form",
 		});
 		expect(step3Res.isError).toBeFalsy();
-		expect(step3Res.content[0].text).toContain("Step 3 recorded");
+		expect(textOf(step3Res)).toContain("Step 3 recorded");
 
 		// 5. Save recipe
 		const saveRes = await tool.execute("call-5", {
@@ -109,14 +110,14 @@ describe("Computer Use Teach Mode & Recipe Engine", () => {
 			recipe_name: "Login Workflow",
 		});
 		expect(saveRes.isError).toBeFalsy();
-		expect(saveRes.content[0].text).toContain("Recipe saved successfully");
+		expect(textOf(saveRes)).toContain("Recipe saved successfully");
 
 		// 6. List recipes
 		const listRes = await tool.execute("call-6", {
 			action: "list_recipes",
 		});
 		expect(listRes.isError).toBeFalsy();
-		expect(listRes.content[0].text).toContain("login-workflow");
+		expect(textOf(listRes)).toContain("login-workflow");
 	});
 
 	it("replays recorded workflow recipe", async () => {
@@ -145,6 +146,6 @@ describe("Computer Use Teach Mode & Recipe Engine", () => {
 			recipe_id: "quick-save",
 		});
 		expect(replayRes.isError).toBeFalsy();
-		expect(replayRes.content[0].text).toContain("Replayed 1 step");
+		expect(textOf(replayRes)).toContain("Replayed 1 step");
 	});
 });

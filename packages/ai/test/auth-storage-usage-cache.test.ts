@@ -564,4 +564,36 @@ describe("AuthStorage usage cache: terminal refresh failure", () => {
 			vi.restoreAllMocks();
 		}
 	});
+
+	it("filters usage requests by options.providers", async () => {
+		const store = makeStore([oauthRow(1, "a@example.com")]);
+		let anthropicFetched = false;
+		const storage = new AuthStorage(store, {
+			usageProviderResolver: provider => {
+				if (provider === "anthropic") {
+					return {
+						...claudeUsage.claudeUsageProvider,
+						fetchUsage: async () => {
+							anthropicFetched = true;
+							return null;
+						},
+					};
+				}
+				return undefined;
+			},
+		});
+		await storage.reload();
+
+		try {
+			// When providers filter excludes anthropic, it should not fetch anthropic
+			await storage.fetchUsageReports({ providers: ["google-antigravity" as any] });
+			expect(anthropicFetched).toBe(false);
+
+			// When providers filter includes anthropic, it should fetch anthropic
+			await storage.fetchUsageReports({ providers: ["anthropic"] });
+			expect(anthropicFetched).toBe(true);
+		} finally {
+			storage.close();
+		}
+	});
 });

@@ -116,6 +116,9 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 		it("formats full observation markdown", () => {
 			const markdown = formatObservationMarkdown({
 				id: "obs-test",
+				sessionId: "sess-test",
+				entryId: null,
+				turnIndex: 0,
 				category: "bugfix",
 				title: "Fixed race condition",
 				summary: "Resolved concurrency issue in async task worker.",
@@ -138,6 +141,9 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 			const item = formatSearchObservationItem(
 				{
 					id: "obs-item",
+					sessionId: "sess-test",
+					entryId: null,
+					turnIndex: 0,
 					category: "feature",
 					title: "Added tool",
 					summary: "New tool created",
@@ -157,6 +163,10 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 				[
 					{
 						id: "obs-a",
+						sessionId: "sess-test",
+						entryId: null,
+						turnIndex: 0,
+						files: [],
 						category: "discovery",
 						title: "Item A",
 						summary: "Summary A",
@@ -164,6 +174,10 @@ describe("Autonomous Agent Tools (memory_recall & memory_search)", () => {
 					},
 					{
 						id: "obs-b",
+						sessionId: "sess-test",
+						entryId: null,
+						turnIndex: 0,
+						files: [],
 						category: "decision",
 						title: "Item B",
 						summary: "Summary B",

@@ -334,7 +334,11 @@ export class SubagentRunner {
 	/**
 	 * Run subagent prompt in background and trigger reactive wakeup upon completion or failure.
 	 */
-	runBackgroundExecution(conversationId: string, session: any, opts: { prompt?: string; parentId?: string }): void {
+	runBackgroundExecution(
+		conversationId: string,
+		session: any,
+		opts: { prompt?: string; parentId?: string; role?: string },
+	): void {
 		void (async () => {
 			if (session) {
 				(session as any).__sentParentMessage = false;

@@ -149,12 +149,14 @@ describe("MicroVM Sandbox Tool", () => {
 	});
 
 	describe("MicrovmSandboxTool execution", () => {
+		const textOf = (res: any) => (res.content[0] as any).text as string;
+
 		it("handles status check lifecycle", async () => {
 			const tool = new MicrovmSandboxTool();
 			const result = await tool.execute("call-1", { action: "status" });
 			expect(result.isError).toBeFalsy();
 			expect(result.content[0].type).toBe("text");
-			expect(result.content[0].text).toContain("MicroVM Sandbox Status");
+			expect(textOf(result)).toContain("MicroVM Sandbox Status");
 		});
 
 		it("rejects mounting sensitive directories", async () => {
@@ -165,7 +167,7 @@ describe("MicroVM Sandbox Tool", () => {
 				guest_path: "/root/.ssh",
 			});
 			expect(result.isError).toBe(true);
-			expect(result.content[0].text).toContain("Refused to mount sensitive host path");
+			expect(textOf(result)).toContain("Refused to mount sensitive host path");
 		});
 
 		it("allows mounting safe workspace directory", async () => {
@@ -177,7 +179,7 @@ describe("MicroVM Sandbox Tool", () => {
 				readonly: false,
 			});
 			expect(result.isError).toBeFalsy();
-			expect(result.content[0].text).toContain("Mounted host directory");
+			expect(textOf(result)).toContain("Mounted host directory");
 		});
 
 		it("handles execution and missing parameters", async () => {
@@ -186,13 +188,13 @@ describe("MicroVM Sandbox Tool", () => {
 				action: "execute",
 			});
 			expect(missingCmdResult.isError).toBe(true);
-			expect(missingCmdResult.content[0].text).toContain("Missing required parameter: command");
+			expect(textOf(missingCmdResult)).toContain("Missing required parameter: command");
 
 			const missingHostResult = await tool.execute("call-no-host", {
 				action: "mount_directory",
 			});
 			expect(missingHostResult.isError).toBe(true);
-			expect(missingHostResult.content[0].text).toContain("Missing required parameter: host_path");
+			expect(textOf(missingHostResult)).toContain("Missing required parameter: host_path");
 
 			const execResult = await tool.execute("call-exec", {
 				action: "execute",
@@ -211,7 +213,7 @@ describe("MicroVM Sandbox Tool", () => {
 			const tool = new MicrovmSandboxTool();
 			const result = await tool.execute("call-4", { action: "stop" });
 			expect(result.isError).toBeFalsy();
-			expect(result.content[0].text).toContain("MicroVM sandbox stopped");
+			expect(textOf(result)).toContain("MicroVM sandbox stopped");
 		});
 	});
 });

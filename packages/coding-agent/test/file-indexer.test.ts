@@ -63,6 +63,6 @@ describe("Bit-Parallel Fast File Indexer", () => {
 			limit: 5,
 		});
 		expect(searchRes.isError).toBeFalsy();
-		expect(searchRes.content[0].text).toContain("native-bridge.ts");
+		expect((searchRes.content[0] as any).text).toContain("native-bridge.ts");
 	});
 });

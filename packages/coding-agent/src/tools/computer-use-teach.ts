@@ -60,7 +60,7 @@ export type ComputerUseTeachParams = z.infer<typeof computerUseTeachSchema>;
 
 export class ComputerUseTeachTool implements AgentTool<typeof computerUseTeachSchema> {
 	readonly name = "computer_use_teach";
-	readonly approval = "execute" as const;
+	readonly approval = "exec" as const;
 	readonly label = "Computer Use Teach Mode";
 	readonly summary = "Record and replay demonstrated GUI workflows as reusable recipes";
 	readonly description =

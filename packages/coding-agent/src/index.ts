@@ -4,8 +4,10 @@ import { HookEditorComponent, HookInputComponent, HookSelectorComponent } from "
 
 // Re-export TUI components for custom tool rendering
 export { Container, Markdown, Spacer, Text } from "@aryee337/aery-tui";
-// Logging
-export { getAgentDir, logger, VERSION } from "@aryee337/aery-utils";
+export { getMarkdownTheme } from "./modes/theme/theme";
+export { withFileMutationQueue } from "./utils/file-mutation-queue";
+// Logging & utilities
+export { getAgentDir, logger, parseFrontmatter, VERSION } from "@aryee337/aery-utils";
 // Checkpoint
 export * from "./checkpoint";
 export * from "./config/keybindings";

@@ -54,15 +54,15 @@ const AERY_IMPORT_SPECIFIER_REGEX = new RegExp(
 );
 const resolvedAerySpecifierCache = new Map<string, string>();
 
-// Extensions that imported `@sinclair/typebox` directly used to resolve
-// against a real `@sinclair/typebox` install. The runtime dep was replaced
-// with the Zod-backed shim under `extensibility/typebox.ts`; plugins still
-// importing the public name are redirected to that shim so existing extensions
-// keep working without code changes. Submodules like
-// `@sinclair/typebox/compiler` are intentionally not remapped — those expose
+// Extensions that imported `@sinclair/typebox` or bare `typebox` directly
+// used to resolve against a real `@sinclair/typebox` install. The runtime dep
+// was replaced with the Zod-backed shim under `extensibility/typebox.ts`;
+// plugins still importing the public name are redirected to that shim so existing
+// extensions keep working without code changes. Submodules like
+// `@sinclair/typebox/compiler` are intentionally not remapped - those expose
 // TypeBox-only APIs the shim does not provide and plugins relying on them must
 // vendor `@sinclair/typebox` directly.
-const TYPEBOX_SPECIFIER_FILTER = /^@sinclair\/typebox$/;
+const TYPEBOX_SPECIFIER_FILTER = /^(?:@sinclair\/typebox|typebox)$/;
 
 // Compat shim and bundled-package paths used in compiled-binary mode. The shim
 // paths must point at files that ship inside the bunfs root; in dev /
@@ -243,10 +243,10 @@ function rewriteAeryModuleImports(source: string): string {
 	});
 }
 
-// Match the bare `@sinclair/typebox` import specifier (static + dynamic).
-// Subpath imports like `@sinclair/typebox/compiler` are intentionally excluded —
+// Match the bare `@sinclair/typebox` or `typebox` import specifier (static + dynamic).
+// Subpath imports like `@sinclair/typebox/compiler` are intentionally excluded -
 // they expose TypeBox-only APIs the Zod-backed shim does not provide.
-const TYPEBOX_IMPORT_SPECIFIER_REGEX = /((?:from\s+|import\s*\(\s*)["'])(@sinclair\/typebox)(["'])/g;
+const TYPEBOX_IMPORT_SPECIFIER_REGEX = /((?:from\s+|import\s*\(\s*)["'])(@sinclair\/typebox|typebox)(["'])/g;
 
 /**
  * Rewrite legacy package imports an Aery extension may contain:
@@ -313,10 +313,10 @@ function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Match relative import specifiers (static `from "./…"` and dynamic
-// `import("./…")`). Used to walk an extension's own module graph; bare and
+// Match relative import specifiers (static `from "./..."` and dynamic
+// `import("./...")`). Used to walk an extension's own module graph; bare and
 // absolute specifiers are deliberately excluded.
-const RELATIVE_IMPORT_SPECIFIER_REGEX = /(?:from\s+|import\s*\(\s*)["'](\.\.\?\/[^"']+)["']/g;
+const RELATIVE_IMPORT_SPECIFIER_REGEX = /(?:from\s+|import\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g;
 
 // Extension entry realpaths that already have a load-time rewrite hook
 // installed. Each `Bun.plugin()` registration is process-global and permanent,

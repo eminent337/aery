@@ -40,11 +40,12 @@ describe("Global Quick Launcher HUD Tool", () => {
 
 	it("manages quick launcher lifecycle and state transitions", async () => {
 		const tool = new QuickLauncherTool();
+		const textOf = (res: any) => (res.content[0] as any).text as string;
 
 		// 1. Initial status
 		const initialRes = await tool.execute("call-1", { action: "status" });
 		expect(initialRes.isError).toBeFalsy();
-		expect(initialRes.content[0].text).toContain("visible: false");
+		expect(textOf(initialRes)).toContain("visible: false");
 
 		// 2. Configure hotkey
 		const configRes = await tool.execute("call-2", {
@@ -53,16 +54,16 @@ describe("Global Quick Launcher HUD Tool", () => {
 			position: "center",
 		});
 		expect(configRes.isError).toBeFalsy();
-		expect(configRes.content[0].text).toContain("Ctrl+Space");
+		expect(textOf(configRes)).toContain("Ctrl+Space");
 
 		// 3. Open HUD
 		const openRes = await tool.execute("call-3", { action: "open" });
 		expect(openRes.isError).toBeFalsy();
-		expect(openRes.content[0].text).toContain("Quick Launcher HUD opened");
+		expect(textOf(openRes)).toContain("Quick Launcher HUD opened");
 
 		// 4. Verify status is open
 		const statusOpen = await tool.execute("call-4", { action: "status" });
-		expect(statusOpen.content[0].text).toContain("visible: true");
+		expect(textOf(statusOpen)).toContain("visible: true");
 
 		// 5. Dispatch prompt
 		const dispatchRes = await tool.execute("call-5", {
@@ -70,11 +71,11 @@ describe("Global Quick Launcher HUD Tool", () => {
 			prompt: "Summarize active workspace",
 		});
 		expect(dispatchRes.isError).toBeFalsy();
-		expect(dispatchRes.content[0].text).toContain("Dispatched prompt");
+		expect(textOf(dispatchRes)).toContain("Dispatched prompt");
 
 		// 6. Dismiss HUD
 		const dismissRes = await tool.execute("call-6", { action: "dismiss" });
 		expect(dismissRes.isError).toBeFalsy();
-		expect(dismissRes.content[0].text).toContain("Quick Launcher HUD dismissed");
+		expect(textOf(dismissRes)).toContain("Quick Launcher HUD dismissed");
 	});
 });

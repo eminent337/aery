@@ -83,9 +83,9 @@ export class IdleHeapRelease {
 
 		logger.debug("IdleHeapRelease: Triggering garbage collection (App is idle)");
 
-		// In Bun, we can force a garbage collection
+		// In Bun, use non-blocking asynchronous GC to avoid freezing the event loop
 		if (typeof Bun !== "undefined" && typeof Bun.gc === "function") {
-			Bun.gc(true); // synchronous GC
+			Bun.gc(false);
 		} else if (global.gc) {
 			global.gc();
 		}

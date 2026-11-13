@@ -32,6 +32,7 @@ import type {
 	TextContent,
 	ToolCall,
 	ToolChoice,
+	Provider,
 	Usage,
 	UsageReport,
 } from "@aryee337/aery-ai";
@@ -10877,12 +10878,16 @@ export class AgentSession {
 		});
 	}
 
-	async fetchUsageReports(signal?: AbortSignal): Promise<UsageReport[] | null> {
+	async fetchUsageReports(
+		options?: { providers?: Provider[]; signal?: AbortSignal } | AbortSignal,
+	): Promise<UsageReport[] | null> {
 		const authStorage = this.#modelRegistry.authStorage;
 		if (!authStorage.fetchUsageReports) return null;
+		const normalized = options instanceof AbortSignal ? { signal: options } : options;
 		return authStorage.fetchUsageReports({
 			baseUrlResolver: provider => this.#modelRegistry.getProviderBaseUrl?.(provider),
-			signal,
+			providers: normalized?.providers,
+			signal: normalized?.signal,
 		});
 	}
 

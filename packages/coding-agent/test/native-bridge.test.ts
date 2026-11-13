@@ -197,14 +197,14 @@ describe("Native Wayland/Linux Bridge Dispatcher", () => {
 			osascript: false,
 			powershell: false,
 		};
-		const backend = resolveBackend(mockProbe, false, false, "linux");
+		const backend = resolveBackend(mockProbe, false, "pointer", "linux");
 		expect(backend).toBe("wlroots-bridge");
 
-		const pointerChain = resolveBackendChain(mockProbe, "pointer", false, "linux");
+		const pointerChain = resolveBackendChain(mockProbe, false, "pointer", "linux");
 		expect(pointerChain[0]).toBe("wlroots-bridge");
 		expect(pointerChain).toContain("ydotool");
 
-		const keyChain = resolveBackendChain(mockProbe, "keyboard", false, "linux");
+		const keyChain = resolveBackendChain(mockProbe, false, "keyboard", "linux");
 		expect(keyChain[0]).toBe("wlroots-bridge");
 		expect(keyChain).toContain("ydotool");
 		expect(keyChain).toContain("wtype");

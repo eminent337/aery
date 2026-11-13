@@ -321,7 +321,7 @@ export interface MicrovmSandboxState {
 
 export class MicrovmSandboxTool implements AgentTool<typeof microvmSandboxSchema> {
 	readonly name = "microvm_sandbox";
-	readonly approval = "execute" as const;
+	readonly approval = "exec" as const;
 	readonly label = "MicroVM Sandbox";
 	readonly summary = "Cowork MicroVM sandbox for secure isolated execution and directory mounting";
 	readonly description =

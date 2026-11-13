@@ -212,9 +212,9 @@ export class FramePort {
 		this.totalFramesEmitted += 1;
 		for (const listener of [...this.listeners]) {
 			try {
-				const res = listener(frame);
-				if (res && typeof (res as Promise<void>).catch === "function") {
-					(res as Promise<void>).catch(() => {});
+				const res: any = listener(frame);
+				if (res && typeof res.catch === "function") {
+					res.catch(() => {});
 				}
 			} catch {
 				// Suppress listener error so other callbacks still receive the frame
@@ -415,6 +415,6 @@ export class DesktopEmergencyStopTool implements AgentTool<typeof desktopEmergen
 }
 
 export function _resetDesktopEmergencyStopDefaults(): void {
-	defaultEmergencyStopController.reset();
-	defaultFramePort.clearListeners();
+	defaultEmergencyStopController?.reset();
+	defaultFramePort?.clearListeners();
 }

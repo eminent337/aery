@@ -2219,15 +2219,18 @@ export class AuthStorage {
 
 	#collectUsageRequests(options?: {
 		baseUrlResolver?: (provider: Provider) => string | undefined;
+		providers?: Provider[];
 	}): UsageRequestDescriptor[] {
 		const resolver = this.#usageProviderResolver;
 		if (!resolver) return [];
 
 		const requests: UsageRequestDescriptor[] = [];
-		const providers = new Set<string>([
+		const allProviders = new Set<string>([
 			...this.#data.keys(),
 			...DEFAULT_USAGE_PROVIDERS.map(provider => provider.id),
 		]);
+		const allowedProviders = options?.providers ? new Set(options.providers as string[]) : null;
+		const providers = allowedProviders ? [...allProviders].filter(p => allowedProviders.has(p)) : allProviders;
 
 		for (const providerId of providers) {
 			const provider = providerId as Provider;
@@ -2428,6 +2431,7 @@ export class AuthStorage {
 
 	async fetchUsageReports(options?: {
 		baseUrlResolver?: (provider: Provider) => string | undefined;
+		providers?: Provider[];
 		/** Caller's cancel signal; only rejects this caller, never the shared upstream fetch. */
 		signal?: AbortSignal;
 	}): Promise<UsageReport[] | null> {

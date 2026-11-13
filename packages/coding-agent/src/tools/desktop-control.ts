@@ -2836,6 +2836,7 @@ let obsRefresherRunning = false;
 function startObservationRefresher(): void {
 	if (obsRefresherRunning) return;
 	obsRefresherTimer = setInterval(refreshObservationTick, OBS_REFRESH_MS);
+	obsRefresherTimer.unref();
 	obsRefresherRunning = true;
 }
 
@@ -6060,7 +6061,7 @@ async function executeLiveAction(
 			if (backend === "wlroots-bridge" || backend === "native-bridge") {
 				const bridge = resolveDesktopBridge();
 				if (bridge) {
-					const pos = await detectPlatformDriver().capture.cursorPos().catch(() => ({ x: 500, y: 500 }));
+					const pos = (await detectPlatformDriver().capture.cursorPos().catch(() => null)) ?? { x: 500, y: 500 };
 					await runBridgeJson(bridge, bridgePointerClickArgs(pos.x, pos.y, "left", 1)).catch(() => {});
 					focusedFirst = true;
 				}
@@ -6197,12 +6198,13 @@ async function executeLiveAction(
 			const bridge = resolveDesktopBridge();
 			if (bridge) {
 				const outScale = await detectOutputScale();
+				const curPos = (await detectPlatformDriver().capture.cursorPos().catch(() => null)) ?? { x: 500, y: 500 };
 				const scrollX = params.x !== undefined && params.y !== undefined && lastInputFrame
 					? physicalToLogical(frameToPhysical(lastInputFrame, params.x, params.y).x, 0, outScale).x
-					: (await detectPlatformDriver().capture.cursorPos().catch(() => ({ x: 500, y: 500 }))).x;
+					: curPos.x;
 				const scrollY = params.x !== undefined && params.y !== undefined && lastInputFrame
 					? physicalToLogical(0, frameToPhysical(lastInputFrame, params.x, params.y).y, outScale).y
-					: (await detectPlatformDriver().capture.cursorPos().catch(() => ({ x: 500, y: 500 }))).y;
+					: curPos.y;
 				const dx = dir === "left" ? -x11Plan.steps * 15 : dir === "right" ? x11Plan.steps * 15 : 0;
 				const dy = dir === "up" ? -x11Plan.steps * 15 : dir === "down" ? x11Plan.steps * 15 : 0;
 				try {

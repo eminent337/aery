@@ -26,6 +26,7 @@ describe("opencode local provider", () => {
 				{
 					role: "user",
 					content: "Reply with the single word: LOCAL_VERIFIED",
+					timestamp: Date.now(),
 				},
 			],
 		};

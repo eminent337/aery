@@ -33,7 +33,7 @@ describe("GrindTool", () => {
 		expect(tool.loadMode).toBe("discoverable");
 		expect(typeof BUILTIN_TOOLS.grind).toBe("function");
 		const fromBuiltin = BUILTIN_TOOLS.grind(makeSession(tmpDir) as any);
-		expect(fromBuiltin.name).toBe("grind");
+		expect((fromBuiltin as any)?.name).toBe("grind");
 	});
 
 	it("executes a passing command cleanly", async () => {

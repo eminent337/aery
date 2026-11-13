@@ -2,6 +2,7 @@
  * Public exports for shared TUI components.
  */
 
+export * from "@aryee337/aery-tui";
 export * from "./code-cell";
 export * from "./file-list";
 export * from "./hyperlink";

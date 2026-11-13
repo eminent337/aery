@@ -97,6 +97,7 @@ export function streamOpenCodeLocalCli(
 		provider: model.provider,
 		model: model.id,
 		stopReason: "stop",
+		timestamp: Date.now(),
 		usage: {
 			input: 0,
 			output: 0,

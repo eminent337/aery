@@ -449,11 +449,11 @@ export class StatusLineComponent implements Component {
 		const now = Date.now();
 		if (this.#usageInFlight) return;
 		if (this.#usageFetchedAt > 0 && now - this.#usageFetchedAt < 5 * 60_000) return;
-		const fetcher = (this.session as { fetchUsageReports?: () => Promise<unknown> }).fetchUsageReports;
+		const fetcher = (this.session as { fetchUsageReports?: (options?: { providers?: string[] }) => Promise<unknown> }).fetchUsageReports;
 		if (typeof fetcher !== "function") return;
 		this.#usageInFlight = true;
 		void fetcher
-			.call(this.session)
+			.call(this.session, { providers: ["anthropic"] })
 			.then(reports => {
 				this.#cachedUsage = this.#normalizeUsageReports(reports);
 				this.#usageFetchedAt = Date.now();

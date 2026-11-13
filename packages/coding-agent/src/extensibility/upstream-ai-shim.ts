@@ -20,5 +20,10 @@
  * only the runtime `Type` builder was removed.
  */
 
+import { Type } from "./typebox";
+
 export * from "@aryee337/aery-ai";
-export { Type } from "./typebox";
+export { Type };
+export function StringEnum<T extends readonly string[]>(values: T, opts?: Record<string, unknown>): any {
+	return Type.Enum(values as any, opts as any);
+}

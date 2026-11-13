@@ -7,7 +7,8 @@ import { AgentRegistry } from "../../src/registry/agent-registry";
 import { SubagentRunner } from "../../src/registry/subagent-runner";
 import { OpencodeSubagentSession } from "../../src/acp/subagent-session";
 import { AcpClient } from "../../src/acp/client";
-import type { AcpTransport, JsonRpcNotification, JsonRpcRequest } from "../../src/acp/types";
+import type { JsonRpcNotification, JsonRpcRequest } from "../../src/acp/types";
+import type { AcpTransport } from "../../src/acp/transport";
 
 class MockAcpTransport {
 	public requests: JsonRpcRequest[] = [];
@@ -125,7 +126,7 @@ describe("OpenCode Subagent Swarm Integration", () => {
 
 			try {
 				const transport = new MockAcpTransport();
-				const client = new AcpClient({ transport });
+				const client = new AcpClient({ transport: transport as unknown as AcpTransport });
 
 				const events: any[] = [];
 				const session = new OpencodeSubagentSession({
@@ -170,7 +171,7 @@ describe("OpenCode Subagent Swarm Integration", () => {
 
 		it("serializes concurrent prompts cleanly without interleaving", async () => {
 			const transport = new MockAcpTransport();
-			const client = new AcpClient({ transport });
+			const client = new AcpClient({ transport: transport as unknown as AcpTransport });
 
 			const session = new OpencodeSubagentSession({
 				conversationId: "sub-opencode-concurrent",
@@ -191,7 +192,7 @@ describe("OpenCode Subagent Swarm Integration", () => {
 
 		it("handles dispose while prompt is in-flight cleanly", async () => {
 			const transport = new MockAcpTransport();
-			const client = new AcpClient({ transport });
+			const client = new AcpClient({ transport: transport as unknown as AcpTransport });
 
 			const session = new OpencodeSubagentSession({
 				conversationId: "sub-opencode-inflight-dispose",
@@ -208,7 +209,7 @@ describe("OpenCode Subagent Swarm Integration", () => {
 
 		it("supports cancellation and abort", async () => {
 			const transport = new MockAcpTransport();
-			const client = new AcpClient({ transport });
+			const client = new AcpClient({ transport: transport as unknown as AcpTransport });
 
 			const session = new OpencodeSubagentSession({
 				conversationId: "sub-opencode-abort",
@@ -241,7 +242,7 @@ describe("OpenCode Subagent Swarm Integration", () => {
 			});
 
 			const transport = new MockAcpTransport();
-			const client = new AcpClient({ transport });
+			const client = new AcpClient({ transport: transport as unknown as AcpTransport });
 
 			const runner = new SubagentRunner(registry);
 			const launchResult = await runner.launch({

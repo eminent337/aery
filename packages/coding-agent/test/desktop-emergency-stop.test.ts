@@ -237,7 +237,7 @@ describe("DesktopEmergencyStopTool", () => {
 		expect(controller.isHalted()).toBe(true);
 		expect(controller.getReason()).toBe("Pointer stray detected");
 		expect(result.content[0].type).toBe("text");
-		expect(result.content[0].text).toContain("Desktop emergency stop triggered");
+		expect((result.content[0] as any).text).toContain("Desktop emergency stop triggered");
 		expect(result.details?.action).toBe("halt");
 		expect(result.details?.state.halted).toBe(true);
 	});
@@ -253,7 +253,7 @@ describe("DesktopEmergencyStopTool", () => {
 
 		expect(controller.isHalted()).toBe(false);
 		expect(result.content[0].type).toBe("text");
-		expect(result.content[0].text).toContain("Desktop emergency stop reset successfully");
+		expect((result.content[0] as any).text).toContain("Desktop emergency stop reset successfully");
 		expect(result.details?.action).toBe("reset");
 		expect(result.details?.state.halted).toBe(false);
 	});
@@ -276,7 +276,7 @@ describe("DesktopEmergencyStopTool", () => {
 		expect(hints.height).toBe(768);
 		expect(hints.format).toBe("png");
 		expect(result.content[0].type).toBe("text");
-		expect(result.content[0].text).toContain("Frame stream hints updated");
+		expect((result.content[0] as any).text).toContain("Frame stream hints updated");
 		expect(result.details?.action).toBe("stream_hints");
 	});
 
@@ -290,8 +290,8 @@ describe("DesktopEmergencyStopTool", () => {
 		});
 
 		expect(result.content[0].type).toBe("text");
-		expect(result.content[0].text).toContain("Emergency Stop Status: RUNNING");
-		expect(result.content[0].text).toContain("Frame Stream: IDLE");
+		expect((result.content[0] as any).text).toContain("Emergency Stop Status: RUNNING");
+		expect((result.content[0] as any).text).toContain("Frame Stream: IDLE");
 		expect(result.details?.action).toBe("status");
 		expect(result.details?.emergencyStop.halted).toBe(false);
 		expect(result.details?.framePort.active).toBe(false);
