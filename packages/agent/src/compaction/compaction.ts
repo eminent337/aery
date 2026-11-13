@@ -161,11 +161,26 @@ export function isGeminiFifteenPercentModel(modelIdOrName?: string): boolean {
 }
 
 /**
+ * Check if the model is configured for the 12% compaction threshold:
+ * Other Gemini lite models (Gemini 2.5 Flash-Lite, Gemini 2.0 Flash-Lite, Gemini 3.1 Flash-Lite, Gemini 1.5 Flash-8B, etc.).
+ */
+export function isGeminiTwelvePercentModel(modelIdOrName?: string): boolean {
+	if (!modelIdOrName) return false;
+	const lower = modelIdOrName.toLowerCase();
+	if (isGeminiFifteenPercentModel(lower)) return false;
+	return (
+		lower.includes("flash-lite") ||
+		lower.includes("flash_lite") ||
+		(lower.includes("gemini") && (lower.includes("lite") || lower.includes("8b")))
+	);
+}
+
+/**
  * Detect model tier for smart compaction thresholds (ported from agy).
  */
 export function detectCompactionModelTier(modelIdOrName?: string): CompactionModelTier {
 	if (!modelIdOrName) return "standard";
-	if (isGeminiFifteenPercentModel(modelIdOrName)) {
+	if (isGeminiFifteenPercentModel(modelIdOrName) || isGeminiTwelvePercentModel(modelIdOrName)) {
 		return "standard";
 	}
 	const lower = modelIdOrName.toLowerCase();
@@ -327,6 +342,12 @@ export function resolveThresholdTokens(
 			effectiveCeiling = explicitMaxThreshold !== undefined
 				? Math.min(explicitMaxThreshold, fifteenPercent)
 				: fifteenPercent;
+		} else if (isGeminiTwelvePercentModel(modelIdOrName)) {
+			// Explicit 12% context window ceiling for other Gemini lite models
+			const twelvePercent = Math.floor(contextWindow * 0.12);
+			effectiveCeiling = explicitMaxThreshold !== undefined
+				? Math.min(explicitMaxThreshold, twelvePercent)
+				: twelvePercent;
 		} else {
 			const tier = detectCompactionModelTier(modelIdOrName);
 			effectiveCeiling = explicitMaxThreshold !== undefined

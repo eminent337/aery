@@ -310,10 +310,10 @@ describe("shouldCompact", () => {
 				tierAware: true,
 			};
 
-			// Flash-Lite: capped at 40k
-			expect(resolveThresholdTokens(1_000_000, settings, "gemini-2.5-flash-lite")).toBe(40_000);
-			expect(shouldCompact(40_001, 1_000_000, settings, "gemini-2.5-flash-lite")).toBe(true);
-			expect(shouldCompact(39_999, 1_000_000, settings, "gemini-2.5-flash-lite")).toBe(false);
+			// Lite tier (non-Gemini): capped at 40k
+			expect(resolveThresholdTokens(1_000_000, settings, "claude-3-5-haiku")).toBe(40_000);
+			expect(shouldCompact(40_001, 1_000_000, settings, "claude-3-5-haiku")).toBe(true);
+			expect(shouldCompact(39_999, 1_000_000, settings, "claude-3-5-haiku")).toBe(false);
 
 			// Flash / Standard: capped at 150k
 			expect(resolveThresholdTokens(1_000_000, settings, "gemini-2.5-flash")).toBe(150_000);
@@ -350,6 +350,31 @@ describe("shouldCompact", () => {
 			expect(resolveThresholdTokens(standard1M, settings, "gemini-3.5-flash-lite")).toBe(expectedStandard15Pct);
 			expect(shouldCompact(expectedStandard15Pct + 1, standard1M, settings, "gemini-3.5-flash-lite")).toBe(true);
 			expect(shouldCompact(expectedStandard15Pct - 1, standard1M, settings, "gemini-3.5-flash-lite")).toBe(false);
+		});
+
+		it("should enforce 12% compaction threshold for other gemini lite models", () => {
+			const settings: CompactionSettings = {
+				enabled: true,
+				reserveTokens: 16384,
+				keepRecentTokens: 20000,
+				tierAware: true,
+			};
+
+			const oneMillion = 1_000_000;
+			const expected12Pct = 120_000;
+
+			expect(resolveThresholdTokens(oneMillion, settings, "gemini-2.5-flash-lite")).toBe(expected12Pct);
+			expect(resolveThresholdTokens(oneMillion, settings, "gemini-2.0-flash-lite")).toBe(expected12Pct);
+			expect(resolveThresholdTokens(oneMillion, settings, "gemini-1.5-flash-8b")).toBe(expected12Pct);
+			expect(resolveThresholdTokens(oneMillion, settings, "gemini-3.1-flash-lite")).toBe(expected12Pct);
+
+			const standard1M = 1_048_576;
+			const expectedStandard12Pct = Math.floor(standard1M * 0.12); // 125_829
+			expect(resolveThresholdTokens(standard1M, settings, "gemini-2.5-flash-lite")).toBe(expectedStandard12Pct);
+			expect(resolveThresholdTokens(standard1M, settings, "gemini-2.0-flash-lite")).toBe(expectedStandard12Pct);
+			expect(resolveThresholdTokens(standard1M, settings, "gemini-1.5-flash-8b")).toBe(expectedStandard12Pct);
+			expect(shouldCompact(expectedStandard12Pct + 1, standard1M, settings, "gemini-2.5-flash-lite")).toBe(true);
+			expect(shouldCompact(expectedStandard12Pct - 1, standard1M, settings, "gemini-2.5-flash-lite")).toBe(false);
 		});
 
 		it("should allow disabling max threshold ceiling with maxThresholdTokens: -1", () => {
