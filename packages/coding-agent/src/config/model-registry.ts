@@ -57,7 +57,6 @@ function discoveryDefaultMaxTokens(api: Api | undefined): number {
 
 const SPECIAL_MODEL_MANAGER_PROVIDER_IDS: readonly string[] = [
 	"google-antigravity",
-	"google-gemini-cli",
 	"openai-codex",
 ];
 
@@ -1610,19 +1609,6 @@ export class ModelRegistry {
 							return readAgyKeyringAccessToken();
 						},
 						endpoint: this.getProviderBaseUrl("google-antigravity"),
-					}),
-			},
-			{
-				providerId: "google-gemini-cli",
-				resolveKey: extractGoogleOAuthToken,
-				createOptions: oauthToken =>
-					googleGeminiCliModelManagerOptions({
-						oauthToken,
-						resolveToken: async () => {
-							const key = await this.authStorage.getApiKey("google-gemini-cli");
-							return extractGoogleOAuthToken(key);
-						},
-						endpoint: this.getProviderBaseUrl("google-gemini-cli"),
 					}),
 			},
 			{

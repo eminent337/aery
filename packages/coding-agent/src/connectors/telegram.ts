@@ -248,7 +248,7 @@ export async function startTelegramConnector(options: ConnectTelegramOptions, lo
 					await thread.post(`✅ *Switched Model to:* \`${provider}/${modelId}\``);
 				} else {
 					await thread.post(
-						`⚠️ *Usage:* \`/model <provider>/<model-id>\` (e.g. \`/model google-gemini-cli/gemini-2.5-flash\`)`,
+						`⚠️ *Usage:* \`/model <provider>/<model-id>\` (e.g. \`/model google-antigravity/gemini-3-pro\`)`,
 					);
 				}
 			} catch (err) {

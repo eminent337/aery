@@ -11,11 +11,10 @@ import { e2eApiKey, resolveApiKey } from "./oauth";
 const oauthTokens = await Promise.all([
 	resolveApiKey("anthropic"),
 	resolveApiKey("github-copilot"),
-	resolveApiKey("google-gemini-cli"),
 	resolveApiKey("google-antigravity"),
 	resolveApiKey("openai-codex"),
 ]);
-const [anthropicOAuthToken, githubCopilotToken, geminiCliToken, antigravityToken, openaiCodexToken] = oauthTokens;
+const [anthropicOAuthToken, githubCopilotToken, antigravityToken, openaiCodexToken] = oauthTokens;
 
 /**
  * Test that tool results containing only images work correctly across all providers.
@@ -382,25 +381,6 @@ describe("Tool Results with Images", () => {
 		);
 	});
 
-	describe("Google Gemini CLI Provider", () => {
-		it.skipIf(!geminiCliToken)(
-			"gemini-2.5-flash - should handle tool result with only image",
-			async () => {
-				const llm = getBundledModel("google-gemini-cli", "gemini-2.5-flash");
-				await handleToolWithImageResult(llm, { apiKey: geminiCliToken });
-			},
-			{ retry: 3, timeout: 30000 },
-		);
-
-		it.skipIf(!geminiCliToken)(
-			"gemini-2.5-flash - should handle tool result with text and image",
-			async () => {
-				const llm = getBundledModel("google-gemini-cli", "gemini-2.5-flash");
-				await handleToolWithTextAndImageResult(llm, { apiKey: geminiCliToken });
-			},
-			{ retry: 3, timeout: 30000 },
-		);
-	});
 
 	describe("Google Antigravity Provider", () => {
 		it.skipIf(!antigravityToken)(

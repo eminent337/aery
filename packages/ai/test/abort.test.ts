@@ -5,8 +5,8 @@ import type { Api, Context, Model, OptionsForApi } from "@aryee337/aery-ai/types
 import { e2eApiKey, resolveApiKey } from "./oauth";
 
 // Resolve OAuth tokens at module level (async, runs before tests)
-const [geminiCliToken, openaiCodexToken] = await Promise.all([
-	resolveApiKey("google-gemini-cli"),
+const [antigravityToken, openaiCodexToken] = await Promise.all([
+	resolveApiKey("google-antigravity"),
 	resolveApiKey("openai-codex"),
 ]);
 
@@ -170,22 +170,21 @@ describe("AI Providers Abort Tests", () => {
 		);
 	});
 
-	// Google Gemini CLI / Antigravity share the same provider, so one test covers both
-	describe("Google Gemini CLI Provider Abort", () => {
-		it.skipIf(!geminiCliToken)(
+	describe("Google Antigravity Provider Abort", () => {
+		it.skipIf(!antigravityToken)(
 			"should abort mid-stream",
 			async () => {
-				const llm = getBundledModel("google-gemini-cli", "gemini-2.5-flash");
-				await testAbortSignal(llm, { apiKey: geminiCliToken });
+				const llm = getBundledModel("google-antigravity", "gemini-2.5-flash");
+				await testAbortSignal(llm, { apiKey: antigravityToken });
 			},
 			{ retry: 3 },
 		);
 
-		it.skipIf(!geminiCliToken)(
+		it.skipIf(!antigravityToken)(
 			"should handle immediate abort",
 			async () => {
-				const llm = getBundledModel("google-gemini-cli", "gemini-2.5-flash");
-				await testImmediateAbort(llm, { apiKey: geminiCliToken });
+				const llm = getBundledModel("google-antigravity", "gemini-2.5-flash");
+				await testImmediateAbort(llm, { apiKey: antigravityToken });
 			},
 			{ retry: 3 },
 		);

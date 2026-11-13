@@ -523,8 +523,6 @@ describe("resolveAgentModelPatterns", () => {
 		});
 
 		expect(result).toEqual([
-			"google-gemini-cli/gemini-3.1-pro",
-			"google-gemini-cli/gemini-3-pro",
 			"gemini-3.1-pro",
 			"gemini-3-1-pro",
 			"gemini-3-pro",

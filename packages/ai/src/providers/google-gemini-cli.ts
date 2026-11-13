@@ -347,13 +347,10 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli"> = (
 			}
 			const { accessToken, projectId } = parsedCredentials;
 
-			// If authenticated with a Google API key (starts with AIza, AQ, or non-OAuth token),
+			// If authenticated with a Google API key (starts with AIza or AQ),
 			// route through Google Generative AI (Google AI Studio) since Cloud Code Assist
 			// endpoints do not accept API keys.
-			const isApiKey =
-				accessToken.startsWith("AIza") ||
-				accessToken.startsWith("AQ.") ||
-				(!accessToken.startsWith("ya29.") && !accessToken.startsWith("Bearer "));
+			const isApiKey = accessToken.startsWith("AIza") || accessToken.startsWith("AQ.");
 			if (isApiKey) {
 				const { streamGoogle } = await import("./google");
 				const googleModel = {

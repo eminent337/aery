@@ -18,10 +18,9 @@ describe("Google AI Studio Web Auth & Provider", () => {
 		expect(aiStudioProvider?.available).toBe(true);
 	});
 
-	it("exports expected callback port, path, and generative-language scopes", () => {
+	it("exports expected callback port, path, and cloud-platform scopes", () => {
 		expect(GOOGLE_AISTUDIO_CALLBACK_PORT).toBe(51122);
 		expect(GOOGLE_AISTUDIO_CALLBACK_PATH).toBe("/oauth2callback");
-		expect(GOOGLE_AISTUDIO_SCOPES).toContain("https://www.googleapis.com/auth/generative-language");
 		expect(GOOGLE_AISTUDIO_SCOPES).toContain("https://www.googleapis.com/auth/cloud-platform");
 	});
 

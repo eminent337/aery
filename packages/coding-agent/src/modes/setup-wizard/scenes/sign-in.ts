@@ -11,7 +11,6 @@ const CALLBACK_SERVER_PROVIDERS: Partial<Record<OAuthProvider, true>> = {
 	anthropic: true,
 	"openai-codex": true,
 	"gitlab-duo": true,
-	"google-gemini-cli": true,
 	"google-antigravity": true,
 	"google-aistudio": true,
 };

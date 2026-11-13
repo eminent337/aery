@@ -60,11 +60,6 @@ const builtInOAuthProviders: OAuthProviderInfo[] = [
 		available: true,
 	},
 	{
-		id: "google-gemini-cli",
-		name: "Google Cloud Code Assist (Gemini CLI)",
-		available: true,
-	},
-	{
 		id: "openai-codex-device",
 		name: "ChatGPT Plus/Pro (Codex, headless/device)",
 		available: true,

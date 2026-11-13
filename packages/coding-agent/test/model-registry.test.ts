@@ -2314,7 +2314,6 @@ describe("ModelRegistry", () => {
 		const registry = new ModelRegistry(authStorage, modelsJsonPath);
 
 		expect(registry.find("google-antigravity", "gemini-3.5-flash-low")?.maxTokens).toBe(8_192);
-		expect(registry.find("google-gemini-cli", "gemini-3.5-flash")?.maxTokens).toBe(16_384);
 		expect(registry.find("openai-codex", "gpt-5.4-codex-pro")?.maxTokens).toBe(128_000);
 	});
 

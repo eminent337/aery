@@ -72,7 +72,6 @@ const CALLBACK_SERVER_PROVIDERS = new Set<OAuthProvider>([
 	"anthropic",
 	"openai-codex",
 	"gitlab-duo",
-	"google-gemini-cli",
 	"google-antigravity",
 ]);
 
