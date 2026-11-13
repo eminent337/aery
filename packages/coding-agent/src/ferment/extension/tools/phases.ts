@@ -66,6 +66,9 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_activate_phase",
 		label: "Ferment Activate Phase",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Activate a specific phase within the active ferment",
 		description: "Activate a specific phase within the active ferment. Accepts phase name or ID.",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase name or ID to activate"),
@@ -98,6 +101,9 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_complete_phase",
 		label: "Ferment Complete Phase",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Mark the active phase as complete",
 		description: "Mark the active phase as complete. Accepts phase name or ID.",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase name or ID to complete"),
@@ -137,6 +143,9 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_skip_phase",
 		label: "Ferment Skip Phase",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Skip a planned ferment phase",
 		description: "Skip a planned phase. Accepts phase name or ID.",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase name or ID to skip"),
@@ -171,6 +180,9 @@ export function registerPhaseTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_fail_phase",
 		label: "Ferment Fail Phase",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Mark a ferment phase as failed",
 		description: "Mark a phase as failed. Accepts phase name or ID.",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase name or ID to fail"),

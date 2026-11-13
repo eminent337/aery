@@ -2866,14 +2866,14 @@ export const SETTINGS_SCHEMA = {
 	// Tool Discovery
 	"tools.discoveryMode": {
 		type: "enum",
-		values: ["off", "mcp-only", "all"] as const,
-		default: "off",
+		values: ["auto", "off", "mcp-only", "all"] as const,
+		default: "auto",
 		ui: {
 			tab: "tools",
 			group: "Discovery & MCP",
 			label: "Tool Discovery",
 			description:
-				"Hide tools behind a search tool to save tokens. 'mcp-only' hides MCP tools; 'all' hides all non-essential built-ins too.",
+				"Hide tools behind a search tool to save tokens. 'auto' dynamically activates discovery to protect context; 'mcp-only' hides MCP tools; 'all' hides non-essential built-ins too; 'off' eagerly loads all tools.",
 		},
 	},
 

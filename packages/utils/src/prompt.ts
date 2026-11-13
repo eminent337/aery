@@ -404,7 +404,10 @@ handlebars.registerHelper(
 				found = item in collection;
 			}
 		}
-		return found ? options.fn(this) : options.inverse(this);
+		if (typeof options?.fn === "function") {
+			return found ? options.fn(this) : options.inverse ? options.inverse(this) : "";
+		}
+		return found as any;
 	},
 );
 

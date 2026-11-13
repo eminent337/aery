@@ -603,6 +603,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		secretsEnabled,
 		hasMemoryRoot: memoryRootEnabled,
 		hasObsidian: hasObsidian(),
+		hasAutonomousTools: toolNames.some(name => name.startsWith("ai_")),
 	};
 	const rendered = prompt.render(resolvedCustomPrompt ? customSystemPromptTemplate : systemPromptTemplate, data);
 	const systemPrompt = [rendered];

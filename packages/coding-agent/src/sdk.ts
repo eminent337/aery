@@ -699,6 +699,9 @@ function customToolToDefinition(tool: CustomTool): ToolDefinition {
 		description: tool.description,
 		parameters: tool.parameters,
 		hidden: tool.hidden,
+		defaultInactive: (tool as any).defaultInactive,
+		loadMode: (tool as any).loadMode,
+		summary: (tool as any).summary,
 		deferrable: tool.deferrable,
 		mcpServerName: tool.mcpServerName,
 		mcpToolName: tool.mcpToolName,
@@ -2145,12 +2148,18 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		const requestedToolNameSet = new Set(normalizedRequested);
 		// Effective discovery mode: tools.discoveryMode takes precedence; mcp.discoveryMode is back-compat alias.
 		const toolsDiscoveryModeSetting = settings.get("tools.discoveryMode");
-		const effectiveDiscoveryMode: "off" | "mcp-only" | "all" =
-			toolsDiscoveryModeSetting !== "off"
-				? (toolsDiscoveryModeSetting as "off" | "mcp-only" | "all")
-				: settings.get("mcp.discoveryMode")
-					? "mcp-only"
-					: "off";
+		let effectiveDiscoveryMode: "off" | "mcp-only" | "all";
+		if (toolsDiscoveryModeSetting === "off") {
+			if (model?.contextWindow && model.contextWindow <= 64_000) {
+				effectiveDiscoveryMode = "all";
+			} else {
+				effectiveDiscoveryMode = settings.get("mcp.discoveryMode") ? "mcp-only" : "off";
+			}
+		} else if (toolsDiscoveryModeSetting === "mcp-only") {
+			effectiveDiscoveryMode = "mcp-only";
+		} else {
+			effectiveDiscoveryMode = "all";
+		}
 		const mcpDiscoveryEnabled = effectiveDiscoveryMode !== "off"; // back-compat: true when any discovery active
 		const defaultInactiveToolNames = new Set(
 			registeredTools.filter(tool => tool.definition.defaultInactive).map(tool => tool.definition.name),

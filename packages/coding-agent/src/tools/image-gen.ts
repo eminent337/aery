@@ -1200,6 +1200,8 @@ async function parseAntigravitySseForImage(response: Response, signal?: AbortSig
 export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails> = {
 	name: "generate_image",
 	label: "GenerateImage",
+	loadMode: "discoverable" as const,
+	summary: "Generate images from text prompts",
 	strict: false,
 	approval: "write",
 	description: prompt.render(imageGenDescription),

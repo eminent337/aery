@@ -597,6 +597,10 @@ export class AppBridgeTool implements AgentTool<typeof appBridgeSchema> {
 
 	private readonly registry: AppBridgeRegistry;
 
+	static createIf(): AppBridgeTool | null {
+		return new AppBridgeTool();
+	}
+
 	constructor(registry?: AppBridgeRegistry) {
 		this.registry = registry ?? new AppBridgeRegistry();
 	}

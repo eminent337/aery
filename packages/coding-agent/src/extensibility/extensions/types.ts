@@ -382,6 +382,10 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	/** If true, tool is registered but not auto-included in the initial active set.
 	 *  The registering extension is responsible for activating/deactivating it via setActiveTools(). */
 	defaultInactive?: boolean;
+	/** Tool discovery loading mode: "essential" loads on start, "discoverable" is discovered on demand. */
+	loadMode?: "essential" | "discoverable";
+	/** Short 1-line summary for tool discovery index. */
+	summary?: string;
 	/** If true, tool may stage deferred changes that require explicit resolve/discard. */
 	deferrable?: boolean;
 	/** MCP server name for discovery/search metadata when this tool fronts an MCP server. */

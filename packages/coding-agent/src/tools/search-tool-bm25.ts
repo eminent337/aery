@@ -44,7 +44,7 @@ const searchToolBm25Schema = z.object({
 		.describe(
 			"For select: public name of the product actually chosen. Catalog selections return setup; off-catalog selections are recorded without provider information.",
 		),
-	reason: z.string().min(40).max(2000).optional().describe("Required for select: reason for choosing this tool."),
+	reason: z.string().max(2000).optional().describe("Optional reason for choosing this tool."),
 	suggestion_kind: z.string().optional().describe("Required for suggest: kind of suggestion (e.g. known_product)."),
 	product_name: z.string().optional().describe("Required for suggest: name of the product."),
 	prior_request_id: z.string().optional().describe("Required for suggest: request id from a prior search."),
@@ -259,9 +259,6 @@ export class SearchToolBm25Tool implements AgentTool<typeof searchToolBm25Schema
 		if (action === "select") {
 			if (!params.tool) {
 				throw new ToolError("integration action 'select' requires the chosen `tool` name");
-			}
-			if (!params.reason || params.reason.length < 40) {
-				throw new ToolError("integration action 'select' requires a `reason` of at least 40 characters");
 			}
 			const category = params.category ?? "unknown";
 			const toolName = params.tool.trim();

@@ -11,6 +11,7 @@ import { FermentStore } from "../store.js";
 import type { Ferment } from "../types.js";
 import { showProgressOverlay } from "./progress-overlay.js";
 import { clearActive, getActive, getContinuationPolicy, setActive, setContinuationPolicy } from "./state.js";
+import { FERMENT_ACTIVE_TOOLS } from "./tools/index.js";
 
 /** Create a minimal ferment from a user-provided goal. */
 function createMinimalFerment(goal: string, cwd: string): Ferment {
@@ -156,7 +157,10 @@ export function registerFermentCommands(api: ExtensionAPI): void {
 					const ferment = createMinimalFerment(goal.trim(), ctx.cwd);
 					store.save(ferment);
 					setActive(ferment);
-					// Default to manual policy — user can switch to auto via /ferment auto
+					try {
+						await api.setActiveTools([...new Set([...api.getActiveTools(), ...FERMENT_ACTIVE_TOOLS])]);
+					} catch {}
+					// Default to manual policy - user can switch to auto via /ferment auto
 					ctx.ui.notify(`🍺  Ferment "${ferment.name}" started. Scoping...`, "info");
 					api.sendMessage(
 						{
@@ -260,6 +264,9 @@ Call \`ferment_scope\` NOW. Do not explain — just call it with a complete plan
 						return;
 					}
 					setActive(undefined);
+					try {
+						await api.setActiveTools(api.getActiveTools().filter(t => !FERMENT_ACTIVE_TOOLS.includes(t as any)));
+					} catch {}
 					FermentStore.open().save(result);
 					ctx.ui.notify(`Ferment "${result.name}" abandoned.`, "info");
 					break;

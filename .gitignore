@@ -41,6 +41,8 @@ packages/ai/test/.temp-images/
 # Project specific
 !.aery/
 .aery/plugins/
+.aery/memory/
+.aery/sessions/
 .pi_config/
 .opencode/
 .worktrees/

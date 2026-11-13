@@ -163,6 +163,8 @@ export class ResolveTool implements AgentTool<typeof resolveSchema, ResolveToolD
 	readonly approval = "read" as const;
 	readonly label = "Resolve";
 	readonly hidden = true;
+	readonly loadMode = "discoverable" as const;
+	readonly summary = "Accept or discard pending tool modifications or changes";
 	readonly description: string;
 	readonly parameters = resolveSchema;
 	readonly strict = true;

@@ -9,13 +9,21 @@ import { Settings } from "../../src/config/settings";
 describe("effective discovery mode resolution", () => {
 	function resolveEffectiveMode(settings: Settings): "off" | "mcp-only" | "all" {
 		const toolsMode = settings.get("tools.discoveryMode");
-		if (toolsMode !== "off") return toolsMode as "off" | "mcp-only" | "all";
-		if (settings.get("mcp.discoveryMode")) return "mcp-only";
-		return "off";
+		if (toolsMode === "off") {
+			if (settings.get("mcp.discoveryMode")) return "mcp-only";
+			return "off";
+		}
+		if (toolsMode === "mcp-only") return "mcp-only";
+		return "all";
 	}
 
 	it("tools.discoveryMode=all beats mcp.discoveryMode=false", () => {
 		const s = Settings.isolated({ "tools.discoveryMode": "all", "mcp.discoveryMode": false });
+		expect(resolveEffectiveMode(s)).toBe("all");
+	});
+
+	it("tools.discoveryMode=auto resolves to all", () => {
+		const s = Settings.isolated({ "tools.discoveryMode": "auto" });
 		expect(resolveEffectiveMode(s)).toBe("all");
 	});
 
@@ -24,18 +32,18 @@ describe("effective discovery mode resolution", () => {
 		expect(resolveEffectiveMode(s)).toBe("mcp-only");
 	});
 
-	it("tools.discoveryMode=off + mcp.discoveryMode=true → mcp-only (back-compat alias)", () => {
+	it("tools.discoveryMode=off + mcp.discoveryMode=true -> mcp-only (back-compat alias)", () => {
 		const s = Settings.isolated({ "tools.discoveryMode": "off", "mcp.discoveryMode": true });
 		expect(resolveEffectiveMode(s)).toBe("mcp-only");
 	});
 
-	it("tools.discoveryMode=off + mcp.discoveryMode=false → off", () => {
+	it("tools.discoveryMode=off + mcp.discoveryMode=false -> off", () => {
 		const s = Settings.isolated({ "tools.discoveryMode": "off", "mcp.discoveryMode": false });
 		expect(resolveEffectiveMode(s)).toBe("off");
 	});
 
-	it("default settings → off", () => {
+	it("default settings -> all (auto default)", () => {
 		const s = Settings.isolated({});
-		expect(resolveEffectiveMode(s)).toBe("off");
+		expect(resolveEffectiveMode(s)).toBe("all");
 	});
 });

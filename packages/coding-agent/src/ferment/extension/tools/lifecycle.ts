@@ -66,6 +66,32 @@ function successWithHint(content: string, f: Ferment): AgentToolResult {
 
 // ─── Tool registration ────────────────────────────────────────────────────────
 
+export const FERMENT_ACTIVE_TOOLS: readonly string[] = [
+	"ferment_scope",
+	"ferment_new",
+	"update_ferment_scope_field",
+	"ferment_pause",
+	"ferment_resume",
+	"ferment_complete_ferment",
+	"ferment_abandon",
+	"ferment_rename",
+	"ferment_activate_phase",
+	"ferment_complete_phase",
+	"ferment_skip_phase",
+	"ferment_fail_phase",
+	"ferment_start_step",
+	"ferment_complete_step",
+	"ferment_verify_step",
+	"ferment_skip_step",
+	"ferment_fail_step",
+	"ferment_add_decision",
+	"ferment_add_memory",
+	"ferment_set_step_grade",
+	"ferment_set_phase_grade",
+	"ferment_set_ferment_grade",
+	"ferment_update_step_description",
+] as const;
+
 export function registerLifecycleTools(api: ExtensionAPI): void {
 	const { z } = api.zod;
 
@@ -73,6 +99,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_scope",
 		label: "Ferment Scope",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Define goal, criteria, and phases for active ferment",
 		description:
 			"Define the goal, success criteria, constraints, and phase breakdown for the active ferment. " +
 			"Call this after request_ferment_workflow to plan the work.",
@@ -152,6 +181,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_pause",
 		label: "Ferment Pause",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Pause the active ferment",
 		description: "Pause the active ferment, saving session state.",
 		parameters: z.object({}),
 		async execute(_id, _params, _signal, _onUpdate, _ctx) {
@@ -173,6 +205,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_resume",
 		label: "Ferment Resume",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Resume a paused ferment",
 		description: "Resume a paused ferment.",
 		parameters: z.object({}),
 		async execute(_id, _params, _signal, _onUpdate, _ctx) {
@@ -194,6 +229,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_complete_ferment",
 		label: "Ferment Complete",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Mark the active ferment as complete",
 		description: "Mark the active ferment as complete.",
 		parameters: z.object({
 			finalSummary: z.string().optional().describe("Overall ferment summary"),
@@ -210,6 +248,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 
 				FermentStore.open().save(result);
 				clearActive();
+				try {
+					await api.setActiveTools(api.getActiveTools().filter(t => !FERMENT_ACTIVE_TOOLS.includes(t as any)));
+				} catch {}
 				// Immediately clear widget and footer so UI updates this turn
 				if (_ctx?.ui) {
 					clearProgressWidget(_ctx.ui);
@@ -226,6 +267,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_abandon",
 		label: "Ferment Abandon",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Abandon the active ferment",
 		description: "Abandon the active ferment. Only use when the ferment cannot proceed.",
 		parameters: z.object({
 			reason: z.string().optional().describe("Reason for abandoning"),
@@ -242,6 +286,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 
 				FermentStore.open().save(result);
 				clearActive();
+				try {
+					await api.setActiveTools(api.getActiveTools().filter(t => !FERMENT_ACTIVE_TOOLS.includes(t as any)));
+				} catch {}
 				// Immediately clear widget and footer so UI updates this turn
 				if (_ctx?.ui) {
 					clearProgressWidget(_ctx.ui);
@@ -260,8 +307,11 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_new",
 		label: "Ferment New (deprecated)",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Create a draft ferment (deprecated)",
 		description:
-			"⚠️ DEPRECATED — use request_ferment_workflow instead, which creates the ferment and asks the user for confirmation. " +
+			"⚠️ DEPRECATED - use request_ferment_workflow instead, which creates the ferment and asks the user for confirmation. " +
 			"This tool bypasses user confirmation and should only be used by automation or when request_ferment_workflow is unavailable.",
 		parameters: z.object({
 			goal: z.string().describe("What the ferment should accomplish"),
@@ -300,6 +350,8 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "request_ferment_workflow",
 		label: "Request Ferment Workflow",
+		loadMode: "discoverable",
+		summary: "Request the ferment workflow for substantive multi-step work",
 		description:
 			"Request the ferment workflow for substantive multi-step work. Provide a concise title and the full original user intent. The host asks the user for confirmation before creating the draft. Refuses if another ferment is already active. This is the ONLY recommended way to start a ferment.",
 		parameters: z.object({
@@ -315,7 +367,7 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 			// Refuse if a ferment is already active
 			if (getActive()) {
 				return error(
-					"request_ferment_workflow refused — another ferment is already active. Continue that ferment or ask the user before starting a separate workflow.",
+					"request_ferment_workflow refused - another ferment is already active. Continue that ferment or ask the user before starting a separate workflow.",
 				);
 			}
 
@@ -334,7 +386,7 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 
 			if (!approved) {
 				return error(
-					"request_ferment_workflow cancelled — the user declined. Continue inline or ask only decision-blocking clarification.",
+					"request_ferment_workflow cancelled - the user declined. Continue inline or ask only decision-blocking clarification.",
 				);
 			}
 
@@ -357,6 +409,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 			};
 			FermentStore.open().save(ferment);
 			setActive(ferment);
+			try {
+				await api.setActiveTools([...new Set([...api.getActiveTools(), ...FERMENT_ACTIVE_TOOLS])]);
+			} catch {}
 			return success(`Ferment "${ferment.name}" created. Follow the scoping instructions the host will inject.`);
 		},
 	});
@@ -365,6 +420,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "update_ferment_scope_field",
 		label: "Update Ferment Scope Field",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Update a single scoping field on active ferment",
 		description:
 			"Update a single scoping field (goal, criteria, or constraints) on the active ferment. " +
 			"The ferment must be in 'draft' or 'planned' status.",
@@ -397,6 +455,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_rename",
 		label: "Ferment Rename",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Rename the active ferment",
 		description: "Rename the active ferment.",
 		parameters: z.object({
 			name: z.string().min(1).describe("New name for the ferment"),
@@ -424,7 +485,10 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_set_phase_grade",
 		label: "Ferment Set Phase Grade",
-		description: "Set a grade on a phase (A–F).",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Set grade on a phase (A-F)",
+		description: "Set a grade on a phase (A-F).",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase ID or name"),
 			grade: z.enum(["A", "B", "C", "D", "F"]).describe("Grade to assign"),
@@ -463,7 +527,10 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_set_step_grade",
 		label: "Ferment Set Step Grade",
-		description: "Set a grade on a step (A–F).",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Set grade on a step (A-F)",
+		description: "Set a grade on a step (A-F).",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase ID or name"),
 			stepId: z.string().describe("Step ID or description prefix"),
@@ -509,7 +576,10 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_set_ferment_grade",
 		label: "Ferment Set Ferment Grade",
-		description: "Set a grade on the entire ferment (A–F).",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Set grade on entire ferment (A-F)",
+		description: "Set a grade on the entire ferment (A-F).",
 		parameters: z.object({
 			grade: z.enum(["A", "B", "C", "D", "F"]).describe("Grade to assign"),
 			rationale: z.string().optional().describe("Optional rationale for the grade"),
@@ -541,6 +611,9 @@ export function registerLifecycleTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_update_step_description",
 		label: "Ferment Update Step Description",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Update description of a ferment step",
 		description: "Update the description of a step in the active ferment.",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase ID or name"),

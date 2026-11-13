@@ -84,6 +84,9 @@ export function registerStepTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_start_step",
 		label: "Ferment Start Step",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Mark a ferment step as running",
 		description: "Mark a step as running. Accepts phase name and step description or ID.",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase name or ID"),
@@ -121,6 +124,9 @@ export function registerStepTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_complete_step",
 		label: "Ferment Complete Step",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Mark a ferment step as complete",
 		description: "Mark a step as complete (done, not verified). Accepts phase name and step description or ID.",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase name or ID"),
@@ -172,6 +178,9 @@ export function registerStepTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_verify_step",
 		label: "Ferment Verify Step",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Record verification result for a ferment step",
 		description:
 			"Record a verification result for a step. Pass result.success=true for verified, " +
 			"result.success=false for done (verification failed).",
@@ -213,7 +222,7 @@ export function registerStepTools(api: ExtensionAPI): void {
 				const phase = result.phases.find(p => p.id === pid);
 				const step = phase?.steps.find(s => s.id === sid);
 				const status = step?.status === "verified" ? "verified" : "done (verification failed)";
-				const msg = step ? `Step ${step.index} "${step.description}" — ${status}.` : `Verification recorded.`;
+				const msg = step ? `Step ${step.index} "${step.description}" - ${status}.` : `Verification recorded.`;
 				return successWithHint(msg, result);
 			} catch (err) {
 				return errorWithRecovery(String(err));
@@ -225,6 +234,9 @@ export function registerStepTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_skip_step",
 		label: "Ferment Skip Step",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Skip a ferment step",
 		description: "Skip a step. Accepts phase name and step description or ID.",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase name or ID"),
@@ -262,6 +274,9 @@ export function registerStepTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_fail_step",
 		label: "Ferment Fail Step",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Mark a ferment step as failed",
 		description: "Mark a step as failed. Accepts phase name and step description or ID.",
 		parameters: z.object({
 			phaseId: z.string().describe("Phase name or ID"),

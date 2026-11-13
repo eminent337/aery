@@ -459,6 +459,8 @@ function buildVideoSummary(
 export const videoGenTool: CustomTool<typeof videoGenSchema, VideoGenToolDetails> = {
 	name: "generate_video",
 	label: "GenerateVideo",
+	loadMode: "discoverable" as const,
+	summary: "Generate videos from text descriptions or images",
 	strict: false,
 	approval: "write",
 	description: [

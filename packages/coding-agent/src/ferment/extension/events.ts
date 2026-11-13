@@ -27,6 +27,7 @@ import {
 	resetTurnCount,
 	setActive,
 } from "./state.js";
+import { FERMENT_ACTIVE_TOOLS } from "./tools/index.js";
 
 /**
  * Register all ferment event handlers on the ExtensionAPI.
@@ -49,6 +50,9 @@ export function registerFermentEvents(
 		const persisted = store.get(activeId) as Ferment | null;
 		if (persisted) {
 			setActive(persisted);
+			try {
+				await api.setActiveTools([...new Set([...api.getActiveTools(), ...FERMENT_ACTIVE_TOOLS])]);
+			} catch {}
 		}
 	});
 

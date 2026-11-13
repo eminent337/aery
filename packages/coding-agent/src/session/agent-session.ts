@@ -3755,9 +3755,13 @@ export class AgentSession {
 	/** Resolve effective discovery mode: tools.discoveryMode wins; mcp.discoveryMode is back-compat alias. */
 	#resolveEffectiveDiscoveryMode(): "off" | "mcp-only" | "all" {
 		const toolsMode = this.settings.get("tools.discoveryMode");
-		if (toolsMode !== "off") return toolsMode as "off" | "mcp-only" | "all";
-		if (this.settings.get("mcp.discoveryMode")) return "mcp-only";
-		return "off";
+		if (toolsMode === "off") {
+			if (this.model?.contextWindow && this.model.contextWindow <= 64_000) return "all";
+			if (this.settings.get("mcp.discoveryMode")) return "mcp-only";
+			return "off";
+		}
+		if (toolsMode === "mcp-only") return "mcp-only";
+		return "all";
 	}
 
 	isToolDiscoveryEnabled(): boolean {

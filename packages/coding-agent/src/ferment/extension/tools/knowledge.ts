@@ -37,6 +37,9 @@ export function registerKnowledgeTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_add_decision",
 		label: "Add Decision",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Record an architectural decision for the active ferment",
 		description: "Record an architectural or design decision for the active ferment.",
 		parameters: z.object({
 			title: z.string().describe("Short decision title"),
@@ -68,6 +71,9 @@ export function registerKnowledgeTools(api: ExtensionAPI): void {
 	api.registerTool({
 		name: "ferment_add_memory",
 		label: "Add Memory",
+		defaultInactive: true,
+		loadMode: "discoverable",
+		summary: "Record knowledge or architecture note for the active ferment",
 		description: "Record a pattern, convention, gotcha, architecture note, or preference for the active ferment.",
 		parameters: z.object({
 			category: z

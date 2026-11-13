@@ -641,6 +641,20 @@ export function computeEssentialBuiltinNames(settings: Settings): string[] {
 	return [...DEFAULT_ESSENTIAL_TOOL_NAMES];
 }
 
+function createAliasTool(aliasName: string, factory: ToolFactory): ToolFactory {
+	return async (s: ToolSession) => {
+		const tool = await factory(s);
+		if (!tool) return null;
+		if (tool.name === aliasName) return tool;
+		return new Proxy(tool, {
+			get(target, prop, receiver) {
+				if (prop === "name") return aliasName;
+				return Reflect.get(target, prop, receiver);
+			},
+		});
+	};
+}
+
 /**
  * Public callable factory map. External callers may invoke `BUILTIN_TOOLS.read(session)` or
  * `BUILTIN_TOOLS[name](session)` to construct a tool directly.
@@ -713,10 +727,10 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	list_apps: ListAppsTool.createIf,
 	close_app: CloseAppTool.createIf,
 	gemini_computer_use: GeminiComputerUseTool.createIf,
-	computer_use: GeminiComputerUseTool.createIf,
+	computer_use: createAliasTool("computer_use", GeminiComputerUseTool.createIf),
 	desktop_accessibility: DesktopAccessibilityTool.createIf,
-	agent_desktop: DesktopAccessibilityTool.createIf,
-	desktop_tree: DesktopAccessibilityTool.createIf,
+	agent_desktop: createAliasTool("agent_desktop", DesktopAccessibilityTool.createIf),
+	desktop_tree: createAliasTool("desktop_tree", DesktopAccessibilityTool.createIf),
 	voice_control: VoiceControlTool.createIf,
 	camera_control: CameraControlTool.createIf,
 	search_context: SearchContextTool.createIf,
@@ -882,12 +896,20 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 	// Resolve effective tool discovery mode.
 	// tools.discoveryMode takes precedence; mcp.discoveryMode is a back-compat alias for "mcp-only".
 	const toolsDiscoveryMode = session.settings.get("tools.discoveryMode");
-	const effectiveDiscoveryMode: "off" | "mcp-only" | "all" =
-		toolsDiscoveryMode !== "off"
-			? (toolsDiscoveryMode as "off" | "mcp-only" | "all")
-			: session.settings.get("mcp.discoveryMode")
-				? "mcp-only"
-				: "off";
+	let effectiveDiscoveryMode: "off" | "mcp-only" | "all";
+	if (toolsDiscoveryMode === "off") {
+		const contextWindow = session.getContextUsage?.()?.contextWindow;
+		if (contextWindow && contextWindow <= 64_000) {
+			effectiveDiscoveryMode = "all";
+		} else {
+			effectiveDiscoveryMode = session.settings.get("mcp.discoveryMode") ? "mcp-only" : "off";
+		}
+	} else if (toolsDiscoveryMode === "mcp-only") {
+		effectiveDiscoveryMode = "mcp-only";
+	} else {
+		// "auto" or "all"
+		effectiveDiscoveryMode = "all";
+	}
 	const discoveryActive = effectiveDiscoveryMode !== "off";
 
 	const allTools: Record<string, ToolFactory> = { ...BUILTIN_TOOLS, ...HIDDEN_TOOLS };
