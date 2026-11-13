@@ -3,6 +3,8 @@ import * as fsp from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { getBundledModel } from "@aryee337/aery-ai/models";
+import { sanitizeMemoryContent } from "../../src/hindsight/content";
+import { extractMessages } from "../../src/hindsight/transcript";
 import { loadEntriesFromFile, SessionManager } from "../../src/session/session-manager";
 import { MemorySessionStorage } from "../../src/session/session-storage";
 
@@ -269,5 +271,103 @@ describe("large session memory guards", () => {
 
 		expect(sessions).toHaveLength(1);
 		expect(sessions[0]?.firstMessage).toBe("Plan fork context");
+	});
+
+	it("elides historical tool result screenshot images on load while keeping recent ones", async () => {
+		const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), "aery-tool-elision-"));
+		tempDirs.push(tempDir);
+		const sessionFile = path.join(tempDir, "session-with-shots.jsonl");
+
+		const bigBase64_1 = "A".repeat(500);
+		const bigBase64_2 = "B".repeat(500);
+		const bigBase64_3 = "C".repeat(500);
+
+		const lines = [
+			{ type: "session", version: 3, id: "sess-shots", timestamp: "2026-01-01T00:00:00.000Z", cwd: tempDir },
+			{
+				type: "message",
+				id: "m1",
+				parentId: null,
+				timestamp: "2026-01-01T00:00:01.000Z",
+				message: {
+					role: "toolResult",
+					toolCallId: "call-1",
+					toolName: "desktop_control",
+					content: [{ type: "text", text: "Screenshot captured" }],
+					details: { action: "screenshot", base64: bigBase64_1 },
+				},
+			},
+			{
+				type: "message",
+				id: "m2",
+				parentId: "m1",
+				timestamp: "2026-01-01T00:00:02.000Z",
+				message: {
+					role: "toolResult",
+					toolCallId: "call-2",
+					toolName: "desktop_control",
+					content: [{ type: "text", text: "Screenshot 2 captured" }],
+					details: { action: "screenshot", base64: bigBase64_2 },
+				},
+			},
+			{
+				type: "message",
+				id: "m3",
+				parentId: "m2",
+				timestamp: "2026-01-01T00:00:03.000Z",
+				message: {
+					role: "toolResult",
+					toolCallId: "call-3",
+					toolName: "desktop_control",
+					content: [{ type: "text", text: "Screenshot 3 captured" }],
+					details: { action: "screenshot", base64: bigBase64_3 },
+				},
+			},
+		].map(entry => `${JSON.stringify(entry)}\n`);
+		await fsp.writeFile(sessionFile, lines.join(""));
+
+		const entries = await loadEntriesFromFile(sessionFile);
+		expect(entries).toHaveLength(4);
+
+		const m1 = (entries[1] as any).message;
+		const m2 = (entries[2] as any).message;
+		const m3 = (entries[3] as any).message;
+
+		// The oldest one (m1) should be elided
+		expect(m1.details.base64).toBe("[historical screenshot omitted]");
+		// The 2 most recent ones (m2 and m3) should be preserved
+		expect(m2.details.base64).toBe(bigBase64_2);
+		expect(m3.details.base64).toBe(bigBase64_3);
+	});
+
+	it("sanitizes memory content and strips large base64 image blobs", () => {
+		const rawText = "User asked for help with a screenshot: data:image/png;base64," + "X".repeat(200);
+		const sanitized = sanitizeMemoryContent(rawText);
+		expect(sanitized).toBe("User asked for help with a screenshot: [image omitted]");
+
+		const jsonDump = '{"status": "ok", "base64": "' + "Y".repeat(200) + '"}';
+		const sanitizedJson = sanitizeMemoryContent(jsonDump);
+		expect(sanitizedJson).toBe('{"status": "ok", "base64": "[image omitted]"}');
+	});
+
+	it("extracts only requested recent turns with reverse scanning", () => {
+		const fakeSessionManager = {
+			getEntries: () => [
+				{ type: "message", message: { role: "user", content: "turn 1" } },
+				{ type: "message", message: makeAssistantMessage("reply 1") },
+				{ type: "message", message: { role: "user", content: "turn 2" } },
+				{ type: "message", message: makeAssistantMessage("reply 2") },
+				{ type: "message", message: { role: "user", content: "turn 3" } },
+				{ type: "message", message: makeAssistantMessage("reply 3") },
+			],
+		};
+
+		// Request only the last 2 turns
+		const extracted = extractMessages(fakeSessionManager as any, 2);
+		expect(extracted).toHaveLength(4);
+		expect(extracted[0]?.content).toBe("turn 2");
+		expect(extracted[1]?.content).toBe("reply 2");
+		expect(extracted[2]?.content).toBe("turn 3");
+		expect(extracted[3]?.content).toBe("reply 3");
 	});
 });

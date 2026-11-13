@@ -908,6 +908,44 @@ function elideSupersededCompactionEntries(entries: FileEntry[]): void {
 	}
 }
 
+/**
+ * Elides heavy base64 screenshot image payloads from historical tool results on load.
+ * Keeps the most recent 2 tool image results intact; older images are replaced with a lightweight tombstone.
+ */
+function elideHistoricalToolImages(entries: FileEntry[], keepCount = 2): void {
+	const imageIndices: number[] = [];
+	for (let i = 0; i < entries.length; i++) {
+		const entry = entries[i];
+		if ((entry as any).type !== "message") continue;
+		const msg = (entry as any).message;
+		if (!msg || msg.role !== "toolResult") continue;
+		const details = msg.details;
+		if (details && (typeof details.base64 === "string" || typeof details.image === "string")) {
+			imageIndices.push(i);
+		}
+	}
+
+	const toElide = imageIndices.slice(0, Math.max(0, imageIndices.length - keepCount));
+	for (const idx of toElide) {
+		const msg = (entries[idx] as any).message;
+		if (msg?.details) {
+			if (typeof msg.details.base64 === "string" && msg.details.base64.length > 100) {
+				msg.details.base64 = "[historical screenshot omitted]";
+			}
+			if (typeof msg.details.image === "string" && msg.details.image.length > 100) {
+				msg.details.image = "[historical screenshot omitted]";
+			}
+		}
+		if (Array.isArray(msg?.content)) {
+			for (const block of msg.content) {
+				if (block?.type === "image" && typeof block?.data === "string" && block.data.length > 100) {
+					block.data = "";
+				}
+			}
+		}
+	}
+}
+
 async function loadEntriesFromFileStream(filePath: string): Promise<FileEntry[]> {
 	const entries: FileEntry[] = [];
 	let sawBodyLine = false;
@@ -955,6 +993,7 @@ export async function loadEntriesFromFile(
 		throw err;
 	}
 	elideSupersededCompactionEntries(entries);
+	elideHistoricalToolImages(entries);
 
 	// Validate session header
 	if (entries.length === 0) return entries;

@@ -7,6 +7,7 @@ import {
 	composeRecallQuery,
 	formatCurrentTime,
 	prepareRetentionTranscript,
+	sliceLastTurnsByUserBoundary,
 	truncateRecallQuery,
 } from "../hindsight/content";
 import { extractMessages } from "../hindsight/transcript";
@@ -251,7 +252,7 @@ export class MnemopiSessionState {
 		if (!this.config.autoRecall || this.hasRecalledForFirstTurn) return undefined;
 		const latestPrompt = promptText.trim();
 		if (!latestPrompt) return undefined;
-		const history = extractMessages(this.session.sessionManager);
+		const history = extractMessages(this.session.sessionManager, this.config.recallContextTurns);
 		const queryMessages = [...history, { role: "user" as const, content: latestPrompt }];
 		const query = composeRecallQuery(latestPrompt, queryMessages, this.config.recallContextTurns);
 		const truncated = truncateRecallQuery(query, latestPrompt, this.config.recallMaxQueryChars);
@@ -276,7 +277,9 @@ export class MnemopiSessionState {
 		const flat = extractMessages(this.session.sessionManager);
 		const userTurns = flat.filter(message => message.role === "user").length;
 		if (userTurns - this.lastRetainedTurn < this.config.retainEveryNTurns) return;
-		await this.retainMessages(flat, `${this.sessionId}-${Date.now()}`);
+		const turnsToRetain = userTurns - this.lastRetainedTurn;
+		const newMessages = sliceLastTurnsByUserBoundary(flat, turnsToRetain);
+		await this.retainMessages(newMessages, `${this.sessionId}-${Date.now()}`);
 		this.lastRetainedTurn = userTurns;
 	}
 
@@ -320,7 +323,7 @@ export class MnemopiSessionState {
 
 	async maybeRecallOnAgentStart(): Promise<void> {
 		if (!this.config.autoRecall || this.hasRecalledForFirstTurn) return;
-		const messages = extractMessages(this.session.sessionManager);
+		const messages = extractMessages(this.session.sessionManager, this.config.recallContextTurns);
 		const lastUser = messages.findLast(message => message.role === "user");
 		if (!lastUser) return;
 		const query = composeRecallQuery(lastUser.content, messages, this.config.recallContextTurns);

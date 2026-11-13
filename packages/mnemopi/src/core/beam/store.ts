@@ -249,6 +249,9 @@ function rowToDict(row: Row): Row {
 }
 
 export function remember(beam: BeamMemoryState, content: string, options: StoreRememberOptions = {}): string {
+	if (content.length > 50_000) {
+		content = content.slice(0, 50_000) + "\n[content truncated for memory safety]";
+	}
 	const source = options.source ?? "conversation";
 	const importance = options.importance ?? 0.5;
 	const timestamp = options.timestamp ?? toUtcIso();
@@ -367,7 +370,11 @@ export function rememberBatch(
 		`);
 		for (const item of items) {
 			const itemTimestamp = item.timestamp ?? timestamp;
-			const memoryId = generateId(item.content, new Date(itemTimestamp));
+			let itemContent = item.content;
+			if (itemContent.length > 50_000) {
+				itemContent = itemContent.slice(0, 50_000) + "\n[content truncated for memory safety]";
+			}
+			const memoryId = generateId(itemContent, new Date(itemTimestamp));
 			ids.push(memoryId);
 			const source = item.source ?? "conversation";
 			const storeItem = item as StoreRememberOptions;
@@ -378,7 +385,7 @@ export function rememberBatch(
 					: defaultVeracity;
 			statement.run(
 				memoryId,
-				item.content,
+				itemContent,
 				source,
 				itemTimestamp,
 				beam.sessionId,

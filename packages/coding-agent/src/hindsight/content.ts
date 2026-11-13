@@ -30,7 +30,7 @@ const MENTAL_MODELS_REGEX = /<mental_models>[\s\S]*?<\/mental_models>/g;
  *
  * Both `<memories>` (per-turn recall) and `<mental_models>` (curated semantic
  * memory) are injected into the system prompt. If either leaks into the
- * retention transcript, every retain becomes a tighter feedback loop —
+ * retention transcript, every retain becomes a tighter feedback loop -
  * paraphrased memories feed the next consolidation, which feeds the next
  * mental-model refresh, which feeds the next retain. Always strip before
  * retaining.
@@ -41,6 +41,15 @@ export function stripMemoryTags(content: string): string {
 		.replace(MENTAL_MODELS_REGEX, "")
 		.replace(LEGACY_HINDSIGHT_MEMORIES_REGEX, "")
 		.replace(LEGACY_RELEVANT_MEMORIES_REGEX, "");
+}
+
+/**
+ * Sanitize text for memory retention by stripping tags and large base64 image payloads.
+ */
+export function sanitizeMemoryContent(content: string): string {
+	return stripMemoryTags(content)
+		.replace(/data:image\/[a-zA-Z+]+;base64,[A-Za-z0-9+/=\s]{50,}/g, "[image omitted]")
+		.replace(/"base64":\s*"[A-Za-z0-9+/=\s]{50,}"/g, '"base64": "[image omitted]"');
 }
 
 /** Format recall results into a bullet list for context injection. */
@@ -196,8 +205,11 @@ export function prepareRetentionTranscript(
 
 	const parts: string[] = [];
 	for (const msg of targetMessages) {
-		const content = stripMemoryTags(msg.content).trim();
+		let content = sanitizeMemoryContent(msg.content).trim();
 		if (!content) continue;
+		if (content.length > 15_000) {
+			content = content.slice(0, 15_000) + "\n[content truncated for memory safety]";
+		}
 		parts.push(`[role: ${msg.role}]\n${content}\n[${msg.role}:end]`);
 	}
 
