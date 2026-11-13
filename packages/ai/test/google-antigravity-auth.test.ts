@@ -19,6 +19,13 @@ describe("google-gemini-cli credential parsing", () => {
 		expect(result.projectId).toBe("default-cli-project");
 	});
 
+	it("parses raw AQ. format API key without requiring JSON envelope", () => {
+		const rawKey = "AQ.MockApiKeyForUnitTesting987654321";
+		const result = parseGeminiCliCredentials(rawKey);
+		expect(result.accessToken).toBe(rawKey);
+		expect(result.projectId).toBe("default-cli-project");
+	});
+
 	it("parses raw bearer token string without requiring JSON envelope", () => {
 		const rawToken = "ya29.a0AehfTOlBHby5nnE200EkrF4XKyD";
 		const result = parseGeminiCliCredentials(rawToken);
