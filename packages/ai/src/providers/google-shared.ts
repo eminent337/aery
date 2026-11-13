@@ -679,14 +679,15 @@ export function buildGoogleGenerateContentParams<T extends "google-generative-ai
 	const systemPrompts = normalizeSystemPrompts(context.systemPrompt);
 	const contents = convertMessages(model, context);
 
+	const isGemini36 = model.id.includes("gemini-3.6");
 	const generationConfig: GoogleGenerationConfig = {};
-	if (options.temperature !== undefined) generationConfig.temperature = options.temperature;
+	if (options.temperature !== undefined && !isGemini36) generationConfig.temperature = options.temperature;
 	if (options.maxTokens !== undefined) generationConfig.maxOutputTokens = options.maxTokens;
-	if (options.topP !== undefined) generationConfig.topP = options.topP;
-	if (options.topK !== undefined) generationConfig.topK = options.topK;
-	if (options.minP !== undefined) generationConfig.minP = options.minP;
-	if (options.presencePenalty !== undefined) generationConfig.presencePenalty = options.presencePenalty;
-	if (options.repetitionPenalty !== undefined) generationConfig.repetitionPenalty = options.repetitionPenalty;
+	if (options.topP !== undefined && !isGemini36) generationConfig.topP = options.topP;
+	if (options.topK !== undefined && !isGemini36) generationConfig.topK = options.topK;
+	if (options.minP !== undefined && !isGemini36) generationConfig.minP = options.minP;
+	if (options.presencePenalty !== undefined && !isGemini36) generationConfig.presencePenalty = options.presencePenalty;
+	if (options.repetitionPenalty !== undefined && !isGemini36) generationConfig.repetitionPenalty = options.repetitionPenalty;
 
 	const config: GenerateContentConfig = {
 		...(Object.keys(generationConfig).length > 0 && generationConfig),

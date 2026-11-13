@@ -8035,31 +8035,6 @@
         "maxLevel": "high"
       }
     },
-    "gemini-3.6-flash": {
-      "id": "gemini-3.6-flash",
-      "name": "Gemini 3.6 Flash",
-      "api": "google-gemini-cli",
-      "provider": "google-antigravity",
-      "baseUrl": "https://cloudcode-pa.googleapis.com",
-      "reasoning": true,
-      "input": [
-        "text",
-        "image"
-      ],
-      "cost": {
-        "input": 0,
-        "output": 0,
-        "cacheRead": 0,
-        "cacheWrite": 0
-      },
-      "contextWindow": 1048576,
-      "maxTokens": 65536,
-      "thinking": {
-        "mode": "google-level",
-        "minLevel": "minimal",
-        "maxLevel": "high"
-      }
-    },
     "gemini-3.8-flash": {
       "id": "gemini-3.8-flash",
       "name": "Gemini 3.8 Flash",
