@@ -377,6 +377,50 @@ describe("shouldCompact", () => {
 			expect(shouldCompact(expectedStandard12Pct - 1, standard1M, settings, "gemini-2.5-flash-lite")).toBe(false);
 		});
 
+		it("should enforce 85% compaction threshold for all non-gemini models below 1M context window", () => {
+			const settings: CompactionSettings = {
+				enabled: true,
+				reserveTokens: 16384,
+				keepRecentTokens: 20000,
+				tierAware: true,
+			};
+
+			// Claude Haiku (200k window) -> 85% = 170,000
+			expect(resolveThresholdTokens(200_000, settings, "claude-3-5-haiku")).toBe(170_000);
+			expect(resolveThresholdTokens(200_000, settings, "claude-haiku-4-5")).toBe(170_000);
+
+			// Claude Sonnet / Opus (200k window) -> 85% = 170,000
+			expect(resolveThresholdTokens(200_000, settings, "claude-sonnet-4-5")).toBe(170_000);
+			expect(resolveThresholdTokens(200_000, settings, "claude-opus-4-6")).toBe(170_000);
+
+			// Claude Antigravity (250k window) -> 85% = 212,500
+			expect(resolveThresholdTokens(250_000, settings, "claude-sonnet-4-6")).toBe(212_500);
+
+			// OpenAI Codex (400k window) -> 85% = 340,000
+			expect(resolveThresholdTokens(400_000, settings, "gpt-5.4")).toBe(340_000);
+			expect(resolveThresholdTokens(400_000, settings, "gpt-5.3-codex")).toBe(340_000);
+
+			// GPT-4o / GPT-4o-mini (128k window) -> 85% = 108,800
+			expect(resolveThresholdTokens(128_000, settings, "gpt-4o")).toBe(108_800);
+			expect(resolveThresholdTokens(128_000, settings, "gpt-4o-mini")).toBe(108_800);
+
+			// o1 / o3-mini (200k window) -> 85% = 170,000
+			expect(resolveThresholdTokens(200_000, settings, "o1")).toBe(170_000);
+			expect(resolveThresholdTokens(200_000, settings, "o3-mini")).toBe(170_000);
+
+			// DeepSeek / GLM (128k window) -> 85% = 108,800
+			expect(resolveThresholdTokens(128_000, settings, "deepseek-chat")).toBe(108_800);
+			expect(resolveThresholdTokens(128_000, settings, "deepseek-reasoner")).toBe(108_800);
+			expect(resolveThresholdTokens(128_000, settings, "glm-4.7")).toBe(108_800);
+
+			// Kimi K2 (200k window) -> 85% = 170,000
+			expect(resolveThresholdTokens(200_000, settings, "kimi-k2")).toBe(170_000);
+
+			// Test trigger boundary
+			expect(shouldCompact(170_001, 200_000, settings, "claude-3-5-haiku")).toBe(true);
+			expect(shouldCompact(169_999, 200_000, settings, "claude-3-5-haiku")).toBe(false);
+		});
+
 		it("should allow disabling max threshold ceiling with maxThresholdTokens: -1", () => {
 			const settings: CompactionSettings = {
 				enabled: true,

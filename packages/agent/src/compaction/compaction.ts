@@ -176,6 +176,19 @@ export function isGeminiTwelvePercentModel(modelIdOrName?: string): boolean {
 }
 
 /**
+ * Check if the model belongs to the Gemini family.
+ */
+export function isGeminiModel(modelIdOrName?: string): boolean {
+	if (!modelIdOrName) return false;
+	const lower = modelIdOrName.toLowerCase();
+	return (
+		lower.includes("gemini") ||
+		lower.includes("flash-lite") ||
+		lower.includes("flash_lite")
+	);
+}
+
+/**
  * Detect model tier for smart compaction thresholds (ported from agy).
  */
 export function detectCompactionModelTier(modelIdOrName?: string): CompactionModelTier {
@@ -348,6 +361,16 @@ export function resolveThresholdTokens(
 			effectiveCeiling = explicitMaxThreshold !== undefined
 				? Math.min(explicitMaxThreshold, twelvePercent)
 				: twelvePercent;
+		} else if (!isGeminiModel(modelIdOrName) && contextWindow < 1_000_000) {
+			// With the exception of Gemini models, all models below 1M context window compact at 85%
+			// (or the user-configured thresholdPercent if explicitly specified).
+			const targetPercent =
+				typeof thresholdPercent === "number" && Number.isFinite(thresholdPercent) && thresholdPercent > 0
+					? baseThreshold
+					: Math.floor(contextWindow * 0.85);
+			effectiveCeiling = explicitMaxThreshold !== undefined
+				? Math.min(explicitMaxThreshold, targetPercent)
+				: targetPercent;
 		} else {
 			const tier = detectCompactionModelTier(modelIdOrName);
 			effectiveCeiling = explicitMaxThreshold !== undefined
