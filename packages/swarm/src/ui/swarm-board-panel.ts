@@ -22,20 +22,20 @@ export class SwarmBoardPanel {
 		for (let i = 0; i < maxRows; i++) {
 			const member = members[i];
 			const memberCol = member
-				? `[${member.state.toUpperCase().slice(0, 4)}] ${member.name.padEnd(10)}`
+				? `[${member.state.toUpperCase().slice(0, 4)}] ${member.name.slice(0, 10).padEnd(10)}`
 				: " ".repeat(17);
 
 			const msg = messages[i];
 			const feedCol = msg
-				? `#${String(msg.seq).padStart(2)} @${msg.from.padEnd(8)}: ${msg.content.slice(0, 16).padEnd(16)}`
+				? `#${String(msg.seq).padStart(2)} @${msg.from.slice(0, 8).padEnd(8)}: ${msg.content.slice(0, 16).padEnd(16)}`
 				: " ".repeat(30);
 
 			const selectedMsg = messages[this.selectedIndex];
 			const detailCol =
 				i === 0 && selectedMsg
-					? `From: @${selectedMsg.from} (seq #${selectedMsg.seq})`
+					? `From: @${selectedMsg.from} (seq #${selectedMsg.seq})`.slice(0, Math.max(10, width - 56))
 					: i === 1 && selectedMsg
-						? selectedMsg.content.slice(0, width - 55)
+						? selectedMsg.content.slice(0, Math.max(10, width - 56))
 						: "";
 
 			lines.push(
@@ -49,7 +49,8 @@ export class SwarmBoardPanel {
 
 	public selectNext(): void {
 		const total = this.store.readMessages().length;
-		if (this.selectedIndex < total - 1) {
+		const limit = Math.min(total, 50);
+		if (this.selectedIndex < limit - 1) {
 			this.selectedIndex++;
 		}
 	}
