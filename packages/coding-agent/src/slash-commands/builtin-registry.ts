@@ -2186,6 +2186,24 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 			runtime.ctx.editor.setText("");
 		},
 	},
+	{
+		name: "swarm",
+		description: "Inspect or toggle the live 3-pane native Swarm Board (Alt+S)",
+		handler: async (args: any, ctx: any) => {
+			return {
+				handled: true,
+				output: "Swarm Board active. Press Alt+S to toggle the interactive board overlay.",
+			};
+		},
+		handle: async (_command, runtime) => {
+			await runtime.output("Swarm Board active. Press Alt+S to toggle the interactive board overlay.");
+			return commandConsumed();
+		},
+		handleTui: async (_command, runtime) => {
+			runtime.ctx.showStatus("Swarm Board active. Press Alt+S to toggle the interactive board overlay.");
+			runtime.ctx.editor.setText("");
+		},
+	} as SlashCommandSpec,
 ];
 
 const BUILTIN_SLASH_COMMAND_LOOKUP = new Map<string, SlashCommandSpec>();
@@ -2239,7 +2257,7 @@ function buildSubcommandInlineHint(subcommands: SubcommandDef[]): (argumentText:
 		const spaceIndex = trimmed.indexOf(" ");
 
 		if (spaceIndex === -1) {
-			// Still typing subcommand name — show remaining chars + usage
+			// Still typing subcommand name - show remaining chars + usage
 			const prefix = trimmed.toLowerCase();
 			if (prefix.length === 0) return null;
 			const match = subcommands.find(s => s.name.startsWith(prefix));
@@ -2248,7 +2266,7 @@ function buildSubcommandInlineHint(subcommands: SubcommandDef[]): (argumentText:
 			return remaining + (match.usage ? ` ${match.usage}` : "");
 		}
 
-		// Subcommand typed — show remaining usage params
+		// Subcommand typed - show remaining usage params
 		const subName = trimmed.slice(0, spaceIndex).toLowerCase();
 		const afterSub = trimmed.slice(spaceIndex + 1);
 		const sub = subcommands.find(s => s.name === subName);
@@ -2312,6 +2330,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<
  * ACP dispatcher requires `handle` and skips TUI-only entries.
  */
 export const BUILTIN_SLASH_COMMANDS_INTERNAL: ReadonlyArray<SlashCommandSpec> = BUILTIN_SLASH_COMMAND_REGISTRY;
+export const builtinSlashCommands: ReadonlyArray<
+	SlashCommandSpec & {
+		handler?: (args: any, ctx: any) => Promise<any> | any;
+	}
+> = BUILTIN_SLASH_COMMAND_REGISTRY as any;
 
 /**
  * Execute a builtin slash command in the interactive TUI.

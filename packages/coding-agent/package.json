@@ -50,6 +50,7 @@
     "@aryee337/aery-mnemopi": "workspace:*",
     "@aryee337/aery-sdk": "workspace:*",
     "@aryee337/aery-stats": "workspace:*",
+    "@aryee337/aery-swarm": "workspace:*",
     "@aryee337/aery-tui": "workspace:*",
     "@aryee337/aery-utils": "workspace:*",
     "@aryee337/hashline": "workspace:*",
