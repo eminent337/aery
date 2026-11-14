@@ -382,7 +382,7 @@ export interface BuildSystemPromptOptions {
 	mcpDiscoveryServerSummaries?: string[];
 	/** Encourage the agent to delegate via tasks unless changes are trivial. */
 	eagerTasks?: boolean;
-	/** Rules with alwaysApply=true — their full content is injected into the prompt. */
+	/** Rules with alwaysApply=true - their full content is injected into the prompt. */
 	alwaysApplyRules?: AlwaysApplyRule[];
 	/** Whether secret obfuscation is active. When true, explains the redaction format in the prompt. */
 	secretsEnabled?: boolean;
@@ -419,7 +419,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 		intentField,
 		mcpDiscoveryMode = false,
 		mcpDiscoveryServerSummaries = [],
-		eagerTasks = false,
+		eagerTasks = true,
 		secretsEnabled = false,
 		workspaceTree: providedWorkspaceTree,
 		memoryRootEnabled = false,
