@@ -4,4 +4,6 @@ export * from "./store/member-registry";
 export * from "./wake/wake-engine";
 export * from "./wake/park-guard";
 export * from "./workspace/worktree-manager";
+export * from "./supervisor/quota-handler";
+export * from "./supervisor/stall-monitor";
 
