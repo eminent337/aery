@@ -1,5 +1,5 @@
 /**
- * WriteFileTool — Ported from Google Antigravity (agy).
+ * WriteFileTool - Ported from Google Antigravity (agy).
  *
  * Direct agy-compatible file creation and append tool matching `write_file`:
  * - Path: target file path
@@ -10,9 +10,8 @@
  */
 
 import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import * as z from "zod/v4";
 import type { AgentTool, AgentToolContext, AgentToolResult } from "@aryee337/aery-core";
+import * as z from "zod/v4";
 import type { ToolSession } from "./index";
 import { resolvePlanPath } from "./plan-mode-guard";
 import { ToolError } from "./tool-errors";
@@ -83,7 +82,6 @@ export class WriteFileTool implements AgentTool<typeof writeFileSchema, WriteToo
 			throw new ToolError("Content is required for write_file.");
 		}
 
-		const cwd = this.session.cwd ?? process.cwd();
 		const absolutePath = resolvePlanPath(this.session, filePath);
 
 		// Check if file exists when overwrite is explicitly disallowed
@@ -107,6 +105,12 @@ export class WriteFileTool implements AgentTool<typeof writeFileSchema, WriteToo
 				const existing = await fs.readFile(absolutePath, "utf-8");
 				finalContent = existing + content;
 			} catch {}
+		}
+
+		// AGY 1.5.3: Ensure PowerShell scripts (.ps1, .psm1, .psd1) with non-ASCII text have UTF-8 BOM
+		const isPs = /\.(ps1|psm1|psd1)$/i.test(absolutePath);
+		if (isPs && /[^\x00-\x7F]/.test(finalContent) && !finalContent.startsWith("\uFEFF")) {
+			finalContent = `\uFEFF${finalContent}`;
 		}
 
 		const writeTool = new WriteTool(this.session);

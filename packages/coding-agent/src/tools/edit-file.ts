@@ -1,5 +1,5 @@
 /**
- * EditFileTool — Fast Exact String Replacement Tool.
+ * EditFileTool - Fast Exact String Replacement Tool.
  *
  * Ported from Google Antigravity (agy). Performs sub-millisecond exact string
  * replacement (Target -> Replacement) with zero AST or hashing overhead.
@@ -99,6 +99,9 @@ export class EditFileTool implements AgentTool<typeof editFileSchema> {
 		const absolutePath = this.session ? resolvePlanPath(this.session, filePath) : path.resolve(cwd, filePath);
 
 		try {
+			const rawBuf = await Bun.file(absolutePath).arrayBuffer();
+			const uint8 = new Uint8Array(rawBuf);
+			const hasBom = uint8.length >= 3 && uint8[0] === 0xef && uint8[1] === 0xbb && uint8[2] === 0xbf;
 			const content = await Bun.file(absolutePath).text();
 
 			if (!content.includes(target)) {
@@ -110,10 +113,16 @@ export class EditFileTool implements AgentTool<typeof editFileSchema> {
 			}
 
 			// Sub-millisecond exact string replacement
-			const newContent = content.replaceAll(target, replacement);
+			let newContent = content.replaceAll(target, replacement);
 
 			if (newContent === content) {
 				throw new ToolError(`Target replacement in ${filePath} resulted in identical content.`);
+			}
+
+			// AGY 1.5.3: Preserve UTF-8 BOM, or ensure BOM on PowerShell files with non-ASCII text
+			const isPs = /\.(ps1|psm1|psd1)$/i.test(absolutePath);
+			if ((hasBom || (isPs && /[^\x00-\x7F]/.test(newContent))) && !newContent.startsWith("\uFEFF")) {
+				newContent = `\uFEFF${newContent}`;
 			}
 
 			await Bun.write(absolutePath, newContent);
@@ -130,7 +139,7 @@ export class EditFileTool implements AgentTool<typeof editFileSchema> {
 				bytesAfter: newContent.length,
 			};
 
-			// Handle ArtifactMetadata — update the artifact store entry for this file
+			// Handle ArtifactMetadata - update the artifact store entry for this file
 			const rawMeta = params.artifactMetadata ?? params.ArtifactMetadata;
 			if (rawMeta) {
 				const summary = rawMeta.summary ?? rawMeta.Summary ?? "";

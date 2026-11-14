@@ -23,6 +23,10 @@ export interface GroupedHookConfig {
 export interface DeclarativeHookDef {
 	/** Whether this hook definition is active (default: true) */
 	enabled?: boolean;
+	/** Optional plugin root directory if this hook was defined by a plugin */
+	pluginRoot?: string;
+	/** Optional plugin identifier for persistent data namespace */
+	pluginId?: string;
 	/** Handlers running once on session start */
 	SessionStart?: HookHandlerConfig[];
 	/** Handlers running before a tool executes; non-zero exit aborts tool */

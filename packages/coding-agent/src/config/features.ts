@@ -89,6 +89,12 @@ export const KNOWN_FEATURES: FeatureDefinition[] = [
 		description: "Dual-model background review advisor",
 	},
 	{
+		name: "run_workflow",
+		stage: "stable",
+		defaultValue: true,
+		description: "Dynamic Python workflow orchestration with agent, parallel, and pipeline",
+	},
+	{
 		name: "chronicle",
 		stage: "under development",
 		defaultValue: false,

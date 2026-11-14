@@ -104,6 +104,7 @@ import { createReportToolIssueTool, isAutoQaEnabled } from "./report-tool-issue"
 import { ResolveTool } from "./resolve";
 import { reportFindingTool } from "./review";
 import { RunCommandTool } from "./run-command";
+import { RunWorkflowTool } from "./run-workflow";
 import { ScheduleTool } from "./schedule";
 import { ScheduledTaskWatcherTool } from "./scheduled-task-watcher";
 import { SearchTool } from "./search";
@@ -752,6 +753,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	manage_subagents: () => new ManageSubagentsTool(),
 	define_subagent: s => new DefineSubagentTool(s),
 	invoke_subagent: s => new InvokeSubagentTool(s),
+	run_workflow: s => new RunWorkflowTool(s.cwd),
 	send_message: s => new SendMessageTool(s),
 	call_external_agent: s => new CallExternalAgentTool(s),
 	best_of_n: () => new BestOfNTool(),

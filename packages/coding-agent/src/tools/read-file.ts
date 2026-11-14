@@ -1,5 +1,5 @@
 /**
- * ReadFileTool — Ported from Google Antigravity (agy).
+ * ReadFileTool - Ported from Google Antigravity (agy).
  *
  * Direct agy-compatible file reader tool matching the `read_file` specification:
  * - Path: absolute or relative file path
@@ -11,8 +11,10 @@
  * image detection, and conflict detection.
  */
 
-import * as z from "zod/v4";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { AgentTool, AgentToolContext, AgentToolResult } from "@aryee337/aery-core";
+import * as z from "zod/v4";
 import type { ToolSession } from "./index";
 import { ReadTool, type ReadToolDetails } from "./read";
 import { ToolError } from "./tool-errors";
@@ -70,6 +72,40 @@ export class ReadFileTool implements AgentTool<typeof readFileSchema, ReadToolDe
 
 		const start = params.StartLine ?? params.startLine;
 		const end = params.EndLine ?? params.endLine;
+
+		const cwd = this.session?.cwd ?? process.cwd();
+		const absPath = path.isAbsolute(rawPath) ? rawPath : path.resolve(cwd, rawPath);
+
+		let isUtf16 = false;
+		let utf16Content = "";
+		try {
+			const buf = await fs.readFile(absPath);
+			if (buf.length >= 2) {
+				if (buf[0] === 0xff && buf[1] === 0xfe) {
+					isUtf16 = true;
+					utf16Content = new TextDecoder("utf-16le").decode(buf);
+				} else if (buf[0] === 0xfe && buf[1] === 0xff) {
+					isUtf16 = true;
+					utf16Content = new TextDecoder("utf-16be").decode(buf);
+				}
+			}
+		} catch {}
+
+		if (isUtf16) {
+			const lines = utf16Content.split(/\r?\n/);
+			const startLine = Math.max(1, start ?? 1);
+			const endLine = Math.min(lines.length, end ?? lines.length);
+			const slice = lines.slice(startLine - 1, endLine);
+			return {
+				content: [{ type: "text", text: slice.join("\n") }],
+				details: {
+					path: rawPath,
+					lines: lines.length,
+					startLine,
+					endLine,
+				} as any,
+			};
+		}
 
 		// Build Aery path selector syntax: path:start-end or path:start
 		let selectorPath = rawPath;

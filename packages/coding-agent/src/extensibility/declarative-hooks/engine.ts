@@ -19,7 +19,6 @@ import type {
 } from "./types";
 
 export class DeclarativeHooksEngine {
-	private static instance?: DeclarativeHooksEngine;
 	private hookDefs = new Map<string, DeclarativeHookDef>();
 
 	public static getInstance(): DeclarativeHooksEngine {
@@ -79,6 +78,20 @@ export class DeclarativeHooksEngine {
 		}
 
 		return loadedFiles;
+	}
+
+	private getPluginEnv(def: DeclarativeHookDef): Record<string, string> {
+		const env: Record<string, string> = {};
+		if (def.pluginRoot) {
+			env.PLUGIN_ROOT = def.pluginRoot;
+			const pluginId = def.pluginId ?? path.basename(def.pluginRoot);
+			const pluginData = path.join(os.homedir(), ".aery", "plugin-data", pluginId);
+			env.PLUGIN_DATA = pluginData;
+			try {
+				fs.mkdirSync(pluginData, { recursive: true });
+			} catch {}
+		}
+		return env;
 	}
 
 	/**
@@ -164,6 +177,7 @@ export class DeclarativeHooksEngine {
 						handler,
 						workspaceDir,
 						{
+							...this.getPluginEnv(def),
 							AERY_EVENT: "PreToolUse",
 							AGY_EVENT: "PreToolUse",
 							AERY_TOOL_NAME: toolName,
@@ -225,6 +239,7 @@ export class DeclarativeHooksEngine {
 						handler,
 						workspaceDir,
 						{
+							...this.getPluginEnv(def),
 							AERY_EVENT: "PostToolUse",
 							AGY_EVENT: "PostToolUse",
 							AERY_TOOL_NAME: toolName,
@@ -261,6 +276,7 @@ export class DeclarativeHooksEngine {
 			if (def.enabled === false || !def.PreInvocation) continue;
 			for (const handler of def.PreInvocation) {
 				await this.runHandler(handler, workspaceDir, {
+					...this.getPluginEnv(def),
 					AERY_EVENT: "PreInvocation",
 					AGY_EVENT: "PreInvocation",
 					AERY_WORKSPACE: workspaceDir,
@@ -277,6 +293,7 @@ export class DeclarativeHooksEngine {
 			if (def.enabled === false || !def.PostInvocation) continue;
 			for (const handler of def.PostInvocation) {
 				await this.runHandler(handler, workspaceDir, {
+					...this.getPluginEnv(def),
 					AERY_EVENT: "PostInvocation",
 					AGY_EVENT: "PostInvocation",
 					AERY_WORKSPACE: workspaceDir,
@@ -287,16 +304,37 @@ export class DeclarativeHooksEngine {
 
 	/**
 	 * Executes Stop hooks on session teardown.
+	 * Passes continuation_active to prevent recursion loops in verification hooks.
 	 */
-	public async executeStop(workspaceDir: string): Promise<void> {
+	public async executeStop(
+		workspaceDir: string,
+		options?: { continuationActive?: boolean; lastUserInput?: string },
+	): Promise<void> {
+		const continuationActive = options?.continuationActive ?? false;
+		const stopPayload = JSON.stringify({
+			event: "Stop",
+			continuation_active: continuationActive,
+			workspace: workspaceDir,
+			last_user_input: options?.lastUserInput ?? "",
+		});
+
 		for (const def of this.hookDefs.values()) {
 			if (def.enabled === false || !def.Stop) continue;
 			for (const handler of def.Stop) {
-				await this.runHandler(handler, workspaceDir, {
-					AERY_EVENT: "Stop",
-					AGY_EVENT: "Stop",
-					AERY_WORKSPACE: workspaceDir,
-				});
+				await this.runHandler(
+					handler,
+					workspaceDir,
+					{
+						...this.getPluginEnv(def),
+						AERY_EVENT: "Stop",
+						AGY_EVENT: "Stop",
+						AERY_WORKSPACE: workspaceDir,
+						AGY_WORKSPACE: workspaceDir,
+						AERY_CONTINUATION_ACTIVE: continuationActive ? "true" : "false",
+						AGY_CONTINUATION_ACTIVE: continuationActive ? "true" : "false",
+					},
+					stopPayload,
+				);
 			}
 		}
 	}

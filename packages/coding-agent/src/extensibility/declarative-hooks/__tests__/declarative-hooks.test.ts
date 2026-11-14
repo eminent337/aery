@@ -134,4 +134,44 @@ describe("Declarative hooks.json Engine (ported from agy)", () => {
 		const allowed = await engine.executePreToolUse("bash", { command: "echo test" }, testDir, "harmless-prompt");
 		expect(allowed.allowed).toBe(true);
 	});
+
+	it("passes continuation_active in Stop hooks (agy 1.5.6 parity)", async () => {
+		const logFile = path.join(testDir, "stop-hook.log");
+		engine.registerHook("test-stop", {
+			Stop: [
+				{
+					command: `echo "ACTIVE=$AERY_CONTINUATION_ACTIVE" >> "${logFile}"`,
+				},
+			],
+		});
+
+		await engine.executeStop(testDir, { continuationActive: true });
+		let content = fs.readFileSync(logFile, "utf8");
+		expect(content).toContain("ACTIVE=true");
+
+		await engine.executeStop(testDir, { continuationActive: false });
+		content = fs.readFileSync(logFile, "utf8");
+		expect(content).toContain("ACTIVE=false");
+	});
+
+	it("injects PLUGIN_ROOT and PLUGIN_DATA for plugin hooks (agy 1.5.3 parity)", async () => {
+		const logFile = path.join(testDir, "plugin-hook.log");
+		const fakePluginRoot = path.join(testDir, "plugins", "my-plugin");
+		fs.mkdirSync(fakePluginRoot, { recursive: true });
+
+		engine.registerHook("plugin-audit", {
+			pluginRoot: fakePluginRoot,
+			pluginId: "my-plugin",
+			PreInvocation: [
+				{
+					command: `echo "ROOT=$PLUGIN_ROOT DATA=$PLUGIN_DATA" > "${logFile}"`,
+				},
+			],
+		});
+
+		await engine.executePreInvocation(testDir);
+		const content = fs.readFileSync(logFile, "utf8");
+		expect(content).toContain(`ROOT=${fakePluginRoot}`);
+		expect(content).toContain(".aery/plugin-data/my-plugin");
+	});
 });

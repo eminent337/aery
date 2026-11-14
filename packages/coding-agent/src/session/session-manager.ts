@@ -1979,9 +1979,15 @@ export async function resolveResumableSession(
 ): Promise<ResolvedSessionMatch | undefined> {
 	const localSessionDir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 	const localSessions = await SessionManager.list(cwd, localSessionDir, storage);
-	const localMatch = localSessions.find(session => sessionMatchesResumeArg(session, sessionArg));
-	if (localMatch) {
-		return { session: localMatch, scope: "local" };
+	const localMatches = localSessions.filter(session => sessionMatchesResumeArg(session, sessionArg));
+
+	if (localMatches.length === 1) {
+		return { session: localMatches[0], scope: "local" };
+	}
+	if (localMatches.length > 1) {
+		throw new Error(
+			`Ambiguous session prefix "${sessionArg}" matches ${localMatches.length} sessions. Please provide more characters.`,
+		);
 	}
 
 	if (sessionDir) {
@@ -1989,17 +1995,23 @@ export async function resolveResumableSession(
 	}
 
 	const globalSessions = await SessionManager.listAll(storage);
-	const globalMatch = globalSessions.find(session => sessionMatchesResumeArg(session, sessionArg));
-	if (!globalMatch) {
-		return undefined;
+	const globalMatches = globalSessions.filter(session => sessionMatchesResumeArg(session, sessionArg));
+
+	if (globalMatches.length > 1) {
+		throw new Error(
+			`Ambiguous session prefix "${sessionArg}" matches ${globalMatches.length} sessions across projects. Please provide more characters.`,
+		);
+	}
+	if (globalMatches.length === 1) {
+		const match = globalMatches[0];
+		// Match within the same workspace (e.g. subfolder or parent git repo) is considered local
+		if (isSameWorkspace(cwd, match.cwd || cwd)) {
+			return { session: match, scope: "local" };
+		}
+		return { session: match, scope: "global" };
 	}
 
-	// Match within the same workspace (e.g. subfolder or parent git repo) is considered local
-	if (isSameWorkspace(cwd, globalMatch.cwd || cwd)) {
-		return { session: globalMatch, scope: "local" };
-	}
-
-	return { session: globalMatch, scope: "global" };
+	return undefined;
 }
 export interface ForkSessionOptions {
 	targetCwd?: string;
