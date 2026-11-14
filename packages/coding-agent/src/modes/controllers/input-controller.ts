@@ -105,6 +105,9 @@ export class InputController {
 	setupKeyHandlers(): void {
 		this.ctx.editor.setActionKeys("app.interrupt", this.ctx.keybindings.getKeys("app.interrupt"));
 		this.ctx.editor.onEscape = () => {
+			if (this.ctx.hasActiveSelector?.() || Date.now() - (this.ctx.lastSelectorDismissTime ?? 0) < 400) {
+				return;
+			}
 			if (this.ctx.loopModeEnabled) {
 				this.ctx.pauseLoop();
 				if (
@@ -320,10 +323,17 @@ export class InputController {
 			const isCtrlC = matchesKey(data, "ctrl+c");
 
 			if (isInterrupt || isCtrlC) {
-				// If an interactive modal overlay is visible (e.g. Model Selector, Tree View),
-				// let the overlay handle ESC first so the user can dismiss the modal.
-				if (this.ctx.ui.hasOverlay()) {
+				// If an interactive modal overlay is visible (e.g. Session Observer)
+				// or an inline selector is active in the editor container (e.g. Model Selector, Settings Selector),
+				// let the focused component handle ESC first so the user can dismiss the modal.
+				if (this.ctx.ui.hasOverlay() || this.ctx.hasActiveSelector?.()) {
 					return;
+				}
+
+				// If a modal selector was recently dismissed, consume the interrupt key
+				// without aborting the session to protect against double-tapping ESC or in-flight events.
+				if (Date.now() - (this.ctx.lastSelectorDismissTime ?? 0) < 400) {
+					return { consume: true };
 				}
 
 				if (this.#isSessionBusy()) {

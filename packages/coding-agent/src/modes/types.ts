@@ -23,11 +23,11 @@ import type { AssistantMessageComponent } from "./components/assistant-message";
 import type { BashExecutionComponent } from "./components/bash-execution";
 import type { CustomEditor } from "./components/custom-editor";
 import type { EvalExecutionComponent } from "./components/eval-execution";
+import type { HeaderBarComponent } from "./components/header-bar";
 import type { HookEditorComponent } from "./components/hook-editor";
 import type { HookInputComponent } from "./components/hook-input";
 import type { HookSelectorComponent, HookSelectorOptions } from "./components/hook-selector";
 import type { StatusLineComponent } from "./components/status-line";
-import type { HeaderBarComponent } from "./components/header-bar";
 import type { SubagentActivityHudComponent } from "./components/subagent-hud";
 import type { ToolExecutionHandle } from "./components/tool-execution";
 
@@ -135,6 +135,9 @@ export interface InteractiveModeContext {
 	locallySubmittedUserSignatures: Set<string>;
 	lastSigintTime: number;
 	lastEscapeTime: number;
+	lastSelectorDismissTime: number;
+	isSelectorActive: boolean;
+	hasActiveSelector(): boolean;
 	shutdownRequested: boolean;
 	hookSelector: HookSelectorComponent | undefined;
 	hookInput: HookInputComponent | undefined;

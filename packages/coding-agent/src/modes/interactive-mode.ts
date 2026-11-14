@@ -101,13 +101,13 @@ import type { BashExecutionComponent } from "./components/bash-execution";
 import { CustomEditor } from "./components/custom-editor";
 import { DynamicBorder } from "./components/dynamic-border";
 import type { EvalExecutionComponent } from "./components/eval-execution";
+import { HeaderBarComponent } from "./components/header-bar";
 import type { HookEditorComponent } from "./components/hook-editor";
 import type { HookInputComponent } from "./components/hook-input";
 import type { HookSelectorComponent, HookSelectorSlider } from "./components/hook-selector";
-import { HeaderBarComponent } from "./components/header-bar";
 import { StatusLineComponent } from "./components/status-line";
-import { SubagentActivityHudComponent } from "./components/subagent-hud";
 import { StudioStateManager } from "./components/studio/state.js";
+import { SubagentActivityHudComponent } from "./components/subagent-hud";
 import type { ToolExecutionHandle } from "./components/tool-execution";
 import { WelcomeComponent, type LspServerInfo as WelcomeLspServerInfo } from "./components/welcome";
 import { BtwController } from "./controllers/btw-controller";
@@ -326,6 +326,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	#pendingSubmissionDispose: (() => void) | undefined;
 	lastSigintTime = 0;
 	lastEscapeTime = 0;
+	lastSelectorDismissTime = 0;
+	isSelectorActive = false;
 	shutdownRequested = false;
 	#isShuttingDown = false;
 	hookSelector: HookSelectorComponent | undefined = undefined;
@@ -607,7 +609,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				.filter(s => s.kind === "subagent" && s.status === "active")
 				.map(s => ({
 					id: s.id,
-					agent: s.agent && s.agent !== "claudeagent" ? s.agent : (s.label || s.description || "Subagent"),
+					agent: s.agent && s.agent !== "claudeagent" ? s.agent : s.label || s.description || "Subagent",
 					status: s.status,
 					currentTool: s.progress?.currentTool,
 					currentToolArgs: s.progress?.currentToolArgs,
@@ -3263,6 +3265,13 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	handleBtwCommand(question: string): Promise<void> {
 		return this.#btwController.start(question);
+	}
+
+	hasActiveSelector(): boolean {
+		return (
+			this.isSelectorActive ||
+			(this.editorContainer.children.length > 0 && !this.editorContainer.children.includes(this.editor))
+		);
 	}
 
 	hasActiveBtw(): boolean {

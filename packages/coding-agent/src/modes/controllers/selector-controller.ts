@@ -95,7 +95,10 @@ export class SelectorController {
 	 * @param create Factory that receives a `done` callback and returns the component and focus target
 	 */
 	showSelector(create: (done: () => void) => { component: Component; focus: Component }): void {
+		this.ctx.isSelectorActive = true;
 		const done = () => {
+			this.ctx.isSelectorActive = false;
+			this.ctx.lastSelectorDismissTime = Date.now();
 			this.ctx.editorContainer.clear();
 			this.ctx.editorContainer.addChild(this.ctx.editor);
 			this.ctx.ui.setFocus(this.ctx.editor);
