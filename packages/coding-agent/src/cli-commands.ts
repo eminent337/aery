@@ -5,7 +5,7 @@
  * inspect the registered subcommands without triggering the side-effectful
  * top-level await in `cli.ts`. Adding a new subcommand here is enough to make
  * `runCli` route to it instead of forwarding the argv as a prompt to
- * `launch` — see #1496 for the original "args silently leak to the LLM"
+ * `launch` - see #1496 for the original "args silently leak to the LLM"
  * regression that motivated the split.
  */
 import type { CommandEntry } from "@aryee337/aery-utils/cli";
@@ -44,6 +44,11 @@ export const commands: CommandEntry[] = [
 	{ name: "sidecar", load: () => import("./commands/sidecar").then(m => m.default) },
 	{ name: "worktree", load: () => import("./commands/worktree").then(m => m.default), aliases: ["wt"] },
 	{ name: "search", load: () => import("./commands/web-search").then(m => m.default), aliases: ["q"] },
+	{ name: "features", load: () => import("./commands/features").then(m => m.default) },
+	{ name: "doctor", load: () => import("./commands/doctor").then(m => m.default) },
+	{ name: "apply", load: () => import("./commands/apply").then(m => m.default), aliases: ["a"] },
+	{ name: "review", load: () => import("./commands/review").then(m => m.default) },
+	{ name: "exec", load: () => import("./commands/exec").then(m => m.default), aliases: ["e"] },
 ];
 
 /**

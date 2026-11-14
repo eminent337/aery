@@ -215,3 +215,119 @@ postmortem.register("shell-snapshot", () => {
 	}
 	cachedSnapshotPaths.clear();
 });
+
+export interface ShellSnapshot {
+	id: string;
+	timestamp: number;
+	cwd: string;
+	shell: string;
+	path: string;
+	variables: Record<string, string>;
+}
+
+export function getShellSnapshotsDir(): string {
+	const dir = path.join(os.homedir(), ".aery", "shell_snapshots");
+	try {
+		fs.mkdirSync(dir, { recursive: true });
+	} catch {}
+	return dir;
+}
+
+const EPHEMERAL_VARS = new Set(["SHLVL", "_", "PWD", "OLDPWD", "BASH_ENV", "ENV"]);
+
+export async function captureShellSnapshot(opts?: {
+	id?: string;
+	cwd?: string;
+	env?: Record<string, string | undefined>;
+}): Promise<ShellSnapshot> {
+	const id = opts?.id ?? `snap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	const timestamp = Date.now();
+	const cwd = opts?.cwd ?? process.cwd();
+	const sourceEnv = opts?.env ?? process.env;
+	const shell = sourceEnv.SHELL ?? process.env.SHELL ?? "/bin/bash";
+	const envPath = sourceEnv.PATH ?? process.env.PATH ?? "";
+
+	const variables: Record<string, string> = {};
+	for (const [key, val] of Object.entries(sourceEnv)) {
+		if (val !== undefined && !EPHEMERAL_VARS.has(key)) {
+			variables[key] = val;
+		}
+	}
+
+	const snapshot: ShellSnapshot = {
+		id,
+		timestamp,
+		cwd,
+		shell,
+		path: envPath,
+		variables,
+	};
+
+	const dir = getShellSnapshotsDir();
+	const filePath = path.join(dir, `${id}.json`);
+	await fs.promises.writeFile(filePath, JSON.stringify(snapshot, null, 2), "utf8");
+
+	return snapshot;
+}
+
+export async function loadShellSnapshot(id: string): Promise<ShellSnapshot | null> {
+	const dir = getShellSnapshotsDir();
+	const filename = id.endsWith(".json") ? id : `${id}.json`;
+	const filePath = path.join(dir, filename);
+
+	try {
+		const raw = await fs.promises.readFile(filePath, "utf8");
+		return JSON.parse(raw) as ShellSnapshot;
+	} catch {
+		return null;
+	}
+}
+
+export async function loadLatestShellSnapshot(): Promise<ShellSnapshot | null> {
+	const dir = getShellSnapshotsDir();
+	try {
+		const entries = await fs.promises.readdir(dir);
+		const jsonFiles = entries.filter(f => f.endsWith(".json"));
+		if (jsonFiles.length === 0) return null;
+
+		let latestSnapshot: ShellSnapshot | null = null;
+		let latestTime = -1;
+
+		for (const file of jsonFiles) {
+			const full = path.join(dir, file);
+			try {
+				const content = await fs.promises.readFile(full, "utf8");
+				const parsed = JSON.parse(content) as ShellSnapshot;
+				if (parsed.timestamp > latestTime) {
+					latestTime = parsed.timestamp;
+					latestSnapshot = parsed;
+				}
+			} catch {}
+		}
+
+		return latestSnapshot;
+	} catch {
+		return null;
+	}
+}
+
+export function buildExecutionEnvironment(
+	snapshot: ShellSnapshot,
+	overrides?: Record<string, string | undefined>,
+): Record<string, string> {
+	const env: Record<string, string> = {
+		...snapshot.variables,
+		PATH: snapshot.path,
+		SHELL: snapshot.shell,
+	};
+
+	if (overrides) {
+		for (const [k, v] of Object.entries(overrides)) {
+			if (v !== undefined) {
+				env[k] = v;
+			}
+		}
+	}
+
+	return env;
+}
