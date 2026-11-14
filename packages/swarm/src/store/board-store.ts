@@ -88,7 +88,7 @@ export class BoardStore {
 		if (options.mentionsOnlyFor) {
 			const target = options.mentionsOnlyFor;
 			messages = messages.filter(
-				(m) => m.mentions.includes(target) || m.mentions.includes("all") || m.mentions.includes("swarm")
+				(m) => m.mentions?.includes(target) || m.mentions?.includes("all") || m.mentions?.includes("swarm")
 			);
 		}
 
