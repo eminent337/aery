@@ -225,8 +225,10 @@ export interface ShellSnapshot {
 	variables: Record<string, string>;
 }
 
+import { getSessionsDir } from "@aryee337/aery-utils";
+
 export function getShellSnapshotsDir(): string {
-	const dir = path.join(os.homedir(), ".aery", "shell_snapshots");
+	const dir = path.join(getSessionsDir(), "shell_snapshots");
 	try {
 		fs.mkdirSync(dir, { recursive: true });
 	} catch {}

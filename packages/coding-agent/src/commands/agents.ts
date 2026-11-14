@@ -36,7 +36,23 @@ export default class Agents extends Command {
 	async run(): Promise<void> {
 		const { args, flags } = await this.parse(Agents);
 		if (!args.action) {
-			renderCommandHelp("aery", "agents", Agents);
+			const { listBackgroundSessions } = await import("../cli/daemon-session-manager");
+			const chalk = (await import("chalk")).default;
+			const sessions = await listBackgroundSessions();
+			if (flags.json) {
+				console.log(JSON.stringify(sessions, null, 2));
+				return;
+			}
+			if (sessions.length === 0) {
+				console.log(chalk.dim("No background agent sessions currently running."));
+				console.log(chalk.dim("Use 'aery --bg \"<prompt>\"' to start one, or 'aery agents unpack' to export bundled agents."));
+				return;
+			}
+			console.log(chalk.bold(`\nBackground Agent Sessions (${sessions.length})`));
+			for (const s of sessions) {
+				const statusTag = s.status === "running" ? chalk.green("running") : chalk.dim(s.status);
+				console.log(`${chalk.cyan(s.id)}  ${statusTag}  PID: ${s.pid}  ${chalk.dim(s.cwd)}`);
+			}
 			return;
 		}
 

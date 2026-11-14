@@ -95,6 +95,7 @@ import { MicrovmSandboxTool } from "./microvm-sandbox";
 import { MultiPromptReviewTool } from "./multi-prompt-review";
 import { wrapToolWithMetaNotice } from "./output-meta";
 import { EnterPlanModeTool, ExitPlanModeTool } from "./plan-mode";
+import { EnterWorktreeTool, ExitWorktreeTool } from "./worktree";
 import { QuickLauncherTool } from "./quick-launcher";
 import { ReadTool } from "./read";
 import { ReadDocTool } from "./read-doc";
@@ -744,6 +745,8 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	task_list: () => new TaskListTool(),
 	enter_plan_mode: s => new EnterPlanModeTool(s),
 	exit_plan_mode: () => new ExitPlanModeTool(),
+	enter_worktree: s => new EnterWorktreeTool(s),
+	exit_worktree: s => new ExitWorktreeTool(s),
 	set_model: s => new SetModelTool(s),
 	set_fast: s => new SetFastTool(s),
 	advisor: s => new AdvisorTool(s),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import * as path from "node:path";
 import { analyzeDiffContent, parseDiffStats, runReviewCommand } from "../src/cli/review-cli";
 
 describe("Review CLI Subsystem", () => {
@@ -44,6 +45,7 @@ index e69de29..d95f3ad 100644
 		const logs: string[] = [];
 		const report = await runReviewCommand({
 			json: true,
+			cwd: path.resolve(__dirname, ".."),
 			stdout: msg => logs.push(msg),
 		});
 

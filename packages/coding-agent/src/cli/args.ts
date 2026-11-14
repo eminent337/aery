@@ -55,6 +55,11 @@ export interface Args {
 	hub?: boolean;
 	remoteControl?: boolean;
 	dangerouslySkipPermissions?: boolean;
+	worktree?: string | true;
+	allowedTools?: string[];
+	disallowedTools?: string[];
+	bare?: boolean;
+	bg?: boolean;
 	messages: string[];
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
@@ -94,8 +99,8 @@ export function parseArgs(inputArgs: string[], extensionFlags?: Map<string, { ty
 		// extension owns (e.g. plan-mode's boolean `--plan`) is parsed with the
 		// extension's semantics rather than falling into a built-in branch. For a
 		// value-taking built-in (`--plan`, `--model`, …) that branch would consume
-		// the following token — eating the user's message and setting the wrong
-		// built-in field — so registered flags shadow same-named built-ins here.
+		// the following token - eating the user's message and setting the wrong
+		// built-in field - so registered flags shadow same-named built-ins here.
 		const extFlag = arg.startsWith("--") ? extensionFlags?.get(arg.slice(2)) : undefined;
 		if (extFlag) {
 			const flagName = arg.slice(2);
@@ -212,6 +217,26 @@ export function parseArgs(inputArgs: string[], extensionFlags?: Map<string, { ty
 		} else if (arg === "--plugin-dir" && i + 1 < args.length) {
 			result.pluginDirs = result.pluginDirs ?? [];
 			result.pluginDirs.push(args[++i]);
+		} else if (arg === "--worktree" || arg === "-w") {
+			const next = args[i + 1];
+			if (next && !next.startsWith("-") && !next.startsWith("@")) {
+				result.worktree = args[++i];
+			} else {
+				result.worktree = true;
+			}
+		} else if ((arg === "--allowed-tools" || arg === "--allowedTools") && i + 1 < args.length) {
+			result.allowedTools = args[++i].split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+		} else if ((arg === "--disallowed-tools" || arg === "--disallowedTools") && i + 1 < args.length) {
+			result.disallowedTools = args[++i].split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+		} else if (arg === "--bare") {
+			result.bare = true;
+			result.noExtensions = true;
+			result.noSkills = true;
+			result.noRules = true;
+			result.noLsp = true;
+			process.env.AERY_SIMPLE = "1";
+		} else if (arg === "--bg" || arg === "--background") {
+			result.bg = true;
 		} else if (arg === "--no-extensions") {
 			result.noExtensions = true;
 		} else if (arg === "--no-skills") {

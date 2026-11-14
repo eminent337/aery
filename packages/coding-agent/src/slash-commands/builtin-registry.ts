@@ -39,6 +39,13 @@ import { buildUsageReportText } from "./helpers/usage-report";
 import { parsePluginScopeArgs } from "./marketplace-install-parser";
 import { pluginCommand } from "./plugin-command";
 import { skillCommand } from "./skill-command";
+import {
+	importCommand,
+	memoryCommand,
+	ultraplanCommand,
+	ultrareviewCommand,
+	worktreeCommand,
+} from "./claude-parity-commands";
 import type {
 	BuiltinSlashCommand,
 	ParsedSlashCommand,
@@ -78,6 +85,11 @@ const shutdownHandlerTui = (_command: ParsedSlashCommand, runtime: TuiSlashComma
 const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	pluginCommand,
 	skillCommand,
+	worktreeCommand,
+	ultrareviewCommand,
+	ultraplanCommand,
+	importCommand,
+	memoryCommand,
 	{
 		name: "connect",
 		description: "Connect agent to external chat platforms",

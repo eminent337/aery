@@ -49,6 +49,12 @@ export const commands: CommandEntry[] = [
 	{ name: "apply", load: () => import("./commands/apply").then(m => m.default), aliases: ["a"] },
 	{ name: "review", load: () => import("./commands/review").then(m => m.default) },
 	{ name: "exec", load: () => import("./commands/exec").then(m => m.default), aliases: ["e"] },
+	{ name: "ultrareview", load: () => import("./commands/ultrareview").then(m => m.default), aliases: ["ur"] },
+	{ name: "import", load: () => import("./commands/import").then(m => m.default) },
+	{ name: "attach", load: () => import("./commands/attach").then(m => m.default) },
+	{ name: "logs", load: () => import("./commands/logs").then(m => m.default) },
+	{ name: "stop", load: () => import("./commands/stop").then(m => m.default), aliases: ["kill"] },
+	{ name: "rm", load: () => import("./commands/rm").then(m => m.default) },
 ];
 
 /**

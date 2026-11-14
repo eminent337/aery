@@ -752,6 +752,61 @@ export async function runRootCommand(
 		process.exit(0);
 	}
 
+	if (parsedArgs.bg) {
+		const { spawn } = await import("node:child_process");
+		const fsSync = await import("node:fs");
+		const { registerBackgroundSession } = await import("./cli/daemon-session-manager");
+		const id = Math.random().toString(36).substring(2, 9);
+		const logDir = path.join(os.homedir(), ".aery", "sessions", "background");
+		await fs.mkdir(logDir, { recursive: true });
+		const logFile = path.join(logDir, `${id}.log`);
+		const out = fsSync.openSync(logFile, "a");
+		const filteredArgs = rawArgs.filter(a => a !== "--bg" && a !== "--background");
+		const child = spawn(process.argv[0], [process.argv[1], ...filteredArgs], {
+			detached: true,
+			stdio: ["ignore", out, out],
+			cwd: process.cwd(),
+			env: process.env,
+		});
+		child.unref();
+		await registerBackgroundSession({
+			id,
+			pid: child.pid || 0,
+			cwd: process.cwd(),
+			command: filteredArgs.join(" "),
+			startedAt: new Date().toISOString(),
+			logFile,
+		});
+		console.log(`Started background session: ${chalk.cyan(id)} (PID ${child.pid})`);
+		console.log(chalk.dim(`Attach: aery attach ${id}`));
+		console.log(chalk.dim(`Logs:   aery logs ${id}`));
+		console.log(chalk.dim(`Stop:   aery stop ${id}`));
+		process.exit(0);
+	}
+
+	if (parsedArgs.worktree) {
+		const git = await import("./utils/git");
+		const { getWorktreesDir } = await import("@aryee337/aery-utils");
+		const currentCwd = process.cwd();
+		try {
+			const repo = await git.resolveRepository(currentCwd);
+			const wtName = typeof parsedArgs.worktree === "string" ? parsedArgs.worktree : `aery-wt-${Date.now()}`;
+			const wtDir = getWorktreesDir();
+			const targetPath = path.join(wtDir, `${path.basename(repo.repoRoot)}-${wtName}`);
+			await fs.mkdir(path.dirname(targetPath), { recursive: true });
+			await git.worktree.add(repo.repoRoot, targetPath, "HEAD", { detach: true });
+			process.chdir(targetPath);
+			parsedArgs.cwd = targetPath;
+			console.log(chalk.green(`Running session inside isolated git worktree: ${targetPath}`));
+		} catch (err) {
+			console.error(
+				chalk.yellow(
+					`Could not create worktree: ${err instanceof Error ? err.message : String(err)}, proceeding in current directory.`,
+				),
+			);
+		}
+	}
+
 	if (parsedArgs.listModels !== undefined) {
 		const settingsInstance = await logger.time("settings:init:list-models", Settings.init, {
 			cwd: getProjectDir(),
