@@ -6,6 +6,7 @@ export * from "./wake/park-guard";
 export * from "./workspace/worktree-manager";
 export * from "./supervisor/quota-handler";
 export * from "./supervisor/stall-monitor";
+export * from "./supervisor/swarm-supervisor";
 export * from "./tools/swarm-tool";
 export * from "./tools/post-message-tool";
 export * from "./tools/read-board-tool";
