@@ -104,7 +104,12 @@ export class FeatureManager {
 	constructor(private settingsInstance: Settings = globalSettings) {}
 
 	list(): FeatureStatus[] {
-		const configured = (this.settingsInstance.get("features") ?? {}) as Record<string, boolean>;
+		let configured: Record<string, boolean> = {};
+		try {
+			configured = (this.settingsInstance.get("features") ?? {}) as Record<string, boolean>;
+		} catch {
+			// Settings not initialized yet; fallback to default values
+		}
 		return KNOWN_FEATURES.map(feat => {
 			const effective = configured[feat.name] !== undefined ? configured[feat.name] : feat.defaultValue;
 			return {

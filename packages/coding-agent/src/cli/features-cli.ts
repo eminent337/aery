@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { features as defaultFeatures, type FeatureManager } from "../config/features";
+import { Settings } from "../config/settings";
 
 export interface FeaturesCliOptions {
 	json?: boolean;
@@ -11,6 +12,12 @@ export async function runFeaturesCommand(
 	options: FeaturesCliOptions = {},
 	manager: FeatureManager = defaultFeatures,
 ): Promise<void> {
+	if (manager === defaultFeatures) {
+		try {
+			await Settings.init();
+		} catch {}
+	}
+
 	const sub = action ?? "list";
 
 	switch (sub) {
